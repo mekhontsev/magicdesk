@@ -10,6 +10,7 @@
 #include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
@@ -34,6 +35,8 @@ static void private_owner(void) {
     if (!child) {
         assert(!setgroups(0,NULL));
         assert(!setresgid(1000,1000,1000) && !setresuid(1000,1000,1000));
+        /* Credential drops reset dumpability and proc map ownership. */
+        assert(prctl(PR_GET_DUMPABLE)==0 && !prctl(PR_SET_DUMPABLE,1));
         assert(!unshare(CLONE_NEWUSER|CLONE_NEWNS));
         mapping("/proc/self/uid_map","0 1000 1\n");
         mapping("/proc/self/setgroups","deny\n");

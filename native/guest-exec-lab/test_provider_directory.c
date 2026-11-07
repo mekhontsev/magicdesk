@@ -23,17 +23,19 @@ static void touch(int parent,const char *name) {
     int fd=openat(parent,name,O_CREAT|O_EXCL|O_RDWR|O_CLOEXEC,0600);
     assert(fd>=0 && !close(fd));
 }
-static unsigned scan(struct md_provider_tree *tree,int fd,size_t capacity) {
+static unsigned scan_projection(struct md_provider_tree *tree,int fd,size_t capacity,int host) {
     char data[4096]; unsigned count=0,seen[1024]={0};
     assert(capacity<=sizeof(data));
     for (;;) {
-        ssize_t n=md_provider_tree_getdents(tree,fd,data,capacity); assert(n>=0);
+        ssize_t n=host ? md_provider_tree_host_getdents(tree,fd,data,capacity)
+            : md_provider_tree_getdents(tree,fd,data,capacity); assert(n>=0);
         if (!n) break;
         for (size_t at=0;at<(size_t)n;) {
             struct md_directory_entry entry;
             assert(md_directory_record_read(data+at,(size_t)n-at,&entry));
             const char *name=data+at+offsetof(struct md_directory_entry,name);
             assert(strcmp(name,".shroot-transient") && !strstr(name,"hidden"));
+            assert(!host || strcmp(name,"private-only"));
             unsigned index;
             if (sscanf(name,"item-%u",&index)==1) {
                 assert(index<1024 && !seen[index]++); ++count;
@@ -42,6 +44,9 @@ static unsigned scan(struct md_provider_tree *tree,int fd,size_t capacity) {
         }
     }
     return count;
+}
+static unsigned scan(struct md_provider_tree *tree,int fd,size_t capacity) {
+    return scan_projection(tree,fd,capacity,0);
 }
 static void *independent_scan(void *data) {
     struct md_provider_tree *tree=data;
@@ -61,6 +66,15 @@ void md_test_provider_directory(const char *path) {
     }
     touch(lower,"hidden");
     int fd=openat(upper,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(fd>=0);
+    touch(upper,"private-only");
+    assert(md_provider_tree_host_step(tree,fd,"private-only")==-ENOENT);
+    assert(md_provider_tree_host_step(tree,fd,"hidden")==-ENOENT);
+    int selected=md_provider_tree_host_step(tree,fd,"item-0000"); assert(selected>=0);
+    struct stat native,actual_node;
+    assert(!fstatat(lower,"item-0000",&native,0) && !fstat(selected,&actual_node));
+    assert(native.st_dev==actual_node.st_dev && native.st_ino==actual_node.st_ino && !close(selected));
+    assert(scan_projection(tree,fd,96,1)==1024 && !lseek(fd,0,SEEK_SET));
+    assert(!unlinkat(upper,"private-only",0));
     for (unsigned capacity=96;capacity<=4096;capacity=4096) {
         assert(!lseek(fd,0,SEEK_SET)); reads=0;
         struct timespec start,end; assert(!clock_gettime(CLOCK_MONOTONIC,&start));
@@ -122,6 +136,25 @@ void md_test_provider_directory(const char *path) {
     assert(md_provider_tree_getdents(cold,fd,actual,sizeof(actual))==n && !memcmp(actual,expected,(size_t)n));
     md_provider_tree_release(cold);
     assert(!close(copy) && !close(fd));
+    if (geteuid()) {
+        /* Retaining a directory must not depend on being able to reopen its
+         * pathname. Its shared cursor still publishes logical cookies. */
+        fd=openat(lower,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(fd>=0);
+        assert(!fchmod(lower,0));
+        assert(openat(lower,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC)<0 && errno==EACCES);
+        reads=0;
+        assert(scan(tree,fd,96)==1024 && reads<4096);
+        assert(!lseek(fd,0,SEEK_SET));
+        assert(md_provider_tree_getdents(tree,fd,first,sizeof(first))>0);
+        cookie=lseek(fd,0,SEEK_CUR); assert(cookie>0);
+        assert(md_provider_tree_getdents(tree,fd,actual,1)==-EINVAL && lseek(fd,0,SEEK_CUR)==cookie);
+        n=md_provider_tree_getdents(tree,fd,expected,sizeof(expected)); assert(n>0);
+        cold=md_provider_tree_import(upper,lower,&ops); assert(cold);
+        assert(lseek(fd,cookie,SEEK_SET)==cookie);
+        assert(md_provider_tree_getdents(cold,fd,actual,sizeof(actual))==n && !memcmp(actual,expected,(size_t)n));
+        md_provider_tree_release(cold);
+        assert(!fchmod(lower,0700) && !close(fd));
+    }
     for (unsigned i=0;i<1024;++i) {
         char name[32]; snprintf(name,sizeof(name),"item-%04u",i); assert(!unlinkat(lower,name,0));
     }

@@ -1,5 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <service
+            android:name=".GuestFixtureService"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:process=":guest_probe"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Bounded native and guest regression tests" />
+        </service>
         <activity
             android:name=".DebugCrashActivity"
             android:label="Diagnostic crash fixture"

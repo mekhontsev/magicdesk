@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "image_layer.h"
+#include "image_maintenance.h"
+#include "image_publish.h"
+#include "image_backup.h"
 #include "inode_internal.h"
 #include "fs_operation.h"
 #include <archive.h>
@@ -11,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/file.h>
 
 static int count_work(void *value) { ++*(unsigned long long *)value; return 0; }
 static void entry_cap(struct archive *a,const char *name,const char *link,const char *symlink,unsigned cap) {
@@ -116,6 +120,74 @@ static void metadata_order(const char *base) {
     close(fd); md_inode_store_close(s);
     puts("PASS image hardlinks preserve pass/entry capability ordering");
 }
+static void library_relocation(const char *base) {
+    char root[PATH_MAX],target[PATH_MAX],images[PATH_MAX],instances[PATH_MAX],layers[PATH_MAX];
+    char image[PATH_MAX],instance[PATH_MAX];
+    assert(snprintf(root,sizeof(root),"%s/library",base)<(int)sizeof(root));
+    assert(snprintf(target,sizeof(target),"%s/relocated-library",base)<(int)sizeof(target));
+    assert(!mkdir(root,0700));
+    assert(snprintf(images,sizeof(images),"%s/images",root)<(int)sizeof(images));
+    assert(snprintf(instances,sizeof(instances),"%s/instances",root)<(int)sizeof(instances));
+    assert(snprintf(layers,sizeof(layers),"%s/layers",root)<(int)sizeof(layers));
+    assert(!mkdir(images,0700) && !mkdir(instances,0700) && !mkdir(layers,0700));
+    assert(snprintf(image,sizeof(image),"%s/base",images)<(int)sizeof(image));
+    assert(snprintf(instance,sizeof(instance),"%s/child",instances)<(int)sizeof(instance));
+    struct md_inode_store *a=NULL,*b=NULL;
+    assert(!md_inode_store_open(image,1,&a));
+    int fd=md_inode_open(a,MD_INODE_ROOT,"/file",O_CREAT|O_RDWR,0600); assert(fd>=0);
+    assert(write(fd,"data",4)==4); close(fd);
+    assert(!md_inode_store_seal(a));
+    struct md_image_publish publication;
+    assert(!md_image_publish_begin(instance,&publication));
+    assert(!md_inode_store_open(publication.path,1,&b));
+    assert(!md_inode_snapshot(a,b)); md_inode_store_close(b); b=NULL;
+    assert(!md_image_publish_commit(&publication)); md_image_publish_close(&publication);
+    assert(!md_inode_store_open(instance,0,&b));
+    fd=md_inode_open(b,MD_INODE_ROOT,"/file",O_RDONLY,0); assert(fd>=0);
+    struct stat body; assert(!fstat(fd,&body)); close(fd);
+    /* Model an installed absolute-source store before the layout update. */
+    char *sql=sqlite3_mprintf("UPDATE sources SET path='%q/objects'",image); assert(sql);
+    assert(sqlite3_exec(b->db,sql,NULL,NULL,NULL)==SQLITE_OK); sqlite3_free(sql);
+    assert(md_image_relocate_library(root,target)==-EBUSY);
+    assert(!access(root,F_OK) && access(target,F_OK));
+    md_inode_store_close(a); md_inode_store_close(b);
+    assert(!mkdir(target,0700));
+    assert(md_image_relocate_library(root,target)==-EEXIST); assert(!rmdir(target));
+    int lease=open(image,O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(lease>=0);
+    assert(!flock(lease,LOCK_SH|LOCK_NB));
+    assert(md_image_relocate_library(root,target)==-EBUSY); close(lease);
+    char objects[PATH_MAX],external[PATH_MAX];
+    assert(snprintf(objects,sizeof(objects),"%s/objects",image)<(int)sizeof(objects));
+    assert(snprintf(external,sizeof(external),"%s/external-objects",base)<(int)sizeof(external));
+    assert(!rename(objects,external) && !symlink(external,objects));
+    assert(md_image_relocate_library(root,target)==-EXDEV);
+    assert(!access(root,F_OK) && access(target,F_OK));
+    assert(!unlink(objects) && !rename(external,objects));
+    assert(!md_image_relocate_library(root,target));
+    assert(access(root,F_OK) && !access(target,F_OK));
+    assert(snprintf(instance,sizeof(instance),"%s/instances/child",target)<(int)sizeof(instance));
+    assert(!md_inode_store_open(instance,0,&b));
+    fd=md_inode_open(b,MD_INODE_ROOT,"/file",O_RDONLY,0); assert(fd>=0);
+    char value[4]; struct stat moved;
+    assert(read(fd,value,4)==4 && !memcmp(value,"data",4) && !fstat(fd,&moved)); close(fd);
+    assert(body.st_ino==moved.st_ino && body.st_dev==moved.st_dev);
+    sqlite3_stmt *q=NULL;
+    assert(sqlite3_prepare_v2(b->db,"SELECT path FROM sources",-1,&q,NULL)==SQLITE_OK);
+    assert(sqlite3_step(q)==SQLITE_ROW && *(const char *)sqlite3_column_text(q,0)!='/');
+    sqlite3_finalize(q); md_inode_store_close(b);
+    char archive[PATH_MAX],restored[PATH_MAX];
+    assert(snprintf(archive,sizeof(archive),"%s/backup.tar.zst",base)<(int)sizeof(archive));
+    assert(snprintf(restored,sizeof(restored),"%s/restored",base)<(int)sizeof(restored));
+    assert(!md_image_backup(instance,archive));
+    assert(!md_image_archive_import(archive,restored,1));
+    assert(!md_inode_store_open(restored,0,&b));
+    fd=md_inode_open(b,MD_INODE_ROOT,"/file",O_RDONLY,0); assert(fd>=0);
+    assert(read(fd,value,4)==4 && !memcmp(value,"data",4)); close(fd);
+    md_inode_store_close(b);
+    puts("PASS offline library relocation retains bodies; live/occupied destinations and escaping sources are refused");
+    puts("PASS relocated library backup and independent restore publish regular archives and directory stores");
+}
+
 int main(int argc,char **argv) {
     assert(argc==2 && !mkdir(argv[1],0700));
     unsigned long long small=chain(argv[1],128,0,0),large=chain(argv[1],512,0,0);
@@ -124,6 +196,7 @@ int main(int argc,char **argv) {
     chain(argv[1],4096,0,1); chain(argv[1],4096,1,0);
     dependency_paths(argv[1]);
     metadata_order(argv[1]);
+    library_relocation(argv[1]);
     puts("PASS image hardlinks: linear dependency resolution, deep symlink aliases and cycle rollback");
     return 0;
 }

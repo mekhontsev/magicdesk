@@ -181,11 +181,11 @@ def main():
                                   'mkdir -p /mnt; mkdir "$1"', 'setup', target))
         prepared = True
         for name in ('test_nixos_boot.py', 'test_network_dhcp.py'):
-            suite.transport.upload(suite.client, Path(__file__).with_name(name), suite.base + '/' + name)
+            suite.upload(Path(__file__).with_name(name), suite.base + '/' + name)
         with tempfile.TemporaryDirectory() as temporary:
             script = Path(temporary) / 'boot.sh'
             script.write_text(boot)
-            suite.transport.upload(suite.client, script, suite.base + '/boot.sh')
+            suite.upload(script, suite.base + '/boot.sh')
         try:
             if args.network == 'dhcp':
                 command = [args.python, target + '/test_nixos_boot.py', '--guest', target]

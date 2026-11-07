@@ -14,10 +14,10 @@ def stage(suite, source_prefix):
         target = prefix + '/' + source.name
         with source.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-        suite.transport.upload(suite.client, source, target)
+        suite.upload(source, target)
         assert suite.command(['sha256sum', target], quiet=True).split()[0] == digest
         hashes[name] = digest
-        suite.command(['chmod', '700', target])
+        suite.chmod('700', target)
     invocation = ['env', '-i', 'PATH=/system/bin', 'LD_LIBRARY_PATH=' + prefix,
                   'PROOT_TMP_DIR=' + prefix + '/tmp', 'PROOT_LOADER=' + prefix + '/loader',
                   'PROOT_LOADER_32=' + prefix + '/loader32', prefix + '/proot']

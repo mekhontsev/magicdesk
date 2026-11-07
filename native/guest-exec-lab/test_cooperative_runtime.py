@@ -12,13 +12,15 @@ def main():
     parser.add_argument('--entry-only', action='store_true')
     parser.add_argument('--diagnostics', action='store_true')
     add_machine_entry_argument(parser)
-    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'cursor-lease'), default='all')
+    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'cursor-lease', 'xattr-pins', 'signal-abandon'), default='all')
     args = parser.parse_args()
     suite = Suite(Path('build/cooperative-runtime'), args.build, machine_entry=args.machine_entry)
     runner = [suite.runner, *suite.entry_options]
     try:
         root = suite.base + '/rootfs'
         suite.command(['mkdir', '-p', root + '/bin', root + '/tmp'])
+        suite.chmod('755', root, root + '/bin')
+        suite.chmod('1777', root + '/tmp')
         for name, destination in (('service', suite.base + '/service'),
                                   ('cooperative_guest', root + '/bin/probe'),
                                   ('test_signal_delivery', suite.base + '/signals'),
@@ -38,30 +40,30 @@ def main():
                                   ('test_directory_record', suite.base + '/directory-record'),
                                   ('fuse_transport', suite.base + '/fuse-transport'),
                                   ('fs_dispatch', suite.base + '/dispatch')):
-            suite.transport.upload(suite.client, args.build / ('libmagicdesk_guest_' + name + '.so'), destination)
-            suite.command(['chmod', '700', destination])
+            suite.upload(args.build / ('libmagicdesk_guest_' + name + '.so'), destination)
+            suite.chmod('700', destination)
         if not args.entry_only:
-            suite.command(['timeout', '10', suite.base + '/mapping-reader'])
-            suite.command(['timeout', '10', suite.base + '/task-memory'])
-            suite.command(['timeout', '10', suite.base + '/received-fds'])
-            suite.command(['timeout', '10', suite.base + '/netlink-attributes'])
-            suite.command(['timeout', '10', suite.base + '/directory-record'])
-            suite.command(['timeout', '30', suite.base + '/fuse-transport'])
-            suite.command(['timeout', '90', suite.base + '/dispatch', '--fuse-device',
-                           suite.base + '/fuse-store'])
-            suite.command(['timeout', '20', suite.base + '/signals'])
-            suite.command(['timeout', '15', suite.base + '/guest-copy'])
-            suite.command(['timeout', '15', suite.base + '/freestanding-memory'])
-            suite.command(['timeout', '45', suite.base + '/native-journal'])
-            suite.command(['timeout', '90', suite.base + '/task-resources'])
-            suite.command(['timeout', '60', suite.base + '/inodes', suite.base + '/inode-store'])
-            suite.command(['timeout', '120', suite.base + '/mounts', suite.base + '/mount-store'])
-            suite.command(['timeout', '120', suite.base + '/publication', suite.base + '/publication-store'])
-            suite.command(['timeout', '120', suite.base + '/native-leaf', suite.base + '/leaf-store'])
-            suite.command(['timeout', '90', suite.base + '/buffers'])
-            suite.command(['timeout', '120', suite.base + '/dispatch', suite.base + '/dispatch-store'], quiet=True)
-            output = suite.command(['timeout', '90', suite.base + '/dispatch', '--broker-directory',
-                                    suite.base + '/broker-store'], quiet=True)
+            suite.command([suite.base + '/mapping-reader'], timeout=10)
+            suite.command([suite.base + '/task-memory'], timeout=10)
+            suite.command([suite.base + '/received-fds'], timeout=10)
+            suite.command([suite.base + '/netlink-attributes'], timeout=10)
+            suite.command([suite.base + '/directory-record'], timeout=10)
+            suite.command([suite.base + '/fuse-transport'], timeout=30)
+            suite.command([suite.base + '/dispatch', '--fuse-device',
+                           suite.base + '/fuse-store'], timeout=90)
+            suite.command([suite.base + '/signals'], timeout=20)
+            suite.command([suite.base + '/guest-copy'], timeout=15)
+            suite.command([suite.base + '/freestanding-memory'], timeout=15)
+            suite.command([suite.base + '/native-journal'], timeout=45)
+            suite.command([suite.base + '/task-resources'], timeout=90)
+            suite.command([suite.base + '/inodes', suite.base + '/inode-store'], timeout=60)
+            suite.command([suite.base + '/mounts', suite.base + '/mount-store'], timeout=120)
+            suite.command([suite.base + '/publication', suite.base + '/publication-store'], timeout=120)
+            suite.command([suite.base + '/native-leaf', suite.base + '/leaf-store'], timeout=120)
+            suite.command([suite.base + '/buffers'], timeout=90)
+            suite.command([suite.base + '/dispatch', suite.base + '/dispatch-store'], quiet=True, timeout=120)
+            output = suite.command([suite.base + '/dispatch', '--broker-directory',
+                                    suite.base + '/broker-store'], quiet=True, timeout=90)
             assert 'PASS notification result: exact cancelled-token replacement' in output
         # Distribution imports carry virtual ownership; a host-directory import
         # without it deliberately retains real Android permission semantics.
@@ -107,6 +109,8 @@ def main():
                                     '--user', '0:0', '--', '/bin/probe', '--' + args.case])
             assert ('PASS native birth retirement:' if args.case == 'birth-retirement'
                     else 'PASS native cursor lease:' if args.case == 'cursor-lease'
+                    else 'PASS native xattr pins:' if args.case == 'xattr-pins'
+                    else 'PASS cooperative entry: signal longjmp' if args.case == 'signal-abandon'
                     else 'PASS execution bursts:') in output
             suite.report['passed'] = True
             suite.command(['rm', '-rf', suite.base])
@@ -133,6 +137,7 @@ def main():
         assert 'PASS native FD plans: 192 live opens' in output
         assert 'PASS native FD watches: exactly one open and one close event' in output
         assert 'PASS native signal boundaries:' in output
+        assert 'PASS signal frame failure:' in output
         assert 'PASS cooperative JIT resume:' in output
         assert 'PASS native writable plans:' in output
         assert 'PASS native create admission:' in output
@@ -144,8 +149,10 @@ def main():
                              ('nativeDuplicate', 576), ('nativeSeek', 384), ('nativeDeferred', 1)):
             count = re.search(rf'{key}=(\d+)', output)
             assert count and int(count[1]) >= minimum, f'{key} did not exercise native FD plans'
-        descriptors = re.search(r'cooperativeDescriptors=(\d+)', output)
-        assert descriptors and int(descriptors[1]) >= 128, 'FD checks did not exercise cooperative admission'
+        # The host may deliver a carrier through SIGSYS instead of user_notify.
+        # Both routes must reach the same owner; the guest checks each actual FD.
+        descriptors = re.search(r'MD_FS operation=\d+ calls=(\d+) ns=\d+ name=FSOPEN', output)
+        assert descriptors and int(descriptors[1]) >= 128, 'FD checks did not reach the shared filesystem owner'
         suite.command(['mkdir', '-p', root + '/tmp/entry-emfile-dir', root + '/tmp/entry-birth-watch-dir'])
         suite.command([suite.base + '/service', '--import', root, suite.base + '/host-store'])
         output = suite.command(['timeout', '90', *runner, '--store', suite.base + '/host-store',

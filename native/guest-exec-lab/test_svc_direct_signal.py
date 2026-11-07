@@ -12,19 +12,19 @@ def main():
     suite = Suite(Path('build/svc-direct-signals'), None)
     try:
         binary = suite.base + '/signals'
-        suite.transport.upload(suite.client, args.build / 'libmagicdesk_guest_test_svc_direct_signal.so', binary)
-        suite.command(['chmod', '700', binary])
-        output = suite.command(['timeout', '250', binary], timeout=270)
+        suite.upload(args.build / 'libmagicdesk_guest_test_svc_direct_signal.so', binary)
+        suite.chmod('700', binary)
+        output = suite.command([binary], timeout=250)
         assert 'PASS SVC arbitrary boundary:' in output
         assert output.count('SVC_SIGNAL_PATH ') == 5
-        output = suite.command(['timeout', '60', binary, '--mmap-guard'], timeout=70)
+        output = suite.command([binary, '--mmap-guard'], timeout=60)
         assert 'PASS mmap argument guard:' in output
         for control in ('--unsafe-context', '--unsafe-checkpoint'):
-            output = suite.command(['timeout', '20', binary, control], timeout=30)
+            output = suite.command([binary, control], timeout=20)
             assert 'PASS negative signal control:' in output
-        output = suite.command(['timeout', '30', binary, '--queued'], timeout=40)
+        output = suite.command([binary, '--queued'], timeout=30)
         assert output.count('PASS queued RT:') == 8
-        output = suite.command(['timeout', '20', binary, '--queued-unsafe'], timeout=30)
+        output = suite.command([binary, '--queued-unsafe'], timeout=20)
         assert 'PASS negative queued RT:' in output
         suite.report['passed'] = True
         suite.command(['rm', '-rf', suite.base])

@@ -59,7 +59,7 @@ try:
                        '--', '/bin/sh', '-c', 'test -x ' + shlex.quote(args.gdb)])
     path = '/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin'
     for name in ('kwin-module-session.sh', 'kwin-module-client.sh'):
-        suite.transport.upload(client, Path(__file__).with_name('fixtures') / name,
+        suite.upload(Path(__file__).with_name('fixtures') / name,
                                work + '/' + name, overwrite=True)
     suite.command(['chmod', '-R', 'a+rX', work])
     suite.command(['rm', '-f', work + '/client.ready', work + '/control-path', work + '/exit-status'])
@@ -76,8 +76,8 @@ try:
                     '--env', 'MD_KWIN_GDB=' + (args.gdb or ''),
                     '--env', 'PATH=' + path,
                     '--bind', work, target]) + ' "$@"\n')
-    suite.transport.upload(client, wrapper, suite.base + '/shroot')
-    suite.command(['chmod', '755', suite.base + '/shroot'])
+    suite.upload(wrapper, suite.base + '/shroot')
+    suite.chmod('755', suite.base + '/shroot')
     state['display'] = client.call('create_display', dict(type='virtual', width=960, height=640, densityDpi=160))
     awake = client.call('get_state')['automationAwake']
     assert not awake.get('held'), 'Release the other fixture lease before this display test'
@@ -91,7 +91,7 @@ try:
     launcher.write_text('#!/system/bin/sh\nenv PATH=' + shlex.quote(suite.base + ':/system/bin') +
         ' /system/bin/sh -c ' + shlex.quote(recipe) + ' >' + shlex.quote(work + '/desktop.log') + ' 2>&1\n'
         'status=$?\nprintf "%s\\n" "$status" > ' + shlex.quote(work + '/exit-status') + '\nexit "$status"\n')
-    suite.transport.upload(client, launcher, suite.base + '/launch.sh')
+    suite.upload(launcher, suite.base + '/launch.sh')
     client.call('graphics.execute', dict(sessionId=state['sessionId'],
         command=shlex.join(['/system/bin/sh', suite.base + '/launch.sh'])))
     (out / 'desktop-state.json').write_text(json.dumps(state, indent=2))
@@ -179,7 +179,7 @@ finally:
                 resources_stopped = True
         for name in ('desktop.log', 'support.txt', 'compositor.maps', 'client.log', 'client.env'):
             if shell('test ! -f ' + shlex.quote(work + '/' + name) + ' || printf present'):
-                suite.transport.download(client, work + '/' + name, out / name, overwrite=True)
+                suite.download(work + '/' + name, out / name, overwrite=True)
         state['homeLeaseAfter'] = client.call('get_state')['homeLease']
         assert state['homeLeaseAfter'] == state['homeLeaseBefore']
         suite.command(['rm', '-rf', suite.base])

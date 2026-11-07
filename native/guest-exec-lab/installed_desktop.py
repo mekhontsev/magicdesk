@@ -217,9 +217,9 @@ def main():
             for name, content in files.items():
                 path = out / name
                 path.write_text(content)
-                suite.transport.upload(client, path, suite.base + '/' + name)
-            suite.command(['chmod', '755', suite.base])
-            suite.command(['chmod', '644', suite.base + '/boot.sh', suite.base + '/session-controller.py'])
+                suite.upload(path, suite.base + '/' + name)
+            suite.chmod('755', suite.base)
+            suite.chmod('644', suite.base + '/boot.sh', suite.base + '/session-controller.py')
             command = shlex.join([binary + '/unshare', '--mount', '--pid', '--fork', '--mount-proc',
                                   '--uts', '--ipc', '--cgroup', '/bin/sh', target + '/boot.sh'])
             network = ['--network', args.network_profile]
@@ -284,9 +284,9 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         for name, content in files.items():
             path = out / name
             path.write_text(content)
-            suite.transport.upload(client, path, suite.base + '/' + name)
-        suite.command(['chmod', '777', suite.base])
-        suite.command(['chmod', '755', suite.base + '/autostart.sh'])
+            suite.upload(path, suite.base + '/' + name)
+        suite.chmod('777', suite.base)
+        suite.chmod('755', suite.base + '/autostart.sh')
         suite.command(['chmod', '-R', 'a+rX', suite.base])
         classes = out / 'classes'
         state['sourceHashes'] = compile_recipe(classes)
@@ -306,8 +306,8 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
                 '--network', 'routed', '--env', entry, '--env', 'PATH=' + guest_path,
                 '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'], '--bind', suite.base, target])
             + ' "$@"\n}\nmd_run "$@"\n')
-        suite.transport.upload(client, wrapper, suite.base + '/shroot')
-        suite.command(['chmod', '755', suite.base + '/shroot'])
+        suite.upload(wrapper, suite.base + '/shroot')
+        suite.chmod('755', suite.base + '/shroot')
         before = client.call('get_state')
         # Independent protocol sessions may coexist. This fixture owns only
         # its exact session and display; managed Desktop must remain absent.
@@ -333,7 +333,7 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         # desktop Exec entry. Keep that payload in a file, outside Exec's limit.
         launcher = out / 'launch.sh'
         launcher.write_text('#!/system/bin/sh\n' + launch + '\n')
-        suite.transport.upload(client, launcher, suite.base + '/launch.sh')
+        suite.upload(launcher, suite.base + '/launch.sh')
         state['launch'] = launch
         statefile.write_text(json.dumps(state, indent=2))
         client.call('graphics.execute', dict(sessionId=state['sessionId'],

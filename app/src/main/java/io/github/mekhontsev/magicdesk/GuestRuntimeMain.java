@@ -6,10 +6,15 @@ import java.nio.file.Path;
 public final class GuestRuntimeMain {
     public static void main(String[] arguments) {
         try {
-            GuestLaunchPlan.requireIdentity(android.system.Os.getuid());
+            int uid = android.system.Os.getuid();
+            GuestLaunchPlan.requireIdentity(uid);
             if (arguments.length != 2)
                 throw new IllegalArgumentException("Expected native-library and runtime-store directories");
-            System.out.println(GuestRuntimeArtifacts.prepare(Path.of(arguments[0]), Path.of(arguments[1])));
+            // Modern app UIDs cannot execute copies from writable app data.
+            // Packaged helpers already share one immutable APK lifetime.
+            System.out.println(uid == 0 || uid == 2000
+                    ? GuestRuntimeArtifacts.prepare(Path.of(arguments[0]), Path.of(arguments[1]))
+                    : GuestRuntimeArtifacts.packaged(Path.of(arguments[0])));
         } catch (Exception error) {
             System.err.println("Shroot preparation failed: " + error.getMessage());
             System.exit(1);

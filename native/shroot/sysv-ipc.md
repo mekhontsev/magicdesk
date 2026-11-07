@@ -38,7 +38,7 @@ it to user memory, so EFAULT does not restore it to the queue.
 slot in the common bootstrap-mapped adapter buffer. `adapter_buffer` owns its
 lifecycle; `sysv_ipc_transport` bounds the typed packet and publishes offsets,
 never unrestricted guest pointers. Copy faults return EFAULT;
-PR_SET_DUMPABLE(0) remains unchanged. Calls need no temporary guest FD or mapping,
+guest dumpability remains unchanged. Calls need no temporary guest FD or mapping,
 including with a full descriptor table. Completion, failure and task death
 release the slot. A blocked request retains its captured inputs in the authority
 and releases the slot before waiting. No database transaction spans guest copying

@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 struct slot { uintptr_t top; int used; struct slot *next; };
+struct md_memory_page { uintptr_t address; int used; struct md_memory_page *next; };
 struct policy_range { uintptr_t first, end; unsigned restrictions; };
 enum { BACKING_BUCKETS = 127 };
 struct backing_pool {
@@ -38,8 +39,11 @@ struct md_memory_file_range {
 struct md_interception_memory {
     unsigned references;
     struct slot *slots;
+    struct md_memory_page *pages;
     struct md_interception_buffers *buffers;
     uintptr_t buffer_base;
+    struct md_interception_buffers *readonly_buffers;
+    uintptr_t readonly_base;
     struct md_resource_queue mappings;
     struct policy_range *restrictions;
     size_t ranges, capacity;
@@ -147,10 +151,19 @@ struct md_interception_memory *md_memory_fork(struct md_interception_memory *s, 
         if (md_memory_stack_add(copy, p->top)) { md_memory_release(copy); return NULL; }
         md_memory_stack_return(copy, p->top);
     }
+    for (struct md_memory_page *p=s->pages;p;p=p->next) if (p->address) {
+        struct md_memory_page *page=md_memory_page_acquire(copy);
+        if (!page) { md_memory_release(copy); return NULL; }
+        md_memory_page_publish(page,p->address); md_memory_page_release(page);
+    }
     if (s->buffers && !(copy->buffers=md_buffers_retain(s->buffers))) {
         md_memory_release(copy); return NULL;
     }
     copy->buffer_base=s->buffer_base;
+    if (s->readonly_buffers && !(copy->readonly_buffers=md_buffers_retain(s->readonly_buffers))) {
+        md_memory_release(copy); return NULL;
+    }
+    copy->readonly_base=s->readonly_base;
     if (s->ranges) {
         copy->restrictions=malloc(s->ranges*sizeof(*copy->restrictions));
         if (!copy->restrictions) { md_memory_release(copy); return NULL; }
@@ -172,7 +185,9 @@ void md_memory_release(struct md_interception_memory *s) {
     if (!s || --s->references) return;
     assert(!s->admission);
     while (s->slots) { struct slot *next = s->slots->next; free(s->slots); s->slots = next; }
+    while (s->pages) { struct md_memory_page *next=s->pages->next; free(s->pages); s->pages=next; }
     md_buffers_release(s->buffers); md_resource_queue_destroy(&s->mappings); free(s->restrictions);
+    md_buffers_release(s->readonly_buffers);
     if (s->access_ready) { close(s->access.maps); close(s->access.memory); close(s->access.pagemap); }
     file_ranges_release(s->files,s->file_count); pool_release(s->backings); free(s->svc); free(s);
 }
@@ -191,6 +206,18 @@ void md_memory_stack_return(struct md_interception_memory *s, uintptr_t top) {
     for (struct slot *p = s->slots; p; p = p->next)
         if (p->top == top) { p->used = 0; return; }
 }
+struct md_memory_page *md_memory_page_acquire(struct md_interception_memory *s) {
+    for (struct md_memory_page *p=s->pages;p;p=p->next)
+        if (!p->used) { p->used=1; return p; }
+    struct md_memory_page *p=calloc(1,sizeof(*p));
+    if (p) { p->used=1; p->next=s->pages; s->pages=p; }
+    return p;
+}
+uintptr_t md_memory_page_address(const struct md_memory_page *p) { return p ? p->address : 0; }
+void md_memory_page_publish(struct md_memory_page *p,uintptr_t address) {
+    assert(p && p->used && !p->address && address); p->address=address;
+}
+void md_memory_page_release(struct md_memory_page *p) { if (p) { assert(p->used); p->used=0; } }
 int md_memory_buffers_prepare(struct md_interception_memory *s, unsigned slots, size_t capacity,
         size_t clear_prefix, unsigned reserved) {
     if (!s) return -EINVAL;
@@ -199,6 +226,33 @@ int md_memory_buffers_prepare(struct md_interception_memory *s, unsigned slots, 
 }
 struct md_interception_buffers *md_memory_buffers(struct md_interception_memory *s) {
     return s ? s->buffers : NULL;
+}
+int md_memory_readonly_prepare(struct md_interception_memory *s,unsigned slots,size_t capacity) {
+    if (!s) return -EINVAL;
+    if (s->readonly_buffers) return -EALREADY;
+    return md_buffers_create_readonly(slots,capacity,&s->readonly_buffers);
+}
+struct md_interception_buffers *md_memory_readonly_buffers(struct md_interception_memory *s) {
+    return s ? s->readonly_buffers : NULL;
+}
+int md_memory_readonly_mapped(struct md_interception_memory *s,uintptr_t base,size_t size) {
+    if (!s || !s->readonly_buffers || !base || base%(size_t)getpagesize()
+            || size!=md_buffers_size(s->readonly_buffers) || base>UINTPTR_MAX-size) return -EINVAL;
+    if (s->readonly_base) return -EALREADY;
+    s->readonly_base=base; s->admission_valid=0; return 0;
+}
+uintptr_t md_memory_readonly_base(const struct md_interception_memory *s) {
+    return s ? s->readonly_base : 0;
+}
+int md_memory_readonly_intersects(const struct md_interception_memory *s,uintptr_t first,size_t size) {
+    if (!s || !s->readonly_base || !size) return 0;
+    return first<s->readonly_base+md_buffers_size(s->readonly_buffers)
+        && (size>UINTPTR_MAX-first || first+size>s->readonly_base);
+}
+void md_memory_readonly_invalidate(struct md_interception_memory *s,uintptr_t first,size_t size) {
+    if (md_memory_readonly_intersects(s,first,size)) {
+        s->readonly_base=0; s->admission_valid=0;
+    }
 }
 int md_memory_buffers_mapped(struct md_interception_memory *s, uintptr_t base, size_t size) {
     if (!s || !s->buffers || !base || base%(size_t)getpagesize()
@@ -252,7 +306,7 @@ int md_memory_private_access_capture(struct md_interception_memory *s, pid_t tas
     s->access_ready=1; return 0;
 }
 int md_memory_has_policy(const struct md_interception_memory *s) {
-    return s->ranges || s->policy_unknown || s->file_count;
+    return s->ranges || s->policy_unknown || s->file_count || s->readonly_base;
 }
 static int rounded(size_t length, size_t *out) {
     size_t page=(size_t)getpagesize();
@@ -270,6 +324,7 @@ int md_memory_mapping_observe(const struct md_interception_memory *s,uintptr_t f
     size_t size;
     if (rounded(length,&size) || first>UINTPTR_MAX-size) return 1;
     if (!size) return 0;
+    if (md_memory_readonly_intersects(s,first,size)) return 1;
     if (intersects(s,first,size)) return 1;
     for (size_t i=0;i<s->file_count && s->files[i].first<first+size;++i)
         if (s->files[i].end>first) return 1;
@@ -315,6 +370,7 @@ void md_memory_admission_publish(struct md_interception_memory *s,struct md_memo
     for (size_t i=0;i<s->file_count;++i)
         if (admission_range(p,s->files[i].first,s->files[i].end)) return;
     if (s->buffer_base && admission_range(p,s->buffer_base,s->buffer_base+md_buffers_size(s->buffers))) return;
+    if (s->readonly_base && admission_range(p,s->readonly_base,s->readonly_base+md_buffers_size(s->readonly_buffers))) return;
     if (admission_range(p,r->native_begin,r->native_end)
             || admission_range(p,r->frames,r->frames+MD_SVC_POOL_SIZE+MD_SVC_PAYLOAD_SIZE)) return;
     for (unsigned i=0;i<r->pool_count;++i)
@@ -603,15 +659,18 @@ void md_memory_mapping_finish(struct md_interception_memory *s, struct md_mappin
     if (result>=0) {
         s->admission_valid=0;
         if (c->operation==MD_MAPPING_UNMAP) {
+            md_memory_readonly_invalidate(s,c->address,c->length);
             remove_range(s,c->address,c->length); files_remove(s,c->address,c->length);
         }
         else {
             uintptr_t address=(uintptr_t)result;
             size_t size=c->operation==MD_MAPPING_MAP ? c->length : c->new_length;
+            if (c->operation==MD_MAPPING_REMAP) md_memory_readonly_invalidate(s,c->address,c->length);
             if (c->operation==MD_MAPPING_REMAP && !(c->flags&MREMAP_DONTUNMAP)) {
                 remove_range(s,c->address,c->length); files_remove(s,c->address,c->length);
             }
             remove_range(s,address,size);
+            md_memory_readonly_invalidate(s,address,size);
             files_remove(s,address,size);
             if (c->restrictions) insert_range(s,address,size,c->restrictions);
             if (c->backing) files_insert(s,(struct md_memory_file_range){address,address+size,c->offset,c->backing});
@@ -627,6 +686,8 @@ void md_memory_mapping_abandon(struct md_interception_memory *s, struct md_mappi
     /* A lost mapping result is not proof that the kernel did nothing. Keep
      * surviving CLONE_VM users from upgrading rights to an unknown VMA. */
     if (c->prepared) {
+        md_memory_readonly_invalidate(s,c->address,c->length);
+        if (c->operation==MD_MAPPING_REMAP && (c->flags&MREMAP_FIXED)) s->readonly_base=0;
         if (c->restrictions || s->ranges) s->policy_unknown=1;
         /* Optional repair provenance must not revoke otherwise native execute
          * permission. Losing it disables repair, not the kernel's own check. */

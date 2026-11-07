@@ -76,7 +76,8 @@ final class ConsoleSessionFiles implements Closeable {
             }
             String helper = context.getApplicationInfo().nativeLibraryDir + "/libmagicdesk_guest_files.so";
             String launch = "export TMPDIR="
-                    + ShellCommandLine.quote(backend == DesktopExecBackend.TERMUX ? execution.home + "/../usr/tmp" : "/data/local/tmp")
+                    + ShellCommandLine.quote(backend == DesktopExecBackend.TERMUX ? execution.home + "/../usr/tmp"
+                            : RuntimeDataPaths.privileged(execution.uid).temporary().toString())
                     + " MAGICDESK_GUEST_FILES_SOCKET=" + ShellCommandLine.quote(endpoint)
                     + " MAGICDESK_GUEST_FILES_TOKEN=" + ShellCommandLine.quote(token)
                     + "\nexec " + ShellCommandLine.quote(helper) + " --serve";

@@ -128,8 +128,11 @@ int main(int argc, char **argv) {
         if (!*owner || *end || pid <= 1 || prctl(PR_SET_PDEATHSIG, SIGKILL) || getppid() != pid) return 2;
         unsetenv("MAGICDESK_IMAGE_OWNER_PID");
     }
-#ifndef MD_INODE_TESTING
-    if (!md_launch_identity(getuid(), geteuid(), getgid(), getegid())) return 2;
+    int admitted=md_launch_identity(getuid(),geteuid(),getgid(),getegid());
+#ifdef MD_INODE_TESTING
+    (void)admitted;
+#else
+    if (!admitted) return 2;
 #endif
     umask(0);
     const char *reference = NULL, *pool = NULL, *blobs = NULL;
@@ -160,6 +163,11 @@ int main(int argc, char **argv) {
     else if (argc == 3 && !strcmp(argv[1], "remove")) r = md_image_remove(argv[2], 0);
     else if (argc == 3 && !strcmp(argv[1], "remove-layer")) r = md_image_remove(argv[2], 1);
     else if (argc == 3 && !strcmp(argv[1], "sources")) r = md_image_sources(argv[2]);
+    else if (argc == 3 && !strcmp(argv[1], "relative-sources")) {
+        char directory[PATH_MAX];
+        r=realpath(argv[2],directory) ? md_image_rebase_sources(directory,directory) : -errno;
+    }
+    else if (argc == 4 && !strcmp(argv[1], "relocate-library")) r=md_image_relocate_library(argv[2],argv[3]);
     else if (argc == 3 && !strcmp(argv[1], "inspect")) r = md_image_inspect(argv[2]);
     else if (argc == 3 && !strcmp(argv[1], "recover-staging")) r = md_image_publish_recover(argv[2]);
     else if (argc == 3 && !strcmp(argv[1], "launches")) r = md_image_launches(argv[2]);
@@ -179,6 +187,8 @@ int main(int argc, char **argv) {
         "       image restore ARCHIVE NEW_INSTANCE\n"
         "       image remove STORE | remove-layer LAYER (caller verifies persistent dependents)\n"
         "       image sources STORE (dependency paths without runtime schema admission)\n"
+        "       image relative-sources STORE (prepare source links for an offline tree move)\n"
+        "       image relocate-library OLD NEW (move an idle library without copying file bodies)\n"
         "       image inspect IMAGE_OR_INSTANCE\n"
         "       image format (stable persistent namespace format)\n"
         "       image import-version (import semantics for derived image cache keys)\n"

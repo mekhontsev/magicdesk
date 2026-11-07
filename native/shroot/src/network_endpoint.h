@@ -57,6 +57,7 @@ int md_network_endpoint_accept(struct md_fd_object *,int,struct md_fd_object **)
 struct md_network_endpoint_info {
     uint64_t inode;
     uint32_t uid;
+    unsigned state;
     struct md_inet_address local, peer;
 };
 /* An owned, namespace-scoped snapshot, sorted by native socket inode. */

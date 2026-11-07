@@ -12,10 +12,12 @@
 #include "cgroup.h"
 #include "landlock_policy.h"
 #include "process_limits.h"
+#include "process_access.h"
 
 /* Linux owns the real FD table, cwd/umask and open descriptions. Optional path
  * annotations share their lifetimes without retaining data descriptions. */
 struct md_task_resources {
+    struct md_process_access *access;
     struct md_process_member *process;
     struct md_guest_domain *fs;
     struct md_mount_namespace *mounts;
@@ -46,6 +48,7 @@ int md_resources_setns_prepare(const struct md_task_resources *, const struct md
     const struct md_namespace_reference *, unsigned type, struct md_resource_change *);
 /* The caller authenticates the exact live pidfd target before taking this
  * resource snapshot. All selected namespaces publish through one change. */
+int md_resources_setns_process_flags(unsigned);
 int md_resources_setns_process_prepare(const struct md_task_resources *, const struct md_identity *,
     const struct md_task_resources *, struct md_user_namespace *, unsigned types, struct md_resource_change *);
 
@@ -54,8 +57,8 @@ int md_resources_fork(const struct md_task_resources *, unsigned long flags,
         struct md_cgroup_member *reservation,struct md_task_resources *);
 int md_resources_release(struct md_task_resources *);
 /* Confirmed kernel exec only, after any nonleader task-resource transfer. */
-int md_resources_exec(struct md_task_resources *);
-int md_resources_exec_closed(struct md_task_resources *,struct md_fd_closed *);
+int md_resources_exec(struct md_task_resources *,struct md_user_namespace *);
+int md_resources_exec_closed(struct md_task_resources *,struct md_user_namespace *,struct md_fd_closed *);
 /* Terminal kernel stop: relinquish this task's table ownership. The last
  * owner retires its aliases before the task can become waitable. */
 void md_resources_exit_files(struct md_task_resources *,struct md_fd_closed *);

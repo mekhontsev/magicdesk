@@ -190,6 +190,16 @@ int md_debugger_event(struct md_debugger *d, pid_t pid, unsigned event, unsigned
     if (!p || !(p->options&(1UL<<event))) return 0;
     return md_debugger_stop(d,pid,(SIGTRAP<<8)|0x7f|(event<<16),NULL,message);
 }
+int md_debugger_seccomp(struct md_debugger *d, pid_t pid, const struct user_pt_regs *r, unsigned data) {
+    if (!d->host.seccomp_events || !md_debugger_event(d,pid,PTRACE_EVENT_SECCOMP,data)) return 0;
+    struct inferior *p=find(d,pid);
+    p->syscall=(struct ptrace_syscall_info){.op=PTRACE_SYSCALL_INFO_SECCOMP,
+        .arch=AUDIT_ARCH_AARCH64,.instruction_pointer=r->pc,.stack_pointer=r->sp};
+    p->syscall.seccomp.nr=r->regs[8];
+    p->syscall.seccomp.ret_data=data;
+    memcpy(p->syscall.seccomp.args,r->regs,sizeof(p->syscall.seccomp.args));
+    return 1;
+}
 int md_debugger_birth(struct md_debugger *d, pid_t parent, pid_t child, unsigned event) {
     struct inferior *p=find(d,parent);
     if (!p || !(p->options & (1UL<<event))) return 0;
@@ -243,11 +253,6 @@ int md_debugger_boundary(struct md_debugger *d, pid_t pid) {
     siginfo_t info=p->deferred_stop;
     p->deferred_stop=(siginfo_t){0};
     return md_debugger_stop(d,pid,(SIGSTOP<<8)|0x7f,&info,0);
-}
-int md_debugger_observing(struct md_debugger *d, pid_t pid) {
-    for (struct inferior *p=d->inferiors; p; p=p->next)
-        if (!p->terminal && d->host.group(p->owner)==d->host.group(pid)) return 1;
-    return 0;
 }
 int md_debugger_syscall_mode(struct md_debugger *d, pid_t pid) {
     struct inferior *p=find(d,pid);
@@ -329,9 +334,10 @@ void md_debugger_rekey(struct md_debugger *d, pid_t old, pid_t pid) {
         else w=&(*w)->next;
     }
 }
-static unsigned long supported_options(void) {
+static unsigned long supported_options(const struct md_debugger *d) {
     return PTRACE_O_TRACESYSGOOD|PTRACE_O_TRACEFORK|PTRACE_O_TRACEVFORK|PTRACE_O_TRACECLONE
-        |PTRACE_O_TRACEEXEC|PTRACE_O_TRACEVFORKDONE|PTRACE_O_TRACEEXIT|PTRACE_O_EXITKILL;
+        |PTRACE_O_TRACEEXEC|PTRACE_O_TRACEVFORKDONE|PTRACE_O_TRACEEXIT|PTRACE_O_EXITKILL
+        |(d->host.seccomp_events ? PTRACE_O_TRACESECCOMP : 0);
 }
 static long regset(pid_t caller, struct inferior *p, int op, uintptr_t note, uintptr_t address) {
     struct iovec guest;
@@ -367,10 +373,10 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
     uintptr_t address=r->regs[2], data=r->regs[3];
     if (op==PTRACE_TRACEME) {
         pid_t parent=d->host.parent(caller);
-        return parent>0 && d->host.allowed(parent,caller) ? add(d,caller,parent,0) : -EPERM;
+        return parent>0 && d->host.traceme(parent,caller) ? add(d,caller,parent,0) : -EPERM;
     }
     if (op==PTRACE_ATTACH || op==PTRACE_SEIZE) {
-        if (op==PTRACE_SEIZE && (address || (data&~supported_options()))) return -EIO;
+        if (op==PTRACE_SEIZE && (address || (data&~supported_options(d)))) return -EIO;
         if (!d->host.attachable(caller,pid)) return -EPERM;
         int error=add(d,pid,caller,op==PTRACE_SEIZE ? data : 0);
         if (error) return error;
@@ -402,7 +408,7 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
         return error;
     }
     case PTRACE_SETOPTIONS: {
-        if (data & ~supported_options()) return -EINVAL;
+        if (data & ~supported_options(d)) return -EINVAL;
         int error=d->host.options(pid,data);
         if (!error) p->options=data;
         return error;
@@ -446,6 +452,7 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
         size_t size=offsetof(struct ptrace_syscall_info,entry);
         if (info.op==PTRACE_SYSCALL_INFO_ENTRY) size+=sizeof(info.entry);
         if (info.op==PTRACE_SYSCALL_INFO_EXIT) size=offsetof(struct ptrace_syscall_info,exit.is_error)+1;
+        if (info.op==PTRACE_SYSCALL_INFO_SECCOMP) size=offsetof(struct ptrace_syscall_info,seccomp.ret_data)+sizeof(info.seccomp.ret_data);
         int error=transfer(caller,data,&info,address<size ? address : size,1);
         return error ? error : (long)size;
     }
@@ -453,7 +460,8 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
         uint64_t mask;
         if (address!=sizeof(mask)) return -EINVAL;
         int error=op==PTRACE_SETSIGMASK ? transfer(caller,data,&mask,sizeof(mask),0) : 0;
-        if (!error) error=(int)request(op,pid,address,&mask);
+        if (!error) error=d->host.signal_mask ? d->host.signal_mask(pid,op==PTRACE_SETSIGMASK,&mask)
+            : (int)request(op,pid,address,&mask);
         if (!error && op==PTRACE_GETSIGMASK) error=transfer(caller,data,&mask,sizeof(mask),1);
         return error;
     }

@@ -4,6 +4,7 @@
 #include "guest_domain.h"
 #include "mount_namespace.h"
 #include "fd_origins.h"
+#include "process_access.h"
 
 struct md_task_registry;
 struct md_kernel_policy;
@@ -13,7 +14,10 @@ struct md_task_resources;
 struct md_task_snapshot_state;
 struct md_task_snapshot {
     pid_t tid, tgid;
+    /* Launch-local task incarnation, stable across resource/credential updates. */
+    uint64_t generation;
     struct md_identity identity;
+    struct md_process_access *access;
     struct md_guest_domain *fs;
     struct md_fs_location root;
     struct md_mount_namespace *mounts;
@@ -70,12 +74,25 @@ int md_task_registry_probe(struct md_task_registry *,pid_t tid,pid_t peer,struct
 int md_task_registry_files(struct md_task_registry *,pid_t tid,pid_t peer,struct md_fd_origins **);
 /* Credential-only observation, including unreaped tasks. No filesystem/file-table
  * pins or allocations; release the returned identity with md_identity_release. */
-struct md_task_credentials { pid_t group; int retired; struct md_identity identity; };
+struct md_task_credentials {
+    pid_t group;
+    int retired;
+    uint64_t generation;
+    struct md_identity identity;
+    struct md_process_access *access;
+};
+void md_task_credentials_release(struct md_task_credentials *);
 int md_task_registry_credentials(struct md_task_registry *,pid_t,struct md_task_credentials *);
+/* Live application threads only; private helpers never enter the registry.
+ * Zero means the group has no live registered threads. No task-table scan. */
+unsigned md_task_registry_thread_count(struct md_task_registry *,pid_t group);
 /* Proc opens need only identity, PID and cgroup, including unreaped tasks.
  * Release with md_task_snapshot_release; no live filesystem resources pinned. */
 int md_task_registry_proc(struct md_task_registry *,pid_t,struct md_task_snapshot *);
 /* Retains only the proc handle with this generation, never the observed mask. */
 long md_task_snapshot_umask(const struct md_task_snapshot *);
+/* Consumes an exact-task status descriptor captured by the task-affine owner.
+ * The live mask is still read for each creation, never cached as a value. */
+int md_task_snapshot_status_install(const struct md_task_snapshot *,int descriptor);
 void md_task_snapshot_release(struct md_task_snapshot *);
 #endif

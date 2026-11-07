@@ -4,12 +4,19 @@
 #include <errno.h>
 #include <string.h>
 
+static inline int md_control_ioctl_available(struct md_control_file file) {
+    return file.ops && file.ops->ioctl_spec && (file.ops->ioctl || file.ops->ioctl_async);
+}
 static inline long md_control_ioctl_size(const struct md_control_ioctl *s) {
     if (s->size>MD_CONTROL_IOCTL_MAX
-            || s->direction&~(MD_CONTROL_IN|MD_CONTROL_OUT|MD_CONTROL_STRING|MD_CONTROL_INDIRECT)
+            || s->direction&~(MD_CONTROL_IN|MD_CONTROL_OUT|MD_CONTROL_STRING|MD_CONTROL_INDIRECT|MD_CONTROL_ACK|MD_CONTROL_FD)
             || s->fields>MD_CONTROL_IOCTL_FIELDS
             || !!s->fields!=!!(s->direction&MD_CONTROL_INDIRECT)) return -EPROTO;
     if (s->fields && (!(s->direction&MD_CONTROL_IN) || (s->direction&MD_CONTROL_STRING))) return -EPROTO;
+    if ((s->direction&MD_CONTROL_ACK) && !(s->direction&MD_CONTROL_OUT)) return -EPROTO;
+    if ((s->direction&MD_CONTROL_FD) && (!(s->direction&MD_CONTROL_IN)
+            || (s->direction&MD_CONTROL_STRING) || s->size<sizeof(int)
+            || s->descriptor>s->size-sizeof(int))) return -EPROTO;
     size_t total=s->size;
     for (unsigned i=0;i<s->fields;++i) {
         const struct md_control_ioctl_field *f=&s->field[i];
@@ -20,6 +27,9 @@ static inline long md_control_ioctl_size(const struct md_control_ioctl *s) {
         total+=f->capacity;
     }
     return (long)total;
+}
+static inline size_t md_control_ioctl_capture_offset(const struct md_control_ioctl *s) {
+    return ((size_t)md_control_ioctl_size(s)+7)&~(size_t)7;
 }
 static inline size_t md_control_ioctl_field_size(const struct md_control_ioctl *s,unsigned index,const void *data) {
     size_t length;

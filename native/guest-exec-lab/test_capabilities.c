@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "launch_identity.h"
+#include "host_policy.h"
 
 enum { NO_ADDFD=-1, NO_PRIVATE_CLONE=-2 };
 static int execute(const char *supervisor, const char *bootstrap, int denied, int error) {
@@ -50,12 +51,13 @@ int main(int argc, char **argv) {
     assert(md_launch_identity(0, 0, 0, 0));
     assert(md_launch_identity(2000, 2000, 2000, 2000));
     assert(!md_launch_identity(2000, 0, 2000, 0));
-    assert(!md_launch_identity(10000, 10000, 10000, 10000));
+    assert(!md_launch_identity(9999, 9999, 9999, 9999));
     const int missing[] = {SYS_pidfd_open, SYS_faccessat2, SYS_seccomp,SYS_close_range,NO_ADDFD,NO_PRIVATE_CLONE};
     for (unsigned i = 0; i < sizeof(missing)/sizeof(*missing); ++i) {
+        int expected=md_app_uid_active && missing[i]==SYS_faccessat2 ? 0 : 126;
         int result=execute(argv[1], argv[2], missing[i], ENOSYS);
-        if (result!=126) fprintf(stderr,"Capability denial nr=%d returned %d, expected 126\n",missing[i],result);
-        assert(result==126);
+        if (result!=expected) fprintf(stderr,"Capability denial nr=%d returned %d, expected %d\n",missing[i],result,expected);
+        assert(result==expected);
         assert(execute(NULL, NULL, missing[i], ENOSYS) == 0);
     }
     /* Bootstrap HUP and SIGCHLD are independent events: closing the listener
@@ -70,6 +72,11 @@ int main(int argc, char **argv) {
     assert(execute(argv[1], argv[2], SYS_ptrace, ENOSYS) == 125);
     assert(execute(NULL, NULL, SYS_ptrace, ENOSYS) == 0);
     assert(execute(argv[1], argv[2], 0, 0) == 0);
+    if (md_app_uid_active) {
+        /* Native faccessat is also used by Android's shell, unlike the
+         * optional faccessat2 entry. Its absence must reject guest admission. */
+        assert(execute(argv[1],argv[2],SYS_faccessat,ENOSYS)==126);
+    }
     puts("PASS capability isolation: unavailable kernel calls reject guest only; parent and shell unaffected");
     return 0;
 }

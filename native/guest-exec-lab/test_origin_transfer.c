@@ -640,6 +640,12 @@ static void capsules(const char *base, int mode) {
 static void bundles(void) {
     unsigned before=descriptors(); int fd=open("/dev/null",O_RDONLY|O_CLOEXEC); assert(fd>=0);
     int source[600], received[600]; for (unsigned i=0;i<600;++i) source[i]=fd;
+    assert(md_fs_rights_transferable(source,1)==1);
+    assert(md_fs_rights_transferable(source,2)==1);
+    int invalid=-1;
+    assert(md_fs_rights_transferable(&invalid,1)==-EBADF);
+    assert(md_fs_rights_transferable(NULL,1)==-EINVAL);
+    assert(descriptors()==before+1);
     for (unsigned count=253;count<=600;count+=347) {
         int bundle=-1; assert(!md_fd_bundle_pack(source,count,&bundle));
         for (unsigned n=0;n<2;++n) {

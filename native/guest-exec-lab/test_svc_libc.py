@@ -56,9 +56,9 @@ def main():
             files += [(extra, root + '/lib/' + extra.name) for extra in args.dynamic_extra]
         for source, target in files:
             digest = hashlib.sha256(source.read_bytes()).hexdigest()
-            suite.transport.upload(suite.client, source, target)
+            suite.upload(source, target)
             assert suite.command(['sha256sum', target], quiet=True).split()[0] == digest
-            suite.command(['chmod', '700', target])
+            suite.chmod('700', target)
             suite.report['hashes'][str(source)] = digest
         suite.command([suite.base + '/signals'])
         suite.command([suite.base + '/service', '--import', root, suite.base + '/store'])

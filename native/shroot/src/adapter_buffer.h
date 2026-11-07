@@ -11,17 +11,20 @@ enum md_adapter_buffer_control { MD_BUFFER_MAPPED=1, MD_BUFFER_TAKE, MD_BUFFER_R
     MD_BUFFER_PID_NUMBER, MD_BUFFER_DESCRIPTOR_META, MD_BUFFER_MEMORY_OPEN,
     MD_BUFFER_CONTROL_IOCTL_SPEC=80, MD_BUFFER_CONTROL_IOCTL, MD_BUFFER_PIDFD_NAMESPACE,
     MD_BUFFER_CONTROL_MAP, MD_BUFFER_CONTROL_IOCTL_LAYOUT,
+    MD_BUFFER_CONTROL_CAPTURE, MD_BUFFER_CONTROL_CAPTURE_READY,
+    MD_BUFFER_CONTROL_CAPTURE_SENT, MD_BUFFER_CONTROL_CAPTURE_OBSERVED, MD_BUFFER_CONTROL_CAPTURE_ADMIT,
     MD_BUFFER_NETWORK_OPEN=64, MD_BUFFER_NETWORK_CALL, MD_BUFFER_NETWORK_DATA, MD_BUFFER_NETWORK_CREDENTIALS,
     MD_BUFFER_EPOLL_BEGIN=90, MD_BUFFER_EPOLL_CAPTURE_READY, MD_BUFFER_EPOLL_CAPTURE_SENT,
     MD_BUFFER_EPOLL_CAPTURE_OBSERVED, MD_BUFFER_EPOLL_WAIT,
     MD_BUFFER_POLL_BEGIN, MD_BUFFER_POLL_LOAD, MD_BUFFER_POLL_COPY, MD_BUFFER_MEMORY_OPEN_RESULT,
     MD_BUFFER_FINISH, MD_BUFFER_PROC_START, MD_BUFFER_PIDFD_SIGNAL,
     MD_BUFFER_PIDFD_READY, MD_BUFFER_PIDFD_SENT, MD_BUFFER_PIDFD_OBSERVED, MD_BUFFER_PIDFD_ADMIT,
-    MD_BUFFER_CLONE_CGROUP };
+    MD_BUFFER_CLONE_CGROUP, MD_BUFFER_READONLY_MAPPED, MD_BUFFER_SIGNAL_ENABLE,
+    MD_BUFFER_READONLY_INSTALL };
 /* These operations always resume the C caller with a scalar return value.
  * They neither restore application registers nor inject task-context calls. */
 static inline int md_adapter_buffer_scalar(unsigned long command) {
-    return command==MD_BUFFER_MAPPED || command==MD_BUFFER_TAKE
+    return command==MD_BUFFER_MAPPED || command==MD_BUFFER_READONLY_MAPPED || command==MD_BUFFER_SIGNAL_ENABLE || command==MD_BUFFER_TAKE
         || command==MD_BUFFER_RELEASE || command==MD_BUFFER_PROC_META
         || command==MD_BUFFER_PID_NUMBER || command==MD_BUFFER_DESCRIPTOR_META
         || command==MD_BUFFER_MEMORY_OPEN || command==MD_BUFFER_MEMORY_OPEN_RESULT
@@ -32,6 +35,7 @@ static inline int md_adapter_buffer_scalar(unsigned long command) {
 struct md_adapter_input { long value; void *buffer; };
 #ifndef MD_USE_LIBC
 int md_adapter_buffer_install(void);
+int md_adapter_readonly_install(void);
 int md_adapter_buffer_ready(void);
 long md_adapter_buffer_take(void);
 long md_adapter_buffer_release(void);

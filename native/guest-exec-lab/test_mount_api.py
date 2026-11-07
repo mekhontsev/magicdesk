@@ -115,7 +115,7 @@ libc = ctypes.CDLL(None, use_errno=True)
 libc.syscall.restype = ctypes.c_long
 for _ in range(8):
     fd = libc.syscall(ctypes.c_long(428), ctypes.c_long(-100),
-                      ctypes.c_char_p(b'/usr/bin/true'), ctypes.c_long(1 | os.O_CLOEXEC))
+                      ctypes.c_char_p(b'/bin/sh'), ctypes.c_long(1 | os.O_CLOEXEC))
     assert fd >= 0, ctypes.get_errno()
     os.close(fd)
 with open('/proc/self/exe', 'rb') as image:
@@ -1078,7 +1078,7 @@ def main():
         prefix += ['--env', 'SHROOT_MACHINE_ENTRY=0']
     suite.report['entry'] = 'base' if args.base else 'default'
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(['/system/bin/ln', '-s', 'test.py', suite.base + '/linked.py'])
         suite.command(prefix + ['--', '/bin/mkdir', target])
         suite.command(prefix + ['--bind-ro', suite.base, target, '--deadline-seconds', '30', '--',

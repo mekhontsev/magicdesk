@@ -5,7 +5,9 @@ import importlib.util
 import json
 from pathlib import Path
 import shlex
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -27,11 +29,10 @@ def evidence(**changes):
 class KernelProfileTest(unittest.TestCase):
     def test_native_has_no_effect(self):
         profile = KernelProfile('native')
-        upload, command = Mock(), Mock()
+        command = Mock()
         profile.prepare(command, '/supervisor')
-        self.assertEqual('/run', profile.stage_launcher(upload, command, '/run'))
+        self.assertEqual('unset MAGICDESK_TEST_KERNEL_PROFILE\n/run', profile.shell('/run'))
         self.assertEqual([], profile.options)
-        upload.assert_not_called()
         command.assert_not_called()
 
     def test_argument_and_environment(self):
@@ -48,7 +49,7 @@ class KernelProfileTest(unittest.TestCase):
         profile = KernelProfile('linux-5.15')
         command = Mock(return_value=evidence())
         profile.prepare(command, '/supervisor')
-        command.assert_called_once_with(['env', 'MAGICDESK_TEST_KERNEL_PROFILE=linux-5.15',
+        command.assert_called_once_with(['sh', '-c', 'export MAGICDESK_TEST_KERNEL_PROFILE=linux-5.15\nexec "$@"', 'kernel-profile',
                                          '/supervisor', '--test-kernel-profile'])
         self.assertEqual('6.12-test', profile.evidence['probe']['kernel'])
         self.assertEqual([], profile.evidence['launches'])
@@ -56,19 +57,23 @@ class KernelProfileTest(unittest.TestCase):
             with self.subTest(output=invalid), self.assertRaises(AssertionError):
                 profile.prepare(lambda _: invalid, '/supervisor')
 
-    def test_launcher_is_a_path_not_a_shell_fragment(self):
+    def test_executable_with_equals_and_spaces(self):
         profile = KernelProfile('linux-5.15')
-        staged = {}
-        def upload(source, target):
-            staged[target] = source.read_text()
-        command = Mock()
-        path = profile.stage_launcher(upload, command, '/fixture with spaces/run')
-        self.assertEqual('/fixture with spaces/run.kernel-profile', path)
-        body = staged[path].splitlines()[1]
-        self.assertEqual(['exec', '/fixture with spaces/run', '--env',
-                          'MAGICDESK_TEST_KERNEL_PROFILE=linux-5.15', '$@'], shlex.split(body))
-        self.assertTrue(body.endswith(' "$@"'))
-        command.assert_called_once_with(['chmod', '700', path])
+        with tempfile.TemporaryDirectory(prefix='kernel= profile ') as temporary:
+            executable = Path(temporary) / 'python=fixture'
+            executable.symlink_to(sys.executable)
+            command = [*profile.environment, str(executable), '-c',
+                       'import os,sys; print(os.environ[sys.argv[1]]); print(sys.argv[2])',
+                       profile.variable, 'argument=with spaces']
+            result = subprocess.run(command, text=True, capture_output=True, check=True)
+            self.assertEqual('linux-5.15\nargument=with spaces\n', result.stdout)
+
+    def test_profile_does_not_require_an_executable_wrapper(self):
+        profile = KernelProfile('linux-5.15')
+        command = shlex.join(['/fixture with spaces/run', '--', 'guest argument'])
+        selector, body = profile.shell(command).split('\n', 1)
+        self.assertEqual(['export', 'MAGICDESK_TEST_KERNEL_PROFILE=linux-5.15'], shlex.split(selector))
+        self.assertEqual(command, body)
 
     def test_guest_output_is_preserved(self):
         output = '{"guest":true}\n' + evidence() + 'last line'
@@ -83,13 +88,13 @@ class KernelProfileTest(unittest.TestCase):
         suite = Suite.__new__(Suite)
         suite.kernel_profile = KernelProfile('linux-5.15')
         suite.image = '/image'
-        suite.runner = '/run.kernel-profile'
+        suite.runner = '/run'
         suite.entry_options = ['--env', 'SHROOT_MACHINE_ENTRY=1']
         for action in ('run', 'exec', 'login'):
             self.assertEqual(['/image', action, '/store', *suite.kernel_profile.options, '--', '/bin/true'],
                              suite.image_command(action, '/store', '--', '/bin/true'))
         self.assertEqual(['/image', 'inspect', '/store'], suite.image_command('inspect', '/store'))
-        self.assertEqual(['/run.kernel-profile', '--store', '/store', *suite.entry_options, '--', '/bin/true'],
+        self.assertEqual(['/run', '--store', '/store', *suite.entry_options, '--', '/bin/true'],
                          suite.guest('/store', '--', '/bin/true'))
 
     def test_installed_helpers_cannot_silently_ignore_profile(self):
@@ -116,6 +121,8 @@ class KernelProfileTest(unittest.TestCase):
     def test_stdout_separates_diagnostics_without_trimming_data(self):
         suite = Suite.__new__(Suite)
         suite.base = '/fixture'
+        suite.executor = Mock()
+        suite.executor.native_path.side_effect = lambda path: path
         data = ' leading space\n{"guest":true}\n'
         framed = 'warning\nSHROOT_TEST_STDOUT ' + base64.b64encode(data.encode()).decode() + '\n'
         suite.command = Mock(return_value=framed)

@@ -353,7 +353,7 @@ def main():
         prefix += ['--env', 'SHROOT_MACHINE_ENTRY=0']
     suite.report['entry'] = 'base' if args.base else 'default'
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         suite.command(prefix + ['--bind-ro', suite.base, target, '--deadline-seconds', '100', '--',
                                 '/usr/bin/unshare', '--mount', '/usr/bin/python3', target + '/test.py', '--guest'],

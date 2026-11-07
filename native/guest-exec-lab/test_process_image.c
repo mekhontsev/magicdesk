@@ -14,6 +14,7 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "native_probe.h"
 
 struct image_open_how { uint64_t flags, mode, resolve; };
 enum { NO_XDEV = 1, NO_MAGICLINKS = 2, NO_SYMLINKS = 4, BENEATH = 8, IN_ROOT = 16, CACHED = 32 };
@@ -62,10 +63,11 @@ static void image_signals(const char *path,int argc,char **argv) {
     assert(!sigaction(SIGUSR1,&old,NULL));
     puts("PASS foreign process snapshot: signal restart preserves exact cmdline bytes");
 }
-static void protected_image(int argc,char **argv,int other_user) {
+static void protected_image(int argc,char **argv,int other_user,int inspect_allowed) {
     int ready[2],finish[2]; assert(!pipe(ready) && !pipe(finish));
     pid_t child=fork(); assert(child>=0);
     if (!child) {
+        close(ready[0]); close(finish[1]);
         assert(!prctl(PR_SET_DUMPABLE,0,0,0,0));
         char executable[4096];
         assert(readlink("/proc/self/exe",executable,sizeof(executable))>0);
@@ -78,6 +80,7 @@ static void protected_image(int argc,char **argv,int other_user) {
         char byte; assert(read(finish[0],&byte,1)==1);
         _exit(0);
     }
+    close(ready[1]); close(finish[0]);
     char byte; assert(read(ready[0],&byte,1)==1);
     if (other_user) assert(!seteuid(1000));
     char path[128]; snprintf(path,sizeof(path),"/proc/%d/cmdline",child);
@@ -85,16 +88,28 @@ static void protected_image(int argc,char **argv,int other_user) {
     image(AT_FDCWD,path,argc,argv);
     image_signals(path,argc,argv); argv[0][0]=first;
     snprintf(path,sizeof(path),"/proc/%d/auxv",child);
-    int fd=open(path,O_RDONLY); assert(fd==-1 && errno==EACCES);
+    int fd=open(path,O_RDONLY);
+    if (inspect_allowed) {
+        Elf64_auxv_t aux;
+        assert(fd>=0 && read(fd,&aux,sizeof(aux))==sizeof(aux)); close(fd);
+    } else assert(fd==-1 && errno==EACCES);
     snprintf(path,sizeof(path),"/proc/%d/exe",child);
-    fd=open(path,O_RDONLY); assert(fd==-1 && errno==EACCES);
+    fd=open(path,O_RDONLY);
+    if (inspect_allowed) {
+        char elf[4];
+        assert(fd>=0 && read(fd,elf,sizeof(elf))==sizeof(elf) && !memcmp(elf,"\177ELF",sizeof(elf)));
+        close(fd);
+    } else assert(fd==-1 && errno==EACCES);
     char executable[4096];
-    assert(readlink(path,executable,sizeof(executable))==-1 && errno==EACCES);
+    ssize_t size=readlink(path,executable,sizeof(executable));
+    if (inspect_allowed) assert(size>0);
+    else assert(size==-1 && errno==EACCES);
     if (other_user) assert(!seteuid(0));
     assert(write(finish[1],"!",1)==1);
     int status; assert(waitpid(child,&status,0)==child && status==0);
-    close(ready[0]); close(ready[1]); close(finish[0]); close(finish[1]);
-    puts("PASS protected process image: self exe and live cmdline readable; foreign auxv/exe stay denied");
+    close(ready[0]); close(finish[1]);
+    puts(inspect_allowed ? "PASS protected process image: privileged inspection retains auxv/exe access"
+        : "PASS protected process image: self exe and live cmdline readable; foreign auxv/exe stay denied");
 }
 static void title_snapshot(const char *path,const char *expected,size_t size) {
     int fd=open(path,O_RDONLY|O_CLOEXEC); assert(fd>=0);
@@ -160,27 +175,31 @@ static void process_title(int argc,char **argv) {
         int ready[2],finish[2]; assert(!pipe(ready) && !pipe(finish));
         pid_t child=fork(); assert(child>=0);
         if (!child) {
+            close(ready[0]); close(finish[1]);
             assert(!prctl(PR_SET_DUMPABLE,0,0,0,0));
             title_snapshot("/proc/self/cmdline",start,size);
             assert(write(ready[1],"!",1)==1);
             char byte; assert(read(finish[0],&byte,1)==1);
             _exit(0);
         }
+        close(ready[1]); close(finish[0]);
         char byte; assert(read(ready[0],&byte,1)==1);
         char path[64]; snprintf(path,sizeof(path),"/proc/%d/cmdline",child);
         title_snapshot(path,start,size);
         assert(write(finish[1],"!",1)==1);
         int status; assert(waitpid(child,&status,0)==child && !status);
-        close(ready[0]); close(ready[1]); close(finish[0]); close(finish[1]);
+        close(ready[0]); close(finish[1]);
     }
     memcpy(start,backup,total); free(backup);
     puts("PASS process title: extended argv/environment, first NUL, page bound and protected foreign views");
 }
 int main(int argc, char **argv) {
+    md_test_native_probe(argc,argv);
     if (argc==2 && !strcmp(argv[1],"zombie")) { zombie_image(); return 0; }
     if (argc==2 && !strcmp(argv[1],"title")) { process_title(argc,argv); return 0; }
-    if (argc==2 && (!strcmp(argv[1],"protected") || !strcmp(argv[1],"protected-other-user"))) {
-        protected_image(argc,argv,!strcmp(argv[1],"protected-other-user")); return 0;
+    if (argc==2 && (!strcmp(argv[1],"protected") || !strcmp(argv[1],"protected-other-user")
+            || !strcmp(argv[1],"protected-root"))) {
+        protected_image(argc,argv,!strcmp(argv[1],"protected-other-user"),!strcmp(argv[1],"protected-root")); return 0;
     }
     image(AT_FDCWD, "/proc/self/cmdline", argc, argv);
     char *original[16]; assert(argc > 0 && argc < 16);
@@ -231,6 +250,10 @@ int main(int argc, char **argv) {
     assert(syscall(SYS_openat2, root, "passwd", &larger, getauxval(AT_PAGESZ) + 1) == -1 && errno == E2BIG);
     close(root);
     puts("PASS process image: guest argv/auxv aliases and native seek; openat2 scoped resolution");
-    protected_image(argc,argv,0);
+    /* Capability ABI v3, also buildable with a libc-only fixture sysroot. */
+    struct { uint32_t version; int32_t pid; } header={0x20080522,0};
+    struct { uint32_t effective,permitted,inheritable; } capabilities[2]={{0}};
+    assert(!syscall(SYS_capget,&header,capabilities));
+    protected_image(argc,argv,0,!!(capabilities[0].effective&(1U<<19)));
     return 0;
 }

@@ -331,6 +331,78 @@ static void retired_oneshot(void) {
     assert(descriptors()==before);
     puts("PASS final release wakes one-shot retirement without a fabricated event");
 }
+struct task_sample { struct md_fd_object object; uint64_t revision; uint32_t mask; };
+static void task_destroy(struct md_fd_object *object) { free(object); }
+static long task_poll(struct md_fd_object *object,const struct md_control_actor *actor) {
+    return actor->status_flags ? ((struct task_sample *)object)->mask : 0;
+}
+static struct md_task_readiness_epoch task_epoch(struct md_fd_object *object,const struct md_control_actor *actor) {
+    return (struct md_task_readiness_epoch){.domain=actor->pid,.pending=((struct task_sample *)object)->revision};
+}
+static const struct md_fd_object_type task_type={.destroy=task_destroy,.task_poll=task_poll,.task_poll_epoch=task_epoch};
+static int task_collect(struct md_control_epoll *q,const struct md_control_actor *actor,
+        const struct epoll_event *native,int count,struct epoll_event *out,int capacity) {
+    assert(md_control_epoll_task_delivery_begin(q)==1);
+    int result=md_control_epoll_task_collect(q,actor,native,count,out,capacity);
+    md_control_epoll_task_delivery_finish(q,1);
+    return result;
+}
+static void task_affinity(void) {
+    unsigned before=descriptors();
+    struct md_control_epoll *q=md_control_epoll_new(); assert(q);
+    struct task_sample *s=calloc(1,sizeof(*s)); assert(s);
+    md_fd_object_init(&s->object,&task_type); s->mask=EPOLLIN; s->revision=1;
+    struct md_control_actor actor={.pid=17,.status_flags=1},other={.pid=18,.status_flags=1};
+    struct md_epoll_task_control *operation=NULL,*busy=NULL;
+    struct epoll_event e={.events=EPOLLIN|EPOLLET,.data.u64=UINT64_MAX},native,out[4];
+    assert(md_control_epoll_admit_begin(q)==1 && !md_control_epoll_admit_finish(q,1));
+    assert(!md_control_epoll_task_begin(q,EPOLL_CTL_ADD,7,&s->object,&actor,&e,&native,&operation));
+    uint64_t token=native.data.u64;
+    assert(token && token!=UINT64_MAX);
+    assert(md_control_epoll_task_begin(q,EPOLL_CTL_ADD,8,&s->object,&actor,&e,&native,&busy)==-EAGAIN && !busy);
+    assert(!md_control_epoll_task_ready(q,&actor));
+    md_control_epoll_task_finish(operation,-EBADF);
+    assert(!md_control_epoll_task_ready(q,&actor));
+    assert(!md_control_epoll_task_begin(q,EPOLL_CTL_ADD,7,&s->object,&actor,&e,&native,&operation));
+    assert(native.data.u64!=token); token=native.data.u64;
+    md_control_epoll_task_finish(operation,0);
+    assert(md_control_epoll_task_ready(q,&actor) && !md_control_epoll_task_ready(q,&other));
+    assert(!task_collect(q,&other,NULL,0,out,4));
+    struct epoll_event returned={.events=EPOLLIN,.data.u64=token};
+    assert(md_control_epoll_task_delivery_begin(q)==1);
+    assert(!md_control_epoll_task_delivery_begin(q));
+    assert(md_control_epoll_task_collect(q,&actor,NULL,0,out,4)==1);
+    assert(md_control_epoll_task_begin(q,EPOLL_CTL_MOD,7,&s->object,&actor,&e,&native,&busy)==-EAGAIN);
+    md_control_epoll_task_delivery_finish(q,0);
+    assert(task_collect(q,&actor,&returned,1,out,4)==1 && out[0].data.u64==UINT64_MAX);
+    assert(!md_control_epoll_task_ready(q,&actor));
+    assert(!task_collect(q,&actor,NULL,0,out,4));
+    ++s->revision;
+    assert(task_collect(q,&actor,NULL,0,out,4)==1);
+    e.events=EPOLLIN|EPOLLONESHOT;
+    assert(!md_control_epoll_task_begin(q,EPOLL_CTL_MOD,7,&s->object,&actor,&e,&native,&operation));
+    md_control_epoll_task_finish(operation,0);
+    assert(md_control_epoll_task_delivery_begin(q)==1);
+    assert(md_control_epoll_task_collect(q,&actor,NULL,0,out,4)==1);
+    md_control_epoll_task_delivery_finish(q,0);
+    assert(md_control_epoll_task_ready(q,&actor));
+    assert(task_collect(q,&actor,NULL,0,out,4)==1);
+    ++s->revision;
+    assert(!task_collect(q,&actor,&returned,1,out,4));
+    assert(!md_control_epoll_task_begin(q,EPOLL_CTL_DEL,7,&s->object,&actor,NULL,&native,&operation));
+    md_control_epoll_task_finish(operation,0);
+    assert(!task_collect(q,&actor,&returned,1,out,4));
+    e.events=EPOLLIN;
+    assert(!md_control_epoll_task_begin(q,EPOLL_CTL_ADD,7,&s->object,&actor,&e,&native,&operation));
+    assert(native.data.u64!=token);
+    md_control_epoll_task_finish(operation,0);
+    s->mask=0;
+    assert(!task_collect(q,&actor,&returned,1,out,4));
+    md_fd_object_release(&s->object);
+    assert(!task_collect(q,&actor,NULL,0,out,4));
+    md_control_epoll_release(q); assert(descriptors()==before);
+    puts("PASS task epoll: caller domain, edge/one-shot state, internal token isolation, reservation rollback and stale events");
+}
 void test_control_epoll(void) {
     struct md_control_epoll *q=md_control_epoll_new(); assert(q);
     struct md_fd_object *object=md_control_epoll_object(q);
@@ -345,5 +417,5 @@ void test_control_epoll(void) {
     assert(!md_control_epoll_native_wait(object));
     md_control_epoll_release(q);
     identities(); policies(); mixed(); exclusive(); subscription_lifetime();
-    batch_retirement(); admission_failure(); retired_oneshot();
+    batch_retirement(); admission_failure(); retired_oneshot(); task_affinity();
 }

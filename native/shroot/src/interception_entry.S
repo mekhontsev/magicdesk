@@ -1,4 +1,6 @@
 #include <asm/unistd.h>
+#include "task_stack.h"
+#include "signal_entry.h"
 .text
 .balign 4
 /* Markers have a fixed syscall identity, never a register-copy payload or the
@@ -23,6 +25,26 @@ md_guest_entry_kernel:
     svc #0
     ret
 .size md_guest_entry_kernel, .-md_guest_entry_kernel
+.global md_guest_signal_entry
+.global md_guest_signal_entry_committed
+.global md_guest_signal_entry_end
+.type md_guest_signal_entry, %function
+md_guest_signal_entry:
+    /* No interrupted application register is borrowed. Restore the original
+     * information before exposing the kernel-built frame to the handler. */
+    ldr x9, [x1, #MD_SIGNAL_INFO_PACKET]
+    ldp x17, x10, [x9]
+    str x10, [x2, #MD_SIGNAL_CONTEXT_MASK]
+.irp offset,0,16,32,48,64,80,96,112
+    ldp x10, x11, [x9, #(MD_SIGNAL_ENTRY_INFO+\offset)]
+    stp x10, x11, [x1, #\offset]
+.endr
+    add x9, x9, #16
+    stlr wzr, [x9]
+md_guest_signal_entry_committed:
+    br x17
+md_guest_signal_entry_end:
+.size md_guest_signal_entry, .-md_guest_signal_entry
 .global md_guest_dispatch_entry
 .type md_guest_dispatch_entry, %function
 md_guest_dispatch_entry:
@@ -127,7 +149,7 @@ md_guest_allocate:
     adrp x20, md_page_size
     ldr x20, [x20, :lo12:md_page_size]
     mov x0, #0
-    mov x1, #0x80000
+    mov x1, #MD_TASK_STACK_SIZE
     add x1, x1, x20, lsl #1
     mov x2, #0
     mov x3, #0x22
@@ -138,18 +160,18 @@ md_guest_allocate:
     tbnz x0, #63, 2f
     mov x19, x0
     add x0, x0, x20
-    mov x1, #0x80000
+    mov x1, #MD_TASK_STACK_SIZE
     mov x2, #3
     mov x8, #__NR_mprotect
     bl md_raw_syscall
     tbnz x0, #63, 1f
-    add x0, x19, #0x80000
+    add x0, x19, #MD_TASK_STACK_SIZE
     add x0, x0, x20
     b 2f
 1:
     mov x21, x0
     mov x0, x19
-    mov x1, #0x80000
+    mov x1, #MD_TASK_STACK_SIZE
     add x1, x1, x20, lsl #1
     mov x8, #__NR_munmap
     bl md_raw_syscall

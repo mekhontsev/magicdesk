@@ -1,14 +1,18 @@
 #define _GNU_SOURCE
 #include "process_limits.h"
+#include "process_oom.h"
 #include "task_status.h"
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <stddef.h>
 #include <sched.h>
 #include <stdio.h>
+#include <string.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -48,6 +52,21 @@ static void nofile(struct md_identity *root,struct md_identity *user) {
     assert(md_process_native_nofile(p)==native.rlim_cur && md_process_native_nofile(thread)==native.rlim_cur);
     large=(struct rlimit){RLIM_INFINITY,RLIM_INFINITY};
     assert(md_process_limit(p,root,root,1,RLIMIT_NOFILE,&large,NULL,0)==-EPERM);
+    struct rlimit zero={0,0};
+    assert(!md_process_limit(p,root,root,1,RLIMIT_NOFILE,&zero,NULL,0));
+    assert(md_process_nofile_reserve(p,INT_MAX,2)==-ESRCH);
+    assert(!md_process_nofile_reserve(thread,0,2));
+    assert(md_process_nofile_reserve(p,0,2)==-EBUSY);
+    assert(md_process_native_nofile(p)==0 && !md_process_limits_value(thread).nofile.rlim_max);
+    assert(!getrlimit(RLIMIT_NOFILE,&native) && native.rlim_cur==2);
+    small=(struct rlimit){1,1};
+    assert(!md_process_limit(p,root,root,1,RLIMIT_NOFILE,&small,NULL,0));
+    assert(!getrlimit(RLIMIT_NOFILE,&native) && native.rlim_cur==2);
+    assert(md_process_nofile_release(p,INT_MAX)==-ESRCH);
+    assert(!md_process_nofile_release(thread,0));
+    assert(!getrlimit(RLIMIT_NOFILE,&native) && native.rlim_cur==1);
+    assert(md_process_native_nofile(p)==1);
+    assert(md_process_nofile_release(p,0)==-EINVAL);
     assert(!md_process_limit(p,root,root,1,RLIMIT_NOFILE,&initial.nofile,NULL,0));
     md_process_member_release(thread); md_process_member_release(child); md_process_member_release(p);
     puts("PASS nofile policy: kernel enforcement, reversible hard limit, rollback, sharing and copy");
@@ -69,10 +88,14 @@ static void native_limits(struct md_identity *root,struct md_identity *user) {
     char byte; assert(read(ready[0],&byte,1)==1);
     for (unsigned resource=0;resource<RLIM_NLIMITS;++resource) {
         struct rlimit actual;
-        assert(!md_task_limit(child,resource,&actual));
-        assert(actual.rlim_cur==expected[resource].rlim_cur && actual.rlim_max==expected[resource].rlim_max);
-        assert(!md_process_limit(m,root,root,0,resource,NULL,&actual,child));
-        assert(actual.rlim_cur==expected[resource].rlim_cur && actual.rlim_max==expected[resource].rlim_max);
+        long result=md_task_limit(child,resource,&actual);
+        /* Native inspection has the host's permission ceiling. The guest
+         * integration test requires success through task-affine capture too. */
+        assert(!result || result==-EACCES || result==-EPERM);
+        if (!result) assert(actual.rlim_cur==expected[resource].rlim_cur && actual.rlim_max==expected[resource].rlim_max);
+        int logical=resource==RLIMIT_NPROC || resource==RLIMIT_NOFILE;
+        assert(md_process_limit(m,root,root,0,resource,NULL,&actual,child)==(logical ? 0 : result));
+        if (!result || logical) assert(actual.rlim_cur==expected[resource].rlim_cur && actual.rlim_max==expected[resource].rlim_max);
         assert(md_process_limit(m,user,root,0,resource,NULL,&actual,child)==-EPERM);
     }
     struct rlimit value;
@@ -83,7 +106,7 @@ static void native_limits(struct md_identity *root,struct md_identity *user) {
     assert(md_process_limit(m,root,root,0,RLIMIT_SIGPENDING,NULL,&value,child)==-ESRCH);
     close(ready[0]); close(ready[1]); close(release[0]); close(release[1]);
     md_process_member_release(m);
-    puts("PASS native limits: protected foreign process, all resources, guest permissions and disappearance");
+    puts("PASS native limits: host admission, all resources, guest permissions and disappearance");
 }
 static void proc_limits(void) {
     pid_t child=fork(); assert(child>=0);
@@ -109,12 +132,46 @@ static void proc_limits(void) {
     puts("PASS limits proc fallback: all soft/hard values with native prlimit denied");
 }
 
+static void oom(struct md_identity *root,struct md_identity *user) {
+    int fd=memfd_create("oom-policy",MFD_CLOEXEC); assert(fd>=0);
+    assert(write(fd,"200\n",4)==4);
+    struct md_process_member *p=member(root,&(struct rlimit){16,16}),*thread=NULL,*child=NULL;
+    assert(p && !md_process_member_fork(p,root,CLONE_THREAD,&thread));
+    struct md_process_oom *state=md_process_member_oom(p);
+    assert(state==md_process_member_oom(thread));
+    char data[64]={0};
+    assert(md_process_oom_io(state,root,0,0,fd,-1,0,data,sizeof(data),0)==4 && !strcmp(data,"200\n"));
+    assert(md_process_oom_io(state,root,0,1,fd,-1,-EIO,"-900",4,0)==-EIO);
+    assert(!state->virtualized && state->value==200);
+    assert(md_process_oom_io(state,root,0,1,fd,-1,-EACCES,"-900",4,0)==4);
+    assert(state->virtualized && state->value==-900 && state->minimum==-900);
+    assert(pread(fd,data,sizeof(data),0)==4 && !memcmp(data,"200\n",4));
+    assert(!md_process_member_fork(p,root,0,&child));
+    struct md_process_oom *copy=md_process_member_oom(child);
+    assert(copy!=state && !memcmp(copy,state,sizeof(*copy)));
+    assert(md_process_oom_io(copy,user,0,1,fd,-1,0,"-901",4,0)==-EACCES);
+    assert(md_process_oom_io(copy,user,0,1,fd,-1,0,"250",3,0)==3);
+    assert(md_process_oom_io(copy,user,1,1,fd,-1,0,"0",1,0)==-EACCES);
+    assert(md_process_oom_io(copy,user,0,1,fd,-1,0,"-900",4,0)==4);
+    assert(!md_process_member_exec(child) && copy->value==-900);
+    assert(md_process_oom_io(copy,root,1,1,fd,-1,0,"-17",3,0)==3);
+    assert(copy->value==-1000 && copy->minimum==-900 && state->value==-900);
+    memset(data,0,sizeof(data));
+    assert(md_process_oom_io(copy,root,1,0,fd,-1,0,data,sizeof(data),0)==4 && !strcmp(data,"-17\n"));
+    assert(md_process_oom_io(copy,root,0,1,fd,-1,0,"1001",4,0)==-EINVAL);
+    assert(md_process_oom_io(copy,root,0,1,fd,-1,0,"2147483648",10,0)==-ERANGE);
+    assert(md_process_oom_io(copy,root,0,1,-1,-1,0,"0",1,0)==-EBADF);
+    md_process_member_release(child); md_process_member_release(thread); md_process_member_release(p);
+    close(fd);
+    puts("PASS OOM policy: native denial, error preservation, thread sharing, fork, exec, legacy and credentials");
+}
 int main(void) {
     struct md_identity root=md_identity_new(0,0), user=md_identity_new(1000,1000), other=md_identity_new(1001,1001);
     struct rlimit limit={3,3}, old;
     nofile(&root,&user);
     native_limits(&root,&user);
     proc_limits();
+    oom(&root,&user);
     struct md_process_member *p=member(&user,&limit), *a=NULL,*b=NULL,*c=NULL;
     assert(p);
     assert(!md_process_member_fork(p,&user,CLONE_THREAD,&a));

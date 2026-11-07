@@ -77,12 +77,12 @@ def main():
         suite.report['environment'] = info
         for name in ('test_binfmt_rule', 'binfmt_guest'):
             binary = 'libmagicdesk_guest_' + name + '.so'
-            suite.transport.upload(suite.client, args.build / binary, suite.base + '/' + binary)
-            suite.command(['chmod', '755', suite.base + '/' + binary])
+            suite.upload(args.build / binary, suite.base + '/' + binary)
+            suite.chmod('755', suite.base + '/' + binary)
         suite.command([suite.base + '/libmagicdesk_guest_test_binfmt_rule.so'])
         if args.qemu:
-            suite.transport.upload(suite.client, args.qemu, suite.base + '/foreign-elf')
-            suite.command(['chmod', '755', suite.base + '/foreign-elf'])
+            suite.upload(args.qemu, suite.base + '/foreign-elf')
+            suite.chmod('755', suite.base + '/foreign-elf')
         suite.command(suite.guest(info['store'], '--user', '0:0', '--', '/bin/mkdir', '-p', target))
         for mode in (0, 1):
             output = suite.command(suite.guest(info['store'], '--user', '0:0',

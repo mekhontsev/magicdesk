@@ -439,8 +439,8 @@ def stage_assets(suite, assets):
     for name, path in assets.items():
         with path.open('rb') as source:
             suite.report['assets'][name] = hashlib.file_digest(source, 'sha256').hexdigest()
-        suite.transport.upload(suite.client, path, suite.base + '/' + name)
-        suite.command(['chmod', '755', suite.base + '/' + name])
+        suite.upload(path, suite.base + '/' + name)
+        suite.chmod('755', suite.base + '/' + name)
 
 
 if __name__ == '__main__':

@@ -15,8 +15,8 @@ def main():
     target = '/tmp/md-filtered-fd-' + suite.report['id']
     prefix = [suite.runner, '--store', args.store, '--user', '0:0']
     try:
-        suite.transport.upload(suite.client, Path(__file__).with_suffix('.c'), suite.base + '/test.c')
-        suite.command(['chmod', '777', suite.base])
+        suite.upload(Path(__file__).with_suffix('.c'), suite.base + '/test.c')
+        suite.chmod('777', suite.base)
         suite.command(prefix + ['--', '/bin/mkdir', target])
         command = prefix + ['--bind', suite.base, target, '--deadline-seconds', '60']
         if args.diagnostics:

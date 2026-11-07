@@ -41,7 +41,9 @@ public class GuestRuntimeTest {
                 "--cwd", "/guest/c d", "--", "/bin/sh", "-c", "echo '$HOME'"), plan.arguments());
         GuestLaunchPlan.requireIdentity(2000);
         GuestLaunchPlan.requireIdentity(0);
-        for (int uid : List.of(10000, -1)) assertThrows(IllegalStateException.class, () -> GuestLaunchPlan.requireIdentity(uid));
+        for (int uid : List.of(10000, 19999, 110000, 119999)) GuestLaunchPlan.requireIdentity(uid);
+        for (int uid : List.of(1000, 9999, 20000, 99000, -1))
+            assertThrows(IllegalStateException.class, () -> GuestLaunchPlan.requireIdentity(uid));
     }
 
     @Test public void rejectsIncompleteAndAmbiguousPlans() {

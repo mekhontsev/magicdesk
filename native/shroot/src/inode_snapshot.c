@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "inode_internal.h"
+#include "storage_paths.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -84,6 +85,10 @@ int md_inode_snapshot(struct md_inode_store *source, struct md_inode_store *targ
                 "DELETE FROM properties WHERE key GLOB 'runtime_readonly/*'; "
                 "UPDATE inode_channels SET channel=lower(hex(randomblob(16))),source=0; "
                 "UPDATE properties SET value=0 WHERE key='sealed'");
+            char previous[PATH_MAX],destination[PATH_MAX];
+            if (!r) r=md_storage_directory_path(source->lifetime->root,previous,sizeof(previous));
+            if (!r) r=md_storage_directory_path(target->lifetime->root,destination,sizeof(destination));
+            if (!r) r=md_storage_sources_rebase(target->db,previous,destination);
             int origin = 0;
             sqlite3_stmt *local = NULL;
             if (!r) r = mdi_prepare(target, "SELECT 1 FROM objects WHERE kind=32768 AND source=0 LIMIT 1", &local);

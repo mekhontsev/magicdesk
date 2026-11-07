@@ -219,9 +219,9 @@ def main():
     target = '/tmp/md-setid-' + suite.report['id']
     prefix = suite.guest(args.store, '--user', '0:0')
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
-        suite.transport.upload(suite.client, Path(__file__).parent / 'fixtures/setid-probe.c', suite.base + '/probe.c')
-        suite.transport.upload(suite.client, Path(__file__).parent / 'fixtures/setid-library.c', suite.base + '/library.c')
+        suite.upload(Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__).parent / 'fixtures/setid-probe.c', suite.base + '/probe.c')
+        suite.upload(Path(__file__).parent / 'fixtures/setid-library.c', suite.base + '/library.c')
         suite.command(prefix + ['--', '/bin/mkdir', '-m', '755', target])
         suite.command(prefix + ['--', '/bin/mkdir', '-m', '755', target + '/trusted', target + '/untrusted'])
         for name, value in [('trusted', 7), ('untrusted', 99)]:

@@ -144,12 +144,19 @@ void md_boot(uintptr_t *kernel_stack) {
         if (md_copy(md_files.endpoint,sizeof(md_files.endpoint),argv[root_arg]) || !md_files.endpoint[0])
             md_die("invalid namespace endpoint",-EINVAL);
     } else {
-    if (argv[root_arg][0] != '/' || md_copy(md_files.root, sizeof(md_files.root), argv[root_arg]))
-        md_die("rootfs must be an absolute path", -EINVAL);
-    size_t root_len = md_length(md_files.root);
-    while (root_len > 1 && md_files.root[root_len - 1] == '/') md_files.root[--root_len] = 0;
-    if (root_len == 1) md_die("host root is not a guest rootfs", -EINVAL);
-    if (!inherited && (r = RAW1(chdir, md_files.root)) < 0) md_die("enter rootfs", r);
+        if (argv[root_arg][0] != '/' || md_copy(md_files.root, sizeof(md_files.root), argv[root_arg]))
+            md_die("rootfs must be an absolute path", -EINVAL);
+        size_t root_len = md_length(md_files.root);
+        while (root_len > 1 && md_files.root[root_len - 1] == '/') md_files.root[--root_len] = 0;
+        if (root_len == 1) md_die("host root is not a guest rootfs", -EINVAL);
+        if (!inherited) {
+            if ((r = RAW1(chdir, md_files.root)) < 0) md_die("enter rootfs", r);
+            /* Relative paths and proc-FD links use the kernel's canonical path.
+             * Retain that same identity through later exec without moving cwd. */
+            r = RAW2(getcwd, md_files.root, sizeof(md_files.root));
+            if (r < 0) md_die("resolve rootfs", r);
+            if (md_equal(md_files.root,"/")) md_die("host root is not a guest rootfs", -EINVAL);
+        }
     }
     r = md_interception_install(inherited);
     if (r < 0) md_die("install syscall adapter", r);

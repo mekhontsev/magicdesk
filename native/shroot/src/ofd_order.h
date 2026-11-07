@@ -5,7 +5,9 @@
 struct md_ofd_orders;
 struct md_ofd_entry;
 /* An active operation pins its exact kernel open description. This is not a
- * descriptor catalogue: the last operation removes the entry and closes it. */
+ * descriptor catalogue: the last operation removes the entry and closes it.
+ * Without safe native OFD comparison, a queue conservatively orders every
+ * active description of that inode; each operation still uses its own FD. */
 struct md_ofd_order {
     struct md_ofd_orders *owner;
     struct md_ofd_entry *entry;

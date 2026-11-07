@@ -20,7 +20,7 @@
 #include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
-#include <sys/shm.h>
+#include <linux/shm.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
@@ -100,6 +100,12 @@ static void attach_test(int seize, int trace_exit) {
     if (seize) assert((unsigned)status >> 16 == PTRACE_EVENT_STOP);
     unsigned long registers[34]; struct iovec iov = {registers, sizeof(registers)};
     assert(!ptrace(PTRACE_GETREGSET, child, NT_PRSTATUS, &iov));
+    uint64_t mask=0,observed=0;
+    assert(!ptrace(PTRACE_GETSIGMASK,child,sizeof(mask),&mask));
+    uint64_t requested=mask|(UINT64_C(1)<<(SIGSYS-1));
+    assert(!ptrace(PTRACE_SETSIGMASK,child,sizeof(requested),&requested));
+    assert(!ptrace(PTRACE_GETSIGMASK,child,sizeof(observed),&observed) && observed==requested);
+    assert(!ptrace(PTRACE_SETSIGMASK,child,sizeof(mask),&mask));
     if (trace_exit) {
         assert(!ptrace(PTRACE_CONT, child, 0, 0));
         assert(write(release[1], "x", 1) == 1);
@@ -177,13 +183,17 @@ static void syscall_test(void) {
     pid_t child = fork(); assert(child >= 0);
     if (!child) {
         assert(!ptrace(PTRACE_TRACEME, 0, 0, 0)); raise(SIGSTOP);
+        assert(!syscall(SYS_rt_sigaction,SIGUSR1,NULL,NULL,sizeof(uint64_t)));
+        uint64_t pending;
+        assert(!syscall(SYS_rt_sigpending,&pending,sizeof(pending)));
         assert(syscall(SYS_getpid) == getpid());
         int fd = open("/etc/passwd", O_RDONLY); assert(fd >= 0);
         char bytes[16]; assert(read(fd, bytes, sizeof(bytes)) > 0);
         int copy=syscall(SYS_dup,fd); assert(copy>=0);
         assert(syscall(SYS_dup3,fd,copy,O_CLOEXEC)==copy);
-        assert(!fcntl(copy,F_SETFD,0));
-        int high=fcntl(copy,F_DUPFD_CLOEXEC,128); assert(high>=128);
+        /* Count kernel operations, not libc's compatibility probes. */
+        assert(!syscall(SYS_fcntl,copy,F_SETFD,0));
+        int high=syscall(SYS_fcntl,copy,F_DUPFD_CLOEXEC,128); assert(high>=128);
         assert(!syscall(SYS_close_range,high,high,0));
         assert(!close(copy) && !close(fd));
         /* An unrelated application register cannot select adapter policy,
@@ -217,15 +227,19 @@ static void syscall_test(void) {
         struct ptrace_syscall_info info = {0};
         assert(ptrace(PTRACE_GET_SYSCALL_INFO, child, sizeof(info), &info) > 0);
         if (info.op == PTRACE_SYSCALL_INFO_ENTRY) {
+            assert(entries==exits);
             entries++; if (info.entry.nr == SYS_openat) opening++;
             closing+=info.entry.nr==SYS_close;
             duplicating+=info.entry.nr==SYS_dup;
             replacing+=info.entry.nr==SYS_dup3;
             controlling+=info.entry.nr==SYS_fcntl;
             ranging+=info.entry.nr==SYS_close_range;
-        } else { assert(info.op == PTRACE_SYSCALL_INFO_EXIT); exits++; }
+        } else { assert(info.op == PTRACE_SYSCALL_INFO_EXIT && entries==exits+1); exits++; }
     }
     assert(entries >= 6 && exits == entries - 1 && opening == 1 && exiting == 1);
+    if (closing!=2 || duplicating!=1 || replacing!=1 || controlling!=2 || ranging!=1)
+        fprintf(stderr,"debugger entries: close=%d dup=%d dup3=%d fcntl=%d close_range=%d total=%d/%d\n",
+            closing,duplicating,replacing,controlling,ranging,entries,exits);
     assert(closing==2 && duplicating==1 && replacing==1 && controlling==2 && ranging==1);
 }
 static void syscall_edit_close_test(void) {
@@ -299,6 +313,8 @@ static void credential_transition_test(void) {
             } else {
                 assert(entry && info.op==PTRACE_SYSCALL_INFO_EXIT); entry=0;
                 if (number==SYS_setresgid || number==SYS_setresuid) {
+                    if (info.exit.rval) fprintf(stderr,"credential syscall=%ld result=%lld error=%u\n",
+                        number,(long long)info.exit.rval,info.exit.is_error);
                     assert(!info.exit.rval); ++changed;
                 }
             }
@@ -369,6 +385,10 @@ static void syscall_signal_test(void) {
     if (!child) {
         struct sigaction action={.sa_handler=child_signal,.sa_flags=SA_RESTART};
         assert(!sigaction(SIGUSR1,&action,NULL));
+        /* A launcher can inherit SIGUSR1 blocked (including Android ART).
+         * This fixture explicitly tests delivery, not the inherited mask. */
+        sigset_t set; sigemptyset(&set); sigaddset(&set,SIGUSR1);
+        assert(!sigprocmask(SIG_UNBLOCK,&set,NULL));
         assert(!ptrace(PTRACE_TRACEME,0,0,0)); raise(SIGSTOP);
         for (unsigned i=0;i<32;++i) {
             struct stat st;
@@ -402,6 +422,9 @@ static void syscall_signal_test(void) {
             assert(info.op==PTRACE_SYSCALL_INFO_EXIT && active); active=0;
         }
     }
+    if (signals!=32 || !active || nr!=SYS_exit_group)
+        fprintf(stderr,"syscall-signal completion signals=%d active=%d nr=%llu\n",
+                signals,active,(unsigned long long)nr);
     assert(signals==32 && active && nr==SYS_exit_group);
 }
 static void kill_stopped_test(void) {
@@ -656,14 +679,15 @@ __attribute__((noinline)) static void shm_marker(char *address) {
     assert(*address=='S');
 }
 static void shm_target(void) {
-    int id=shmget(IPC_PRIVATE,4096,0600); assert(id>=0);
+    int id=syscall(SYS_shmget,IPC_PRIVATE,4096,0600); assert(id>=0);
     for (unsigned n=0;n<4;++n) {
-        char *address=shmat(id,NULL,0); assert(address!=(void *)-1);
+        char *address=(void *)syscall(SYS_shmat,id,NULL,0); assert(address!=(void *)-1);
         *address='S'; shm_marker(address);
-        assert(!shmdt(address));
+        assert(!syscall(SYS_shmdt,address));
     }
-    struct shmid_ds info;
-    assert(!shmctl(id,IPC_STAT,&info) && !info.shm_nattch && !shmctl(id,IPC_RMID,NULL));
+    struct shmid64_ds info;
+    assert(!syscall(SYS_shmctl,id,IPC_STAT,&info) && !info.shm_nattch
+        && !syscall(SYS_shmctl,id,IPC_RMID,NULL));
 }
 __attribute__((noinline)) static void jit_marker(uint32_t *address, unsigned value) {
     assert(address[0]==(0x52800000u|(value<<5)));

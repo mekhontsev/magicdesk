@@ -8,7 +8,7 @@ import json
 import math
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 import time
 import urllib.error
@@ -166,6 +166,19 @@ def download(client, source, target, transfer_id=None, overwrite=False):
     return {"path": str(target), "size": result["size"], "sha256": result["sha256"]}
 
 
+def runtime_temporary_directory(client):
+    session = client.call("console.open")["sessionId"]
+    try:
+        result = client.call("console.execute", {"sessionId": session, "command": "printf '%s' \"$TMPDIR\""})
+        value = result["output"]
+        path = PurePosixPath(value)
+        if result["exitCode"] or not path.is_absolute() or value == "/" or any(c in value for c in "\r\n\0"):
+            raise ToolError("The selected executor did not provide a private temporary directory")
+        return path
+    finally:
+        client.call("console.close", {"sessionId": session})
+
+
 def update(client, apk, update_id=None):
     update_id = update_id or uuid.uuid4().hex
     print("Update updateId=" + update_id, file=sys.stderr)
@@ -182,7 +195,8 @@ def update(client, apk, update_id=None):
         closed = client.call("wait_for_state", {"condition": "desktop_inactive", "timeoutMillis": 30000})
         if not closed.get("matched"):
             raise ToolError("Desktop cleanup has not completed; update was not started")
-        transfer = upload(client, apk, "/data/local/tmp/magicdesk-" + update_id + ".apk", update_id)
+        path = runtime_temporary_directory(client) / ("update-" + update_id + ".apk")
+        transfer = upload(client, apk, str(path), update_id)
         try:
             # Reinstallation may kill the HTTP request. Do not repeat this mutation on uncertainty.
             client.call("app.update", {"updateId": update_id, "path": transfer["path"], "sha256": sha})

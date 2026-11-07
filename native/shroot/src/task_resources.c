@@ -9,12 +9,13 @@ int md_resources_init(struct md_task_resources *r, struct md_mount_namespace *mo
     *r = (struct md_task_resources){.fs=md_domain_new(), .sem_undo=md_ipc_undo_new(),
         .mounts=md_mount_namespace_retain(mounts), .files=md_fd_origins_new(), .uts=md_uts_namespace_new(),
         .ipc=md_ipc_namespace_new(NULL,0), .network=md_network_namespace_new(NULL,0),
-        .cgroup=md_cgroup_member_new()};
+        .cgroup=md_cgroup_member_new(), .access=md_process_access_new(NULL)};
     if (r->cgroup) r->cgroup_namespace=md_cgroup_namespace_new(r->cgroup,NULL);
-    if (r->fs && r->sem_undo && r->files && r->uts && r->ipc && r->network && r->cgroup_namespace) { md_domain_bind_mounts(r->fs,mounts); return 0; }
+    if (r->fs && r->sem_undo && r->files && r->uts && r->ipc && r->network && r->cgroup_namespace && r->access) { md_domain_bind_mounts(r->fs,mounts); return 0; }
     md_resources_release(r); return -ENOMEM;
 }
 int md_resources_release(struct md_task_resources *r) {
+    md_process_access_release(r->access);
     md_process_member_release(r->process);
     md_domain_release(r->fs);
     md_mount_namespace_release(r->mounts);
@@ -36,6 +37,8 @@ int md_resources_fork(const struct md_task_resources *r, unsigned long flags,
         struct md_cgroup_member *reservation,struct md_task_resources *out) {
     *out = (struct md_task_resources){.fs=md_domain_fork(r->fs, !!(flags & CLONE_FS))};
     if (!out->fs) return -ENOMEM;
+    out->access=md_process_access_fork(r->access,!!(flags&CLONE_VM));
+    if ((r->access || !(flags&CLONE_VM)) && !out->access) { md_resources_release(out); return -ENOMEM; }
     if (r->files) {
         out->files=md_fd_origins_fork(r->files,!!(flags & CLONE_FILES));
         if (!out->files) { md_resources_release(out); return -ENOMEM; }
@@ -59,15 +62,18 @@ int md_resources_fork(const struct md_task_resources *r, unsigned long flags,
     }
     md_resources_release(out); return -ENOMEM;
 }
-int md_resources_exec_closed(struct md_task_resources *r,struct md_fd_closed *closed) {
-    if (!r->files) return 0;
-    struct md_fd_origins *next=md_fd_origins_unshare_prepare(r->files);
-    if (!next) return -ENOMEM;
+int md_resources_exec_closed(struct md_task_resources *r,struct md_user_namespace *owner,struct md_fd_closed *closed) {
+    struct md_process_access *access=md_process_access_new(owner);
+    if (!access) return -ENOMEM;
+    struct md_fd_origins *next=r->files ? md_fd_origins_unshare_prepare(r->files) : NULL;
+    if (r->files && !next) { md_process_access_release(access); return -ENOMEM; }
+    md_process_access_release(r->access); r->access=access;
+    if (!next) return 0;
     md_fd_origins_exec_collect(next,closed);
     struct md_fd_origins *old=r->files; r->files=next; md_fd_origins_release(old);
     return 0;
 }
-int md_resources_exec(struct md_task_resources *r) { return md_resources_exec_closed(r,NULL); }
+int md_resources_exec(struct md_task_resources *r,struct md_user_namespace *owner) { return md_resources_exec_closed(r,owner,NULL); }
 void md_resources_exit_files(struct md_task_resources *r,struct md_fd_closed *closed) {
     md_fd_origins_exit_collect(r->files,closed);
     md_fd_origins_release(r->files); r->files=NULL;
@@ -263,12 +269,17 @@ int md_resources_setns_prepare(const struct md_task_resources *r, const struct m
     if (error) md_resources_unshare_finish(NULL,NULL,change,error);
     return error;
 }
+int md_resources_setns_process_flags(unsigned types) {
+    if (!types || (types&~(md_resources_namespace_flags(~0UL)|CLONE_NEWTIME))) return -EINVAL;
+    if (types&CLONE_NEWTIME) return -EOPNOTSUPP;
+    return 0;
+}
 int md_resources_setns_process_prepare(const struct md_task_resources *r, const struct md_identity *id,
         const struct md_task_resources *target, struct md_user_namespace *user,
         unsigned types, struct md_resource_change *change) {
     *change=(struct md_resource_change){0};
-    if (!types || (types&~(md_resources_namespace_flags(~0UL)|CLONE_NEWTIME))) return -EINVAL;
-    if (types&CLONE_NEWTIME) return -EOPNOTSUPP;
+    int error=md_resources_setns_process_flags(types);
+    if (error) return error;
     /* Retain one candidate before publication. In particular, later admission
      * uses the selected user namespace without changing the caller on failure. */
     static const enum md_namespace_kind kinds[]={MD_NAMESPACE_USER,MD_NAMESPACE_MOUNT,
@@ -277,7 +288,7 @@ int md_resources_setns_process_prepare(const struct md_task_resources *r, const 
         struct md_namespace_reference ref={.kind=kinds[i]};
         if (!(types&md_namespace_reference_type(&ref))) continue;
         ref=md_namespace_reference_capture(kinds[i],target,user);
-        int error=setns_add(r,change->identity_pending ? &change->identity : id,&ref,change);
+        error=setns_add(r,change->identity_pending ? &change->identity : id,&ref,change);
         md_namespace_reference_release(&ref);
         if (error) { md_resources_unshare_finish(NULL,NULL,change,error); return error; }
     }

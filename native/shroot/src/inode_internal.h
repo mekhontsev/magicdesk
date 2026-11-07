@@ -14,7 +14,7 @@ struct md_fs_result;
 struct md_fs_output;
 struct md_inode_boundary {
     char *path; size_t capacity; unsigned operand;
-    int mount_root, native_directory;
+    int mount_root, native_directory, task_capture, requires_task_capture;
     uint64_t proc_namespace, proc_link_mount;
     unsigned proc_link_descriptor; /* Optional caller-captured no-follow FD + 1. */
     struct md_fs_anchor *proc_entry;

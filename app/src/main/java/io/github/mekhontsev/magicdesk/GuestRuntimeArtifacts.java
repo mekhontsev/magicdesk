@@ -24,6 +24,16 @@ public final class GuestRuntimeArtifacts {
             "libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so", "libmagicdesk_guest_service.so",
             "libmagicdesk_guest_image.so", "libmagicdesk_command_client.so");
 
+    static Path packaged(Path source) throws IOException {
+        if (!source.isAbsolute()) throw new IOException("Absolute APK library directory required");
+        for (String name : FILES) {
+            Path file = source.resolve(name);
+            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || !Files.isExecutable(file))
+                throw new IOException("Packaged guest helper is unavailable: " + file);
+        }
+        return source;
+    }
+
     public static Path prepare(Path source, Path root) throws IOException {
         if (!source.isAbsolute() || !root.isAbsolute()) throw new IOException("Absolute runtime paths required");
         var hashes = new LinkedHashMap<String, String>();

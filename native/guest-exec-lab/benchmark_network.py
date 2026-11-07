@@ -52,8 +52,8 @@ def main():
     groups = [['native']] if modes else []
     created = False
     try:
-        suite.transport.upload(suite.client, binary, suite.base + '/bench')
-        suite.command(['chmod', '700', suite.base + '/bench'])
+        suite.upload(binary, suite.base + '/bench')
+        suite.chmod('700', suite.base + '/bench')
         if args.reference:
             reference = suite.base + '/reference'
             suite.command(['mkdir', reference])

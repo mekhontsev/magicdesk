@@ -39,16 +39,21 @@ static int device_open(const struct md_view_mount *mount, int flags, mode_t mode
     return !(flags&O_PATH) && (S_ISCHR(mode) || S_ISBLK(mode))
         && (md_mount_policy_flags(&mount->policy)&MD_MOUNT_NODEV) ? -EACCES : 0;
 }
-static int execute_access(const struct md_view_mount *mount, int fd, unsigned mode) {
+static int execute_access(const struct md_view_mount *mount, int fd, unsigned mode, mode_t kind) {
     if (!(mode&X_OK) || !mount || !(md_mount_policy_flags(&mount->policy)&MD_MOUNT_NOEXEC)) return 0;
-    struct stat st;
-    if (fstat(fd,&st)) return -errno;
-    return S_ISREG(st.st_mode) ? -EACCES : 0;
+    if (!(kind&S_IFMT)) {
+        struct stat st;
+        if (fstat(fd,&st)) return -errno;
+        kind=st.st_mode;
+    }
+    return S_ISREG(kind) ? -EACCES : 0;
 }
-static int reopen_admitted(int fd, struct md_view_mount *mount, int flags,
-        struct md_open_completion *completion) {
-    int opened=md_reopen_file(fd,flags,completion);
-    if ((opened==-EACCES || opened==-EPERM) && mount->backing==MD_MOUNT_PROC) {
+static int reopen_admitted(struct md_filesystem *fs,struct md_mount_namespace *view,
+        int fd, struct md_view_mount *mount,const struct stat *metadata,int flags,const struct md_fs_request *q,
+        struct md_fs_result *out,const struct md_fs_output *output) {
+    int opened=md_reopen_file(fd,flags,&out->open_completion);
+    if ((opened==-EACCES || opened==-EPERM || opened==-ENOENT) && mount->backing==MD_MOUNT_PROC) {
+        if (md_fs_proc_capture_open(fs,view,mount,fd,metadata,(unsigned)flags,opened,q,out,output)) return out->error;
         /* Proc access depends on the caller's task and dumpability. Retain
          * the admitted object and mount; complete the kernel open in that
          * caller, through the same ownership path as controlling terminals. */
@@ -56,19 +61,20 @@ static int reopen_admitted(int fd, struct md_view_mount *mount, int flags,
         if (fstat(fd,&st)) return -errno;
         opened=fcntl(fd,F_DUPFD_CLOEXEC,3);
         if (opened<0) return -errno;
-        completion->kind=MD_OPEN_CALLER;
-        completion->mode=st.st_mode&S_IFMT;
+        out->open_completion.kind=MD_OPEN_CALLER;
+        out->open_completion.mode=st.st_mode&S_IFMT;
     }
     return opened;
 }
-static int reopen(struct md_view_object *p, int flags, int mutable,
-        struct md_open_completion *completion) {
+static int reopen(struct md_filesystem *fs,struct md_mount_namespace *view,
+        struct md_view_object *p, int flags, int mutable,const struct md_fs_request *q,
+        struct md_fs_result *out,const struct md_fs_output *output) {
     if (mutable && md_view_readonly(p->mount)) return -EROFS;
     struct stat st;
     if (fstat(p->fd,&st)) return -errno;
     if (md_view_readonly(p->mount) && writable(flags) && !special(st.st_mode)) return -EROFS;
     int error=device_open(p->mount,flags,st.st_mode);
-    return error ? error : reopen_admitted(p->fd,p->mount,flags,completion);
+    return error ? error : reopen_admitted(fs,view,p->fd,p->mount,NULL,flags,q,out,output);
 }
 static void result_stat(struct md_fs_result *out, int fd, const struct md_view_mount *mount) {
     struct stat st;
@@ -172,13 +178,13 @@ static ssize_t directory_entries(void *context, int fd, void *data, size_t count
     return n<0 ? -errno : n;
 }
 static int virtual_operation(struct md_filesystem *fs,struct md_mount_namespace *view,
-        struct md_view_mount *mount,int fd,int parent,const char *name,
+        struct md_view_mount *mount,int fd,int parent,const char *name,const struct stat *metadata,
         const struct md_fs_request *q,struct md_fs_result *out,const struct md_fs_output *output) {
     struct md_view_location location={.fd=fd,.parent=parent,.view=view,.mount=mount};
     if (name) snprintf(location.name,sizeof(location.name),"%s",name);
     return md_fs_fuse_operation(fs,q,&location,NULL,out,output)
         || md_fs_mount_file_operation(fs,view,mount,fd,q,out,output)
-        || md_fs_proc_operation(fs,view,mount,fd,q,out,output)
+        || md_fs_proc_operation(fs,view,mount,fd,metadata,q,out,output)
         || devpts_operation(fs,view,mount,fd,q,out,output)
         || md_fs_cgroup_operation(fs,view,mount,fd,parent,name,q,out,output)
         || md_fs_sysfs_operation(fs,view,mount,fd,q,out,output)
@@ -209,15 +215,15 @@ static int anchor_path(struct md_filesystem *fs,const struct md_fs_anchor *origi
 static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
         struct md_fs_result *out, const struct md_fs_output *output) {
     const struct md_fs_anchor *origin=q->origin[0];
-    if (origin && origin->child) {
-        if (q->operation==MD_FS_FSTAT && q->control.ops) {
-            struct stat st;
-            out->error=md_fs_proc_control_stat(fs,q->control,&st);
-            if (!out->error) {
-                md_fs_stat_info(&st,&out->info); md_fs_anchor_mount_info(origin,&out->info);
-            }
-            return 1;
+    if (origin && q->operation==MD_FS_FSTAT && q->control.ops) {
+        struct stat st;
+        out->error=md_fs_proc_control_stat(fs,q->control,&st);
+        if (!out->error) {
+            md_fs_stat_info(&st,&out->info); md_fs_anchor_mount_info(origin,&out->info);
         }
+        return 1;
+    }
+    if (origin && origin->child) {
         if (q->operation!=MD_FS_PATH) { out->error=-EOPNOTSUPP; return 1; }
         if (!output || !output->data || !output->capacity) { out->error=-ERANGE; return 1; }
         out->error=anchor_path(fs,origin,output->data,output->capacity);
@@ -225,7 +231,7 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
         return 1;
     }
     if (origin && q->operation==MD_FS_ACCESS) {
-        int error=execute_access(origin->mount,q->directory[0],q->mode);
+        int error=execute_access(origin->mount,q->directory[0],q->mode,origin->kind);
         if (error) { out->error=error; return 1; }
     }
     if (origin && md_view_inode(origin->mount)
@@ -248,10 +254,11 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
             && !(p->mount->devpts && md_filesystem_ioctl_opens(q->mode))) {
         out->error=-ENOTTY; return 1;
     }
-    if (virtual_operation(fs,owner.mounts,p->mount,q->directory[0],-1,NULL,q,out,output)) {
+    if (virtual_operation(fs,owner.mounts,p->mount,q->directory[0],-1,NULL,NULL,q,out,output)) {
         mount_metadata(p->mount,q->directory[0],q,out); return 1;
     }
-    if (q->operation==MD_FS_ACCESS && (r=execute_access(p->mount,q->directory[0],q->mode))) {
+    if (!origin && q->operation==MD_FS_ACCESS
+            && (r=execute_access(p->mount,q->directory[0],q->mode,p->identity.st_mode))) {
         out->error=r; return 1;
     }
     if (md_view_inode(p->mount) && q->operation!=MD_FS_OBJECT_ID) {
@@ -295,7 +302,7 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
         break;
     }
     case MD_FS_REOPEN:
-        r = reopen(p, (int)q->flags, !!(q->mode&MD_FS_REOPEN_MUTABLE), &out->open_completion);
+        r = reopen(fs,owner.mounts,p, (int)q->flags, !!(q->mode&MD_FS_REOPEN_MUTABLE),q,out,output);
         if (r >= 0) { out->fd = r; r = 0; md_view_capture(fs,owner.mounts,p->mount,out,output); }
         break;
     case MD_FS_OBJECT_ID:
@@ -455,7 +462,8 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
         struct md_fs_result *out, const struct md_fs_output *output) {
     int policy=md_fs_landlock_native(fs,q,a->mount,a->fd);
     if (policy) { out->error=policy; return; }
-    if (virtual_operation(fs,a->view,a->mount,a->fd,a->parent,a->name,q,out,output)) return;
+    if (virtual_operation(fs,a->view,a->mount,a->fd,a->parent,a->name,
+            a->metadata_captured ? &a->captured_metadata : NULL,q,out,output)) return;
     int r = 0;
     struct md_filesystem owner=*fs; owner.mounts=a->view;
     void *data = output ? output->data : NULL;
@@ -504,7 +512,8 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
                 || ((flags & O_CREAT) && (flags & O_DIRECTORY))) { r = -EINVAL; break; }
         if ((flags & O_CREAT) && (q->mode & ~01777)) { r = -ENOTSUP; break; }
         struct stat existing;
-        if (a->fd >= 0 && fstat(a->fd, &existing)) { r = -errno; break; }
+        if (a->metadata_captured) existing=a->captured_metadata;
+        else if (a->fd >= 0 && fstat(a->fd, &existing)) { r = -errno; break; }
         if (a->fd>=0 && (r=device_open(a->mount,flags,existing.st_mode))) break;
         if (output && output->native_open_plan) {
             /* The walker pins the exact native object and its mount policy.
@@ -530,7 +539,8 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
         int selected=a->fd>=0 && (!strcmp(a->name,".") || a->mount->backing==MD_MOUNT_PROC || a->mount->provider);
         if (selected && !(flags&O_PATH) && (flags&(O_CREAT|O_EXCL))==(O_CREAT|O_EXCL)) { r=-EEXIST; break; }
         if (selected && !(flags&O_PATH) && (flags&O_CREAT) && S_ISDIR(existing.st_mode)) { r=-EISDIR; break; }
-        int fd=selected ? reopen_admitted(a->fd,a->mount,(flags&~(O_CREAT|O_EXCL))|O_CLOEXEC,&out->open_completion)
+        int fd=selected ? reopen_admitted(fs,a->view,a->fd,a->mount,
+                a->metadata_captured ? &a->captured_metadata : NULL,(flags&~(O_CREAT|O_EXCL))|O_CLOEXEC,q,out,output)
             : deferred ? fcntl(a->fd, F_DUPFD_CLOEXEC, 3)
             : openat(a->parent, a->name, flags | O_NOFOLLOW | O_CLOEXEC, q->mode&~q->attributes.creation_mask);
         /* Captured opens retain mount identity in their lifetime-bound anchor.
@@ -556,6 +566,10 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
     }
     case MD_FS_STAT:
         if (q->flags & ~AT_SYMLINK_NOFOLLOW) r = -EINVAL;
+        else if (a->metadata_captured) {
+            md_fs_stat_info(&a->captured_metadata,&out->info);
+            md_fs_info_mount(&out->info,a->mount->id,md_view_same(&a->captured_metadata,&a->mount->native));
+        }
         else result_stat(out, a->fd, a->mount);
         break;
     case MD_FS_STATFS:
@@ -707,6 +721,7 @@ static int path_suspend(struct md_filesystem *fs,const struct md_fs_request *q,
     }
     for (unsigned i=0;i<2;++i) { md_fs_anchor_release(p->pins[i]); p->pins[i]=pins[i]; }
     p->a=*a; p->b=*b; p->walk=walk; p->operand=operand;
+    p->base.task_input=md_view_walk_task_input(walk);
     *a=*b=(struct md_view_location){.fd=-1,.parent=-1};
     *output->continuation=&p->base;
     return -EINPROGRESS;
@@ -782,7 +797,7 @@ static void mounts_execute(struct md_filesystem *fs, const struct md_fs_request 
             if (!S_ISREG(st.st_mode)) { out->error = -EINVAL; return; }
             int policy=md_fs_landlock_native(fs,q,p->mount,p->fd);
             if (policy) { out->error=policy; return; }
-            int fd = reopen(p, (int)q->flags, 0, &out->open_completion);
+            int fd = reopen(fs,fs->mounts,p, (int)q->flags, 0,q,out,output);
             if (fd < 0) out->error = fd; else out->fd = fd;
             md_view_capture(fs,fs->mounts,p->mount,out,output);
             return;
@@ -904,7 +919,8 @@ paths:;
             if (readonly) r=readonly<0 ? readonly : -EROFS;
         }
     }
-    if (!r && q->operation==MD_FS_ACCESS) r=execute_access(a.mount,a.fd,q->mode);
+    if (!r && q->operation==MD_FS_ACCESS)
+        r=execute_access(a.mount,a.fd,q->mode,a.metadata_captured ? a.captured_metadata.st_mode : 0);
     if (!r && q->operation==MD_FS_REALPATH) {
         out->error=!output || !output->data ? -EINVAL
             : a.view!=fs->mounts ? -ENOENT : md_view_path(fs,a.fd,a.mount,output->data,output->capacity);

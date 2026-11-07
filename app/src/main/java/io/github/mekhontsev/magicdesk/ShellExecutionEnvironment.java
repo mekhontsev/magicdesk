@@ -1,9 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.system.ErrnoException;
-import android.system.Os;
-
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -16,8 +12,6 @@ import java.util.Map;
 
 /** Stable Android shell environment shared by every MagicDesk exec transport. */
 final class ShellExecutionEnvironment {
-    private static final String RUNTIME_PREFIX =
-            "/data/local/tmp/magicdesk-";
     private static final String SYSTEM_PATH = String.join(":",
             "/system/bin",
             "/system/xbin",
@@ -39,8 +33,10 @@ final class ShellExecutionEnvironment {
         final String shell = AndroidShell.requireExecutable(context.getApplicationInfo().nativeLibraryDir);
         final ProcessBuilder builder = new ProcessBuilder(command);
         final int uid = android.system.Os.getuid();
-        final RuntimePaths paths = prepareRuntime(uid);
-        AndroidShell.installAliases(Path.of(paths.bin), shell);
+        final RuntimeDataPaths paths = RuntimeDataPaths.selected(uid, context.getDataDir().toPath());
+        RuntimeDataPaths.preparePrivilegedParent(uid);
+        paths.prepare();
+        AndroidShell.installAliases(paths.tools(), shell);
         apply(builder.environment(), uid, interactive, paths, shell);
         if (interactive) {
             prepareInteractiveShell(Path.of(builder.environment().get("ENV")), uid);
@@ -76,43 +72,31 @@ final class ShellExecutionEnvironment {
             final Map<String, String> environment,
             final int uid,
             final boolean interactive,
-            final String runtimeRoot,
-            final String home,
-            final String shell) {
-        if (runtimeRoot == null || !runtimeRoot.startsWith("/") || home == null || !home.startsWith("/")) {
-            throw new IllegalArgumentException("invalid shell runtime root");
-        }
-        apply(environment, uid, interactive, new RuntimePaths(runtimeRoot, home), shell);
-    }
-
-    private static void apply(
-            final Map<String, String> environment,
-            final int uid,
-            final boolean interactive,
-            final RuntimePaths paths,
+            final RuntimeDataPaths paths,
             final String shell) {
         if (environment == null) {
             throw new IllegalArgumentException("missing process environment");
         }
         removeHostEnvironment(environment);
         AndroidShell.apply(environment, shell);
-        environment.put("HOME", paths.home);
-        environment.put("TMPDIR", paths.tmp);
-        environment.put("XDG_CONFIG_HOME", paths.config);
-        environment.put("XDG_DATA_HOME", paths.data);
-        environment.put("XDG_CACHE_HOME", paths.cache);
-        environment.put("XDG_STATE_HOME", paths.state);
-        environment.put("MAGICDESK_RUNTIME", paths.root);
-        environment.put("MAGICDESK_TOOLS", paths.bin);
-        environment.put("PATH", paths.bin + ":" + SYSTEM_PATH);
-        environment.put("USER", uid == ShellAccess.ROOT_UID ? "root" : "shell");
+        environment.put("HOME", paths.root().toString());
+        environment.put("TMPDIR", paths.temporary().toString());
+        environment.put("XDG_CONFIG_HOME", paths.config().toString());
+        environment.put("XDG_DATA_HOME", paths.data().toString());
+        environment.put("XDG_CACHE_HOME", paths.cache().toString());
+        environment.put("XDG_STATE_HOME", paths.state().toString());
+        environment.put("MAGICDESK_RUNTIME", paths.runtime().toString());
+        environment.put("MAGICDESK_TOOLS", paths.tools().toString());
+        environment.put("MAGICDESK_GUEST_HOME", paths.linux().toString());
+        environment.put("PATH", paths.tools() + ":" + SYSTEM_PATH);
+        environment.put("USER", uid == 0 ? "root" : uid == 2000 ? "shell" : "u" + uid / 100000 + "_a" + (uid % 100000 - 10000));
         environment.put("LOGNAME", environment.get("USER"));
         environment.put("LANG", "C.UTF-8");
         environment.put("LC_ALL", "C.UTF-8");
         environment.put("TERM", interactive ? "xterm-256color" : "dumb");
         if (interactive) {
             environment.put("COLORTERM", "truecolor");
-            environment.put("ENV", paths.config + "/shellrc");
+            environment.put("ENV", paths.config() + "/shellrc");
         } else {
             environment.remove("COLORTERM");
             environment.remove("ENV");
@@ -120,49 +104,20 @@ final class ShellExecutionEnvironment {
         CommandShellEnvironment.apply(environment);
     }
 
-    static String prepareToolsDirectory() {
-        return prepareRuntime(android.system.Os.getuid()).bin;
+    static String prepareToolsDirectory() throws IOException {
+        int uid = android.system.Os.getuid();
+        RuntimeDataPaths.preparePrivilegedParent(uid);
+        var paths = RuntimeDataPaths.privileged(uid);
+        paths.prepare();
+        return paths.tools().toString();
     }
 
     static String diagnostics(final int uid) {
-        final RuntimePaths paths = paths(uid);
+        final RuntimeDataPaths paths = RuntimeDataPaths.privileged(uid);
         return "uid=" + uid
-                + ", home=" + paths.home
-                + ", tools=" + paths.bin
+                + ", home=" + paths.root()
+                + ", tools=" + paths.tools()
                 + ", TERM=xterm-256color";
-    }
-
-    private static RuntimePaths prepareRuntime(final int uid) {
-        final RuntimePaths preferred = paths(uid);
-        if (createRuntimeDirectories(preferred)) {
-            return preferred;
-        }
-        // Android's shell identity is expected to own /data/local/tmp. Keep
-        // core commands usable if a vendor policy rejects our subdirectory.
-        return RuntimePaths.fallback();
-    }
-
-    private static RuntimePaths paths(final int uid) {
-        final String identity = uid == ShellAccess.ROOT_UID
-                ? "root" : "shell";
-        final String root = RUNTIME_PREFIX + identity;
-        return new RuntimePaths(root, uid == ShellAccess.ROOT_UID ? root + "/home" : "/data/local/tmp/magicdesk");
-    }
-
-    private static boolean createRuntimeDirectories(
-            final RuntimePaths paths) {
-        for (final String path : paths.directories()) {
-            final File directory = new File(path);
-            if (!directory.isDirectory() && !directory.mkdirs()) {
-                return false;
-            }
-            try {
-                Os.chmod(path, 0700);
-            } catch (ErrnoException error) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static void removeHostEnvironment(
@@ -182,61 +137,4 @@ final class ShellExecutionEnvironment {
         }
     }
 
-    private static final class RuntimePaths {
-        final String root;
-        final String home;
-        final String tmp;
-        final String bin;
-        final String config;
-        final String data;
-        final String cache;
-        final String state;
-
-        RuntimePaths(final String root, final String home) {
-            this(
-                    root,
-                    home,
-                    root + "/tmp",
-                    root + "/bin",
-                    home + "/.config",
-                    home + "/.local/share",
-                    home + "/.cache",
-                    home + "/.local/state");
-        }
-
-        RuntimePaths(
-                final String root,
-                final String home,
-                final String tmp,
-                final String bin,
-                final String config,
-                final String data,
-                final String cache,
-                final String state) {
-            this.root = root;
-            this.home = home;
-            this.tmp = tmp;
-            this.bin = bin;
-            this.config = config;
-            this.data = data;
-            this.cache = cache;
-            this.state = state;
-        }
-
-        static RuntimePaths fallback() {
-            return new RuntimePaths(
-                    "/data/local/tmp",
-                    "/data/local/tmp",
-                    "/data/local/tmp",
-                    "/data/local/tmp",
-                    "/data/local/tmp",
-                    "/data/local/tmp",
-                    "/data/local/tmp",
-                    "/data/local/tmp");
-        }
-
-        List<String> directories() {
-            return List.of(root, home, tmp, bin, config, data, cache, state);
-        }
-    }
 }

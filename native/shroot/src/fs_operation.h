@@ -137,6 +137,9 @@ struct md_fs_result {
     struct md_fs_info info;
     unsigned selectors;
     unsigned requires_control;
+    /* Unexecuted context admission: capture the caller's native status handle. */
+    unsigned requires_task_status;
+    unsigned requires_task_capture;
 };
 /* Caller-owned output, independent of wire framing. Directory delivery runs
  * synchronously after the read transaction and before advancing the cursor.
@@ -165,5 +168,7 @@ struct md_fs_output {
     struct md_landlock_policy **landlock;
     /* Optional owned continuation, only with result.error == -EINPROGRESS. */
     struct md_fs_continuation **continuation;
+    /* This transport can capture a descriptor in the exact caller context. */
+    int task_capture;
 };
 #endif

@@ -148,13 +148,24 @@ def cmakeAndroidTarget = {
 }
 
 def guestBuild = layout.buildDirectory.dir('shroot').get().asFile
+def guestFixtures = providers.gradleProperty('MAGICDESK_GUEST_FIXTURES').orElse('false').get()
+if (!(guestFixtures in ['true', 'false'])) {
+    throw new GradleException('MAGICDESK_GUEST_FIXTURES must be true or false')
+}
+gradle.taskGraph.whenReady { graph ->
+    if (guestFixtures == 'true' && graph.allTasks.any {
+        it.project == project && it.name in ['assembleRelease', 'bundleRelease', 'packageRelease']
+    }) throw new GradleException('Guest fixtures are debug-only')
+}
 def configureGuest = tasks.register('configureGuestRuntime', Exec) {
     inputs.files rootProject.file('native/shroot/CMakeLists.txt'), rootProject.file('native/shroot/image-dependencies.cmake')
     inputs.property 'nativeTarget', nativeTarget
+    inputs.property 'guestFixtures', guestFixtures
     outputs.file new File(guestBuild, 'build.ninja')
     doFirst {
         commandLine(['cmake', '-S', rootProject.file('native/shroot'), '-B', guestBuild,
-                '-G', 'Ninja', "-DANDROID_PLATFORM_LEVEL=${android.defaultConfig.minSdk}"] + cmakeAndroidTarget())
+                '-G', 'Ninja', "-DANDROID_PLATFORM_LEVEL=${android.defaultConfig.minSdk}",
+                "-DMAGICDESK_GUEST_FIXTURES=${guestFixtures}"] + cmakeAndroidTarget())
     }
 }
 def buildGuest = tasks.register('buildGuestRuntime', Exec) {
@@ -165,6 +176,27 @@ def packageGuest = tasks.register('packageGuestRuntime', Copy) {
     dependsOn buildGuest
     from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so', 'libmagicdesk_guest_image.so' }
     into new File(nativeOutputRoot, 'arm64-v8a')
+}
+
+if (guestFixtures == 'true') {
+    // Fixture receipts compare exact ELF bytes with the installed APK bundle.
+    android.packaging.jniLibs.keepDebugSymbols.add('**/libmagicdesk_guest_*.so')
+    def fixtures = layout.buildDirectory.dir('guestFixtures').get().asFile
+    android.sourceSets.debug.jniLibs.srcDir fixtures
+    def buildFixtures = tasks.register('buildGuestFixtures', Exec) {
+        dependsOn buildGuest
+        commandLine 'cmake', '--build', guestBuild, '--parallel', '4'
+    }
+    def packageFixtures = tasks.register('packageGuestFixtures', Sync) {
+        dependsOn buildFixtures
+        from(guestBuild) {
+            include 'libmagicdesk_guest_*.so'
+            exclude 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so',
+                    'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so', 'libmagicdesk_guest_image.so'
+        }
+        into new File(fixtures, 'arm64-v8a')
+    }
+    tasks.configureEach { if (name == 'preDebugBuild') dependsOn packageFixtures }
 }
 
 def commandBuild = layout.buildDirectory.dir('commandClient').get().asFile

@@ -60,9 +60,9 @@ static struct md_view_object *find(struct md_fs_mounts *m, const struct stat *st
         if (p->mount==mount && md_view_same(&p->identity, st)) return p;
     return NULL;
 }
-int md_view_record(struct md_filesystem *fs, int fd, struct md_view_mount *mount, struct md_view_object **out) {
-    struct stat st;
-    if (fstat(fd, &st)) return -errno;
+static int record(struct md_filesystem *fs,int fd,struct md_view_mount *mount,const struct stat *metadata,
+        int retained,struct md_view_object **out) {
+    struct stat st=*metadata;
     struct md_fs_mounts *m = fs->mounts->tree;
     struct md_view_object *p = find(m, &st, mount);
     if (p) { *out = p; return 0; }
@@ -70,7 +70,7 @@ int md_view_record(struct md_filesystem *fs, int fd, struct md_view_mount *mount
     p = calloc(1, sizeof(*p));
     if (!p) return -ENOMEM;
     char proc[64]; snprintf(proc, sizeof(proc), "/proc/self/fd/%d", fd);
-    p->fd = open(proc, O_PATH | O_CLOEXEC);
+    p->fd = retained ? fcntl(fd,F_DUPFD_CLOEXEC,3) : open(proc, O_PATH | O_CLOEXEC);
     if (p->fd < 0) { int r = -errno; free(p); return r; }
     if (md_view_inode(mount)) {
         struct md_inode_store *store;
@@ -90,6 +90,11 @@ int md_view_record(struct md_filesystem *fs, int fd, struct md_view_mount *mount
     unsigned b = bucket(&st); p->next = m->table[b]; m->table[b] = p; ++m->objects;
     b = id_bucket(p->id); p->id_next = m->by_id[b]; m->by_id[b] = p;
     *out = p; return 0;
+}
+int md_view_record(struct md_filesystem *fs,int fd,struct md_view_mount *mount,struct md_view_object **out) {
+    struct stat st;
+    if (fstat(fd,&st)) return -errno;
+    return record(fs,fd,mount,&st,0,out);
 }
 int md_view_identity(struct md_filesystem *fs, int fd, struct md_view_object **out) {
     *out = NULL;
@@ -257,6 +262,26 @@ int md_view_location_path(struct md_filesystem *fs,const struct md_view_location
         int n=snprintf(out+length,size-length,"%s%s",length==1 ? "" : "/",location->name);
         if (n<0 || (size_t)n>=size-length) error=-ERANGE;
     }
+    return error;
+}
+int md_fs_root_location(struct md_filesystem *fs,const struct md_fs_anchor *origin,struct md_fs_location *out) {
+    *out=(struct md_fs_location){0};
+    if (!origin || !origin->view) return -EXDEV;
+    if (origin->view!=fs->mounts) return -ESTALE;
+    if (origin->child || origin->kind!=S_IFDIR) return -ENOTDIR;
+    int error=md_view_anchor_check(fs,origin->fd,origin);
+    if (error) return error;
+    if (md_view_base(fs->mounts,origin->mount) && fs->mounts->base.source<0) {
+        error=md_inode_object_id(fs->store,origin->fd,out->object);
+        if (!error && !strcmp(out->object,MDI_ROOT)) out->object[0]=0;
+        return error;
+    }
+    /* The pin proves identity and type. Re-inspecting a protected proc inode
+     * from this worker can be denied even after guest access was admitted. */
+    struct stat st={.st_dev=origin->device,.st_ino=origin->inode,.st_mode=origin->kind};
+    struct md_view_object *p=NULL;
+    error=record(fs,origin->fd,origin->mount,&st,1,&p);
+    if (!error) { out->mount=p->mount->id; memcpy(out->object,p->id,sizeof(out->object)); }
     return error;
 }
 int md_fs_root_capture(struct md_filesystem *fs, int fd, const struct md_fs_anchor *origin,
@@ -470,6 +495,7 @@ int md_fs_mounts_open(struct md_filesystem *fs, const struct md_fs_attachment *e
             paths[i].source=strdup(source); paths[i].target=strdup(target);
             if (!paths[i].source || !paths[i].target) r=-ENOMEM;
         }
+        if (!r) r=md_view_mount_prepare_transport(m);
         if (!r) ++tree->count;
     }
     if (r) {
@@ -524,6 +550,7 @@ int md_fs_mounts_copy(struct md_filesystem *fs, const struct md_fs_location *roo
     copy->base.policy.local=md_mount_policy_flags(&fs->mounts->base.policy);
     copy->base.locked=fs->mounts->base.locked;
     copy->base.root_providers=fs->mounts->base.root_providers;
+    copy->base.local_custody=fs->mounts->base.local_custody;
     copy->base.links=md_mount_links_copy(&fs->mounts->base.links);
     struct md_fs_mounts *source=fs->mounts->tree;
     int r=0;
@@ -548,6 +575,7 @@ int md_fs_mounts_copy(struct md_filesystem *fs, const struct md_fs_location *roo
         *b=(struct md_view_mount){.source=-1,.target=-1,
             .backing=a->backing,.detached=a->detached,.locked=a->locked,.generation=a->generation,
             .root_providers=a->root_providers,
+            .local_custody=a->local_custody,
             .links=md_mount_links_copy(&a->links),
             .storage=md_inode_lifetime_retain(a->storage),
             .pid_namespace=md_pid_namespace_retain(a->pid_namespace),

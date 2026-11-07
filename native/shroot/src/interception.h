@@ -23,6 +23,7 @@ enum { MD_IMAGE_PROGRAM=0, MD_IMAGE_LOADER=1, MD_IMAGE_TAKE_PROGRAM=2, MD_IMAGE_
 #define MD_GUEST_FD_CHANNEL 0x4d440109
 #define MD_GUEST_TASK_HELPER 0x4d44010a
 #define MD_GUEST_TASK_MAPPING 0x4d44010f
+#define MD_GUEST_SECCOMP_LISTENER 0x4d440110
 #define MD_GUEST_PROC_FILE 0x4d44010b
 enum md_dispatch_policy { MD_DISPATCH_PATHS=1, MD_DISPATCH_NETWORK_SCOPED=2, MD_DISPATCH_OFFLINE_SOCKET=4,
     MD_DISPATCH_NETWORK_CONTROL=8, MD_DISPATCH_NETWORK_DATA=16, MD_DISPATCH_DEVICE_EVENTS=32 };
@@ -61,7 +62,10 @@ enum md_interception_kind {
     MD_INTERCEPT_TASK = 51,
     MD_INTERCEPT_PROC = 52,
     MD_INTERCEPT_PROCESS = 53,
-    MD_INTERCEPT_READINESS = 54
+    MD_INTERCEPT_READINESS = 54,
+    MD_INTERCEPT_CHECKPOINT = 55,
+    MD_INTERCEPT_SIGNAL,
+    MD_INTERCEPT_NOTIFY
 };
 /* Low descriptor numbers fit in TRACE's data alongside an explicit close tag.
  * Larger/negative numbers retain the full descriptor-observation path. */
@@ -95,13 +99,17 @@ struct md_interception_abi {
     uintptr_t svc_runtime;
     uintptr_t code_begin,code_end;
     uintptr_t task_completed,watch_completed;
+    uintptr_t task_abort_return;
+    uintptr_t signal_entry, signal_entry_committed, signal_entry_end;
+    unsigned host_policy;
 };
 long md_guest_buffer_admit(unsigned purpose);
 struct md_task_call_arguments;
 long md_guest_buffer_replay(const struct md_task_call_arguments *);
 void md_cooperative_revoke(void);
 
-enum { MD_INTERCEPTION_COOPERATIVE=1, MD_INTERCEPTION_MACHINE=2, MD_INTERCEPTION_STATISTICS=4 };
+enum { MD_INTERCEPTION_COOPERATIVE=1, MD_INTERCEPTION_MACHINE=2, MD_INTERCEPTION_STATISTICS=4,
+    MD_INTERCEPTION_HOST_POLICY=8 };
 /* Returns admitted entry capabilities, or a negative errno. */
 int md_interception_install(int inherited);
 long md_shm_dispatch(long, const unsigned long *);

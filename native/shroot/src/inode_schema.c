@@ -44,7 +44,9 @@ int md_inode_store_format(void) { return 17; }
 #define DENTRY_UPGRADE DENTRY_SCHEMA \
     "INSERT INTO dentry_paths SELECT n.cookie,n.cookie,n.object,n.parent,n.name " \
     "FROM names n JOIN objects o ON n.object=o.object WHERE o.kind!=16384;"
-static const char *const revisions[]={PUBLICATION_SCHEMA,XATTR_UPGRADE,DENTRY_UPGRADE};
+/* Revision 5 admits store-relative source paths; existing absolute paths remain
+ * readable. The marker prevents older readers from misinterpreting new rows. */
+static const char *const revisions[]={PUBLICATION_SCHEMA,XATTR_UPGRADE,DENTRY_UPGRADE,"SELECT 1"};
 const struct mdi_schema_plan mdi_schema_current = {revisions,sizeof(revisions)/sizeof(*revisions)};
 int md_inode_store_revision(void) { return 1 + (int)mdi_schema_current.count; }
 
@@ -167,6 +169,12 @@ int mdi_schema_configure(struct md_inode_store *s, int create) {
      * walks. This is a demand-grown page-cache target, not an allocation. */
     if (!r) r=mdi_sql(s,"PRAGMA cache_size=-8192; PRAGMA wal_autocheckpoint=1024; PRAGMA journal_size_limit=4194304");
     return r;
+}
+
+int mdi_schema_admit_offline(int root,sqlite3 *db) {
+    struct md_inode_lifetime lifetime={.refs=1,.root=root};
+    struct md_inode_store store={.db=db,.locked=1,.objects=-1,.lifetime=&lifetime};
+    return mdi_schema_admit(&store,1,1,&mdi_schema_current);
 }
 
 int mdi_schema_begin_create(struct md_inode_store *s) {

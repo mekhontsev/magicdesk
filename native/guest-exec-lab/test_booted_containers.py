@@ -56,8 +56,8 @@ def main():
     try:
         for name in ('probe_docker_runtime.py', 'probe_podman_runtime.py', 'docker_network_fixture.py'):
             remote = state['directory'] + '/' + name
-            suite.transport.upload(suite.client, Path(__file__).with_name(name), remote, overwrite=True)
-            suite.command(['chmod', '644', remote])
+            suite.upload(Path(__file__).with_name(name), remote, overwrite=True)
+            suite.chmod('644', remote)
         if args.engine == 'docker':
             argv = ['python3', state['target'] + '/probe_docker_runtime.py', '--guest',
                     args.docker_profile, 'python:3.14-alpine', '0', 'none', 'private',
@@ -92,7 +92,7 @@ def main():
         # EVENT_WAIT: probe completion through the exact booted session; no replay on timeout.
         response = json.loads(urllib.request.urlopen(request, timeout=1900).read())
         local = args.session.parent / (args.engine + '-' + tag + '.log')
-        suite.transport.download(suite.client, state['directory'] + '/' + tag + '.log', local)
+        suite.download(state['directory'] + '/' + tag + '.log', local)
         output = local.read_text()
         suite.report['log'] = str(local)
         mount_reports = [json.loads(line.removeprefix('SYSTEM_MOUNTS_REPORT '))

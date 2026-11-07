@@ -23,8 +23,8 @@ def run_fixture(session, kind, arguments, uploads=(), prepare=None):
         for fixture in [*files, *uploads]:
             with fixture.open('rb') as source:
                 suite.report['inputs'][fixture.name] = hashlib.file_digest(source, 'sha256').hexdigest()
-            suite.transport.upload(suite.client, fixture, state['directory'] + '/' + fixture.name, overwrite=True)
-            suite.command(['chmod', '644', state['directory'] + '/' + fixture.name])
+            suite.upload(fixture, state['directory'] + '/' + fixture.name, overwrite=True)
+            suite.chmod('644', state['directory'] + '/' + fixture.name)
         result_name = kind + '-' + tag + '.json'
         argv = [state['target'] + '/' + arg.name if isinstance(arg, Path) else arg for arg in arguments]
         command = shlex.join(['python3', state['target'] + '/' + kind + '-boot.py', *argv,
@@ -40,10 +40,10 @@ def run_fixture(session, kind, arguments, uploads=(), prepare=None):
         response = json.loads(urllib.request.urlopen(request, timeout=900).read())
         log = session.parent / (kind + '-' + tag + '.log')
         result = session.parent / result_name
-        suite.transport.download(suite.client, state['directory'] + '/' + tag + '.log', log)
+        suite.download(state['directory'] + '/' + tag + '.log', log)
         suite.report.update(log=str(log), exitCode=response['exitCode'])
         try:
-            suite.transport.download(suite.client, state['directory'] + '/' + result_name, result)
+            suite.download(state['directory'] + '/' + result_name, result)
         except Exception:
             if response['exitCode']:
                 raise AssertionError(log.read_text()[-6000:]) from None

@@ -33,7 +33,7 @@ final class CommandExecution {
             termux = null;
             uid = ShellAccess.currentSnapshot().uid;
             scope = "shell:" + uid;
-            home = "/data/local/tmp";
+            home = RuntimeDataPaths.privileged(uid).root().toString();
         }
     }
 

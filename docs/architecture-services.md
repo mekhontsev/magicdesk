@@ -588,9 +588,13 @@ PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
 one-shot shell commands. It removes inherited Termux process variables and
 provides stable `HOME`, `TMPDIR`, XDG directories, Android-system `PATH`,
 locale, and shell identity values. Shell `HOME` is `/data/local/tmp/magicdesk`;
-root `HOME` is `/data/local/tmp/magicdesk-root/home`. XDG directories follow
-the selected home. Tools, temporary files and Shroot storage remain under
-UID-specific `/data/local/tmp/magicdesk-{shell,root}` runtime directories. Interactive
+root `HOME` is `/data/local/tmp/magicdesk/root`. `RuntimeDataPaths` defines the
+same relative layout for these identities and Android's app data root:
+`files/bin`, `files/config`, `files/share`, `files/state`, `cache/tmp`,
+`no_backup/runtime` and `linux`. XDG directories use those selected paths.
+The app-UID CLI uses the bundled mksh's FPATH autoload support to
+interpret its scripts; executable helpers remain in the immutable APK library
+directory, not writable app data. Interactive
 transports add `xterm-256color` and
 true-color metadata and an owned Android-shell `ENV` startup file. Its two-line
 prompt puts the current path and nonzero exit status above the short `$`/`#`
@@ -598,7 +602,7 @@ input line; prompt evaluation preserves the command's exit status. Termux's
 shell configuration is independent and unchanged. Non-interactive commands use
 `TERM=dumb` without that startup file. This shared
 profile is the only insertion point for future Android-native command bundles.
-Shell and root identities use independent top-level runtime directories so a
+Shell and root identities use separate data roots so a
 root-backed service session cannot leave ownership that breaks a later
 shell-backed session.
 

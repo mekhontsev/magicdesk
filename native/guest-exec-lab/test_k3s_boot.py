@@ -50,17 +50,17 @@ def main():
         for name, path in inputs.items():
             with path.open('rb') as stream:
                 digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-            suite.transport.upload(suite.client, path, suite.base + '/' + name)
+            suite.upload(path, suite.base + '/' + name)
             assert suite.command(['sha256sum', suite.base + '/' + name], quiet=True).split()[0] == digest
             suite.report['inputs'][name] = digest
-        suite.command(['chmod', '700', suite.base + '/crash-launch'])
+        suite.chmod('700', suite.base + '/crash-launch')
         suite.command(['/system/bin/sh', '-c', 'cd "$1"; exec ./crash-launch', 'registry', suite.base])
         with tempfile.TemporaryDirectory() as directory:
             helper = Path(directory) / 'magicdesk-init'
             helper.write_text(subprocess.check_output(['sh', str(source.parents[1] / 'scripts/install_linux.sh'),
                                                       '--print-init-session'], text=True))
-            suite.transport.upload(suite.client, helper, suite.base + '/magicdesk-init')
-            suite.command(['chmod', '700', suite.base + '/magicdesk-init'])
+            suite.upload(helper, suite.base + '/magicdesk-init')
+            suite.chmod('700', suite.base + '/magicdesk-init')
             installed = True
             suite.command(prefix + ['--', '/usr/bin/python3', target + '/k3s-boot.py', 'install', target, args.init])
             for phase in range(3):
@@ -77,7 +77,7 @@ def main():
                 try:
                     owner.ready('K3S_BOOT_RESULT ' + str(phase), timeout=limit - 30)
                     receipt = args.output / (suite.report['id'] + '-phase-' + str(phase) + '.json')
-                    suite.transport.download(suite.client, suite.base + '/phase-' + str(phase) + '.json', receipt)
+                    suite.download(suite.base + '/phase-' + str(phase) + '.json', receipt)
                     report = json.loads(receipt.read_text())
                     suite.report['cases'].append(report)
                     assert report['passed'], report
@@ -100,7 +100,7 @@ def main():
                     name = 'phase-' + str(phase) + '.log'
                     if suite.command(['/system/bin/sh', '-c',
                             'if [ -f "$1" ]; then printf yes; fi', 'log', suite.base + '/' + name], quiet=True) == 'yes':
-                        suite.transport.download(suite.client, suite.base + '/' + name,
+                        suite.download(suite.base + '/' + name,
                                                  args.output / (suite.report['id'] + '-' + name))
                 deadline = time.monotonic() + 30
                 while time.monotonic() < deadline:

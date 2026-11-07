@@ -39,9 +39,9 @@ static void file_custody(void) {
     md_memory_release(child);
 }
 static void backing_reuse(void) {
-    char temporary[]="/data/local/tmp/mapping-reuse-XXXXXX";
+    char temporary[]="mapping-reuse-XXXXXX";
     int fd=mkstemp(temporary);
-    char denied[]="/data/local/tmp/mapping-denied-XXXXXX";
+    char denied[]="mapping-denied-XXXXXX";
     int other=mkstemp(denied);
     size_t page=(size_t)getpagesize();
     assert(fd>=0 && other>=0 && !ftruncate(fd,2*page) && !unlink(temporary));
@@ -104,7 +104,41 @@ static void backing_reuse(void) {
     puts("PASS mapping source ownership: independent read-only description and allocation-failure cleanup");
 }
 
+static void readonly_inputs(void) {
+    size_t page=(size_t)getpagesize();
+    struct md_interception_memory *memory=md_memory_new(); assert(memory);
+    assert(!md_memory_readonly_prepare(memory,2,page));
+    struct md_interception_buffers *pool=md_memory_readonly_buffers(memory);
+    assert(md_buffers_peer_readonly(pool));
+    assert(md_memory_readonly_prepare(memory,2,page)==-EALREADY);
+    assert(!md_memory_readonly_mapped(memory,0x100000,md_buffers_size(pool)));
+    assert(md_memory_readonly_mapped(memory,0x200000,md_buffers_size(pool))==-EALREADY);
+    assert(md_memory_mapping_observe(memory,0x100000,page));
+    assert(!md_memory_readonly_intersects(memory,0x100000-page,page));
+    assert(md_memory_readonly_intersects(memory,0,page+0x100000));
+    struct md_interception_memory *child=md_memory_fork(memory,0),*exec=md_memory_new_image(memory);
+    assert(child && exec && md_memory_readonly_base(child)==0x100000);
+    assert(!md_memory_readonly_base(exec) && !md_memory_readonly_buffers(exec));
+    struct md_mapping_change change={0};
+    assert(!md_memory_mapping_prepare(memory,&change,MD_MAPPING_UNMAP,0x100000,page,0,0,0));
+    md_memory_mapping_finish(memory,&change,-EINVAL);
+    assert(md_memory_readonly_base(memory)==0x100000);
+    assert(!md_memory_mapping_prepare(memory,&change,MD_MAPPING_UNMAP,0x100000,page,0,0,0));
+    md_memory_mapping_finish(memory,&change,0);
+    assert(!md_memory_readonly_base(memory) && md_memory_readonly_base(child)==0x100000);
+    assert(!md_memory_mapping_prepare(child,&change,MD_MAPPING_REMAP,0x100000,page,page,
+        MREMAP_MAYMOVE|MREMAP_DONTUNMAP,0));
+    md_memory_mapping_finish(child,&change,0x300000);
+    assert(!md_memory_readonly_base(child));
+    struct md_interception_buffer loan={0};
+    assert(!md_buffers_take(pool,&loan));
+    md_memory_release(memory); md_memory_release(child); md_memory_release(exec);
+    struct md_buffer_span span; assert(!md_buffer_span(&loan,&span));
+    assert(span.size==page && !md_buffer_release(&loan));
+    puts("PASS immutable input mappings: fork/exec, replacement, failed unmap, DONTUNMAP and outstanding loan");
+}
 int main(void) {
+    readonly_inputs();
     file_custody();
     backing_reuse();
     struct md_interception_memory *parent = md_memory_new();
@@ -113,10 +147,23 @@ int main(void) {
     struct md_interception_memory *thread = md_memory_fork(parent, 1);
     assert(thread == parent && !md_memory_stack_take(thread));
     assert(!md_memory_stack_add(thread, 0x20000));
+    struct md_memory_page *page=md_memory_page_acquire(parent);
+    assert(page && !md_memory_page_address(page));
+    md_memory_page_publish(page,0x30000);
     struct md_interception_memory *child = md_memory_fork(parent, 0);
     assert(child && child != parent);
     assert(md_memory_stack_take(child) == 0x10000 && md_memory_stack_take(child) == 0x20000);
     assert(!md_memory_stack_take(child) && !md_memory_stack_take(parent));
+    struct md_memory_page *child_page=md_memory_page_acquire(child);
+    assert(child_page && md_memory_page_address(child_page)==0x30000);
+    md_memory_page_release(page);
+    assert(md_memory_page_acquire(thread)==page && md_memory_page_address(page)==0x30000);
+    struct md_interception_memory *image=md_memory_new_image(parent);
+    struct md_memory_page *image_page=md_memory_page_acquire(image);
+    assert(image && image_page && !md_memory_page_address(image_page) && !md_memory_stack_take(image));
+    md_memory_page_release(image_page);
+    md_memory_page_release(child_page); md_memory_page_release(page);
+    md_memory_release(image);
     md_memory_stack_return(thread, 0x20000);
     for (unsigned i = 0; i < 10000; i++) {
         assert(md_memory_stack_take(parent) == 0x20000 && !md_memory_stack_take(thread));

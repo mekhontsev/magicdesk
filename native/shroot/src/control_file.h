@@ -13,6 +13,8 @@ struct md_control_pending;
 struct md_fs_context;
 struct md_fs_continuation;
 struct md_network_namespace;
+struct md_received_fds;
+struct md_signal_pending;
 /* Borrowed admission context. Per-open providers retain only the resources
  * they need; dup/fork keep the resulting OFD, not the current caller's state. */
 struct md_control_opener {
@@ -28,10 +30,16 @@ struct md_control_actor {
     int pid;
     const struct md_identity *identity;
     const struct md_task_resources *resources;
+    /* Borrowed coordinator-owned queue, for task-affine readiness only. */
+    const struct md_signal_pending *signals;
     /* Borrowed event-loop owner; providers retain it only for future wakeups. */
     struct md_resource_wakeup *wakeup;
     /* Current OFD status flags, captured when its ordered operation starts. */
     unsigned status_flags;
+    /* Exact input OFD, captured under the caller's table turn. Providers may
+     * retain custody for asynchronous work; the numeric slot is not authority. */
+    struct md_received_fds *descriptor;
+    int descriptor_number;
     /* Optional filesystem admission. Submission captures the actor once and
      * transfers operation ownership only on EINPROGRESS. */
     void *filesystem;
@@ -44,7 +52,8 @@ struct md_control_file {
 };
 /* Typed ioctl marshalling. Providers never dereference guest addresses. Some
  * Linux requests (notably EVIOCSFF) return data despite an _IOW encoding. */
-enum { MD_CONTROL_IN=1, MD_CONTROL_OUT=2, MD_CONTROL_STRING=4, MD_CONTROL_INDIRECT=8, MD_CONTROL_IOCTL_MAX=16384 };
+enum { MD_CONTROL_IN=1, MD_CONTROL_OUT=2, MD_CONTROL_STRING=4, MD_CONTROL_INDIRECT=8,
+    MD_CONTROL_ACK=16, MD_CONTROL_FD=32, MD_CONTROL_IOCTL_MAX=16384 };
 enum { MD_CONTROL_IO_MAX=65536 };
 /* Bounded pointed-to byte arrays, following the fixed argument in transport.
  * Offsets address native-width pointer/size_t fields in that argument. The
@@ -53,6 +62,8 @@ enum { MD_CONTROL_IOCTL_FIELDS=4 };
 struct md_control_ioctl_field { unsigned pointer, length, capacity, direction; };
 struct md_control_ioctl {
     unsigned size, direction;
+    /* Byte offset of a single input int descriptor, when MD_CONTROL_FD is set. */
+    unsigned descriptor;
     unsigned fields;
     struct md_control_ioctl_field field[MD_CONTROL_IOCTL_FIELDS];
 };
@@ -70,6 +81,11 @@ struct md_control_pending {
      * expose its wait as an interruptible application operation. Signals run
      * normally; preparation is retried even without SA_RESTART. */
     int retry_preparation;
+    /* Optional ioctl output publication. After a successful provider result,
+     * retain this request through the caller's terminal buffer acknowledgement.
+     * copied receives the final result (including EFAULT or ECANCELED), exactly
+     * once before dispose. No descriptor-table turn spans this ownership. */
+    void (*copied)(struct md_control_pending *,long result);
     /* Optional terminal ownership for effects already admitted by a provider.
      * abandon consumes this request, calling retired exactly once with the
      * final result before disposal. No caller buffer or task is retained. */
@@ -110,6 +126,9 @@ struct md_control_file_ops {
     unsigned long filesystem;
     int (*access)(void *,const struct md_identity *,unsigned);
     int nonseekable;
+    /* Anonymous authority has no pathname-open operation. Dup/SCM_RIGHTS keep
+     * its exact OFD; O_PATH reopens only inode metadata, never the authority. */
+    int no_reopen;
     /* Optional real backing for a controlled view. IO/cursors remain owned by
      * the descriptor host; the returned CLOEXEC descriptor is transferred. */
     int (*descriptor)(void *,int flags);

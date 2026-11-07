@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interleave Base/lazy entry filesystem, readiness, idle and startup against a reference."""
+"""Interleave Base/lazy filesystem, readiness and startup, with an optional reference."""
 import argparse
 import json
 from pathlib import Path
@@ -13,7 +13,8 @@ from benchmark_cpu import observe_suite_cpu
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', required=True, type=Path)
-    parser.add_argument('--reference', required=True, type=Path)
+    parser.add_argument('--reference', type=Path,
+                        help='Optional second runtime; it must be executable by the selected identity')
     parser.add_argument('--store', required=True)
     parser.add_argument('--rounds', type=int, default=5)
     parser.add_argument('--iterations', type=int, default=10000)
@@ -42,13 +43,16 @@ def main():
             '--deadline-seconds', '60']
     try:
         suite.command([suite.runner, '--store', args.store, '--user', '0:0', '--', '/bin/mkdir', target])
-        suite.transport.upload(suite.client, Path(__file__).with_name('fixtures') / 'readiness-benchmark.c',
+        suite.upload(Path(__file__).with_name('fixtures') / 'readiness-benchmark.c',
                                suite.base + '/benchmark.c')
         suite.command([suite.runner, *base, '--', '/usr/bin/cc', '-O2', '-Wall', '-Wextra',
                        target + '/benchmark.c', '-o', target + '/benchmark'])
-        reference = suite.base + '/reference'
-        suite.command(['mkdir', reference])
-        suite.report['referenceHashes'] = suite.stage_runtime(args.reference, reference)
+        candidates = [('current', suite.runner)]
+        if args.reference:
+            reference = suite.base + '/reference'
+            suite.command(['mkdir', reference])
+            suite.report['referenceHashes'] = suite.stage_runtime(args.reference, reference)
+            candidates.append(('reference', reference + '/libmagicdesk_guest_run.so'))
         suite.report['scope'] = dict(store=args.store,
             fixture='same guest binary and installed userspace; no timing diagnostics',
             cpuMask=None if args.cpu_mask is None else format(args.cpu_mask, 'x'),
@@ -60,7 +64,7 @@ def main():
         suite.report['fixtureHash'] = suite.command(['sha256sum', suite.base + '/benchmark'], quiet=True)
         placement = [] if args.cpu_mask is None else ['/system/bin/taskset', format(args.cpu_mask, 'x')]
         modes = {}
-        for name, runner in [('current', suite.runner), ('reference', reference + '/libmagicdesk_guest_run.so')]:
+        for name, runner in candidates:
             for mode, enabled in (('base', '0'), ('lazy', '1')):
                 if args.entry_mode in ('both', mode):
                     modes[name + '-' + mode] = [runner, *base, '--env', 'SHROOT_MACHINE_ENTRY=' + enabled]
@@ -130,7 +134,10 @@ def main():
         try:
             suite.command([suite.runner, '--store', args.store, '--user', '0:0', '--', '/bin/rmdir', target])
         finally:
-            suite.finish()
+            try:
+                suite.command(['rm', '-rf', '--', suite.base], quiet=True)
+            finally:
+                suite.finish()
 
 
 if __name__ == '__main__':

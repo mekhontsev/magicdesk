@@ -7,6 +7,7 @@
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stddef.h>
@@ -25,8 +26,46 @@
 _Static_assert(ATOMIC_INT_LOCK_FREE==2,"signal counter must be lock-free");
 static _Atomic unsigned signals;
 static _Atomic unsigned traps;
+static _Atomic unsigned job_ready,job_caught;
+static int job_signal;
+static pthread_t job_reader;
+extern void metadata_job_wait(_Atomic unsigned *,_Atomic unsigned *);
+__asm__(".text\n.balign 4\n.global metadata_job_wait\nmetadata_job_wait:\n"
+    "mov x8,#80\nmov w9,#1\nstlr w9,[x0]\n"
+    "1: ldar w9,[x1]\ncbz w9,1b\nret\n");
+static void job_handler(int signal) {
+    assert(signal==job_signal);
+    atomic_fetch_add_explicit(&job_caught,1,memory_order_release);
+}
+static void *job_sender(void *unused) {
+    (void)unused;
+    /* EVENT_WAIT: the reader is in non-SVC code with a metadata syscall number
+     * still in x8. The fixture deadline bounds delivery and the reader wait. */
+    while (!atomic_load_explicit(&job_ready,memory_order_acquire)) sched_yield();
+    assert(!pthread_kill(job_reader,job_signal));
+    return NULL;
+}
+static void metadata_job_delivery(void) {
+    const int signals[]={SIGCONT,SIGTSTP,SIGTTIN,SIGTTOU};
+    for (unsigned i=0;i<sizeof(signals)/sizeof(*signals);++i) {
+        job_signal=signals[i]; job_reader=pthread_self();
+        atomic_store(&job_ready,0); atomic_store(&job_caught,0);
+        struct sigaction action={.sa_handler=job_handler},previous;
+        assert(!sigaction(job_signal,&action,&previous));
+        pthread_t sender; assert(!pthread_create(&sender,NULL,job_sender,NULL));
+        metadata_job_wait(&job_ready,&job_caught);
+        assert(!pthread_join(sender,NULL) && atomic_load(&job_caught)==1);
+        assert(!sigaction(job_signal,&previous,NULL));
+    }
+    puts("PASS retained metadata job signals: four exact-once handlers without an executed SVC");
+}
 static void interrupted(int signal,siginfo_t *info,void *context) {
     int saved=errno;
+    const ucontext_t *entry=context;
+    if (sigismember(&entry->uc_sigmask,SIGALRM))
+        fprintf(stderr,"shared memory entry mask: alarm blocked pc=%#llx sp=%#llx\n",
+            entry->uc_mcontext.pc,entry->uc_mcontext.sp);
+    assert(sigismember(&entry->uc_sigmask,SIGALRM)==0);
     sigset_t mask; int read_mask=sigprocmask(SIG_SETMASK,NULL,&mask);
     if (read_mask) {
         ucontext_t *frame=context;
@@ -121,6 +160,7 @@ int test_shared_memory_guest(const char *root,int protected,int restart) {
     char link[640]; assert(snprintf(link,sizeof(link),"%s/link",directory)<(int)sizeof(link));
     assert(!symlink("target",link));
     if (protected) assert(!prctl(PR_SET_DUMPABLE,0));
+    if (restart==4) metadata_job_delivery();
     sigset_t mask,original;
     sigemptyset(&mask); sigaddset(&mask,SIGUSR2); sigaddset(&mask,SIGTRAP);
     assert(!sigprocmask(SIG_BLOCK,&mask,&original));
@@ -163,6 +203,11 @@ int test_shared_memory_guest(const char *root,int protected,int restart) {
     assert(signals>0 && !unlink(link) && !rmdir(directory));
     assert(!(restart&2) || traps==2048);
     assert(!sigprocmask(SIG_SETMASK,NULL,&mask));
+    if (sigismember(&mask,SIGUSR2)!=1 || sigismember(&mask,SIGTRAP)!=1
+            || sigismember(&mask,SIGALRM)!=0 || sigismember(&mask,SIGSYS)!=0)
+        fprintf(stderr,"shared memory final mask: usr2=%d trap=%d alarm=%d sys=%d\n",
+            sigismember(&mask,SIGUSR2),sigismember(&mask,SIGTRAP),
+            sigismember(&mask,SIGALRM),sigismember(&mask,SIGSYS));
     assert(sigismember(&mask,SIGUSR2)==1 && sigismember(&mask,SIGTRAP)==1
         && sigismember(&mask,SIGALRM)==0 && sigismember(&mask,SIGSYS)==0);
     assert(!sigaction(SIGTRAP,NULL,&current_trap));

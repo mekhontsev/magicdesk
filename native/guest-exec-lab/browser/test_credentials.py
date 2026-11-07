@@ -31,7 +31,7 @@ def main():
         for name, admitted, program, marker in cases:
             command = [sys.executable, str(Path(__file__).with_name("run.py")),
                        "--build", str(args.build), "--store", args.store,
-                       "--admit-elf", admitted,
+                       "--admit-elf", admitted, "--user", "2000:2000",
                        "--deadline-seconds", "60", "--quiet", "--scope",
                        "zygote-ipc-only" if name.startswith("renderer-") else "application",
                        "--expect-output", marker, "--", *program]
@@ -46,13 +46,13 @@ def main():
             report["runs"].append(entry)
             assert result.returncode == run["exitCode"] == 0 and run["consoleClosed"], entry
             assert run["workloadCompleted"] and run["expectedOutput"]["found"], entry
-            assert run["uid"] == 2000 and run["admittedElf"] == admitted
-            output = run["commands"][-1]["output"]
+            assert run["uid"] == run["executor"]["uid"] and run["admittedElf"] == admitted
+            output = Path(run['log']).read_text()
             assert "PROBE FAIL" not in output and "fstatFailures=0" in output
             if name != "catalogue":
                 assert re.search(r"PROBE admitted-image pid=\d+ fd=\d+ euid=0 secure=1", output)
                 assert re.search(r"PROBE entered-image pid=\d+ uid=2000 euid=0 secure=1", output)
-                assert re.search(r"PROBE identity admittedImages=[1-9]\d* changes=[1-9]\d* hostUid=2000", output)
+                assert re.search(rf"PROBE identity admittedImages=[1-9]\d* changes=[1-9]\d* hostUid={run['uid']}", output)
             if name == "catalogue":
                 assert "PASS" in output and run["productionAdapter"]
             elif name.startswith("identity-"):

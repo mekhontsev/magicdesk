@@ -122,7 +122,7 @@ def main():
     suite = Suite(args.build, args.build)
     target = '/tmp/md-netlink-filter-' + suite.report['id']
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(suite.guest(args.store, '--user', '0:0', '--', '/bin/mkdir', target))
         suite.command(suite.guest(args.store, '--user', '0:0', '--network', 'bridge',
                                  '--bind-ro', suite.base, target, '--deadline-seconds', '60', '--',

@@ -345,7 +345,7 @@ final class GuestEnvironmentLibrary {
         for (Path store : stores) {
             JSONArray sources = new JSONArray(images.invoke("sources", store.toString()));
             for (int i = 0; i < sources.length(); ++i) {
-                Path objects = Path.of(sources.getJSONObject(i).getString("path")).toAbsolutePath().normalize();
+                Path objects = store.resolve(sources.getJSONObject(i).getString("path")).toAbsolutePath().normalize();
                 result.add(objects.getParent());
             }
         }

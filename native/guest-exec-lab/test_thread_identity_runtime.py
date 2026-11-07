@@ -20,11 +20,11 @@ def main():
     try:
         suite.command(base + ['--', '/bin/mkdir', target])
         if args.fixture:
-            suite.transport.upload(suite.client, args.fixture, suite.base + '/thread')
-            suite.command(['chmod', '700', suite.base + '/thread'])
+            suite.upload(args.fixture, suite.base + '/thread')
+            suite.chmod('700', suite.base + '/thread')
         else:
             source = Path(__file__).with_name('test_thread_identity.c')
-            suite.transport.upload(suite.client, source, suite.base + '/thread.c')
+            suite.upload(source, suite.base + '/thread.c')
             suite.command(base + ['--bind', suite.base, target, '--deadline-seconds', '60',
                                  '--', '/usr/bin/cc', '-O2', '-pthread', target + '/thread.c',
                                  '-o', target + '/thread'], timeout=70)

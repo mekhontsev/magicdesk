@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 extern char **environ;
@@ -67,7 +68,7 @@ static void execute(const char *path,int base,int protected) {
     assert(waitpid(child,&status,0)==child);
     assert(WIFEXITED(status) && WEXITSTATUS(status)==37);
 }
-static void exercise(const char *proc,const char *directory) {
+static void exercise(const char *proc,const char *directory,int native) {
     int root=open("/",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(root>=0);
     for (unsigned scope=0;scope<2;++scope) {
         const char *relative=scope ? proc+1 : proc;
@@ -88,17 +89,42 @@ static void exercise(const char *proc,const char *directory) {
     puts("PASS scoped proc root opens retain mount-crossing policy");
     image_metadata(proc);
     char path[256],alias[256];
-    const char *nonlinks[]={"", "/sys", "/uptime"};
+    const char *nonlinks[]={"", "/sys", "/uptime", "/filesystems", "/sys/kernel/hostname"};
     for (unsigned i=0;i<sizeof(nonlinks)/sizeof(nonlinks[0]);++i) {
         snprintf(path,sizeof(path),"%s%s",proc,nonlinks[i]);
-        struct stat st; assert(!lstat(path,&st) && !S_ISLNK(st.st_mode));
+        struct stat st; int inspected=lstat(path,&st);
+        if (inspected && native && (errno==EACCES || errno==EPERM)) {
+            printf("UNAVAILABLE native proc metadata: path=%s errno=%d\n",path,errno);
+            continue;
+        }
+        if (inspected) perror(path);
+        assert(!inspected && !S_ISLNK(st.st_mode));
         errno=0;
         assert(readlink(path,alias,sizeof(alias))==-1 && errno==EINVAL);
         int fd=open(path,O_PATH|O_NOFOLLOW|O_CLOEXEC); assert(fd>=0);
         errno=0;
-        assert(readlinkat(fd,"",alias,sizeof(alias))==-1 && errno==ENOENT);
+        ssize_t length=readlinkat(fd,"",alias,sizeof(alias));
+        if (length!=-1 || errno!=ENOENT)
+            fprintf(stderr,"empty readlink %s: result=%zd errno=%d\n",path,length,errno);
+        assert(length==-1 && errno==ENOENT);
+        errno=0; assert(readlinkat(fd,"",alias,0)==-1 && errno==EINVAL);
+        errno=0; assert(syscall(SYS_readlinkat,fd,"",alias,0x80000000UL)==-1 && errno==EINVAL);
         close(fd);
     }
+    snprintf(path,sizeof(path),"%s/uptime",proc);
+    int uptime=open(path,O_RDONLY|O_CLOEXEC); assert(uptime>=0);
+    char sample[128]={0}; struct timespec before,after;
+    assert(!clock_gettime(CLOCK_BOOTTIME,&before));
+    assert(read(uptime,sample,sizeof(sample)-1)>0);
+    assert(!clock_gettime(CLOCK_BOOTTIME,&after));
+    double elapsed,idle;
+    assert(sscanf(sample,"%lf %lf",&elapsed,&idle)==2
+        && elapsed>=before.tv_sec-1 && elapsed<=after.tv_sec+1 && idle>=0);
+    assert(!lseek(uptime,0,SEEK_SET));
+    memset(sample,0,sizeof(sample)); assert(read(uptime,sample,sizeof(sample)-1)>0);
+    double refreshed;
+    assert(sscanf(sample,"%lf %lf",&refreshed,&idle)==2 && refreshed>=elapsed);
+    close(uptime);
     snprintf(path,sizeof(path),"%s/no-such-proc-entry",proc);
     errno=0;
     assert(readlink(path,alias,sizeof(alias))==-1 && errno==ENOENT);
@@ -139,12 +165,12 @@ int test_proc_exec_guest(int argc, char **argv) {
             char proc[256]; snprintf(proc,sizeof(proc),"%s/proc-exec",argv[3]);
             assert(!mkdir(proc,0700));
             assert(!mount("proc",proc,"proc",MS_NOSUID|MS_NODEV|MS_NOEXEC,NULL));
-            exercise(proc,argv[3]);
+            exercise(proc,argv[3],0);
             assert(!umount(proc) && !rmdir(proc)); _exit(0);
         }
         int status=0; assert(waitpid(child,&status,0)==child && !status);
         return 0;
     }
-    exercise("/proc",argv[3]);
+    exercise("/proc",argv[3],!strcmp(argv[2],"native"));
     return 0;
 }

@@ -34,9 +34,27 @@ int md_memory_exposed(const struct md_interception_memory *);
 uintptr_t md_memory_stack_take(struct md_interception_memory *);
 int md_memory_stack_add(struct md_interception_memory *, uintptr_t);
 void md_memory_stack_return(struct md_interception_memory *, uintptr_t);
+/* Reusable private pages for task-affine blocking operations. No shared IO
+ * buffer stays pinned while the kernel waits. Callers serialize pool changes
+ * with the mapping turn and return pages only after native access has ended. */
+struct md_memory_page;
+struct md_memory_page *md_memory_page_acquire(struct md_interception_memory *);
+uintptr_t md_memory_page_address(const struct md_memory_page *);
+void md_memory_page_publish(struct md_memory_page *,uintptr_t);
+void md_memory_page_release(struct md_memory_page *);
 int md_memory_buffers_prepare(struct md_interception_memory *, unsigned slots, size_t capacity,
     size_t clear_prefix, unsigned reserved);
 struct md_interception_buffers *md_memory_buffers(struct md_interception_memory *);
+/* Immutable installation inputs use a distinct sealed peer-read-only mapping.
+ * Fork retains the pool and mapping; exec starts empty. Active users must hold
+ * the existing mapping turn until the kernel has finished consuming bytes. */
+int md_memory_readonly_prepare(struct md_interception_memory *,unsigned slots,size_t capacity);
+struct md_interception_buffers *md_memory_readonly_buffers(struct md_interception_memory *);
+int md_memory_readonly_mapped(struct md_interception_memory *,uintptr_t,size_t);
+uintptr_t md_memory_readonly_base(const struct md_interception_memory *);
+int md_memory_readonly_intersects(const struct md_interception_memory *,uintptr_t,size_t);
+/* Successful or outcome-unknown destructive replacement retires admission. */
+void md_memory_readonly_invalidate(struct md_interception_memory *,uintptr_t,size_t);
 int md_memory_buffers_mapped(struct md_interception_memory *, uintptr_t base, size_t size);
 uintptr_t md_memory_buffer_address(struct md_interception_memory *, const struct md_interception_buffer *);
 /* Mapping commit and destructive memory calls share this address-space turn.

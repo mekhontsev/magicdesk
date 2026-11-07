@@ -16,8 +16,8 @@ def main():
     args = parser.parse_args()
     suite = Suite(args.output)
     try:
-        suite.transport.upload(suite.client, args.helper, suite.base + '/guest-helper')
-        suite.command(['chmod', '755', suite.base + '/guest-helper'])
+        suite.upload(args.helper, suite.base + '/guest-helper')
+        suite.chmod('755', suite.base + '/guest-helper')
         suite.report['helperSha256'] = suite.transport.digest(args.helper)
         suite.report['guestUser'] = args.user
         probe = '''set -eu

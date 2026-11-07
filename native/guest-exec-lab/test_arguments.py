@@ -19,8 +19,8 @@ def main():
     created=False
     try:
         source = args.fixtures / 'md-arguments-fixture'
-        suite.transport.upload(suite.client, source, suite.base + '/md-arguments-fixture')
-        suite.command(['chmod', '700', suite.base + '/md-arguments-fixture'])
+        suite.upload(source, suite.base + '/md-arguments-fixture')
+        suite.chmod('700', suite.base + '/md-arguments-fixture')
         suite.command(base + ['--', '/bin/mkdir', target])
         created=True
         prefix = base + ['--bind', suite.base, target, '--']

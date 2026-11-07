@@ -9,7 +9,7 @@
 #include "file_open.h"
 #include "directory_record.h"
 
-/* Experimental inode namespace, not a syscall adapter. Each connection
+/* Persistent inode namespace, not a syscall adapter. Each connection
  * belongs to one worker; never use it from SIGSYS, a signal handler, or after fork.
  * Errors are negative errno. Store operations serialize before their transaction.
  * EAGAIN still reports an external SQLite writer bypassing that gate; no replay.

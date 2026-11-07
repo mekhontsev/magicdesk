@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/resource.h>
+#include <stdint.h>
 
 struct md_debugger;
 enum md_debugger_wait_action {
@@ -11,6 +12,11 @@ enum md_debugger_wait_action {
     MD_DEBUG_WAIT_PARK, MD_DEBUG_WAIT_RESTART
 };
 struct md_debugger_host {
+    /* The host admits original guest policy and distinguishes its TRACE stops
+     * from internal selector cookies. Absent until that owner is connected. */
+    int seccomp_events;
+    /* Optional logical mask owner. NULL retains direct kernel mask access. */
+    int (*signal_mask)(pid_t, int write, uint64_t *);
     pid_t (*visible_pid)(pid_t observer, pid_t native);
     pid_t (*native_pid)(pid_t observer, pid_t visible);
     uid_t (*visible_uid)(pid_t observer, pid_t sender, uid_t fallback);
@@ -18,6 +24,8 @@ struct md_debugger_host {
     int (*group)(pid_t);
     uid_t (*uid)(pid_t);
     int (*allowed)(pid_t, pid_t);
+    /* Voluntary tracing checks capabilities, not attach/dumpability admission. */
+    int (*traceme)(pid_t parent, pid_t child);
     int (*attachable)(pid_t, pid_t);
     int (*observe)(pid_t);
     int (*interrupt)(pid_t);
@@ -40,6 +48,7 @@ int md_debugger_defer_stop(struct md_debugger *, pid_t, const siginfo_t *);
 int md_debugger_exec(struct md_debugger *, pid_t, pid_t);
 int md_debugger_birth(struct md_debugger *, pid_t, pid_t, unsigned);
 int md_debugger_event(struct md_debugger *, pid_t, unsigned, unsigned long);
+int md_debugger_seccomp(struct md_debugger *, pid_t, const struct user_pt_regs *, unsigned);
 void md_debugger_exit(struct md_debugger *, pid_t, int);
 int md_debugger_step(struct md_debugger *, pid_t);
 int md_debugger_traced(struct md_debugger *, pid_t);
@@ -51,7 +60,6 @@ int md_debugger_running(struct md_debugger *, pid_t target);
 int md_debugger_active(struct md_debugger *);
 int md_debugger_boundary(struct md_debugger *, pid_t);
 int md_debugger_newborn(struct md_debugger *, pid_t);
-int md_debugger_observing(struct md_debugger *, pid_t);
 int md_debugger_syscall_mode(struct md_debugger *, pid_t);
 int md_debugger_syscall(struct md_debugger *, pid_t, const struct user_pt_regs *, int);
 void md_debugger_wait_complete(struct md_debugger *, pid_t, long);

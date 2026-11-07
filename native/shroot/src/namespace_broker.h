@@ -74,6 +74,9 @@ int md_broker_pending_events(struct md_namespace_broker *);
 struct md_broker_code_ranges { uintptr_t starts[8]; size_t size; unsigned count; };
 int md_broker_task(struct md_namespace_broker *, int pid, int eligible, uintptr_t raw_gate, uintptr_t watch_gate,
     const struct md_broker_code_ranges *);
+/* Stopped-task authority: a pure mask query needs no logical translation.
+ * Revoked before resuming with a different logical mask or debugger policy. */
+void md_broker_signal_query(struct md_namespace_broker *,pid_t,int native);
 /* A barrier restored an unchanged continuation after its synthetic stop.
  * Retain eligibility and resource ownership; wake a request published before
  * this acknowledgement. Never use for an injected helper or held real event. */

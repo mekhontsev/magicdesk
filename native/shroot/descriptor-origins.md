@@ -160,6 +160,9 @@ exporting an extra data description through a forbidden helper syscall. Pins
 do not hold a pipe writer/reader open, retain a data offset or create guest
 filesystem provenance. Capture failure leaves ordinary fallback available.
 Close/dup/fork use the same file-table publication rules as other origins.
+Anonymous inherited pipes also retain `descriptor_inode` guest ownership and
+mode bits. Aliases share this metadata; guest chmod/chown never changes the
+Android pipe. The identity pin neither delays EOF nor intercepts ordinary IO.
 
 After an application filter is installed, a completed filesystem result may
 require task-affine FD delivery. The result owner retains that completion while

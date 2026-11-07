@@ -6,7 +6,9 @@
 #include <stdint.h>
 #include <sys/ptrace.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#include "task_pending.h"
 
 struct md_signal_delivery_node {
     struct md_signal_delivery_node *next;
@@ -57,12 +59,7 @@ static int realtime_event(struct md_signal_delivery *q,pid_t tid,int signal,int 
 static int job_control(int signal) {
     return signal==SIGCONT || signal==SIGTSTP || signal==SIGTTIN || signal==SIGTTOU;
 }
-int md_signal_delivery_hold(struct md_signal_delivery *q,const siginfo_t *info) {
-    if (info->si_signo<=0 || info->si_signo>=SIGRTMIN
-            || info->si_signo==SIGKILL || info->si_signo==SIGSTOP || job_control(info->si_signo)) return -EINVAL;
-    if (info->si_code>0 && (info->si_signo==SIGTRAP || info->si_signo==SIGILL
-            || info->si_signo==SIGBUS || info->si_signo==SIGSEGV || info->si_signo==SIGFPE
-            || info->si_signo==SIGSYS)) return -EINVAL;
+static int standard_hold(struct md_signal_delivery *q,const siginfo_t *info) {
     for (struct md_signal_delivery_node *n=q->first;n;n=n->next)
         if (n->info.si_signo==info->si_signo) return 0;
     struct md_signal_delivery_node *n=malloc(sizeof(*n));
@@ -70,6 +67,21 @@ int md_signal_delivery_hold(struct md_signal_delivery *q,const siginfo_t *info) 
     *n=(struct md_signal_delivery_node){.info=*info};
     if (q->last) q->last->next=n; else q->first=n;
     q->last=n; return 0;
+}
+int md_signal_delivery_hold(struct md_signal_delivery *q,const siginfo_t *info) {
+    if (info->si_signo<=0 || info->si_signo>=SIGRTMIN
+            || info->si_signo==SIGKILL || info->si_signo==SIGSTOP || job_control(info->si_signo)) return -EINVAL;
+    if (md_signal_synchronous(info)) return -EINVAL;
+    return standard_hold(q,info);
+}
+int md_signal_delivery_seccomp(struct md_signal_delivery *q,const siginfo_t *info) {
+    if (info->si_signo!=SIGSYS || info->si_code!=SYS_SECCOMP) return -EINVAL;
+    return standard_hold(q,info);
+}
+int md_signal_delivery_generated(struct md_signal_delivery *q,const siginfo_t *info) {
+    if (info->si_signo<=0 || info->si_signo>=SIGRTMIN || info->si_signo==SIGKILL
+            || info->si_signo==SIGSTOP || job_control(info->si_signo)) return -EINVAL;
+    return standard_hold(q,info);
 }
 int md_signal_delivery_retain(struct md_signal_delivery *q,pid_t tid,const siginfo_t *info) {
     if (info->si_signo>=SIGRTMIN && info->si_signo<NSIG) return realtime_hold(q,info,1);
@@ -87,14 +99,42 @@ int md_signal_delivery_retain(struct md_signal_delivery *q,pid_t tid,const sigin
      * a later opposite signal can then discard it in the kernel normally. */
     return info->si_signo;
 }
-static int arm(struct md_signal_delivery *q,pid_t tid) {
-    int signal=q->first->info.si_signo;
-    uint64_t mask=md_signal_blockable_mask() & ~(UINT64_C(1)<<(signal-1));
+static int carrier_mask(struct md_signal_delivery *q,pid_t tid) {
+    uint64_t mask=md_signal_blockable_mask() & ~(UINT64_C(1)<<(q->first->info.si_signo-1));
     if (ptrace(PTRACE_SETSIGMASK,tid,(void *)sizeof(mask),&mask)<0) return -errno;
-    return syscall(SYS_tkill,tid,signal)<0 ? -errno : 0;
+    return 0;
+}
+static int arm(struct md_signal_delivery *q,pid_t tid) {
+    int error=carrier_mask(q,tid);
+    return error ? error : syscall(SYS_tkill,tid,q->first->info.si_signo)<0 ? -errno : 0;
+}
+int md_signal_delivery_update_mask(struct md_signal_delivery *q,pid_t tid,uint64_t mask) {
+    if (!q->active || !q->first) return -EINVAL;
+    int error=carrier_mask(q,tid);
+    if (!error) q->mask=mask;
+    return error;
+}
+static long pending_trace(int request,pid_t pid,void *address,void *data) {
+    return ptrace(request,pid,address,data);
+}
+static int pending_exception(void *context,const siginfo_t *info) {
+    const uint64_t *mask=context;
+    return md_signal_synchronous(info) && !(*mask&(UINT64_C(1)<<(info->si_signo-1)));
+}
+int md_signal_delivery_before_handler(struct md_signal_delivery *q,pid_t pid,const siginfo_t *info) {
+    if (!q->first || q->active || q->committing || !md_signal_synchronous(info)) return 0;
+    /* EVENT_WAIT: native frame construction precedes the interrupt stop;
+     * exit cancels the queue. No application instruction must run first. */
+    if (ptrace(PTRACE_INTERRUPT,pid,NULL,NULL)<0) return -errno;
+    q->committing=1;
+    return 0;
+}
+void md_signal_delivery_checkpoint(struct md_signal_delivery *q,int status) {
+    if (WIFSTOPPED(status) && (unsigned)status>>16==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP)
+        q->committing=0;
 }
 int md_signal_delivery_publish(struct md_signal_delivery *q,pid_t tid,pid_t group) {
-    if (q->active || !md_signal_delivery_pending(q)) return 0;
+    if (q->active || q->committing || !md_signal_delivery_pending(q)) return 0;
     if (q->realtime) { int error=realtime_publish(q,tid,group); if (error) return error; }
     if (!q->first && !q->kernel_mask) return 0;
     if (ptrace(PTRACE_GETSIGMASK,tid,(void *)sizeof(q->mask),&q->mask)<0) return -errno;
@@ -103,6 +143,11 @@ int md_signal_delivery_publish(struct md_signal_delivery *q,pid_t tid,pid_t grou
         if (ptrace(PTRACE_SETSIGMASK,tid,(void *)sizeof(q->mask),&q->mask)<0) return -errno;
         q->kernel_mask=0; return 0;
     }
+    /* Seccomp TRAP has a syscall-exit stop before signal delivery. A carrier
+     * must not mask that pending exception and run an async handler first:
+     * SIGSYS would then lose its original syscall register context. */
+    int pending=md_task_pending_scan(pending_trace,tid,pending_exception,&q->mask);
+    if (pending) return pending<0 ? pending : 0;
     int error=arm(q,tid);
     if (error) {
         if (ptrace(PTRACE_SETSIGMASK,tid,(void *)sizeof(q->mask),&q->mask)<0) return -errno;

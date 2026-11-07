@@ -43,7 +43,7 @@ struct md_fd_origins {
     struct md_fd_loan_slot *loan_head;
 };
 static void entry_link(struct md_fd_origins *t,struct md_fd_origin_entry *e) {
-    if (e->object && e->object->type->readiness) ++t->readiness;
+    if (md_fd_object_has_readiness(e->object)) ++t->readiness;
     if (!e->loan) return;
     struct md_fd_loan_slot *slot=e->loan;
     slot->entry=e; slot->previous=NULL; slot->next=t->loan_head;
@@ -52,7 +52,7 @@ static void entry_link(struct md_fd_origins *t,struct md_fd_origin_entry *e) {
     atomic_fetch_add_explicit(&t->loans,1,memory_order_release);
 }
 static void entry_unlink(struct md_fd_origins *t,struct md_fd_origin_entry *e) {
-    if (e->object && e->object->type->readiness) --t->readiness;
+    if (md_fd_object_has_readiness(e->object)) --t->readiness;
     if (!e->loan) return;
     struct md_fd_loan_slot *slot=e->loan;
     if (slot->previous) slot->previous->next=slot->next;
@@ -224,7 +224,7 @@ int md_fd_origins_native_poll_vector(const struct md_fd_order *turn,const struct
     if (t->readiness && t->buckets) for (size_t i=0;i<count;++i) {
         if (items[i].fd<0) continue;
         struct md_fd_origin_entry *e=*slot(t,items[i].fd);
-        if (e && e->object && e->object->type->readiness) { native=0; break; }
+        if (e && md_fd_object_has_readiness(e->object)) { native=0; break; }
     }
     pthread_mutex_unlock(&t->lock); return native;
 }

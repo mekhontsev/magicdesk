@@ -6,7 +6,9 @@
 #include <linux/magic.h>
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Guest driver families, not Android's hardware inventory. Registration does
@@ -48,11 +50,13 @@ static const struct static_entry {
     /* No block drivers are exposed by the guest device inventory. File IO
      * still consumes backing storage; these are not host-wide IO counters. */
     {MD_PROC_DISKSTATS,"diskstats","",0},
-    {MD_PROC_MODULES,"modules","",0}
+    {MD_PROC_MODULES,"modules","",0},
+    /* Optional provider selected only when the native proc file is denied. */
+    {MD_PROC_UPTIME,"uptime","",0}
 };
 ino_t md_proc_static_inode(const char *name) {
     for (size_t i=0;i<sizeof(entries)/sizeof(*entries);++i)
-        if (!strcmp(name,entries[i].name)) return (ino_t)i+1;
+        if (md_proc_static(entries[i].kind) && !strcmp(name,entries[i].name)) return (ino_t)i+1;
     return 0;
 }
 struct static_file {
@@ -62,6 +66,8 @@ struct static_file {
     const struct static_entry *entry;
     const char *text;
     size_t size;
+    char sample[64];
+    struct stat node;
 };
 static void *retain(void *context) {
     struct static_file *c=context;
@@ -78,6 +84,9 @@ static int metadata(void *context,struct stat *st) {
     *st=(struct stat){.st_dev=UINT32_C(0xfffa0000),.st_ino=(ino_t)(c->entry-entries)+1,.st_mode=S_IFREG|0444,
         .st_nlink=1,.st_blksize=4096,.st_uid=md_user_namespace_into(c->owner,0,0),
         .st_gid=md_user_namespace_into(c->owner,1,0)};
+    if (c->entry->kind==MD_PROC_UPTIME) {
+        st->st_dev=c->node.st_dev; st->st_ino=c->node.st_ino;
+    }
     return 0;
 }
 static int access_mode(void *context,const struct md_identity *id,unsigned mode) {
@@ -85,9 +94,19 @@ static int access_mode(void *context,const struct md_identity *id,unsigned mode)
     return mode&~7U ? -EINVAL : mode&(W_OK|X_OK) ? -EACCES : 0;
 }
 static long read_value(void *context,const struct md_control_actor *actor,void *out,size_t size,int64_t offset) {
-    const struct static_file *file=context;
+    struct static_file *file=context;
     (void)actor;
     if (offset<0) return -EINVAL;
+    if (file->entry->kind==MD_PROC_UPTIME && size && (!offset || !file->size)) {
+        struct timespec boot;
+        if (clock_gettime(CLOCK_BOOTTIME,&boot)) return -errno;
+        /* Host-wide CPU idle accounting is not exposed by an app's clock.
+         * Keep that field zero, not an invented load or elapsed-time estimate. */
+        int n=snprintf(file->sample,sizeof(file->sample),"%lld.%02ld 0.00\n",
+            (long long)boot.tv_sec,boot.tv_nsec/10000000);
+        if (n<0 || (size_t)n>=sizeof(file->sample)) return -EOVERFLOW;
+        file->text=file->sample; file->size=(size_t)n;
+    }
     if ((uint64_t)offset>=file->size) return 0;
     size_t count=file->size-(size_t)offset;
     if (count>size) count=size;
@@ -111,4 +130,12 @@ struct md_control_file md_proc_static_new(enum md_proc_kind kind,struct md_user_
         c->text=network_modules; c->size=sizeof(network_modules)-1;
     }
     return (struct md_control_file){&ops,c};
+}
+struct md_control_file md_proc_uptime_new(struct md_user_namespace *owner,struct md_fs_anchor *anchor,int fd) {
+    struct md_control_file file=md_proc_static_new(MD_PROC_UPTIME,owner,anchor,NULL);
+    if (file.ops && fstat(fd,&((struct static_file *)file.context)->node)) {
+        int error=errno;
+        md_control_file_release(file); errno=error; return (struct md_control_file){0};
+    }
+    return file;
 }

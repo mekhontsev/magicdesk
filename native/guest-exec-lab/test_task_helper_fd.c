@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "task_helper.h"
+#include "directory_record.h"
 #include "task_checkpoint.h"
 #include "task_quiesce.h"
 #include "task_wait.h"
@@ -46,7 +47,7 @@ enum scenario { NORMAL, FULL, DENIED, KILLED_OPEN, CANCEL_CHANNEL, CANCEL_EXPORT
     CANCEL_SECOND, NO_SLOT, INVALID_INPUT, REPLACE_CAPTURED, CLONE_TRAPPED, CLONE_DENIED,
     ONE_SLOT, CANCEL_RIGHT, FILTER_EPIPE, PEER_CLOSED, SIGNAL_PIPE, CANCEL_IMPORT, PREFIX_SLOTS,
     EXACT_SLOTS, IMPORT_DENIED, CLOSE_DENIED, CONTROL_FAULT, ANCHOR_REJECT, ANCHOR_CANCEL, ANCHOR_DELIVER,
-    CANCEL_CAPTURE, REPLACE_PATH, INTERRUPT_OWNER, QUIESCE_NEWBORN };
+    CANCEL_CAPTURE, REPLACE_PATH, INTERRUPT_OWNER, QUIESCE_NEWBORN, BORROWED, STOP_HELPER, CLEAR_DENIED };
 struct snapshot { unsigned char present[512]; };
 struct completed {
     int called, captured, mutate, socket, source;
@@ -190,11 +191,12 @@ static void actor(int socket, int writer, int file, int path, int replacement, i
         assert(!setrlimit(RLIMIT_NOFILE,&limit));
     }
     if (scenario==DENIED || scenario==KILLED_OPEN || scenario==CLONE_DENIED || scenario==CLONE_TRAPPED || scenario==FILTER_EPIPE
-            || scenario==IMPORT_DENIED || scenario==CLOSE_DENIED) {
+            || scenario==IMPORT_DENIED || scenario==CLOSE_DENIED || scenario==CLEAR_DENIED) {
         struct sock_filter denied[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,scenario==CLONE_DENIED || scenario==CLONE_TRAPPED ? SYS_clone
                 : scenario==IMPORT_DENIED ? SYS_recvmsg : scenario==CLOSE_DENIED ? SYS_close
+                : scenario==CLEAR_DENIED ? SYS_close_range
                 : file<0 && !sending ? SYS_openat : SYS_sendmsg,0,1),
             BPF_STMT(BPF_RET|BPF_K,scenario==CLONE_TRAPPED ? SECCOMP_RET_TRAP : scenario==KILLED_OPEN ? SECCOMP_RET_KILL_THREAD
                 : SECCOMP_RET_ERRNO|(scenario==CLONE_DENIED ? EPERM : scenario==FILTER_EPIPE ? EPIPE : EACCES)),
@@ -306,7 +308,7 @@ struct send_frame {
 };
 static void exercise_request(int protected, enum scenario scenario, unsigned exported, int sending,
         const struct md_task_helper_request *capture) {
-    unsigned before=descriptors(); early_child=0;
+    unsigned before=descriptors(),continued=0; early_child=0;
     checkpoints.begin=(uintptr_t)helper_call; checkpoints.end=(uintptr_t)helper_stored+4;
     int reference=capture ? open(capture->path,capture->flags|O_CLOEXEC) : -1;
     assert(!capture || reference>=0);
@@ -446,9 +448,16 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
         }
         /* The ordinary stop won a race with a writer-barrier interrupt. Its
          * delayed acknowledgement must not complete or cancel the helper. */
-        if (scenario==INTERRUPT_OWNER) assert(!ptrace(PTRACE_INTERRUPT,child,0,0));
+        if (scenario==INTERRUPT_OWNER || scenario==BORROWED) assert(!ptrace(PTRACE_INTERRUPT,child,0,0));
         int owner_interrupted=0;
-        assert(!md_task_helper_begin(helpers,child,child,&saved,&abi,memory,&buffer,&request,completed,&c));
+        int stop_sent=0,stop_delivered=0,stop_listened=0;
+        if (scenario==BORROWED) {
+            assert(md_task_checkpoint_suspend(&checkpoints,child)>=0);
+            assert(!md_task_helper_borrow(helpers,child,child,MD_TASK_CALL_USER,&saved,&abi,
+                memory,&buffer,&request,completed,&c));
+        } else assert(!md_task_helper_begin(helpers,child,child,&saved,&abi,memory,&buffer,&request,completed,&c));
+        assert(md_task_helper_owns(helpers,child,child));
+        assert(!md_task_helper_owns(helpers,child+1,child));
         if (scenario==QUIESCE_NEWBORN) quiesce_newborn(helpers,child);
         if (native_anchor>=0) close(native_anchor);
         md_received_fds_release(send_inputs); request.send_inputs=NULL;
@@ -459,8 +468,20 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
                 int checkpoint=md_task_checkpoint_event(&checkpoints,pid,&status); assert(checkpoint>=0);
                 if (checkpoint) continue;
                 unsigned event=(unsigned)status>>16;
+                if (scenario==STOP_HELPER && pid!=child && WIFSTOPPED(status)) {
+                    if (!stop_sent && event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP) {
+                        assert(!syscall(SYS_tgkill,child,pid,SIGSTOP)); stop_sent=1;
+                    }
+                    if (!event && WSTOPSIG(status)==SIGSTOP) ++stop_delivered;
+                }
                 if (pid==child && event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP)
                     ++owner_interrupted;
+                struct md_task_call *call=md_task_helper_call(helpers,pid);
+                if (call && event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP
+                        && !md_task_call_expects_interrupt(call)) {
+                    assert(!md_task_call_resume(call,0));
+                    continue;
+                }
                 if (capture && (scenario==CANCEL_CAPTURE || scenario==REPLACE_PATH)
                         && pid!=child && WIFSTOPPED(status) && event==MD_TASK_CHECKPOINT_EVENT) {
                     struct user_pt_regs r=registers(pid);
@@ -498,6 +519,11 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
                     assert(!md_task_helper_retiring(helpers,child,child));
                 }
                 int handled=md_task_helper_event(helpers,pid,status);
+                if (scenario==STOP_HELPER && pid!=child && WIFSTOPPED(status)
+                        && event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGSTOP) {
+                    assert(handled==1 && !c.called && !stop_listened++);
+                    assert(!kill(child,SIGCONT));
+                }
                 if (pid==child && event==PTRACE_EVENT_CLONE)
                     assert(wait.members==1 && wait.cursor && wait.cursor->pid!=child);
                 if (WIFEXITED(status) || WIFSIGNALED(status))
@@ -505,8 +531,14 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
                 if (handled<0) fprintf(stderr,"helper event pid=%d owner=%d status=%x error=%d\n",pid,child,status,handled);
                 assert(handled>=0);
                 if (!handled) {
-                    if (cancelled && pid==child) assert(WIFSTOPPED(status));
+                    if (scenario==STOP_HELPER && pid==child && !event && WSTOPSIG(status)==SIGCONT) {
+                        assert(!continued++);
+                        assert(!trace(PTRACE_CONT,child,0,(void *)(uintptr_t)SIGCONT));
+                    } else if (cancelled && pid==child) assert(WIFSTOPPED(status));
                     else {
+                        if (!(pid!=child && WIFSTOPPED(status) && event==PTRACE_EVENT_STOP && !early_child))
+                            fprintf(stderr,"unhandled helper event scenario=%d protected=%d pid=%d owner=%d status=%#x early=%d called=%d\n",
+                                scenario,protected,pid,child,status,early_child,c.called);
                         assert(pid!=child && WIFSTOPPED(status) && event==PTRACE_EVENT_STOP && !early_child);
                         early_child=pid;
                     }
@@ -533,6 +565,13 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
             }
         }
         assert(c.called==1 && !md_task_helpers_count(helpers) && !early_child);
+        if (scenario==STOP_HELPER) assert(stop_sent==1 && stop_delivered==1 && stop_listened==1);
+        assert(!md_task_helper_owns(helpers,child,child));
+        if (scenario==BORROWED) {
+            struct user_pt_regs restored=registers(child);
+            assert(!memcmp(&restored,&saved,sizeof(saved)));
+            md_task_checkpoint_restore(&checkpoints,child);
+        }
         assert(!wait.members && !wait.cursor);
         assert(scenario!=INTERRUPT_OWNER || owner_interrupted==1);
         assert(c.captured==(exported && scenario!=CLONE_DENIED && scenario!=CLONE_TRAPPED ? 1 : 0));
@@ -547,7 +586,7 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
          * preserving the committed byte count prevents accidental replay. */
         if (sending && cancelled && scenario==CANCEL_EXPORT) assert(c.result.value==1 && c.result.descriptor==-1);
         else if (cancelled || scenario==KILLED_OPEN) assert(c.result.value==-ECANCELED && c.result.descriptor==-1);
-        else if (scenario==DENIED || scenario==IMPORT_DENIED || scenario==CLOSE_DENIED)
+        else if (scenario==DENIED || scenario==IMPORT_DENIED || scenario==CLOSE_DENIED || scenario==CLEAR_DENIED)
             assert(c.result.value==-EACCES && c.result.descriptor==-1);
         else if (scenario==NO_SLOT || scenario==ONE_SLOT || scenario==PREFIX_SLOTS)
             assert(c.result.value==-EMFILE && c.result.descriptor==-1);
@@ -597,6 +636,16 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
                     && expected.st_mode==actual.st_mode && expected.st_rdev==actual.st_rdev);
                 assert(fcntl(c.result.descriptor,F_GETFL)==fcntl(reference,F_GETFL));
                 assert(fcntl(c.result.descriptor,F_GETFD)==FD_CLOEXEC);
+                if (capture->directory_limit) {
+                    assert(c.result.directory && c.result.directory_size && c.result.directory_size<=capture->directory_limit);
+                    size_t at=0;
+                    while (at<c.result.directory_size) {
+                        struct md_directory_entry entry;
+                        assert(md_directory_record_read((char *)c.result.directory+at,c.result.directory_size-at,&entry));
+                        at+=entry.size;
+                    }
+                    assert(c.result.metadata.st_ino==expected.st_ino);
+                }
             } else check_directory(c.result.descriptor,snapshot);
             if (directory>=0) close(directory);
             directory=c.result.descriptor;
@@ -632,6 +681,7 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
                 close(destination);
             }
         }
+        free(c.result.directory);
         if (scenario==ANCHOR_DELIVER) assert(!unlink(native_name.sun_path));
         md_fd_message_release(message);
     }
@@ -641,17 +691,24 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
         assert(!trace(PTRACE_CONT,child,0,0));
     }
     status=wait_child(child);
-    if (!cancelled && scenario==QUIESCE_NEWBORN && WIFSTOPPED(status)
-            && (unsigned)status>>16==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP) {
-        /* A barrier interrupt can lose to the owner's ordinary stop and arrive
-         * after helper completion. Continue in place, as the supervisor does;
-         * never restore registers again or replay the completed operation. */
-        assert(!ptrace(PTRACE_CONT,child,0,0)); status=wait_child(child);
+    unsigned wakeups=0;
+    while (!cancelled && (scenario==QUIESCE_NEWBORN || scenario==STOP_HELPER)
+            && WIFSTOPPED(status)) {
+        unsigned event=(unsigned)status>>16;
+        int signal=WSTOPSIG(status),deliver=0;
+        if (event==PTRACE_EVENT_STOP && signal==SIGTRAP) assert(!wakeups++);
+        else if (scenario==STOP_HELPER && !event && signal==SIGCONT) {
+            assert(!continued++); deliver=SIGCONT;
+        } else break;
+        /* Barrier and CONT wake acknowledgements can arrive after helper
+         * completion. Resume the restored caller without replaying its work. */
+        assert(!ptrace(PTRACE_CONT,child,0,(void *)(uintptr_t)deliver)); status=wait_child(child);
     }
     if (!WIFSTOPPED(status) || (unsigned)status>>16!=PTRACE_EVENT_EXIT)
         fprintf(stderr,"helper owner exit protected=%d scenario=%d exported=%u sending=%d cancelled=%d status=%#x\n",
             protected,scenario,exported,sending,cancelled,status);
     assert(WIFSTOPPED(status) && (unsigned)status>>16==PTRACE_EVENT_EXIT);
+    if (scenario==STOP_HELPER) assert(continued==1);
     assert(!ptrace(PTRACE_CONT,child,0,0)); status=wait_child(child);
     assert(cancelled ? WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL : WIFEXITED(status) && !WEXITSTATUS(status));
     assert(!close(pipes[1])); char byte;
@@ -693,13 +750,23 @@ static void path_captures(void) {
     assert(!symlink(name,link));
     struct md_task_helper_request request={.kind=MD_TASK_HELPER_CAPTURE,.path=name,.flags=O_PATH};
     for (int protected=0;protected<2;++protected) {
-        enum scenario scenarios[]={NORMAL,FULL,DENIED,KILLED_OPEN,CANCEL_CHANNEL,CANCEL_CAPTURE,REPLACE_PATH};
+        enum scenario scenarios[]={NORMAL,FULL,DENIED,KILLED_OPEN,CANCEL_CHANNEL,CANCEL_CAPTURE,REPLACE_PATH,
+            CLONE_DENIED,CLONE_TRAPPED,CLEAR_DENIED};
         for (unsigned i=0;i<sizeof(scenarios)/sizeof(*scenarios);++i)
             exercise_request(protected,scenarios[i],0,0,&request);
+        exercise_request(protected,BORROWED,0,0,&request);
         request.path=link; request.flags=O_PATH|O_NOFOLLOW;
         exercise_request(protected,NORMAL,0,0,&request);
         request.path=directory_path; request.flags=O_PATH|O_DIRECTORY;
         exercise_request(protected,NORMAL,0,0,&request);
+        request.flags=O_DIRECTORY|O_NONBLOCK|O_CLOEXEC;
+        exercise_request(protected,NORMAL,0,0,&request);
+        exercise_request(protected,BORROWED,0,0,&request);
+        request.directory_limit=65536; request.capture_metadata=1;
+        exercise_request(protected,NORMAL,0,0,&request);
+        exercise_request(protected,BORROWED,0,0,&request);
+        exercise_request(protected,CANCEL_CAPTURE,0,0,&request);
+        request.directory_limit=0; request.capture_metadata=0;
         request.path=name; request.flags=O_PATH;
     }
     assert(!unlink(link) && !unlink(name));
@@ -715,6 +782,7 @@ int main(int argc, char **argv) {
     }
     native_control_fault();
     for (int protected=0;protected<2;++protected) {
+        exercise(protected,STOP_HELPER,0,0);
         exercise(protected,QUIESCE_NEWBORN,0,0);
         exercise(protected,QUIESCE_NEWBORN,254,0);
         exercise(protected,QUIESCE_NEWBORN,0,253);

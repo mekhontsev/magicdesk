@@ -454,15 +454,16 @@ void md_cgroup_member_publish(struct md_cgroup_member *m,pid_t tid,pid_t tgid,
         struct md_pid_identity *pid,struct md_pid_identity *group) {
     if (!m) return;
     pthread_mutex_lock(&m->world->lock);
-    struct md_pid_identity *old=m->pid,*old_group=m->pid_group;
+    struct md_pid_identity *old=NULL,*old_group=NULL;
     if (tid && !m->charged) {
         for (struct group *g=m->groups[0];g;g=g->parent) ++g->pids_charged;
         m->charged=1;
     }
     if (!m->tid && tid) membership_change(m->world->views[0],NULL,m->groups[0],m->stopped);
     else if (m->tid && !tid) membership_change(m->world->views[0],m->groups[0],NULL,m->stopped);
-    m->tid=tid; m->tgid=tgid; m->retired_tid=0; m->departed=0; m->reserved=0; m->pid=md_pid_identity_retain(pid);
-    m->pid_group=md_pid_identity_retain(group);
+    m->tid=tid; m->tgid=tgid; m->retired_tid=0; m->departed=0; m->reserved=0;
+    if (m->pid!=pid) { old=m->pid; m->pid=md_pid_identity_retain(pid); }
+    if (m->pid_group!=group) { old_group=m->pid_group; m->pid_group=md_pid_identity_retain(group); }
     pthread_mutex_unlock(&m->world->lock); md_pid_identity_release(old); md_pid_identity_release(old_group);
 }
 void md_cgroup_member_depart(struct md_cgroup_member *m,pid_t tid) {

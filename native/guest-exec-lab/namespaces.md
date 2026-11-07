@@ -371,8 +371,8 @@ account resolution, registry and inode contracts, plus `credentials_guest` for
 intercepted calls. The device runner accepts a prepared device-side OCI layout:
 
 ```sh
-python native/guest-exec-lab/test_credentials_runtime.py BUILD DEVICE_LAYOUT --packages debian
-python native/guest-exec-lab/test_credentials_runtime.py BUILD DEVICE_LAYOUT --packages alpine
+python native/guest-exec-lab/test_credentials_runtime.py BUILD LOCAL_LAYOUT --packages debian
+python native/guest-exec-lab/test_credentials_runtime.py BUILD LOCAL_LAYOUT --packages alpine
 ```
 
 The runner requires actual UID 2000 and creates its own preserved-ownership image

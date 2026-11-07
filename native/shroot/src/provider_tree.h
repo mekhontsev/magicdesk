@@ -17,6 +17,10 @@ struct md_provider_lookup {
     int (*ready)(struct md_provider_lookup *);
     int (*complete)(struct md_provider_lookup *);
     void (*destroy)(struct md_provider_lookup *);
+    /* Optional caller-affine input, serviced only by an admitting transport.
+     * Metadata describes the same captured FD when external getattr is denied. */
+    struct md_fs_task_input *task_input;
+    const struct stat *metadata;
 };
 struct md_provider_tree_ops {
     void *(*retain)(void *);
@@ -48,10 +52,14 @@ struct md_provider_tree *md_provider_tree_retain(struct md_provider_tree *);
 void md_provider_tree_release(struct md_provider_tree *);
 int md_provider_tree_root(struct md_provider_tree *);
 int md_provider_tree_step(struct md_provider_tree *,int directory,const char *);
+/* Select the retained host tree without exposing another namespace's private
+ * attachment points. The same path, visibility and cursor rules still apply. */
+int md_provider_tree_host_step(struct md_provider_tree *,int directory,const char *);
 int md_provider_tree_lookup(struct md_provider_tree *,int directory,const char *,
     const struct md_control_actor *,struct md_provider_lookup **);
 int md_provider_tree_path(struct md_provider_tree *,int fd,char *,size_t);
 ssize_t md_provider_tree_getdents(struct md_provider_tree *,int fd,void *,size_t);
+ssize_t md_provider_tree_host_getdents(struct md_provider_tree *,int fd,void *,size_t);
 int md_provider_tree_control(struct md_provider_tree *,int fd,struct md_control_file *);
 int md_provider_tree_private(struct md_provider_tree *,int fd);
 int md_provider_tree_readonly(struct md_provider_tree *,int fd);

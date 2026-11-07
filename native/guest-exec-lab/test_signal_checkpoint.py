@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native controls for signal-transparent Shroot protocol research, under UID 2000."""
+"""Native controls for the signal-transparent Shroot protocol."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -7,6 +7,7 @@ import re
 import statistics
 from test_oci_services import Suite
 from benchmark_cpu import observe_suite_cpu
+from fixture_executor import probe_native_capability
 
 
 def main():
@@ -23,13 +24,16 @@ def main():
         source = args.build / 'libmagicdesk_guest_test_signal_checkpoint.so'
         with source.open('rb') as stream:
             suite.report['fixtureSha256'] = hashlib.file_digest(stream, 'sha256').hexdigest()
-        suite.transport.upload(suite.client, source, binary)
-        suite.command(['chmod', '700', binary])
+        suite.upload(source, binary)
+        suite.chmod('700', binary)
+        native_skip = args.copy_fault or probe_native_capability(
+            suite.observe, suite.report, binary, 'syscall-skip')
+        options = ['--copy-fault'] if args.copy_fault else [] if native_skip else ['--without-syscall-skip']
         with observe_suite_cpu(suite) as cpu:
             suite.report['cpu'] = cpu
-            output = suite.command([binary] + (['--copy-fault'] if args.copy_fault else []), timeout=80)
+            output = suite.command([binary, *options], timeout=80)
         if args.copy_fault:
-            assert 'PASS copy fault controls: uid=2000' in output
+            assert f'PASS copy fault controls: uid={suite.executor.uid}' in output
             assert 'PASS kernel copy: 72 controls;' in output
             assert 'LIMIT service copy fault:' in output
             assert 'LIMIT kernel copy seccomp:' in output
@@ -49,7 +53,8 @@ def main():
             suite.report['limitations'] = [line for line in output.splitlines() if line.startswith('LIMIT ')]
             suite.report['passed'] = True
             return
-        assert 'PASS checkpoints:' in output and 'uid=2000' in output
+        assert 'PASS checkpoints:' in output and f'uid={suite.executor.uid}' in output
+        assert 'PASS checkpoint group stops:' in output
         assert 'PASS terminal stop replacement:' in output
         assert 'PASS birth stop replacement:' in output
         assert 'PASS SYSEMU strict policy:' in output
@@ -72,11 +77,13 @@ def main():
         assert 'PASS checkpoint borrowing:' in output
         assert 'PASS scalar checkpoint:' in output
         suite.report['limitations'] = [line for line in output.splitlines() if line.startswith('LIMIT ')]
-        assert output.count('1000_rounds_ms=') == 30
+        expected_modes = {'brk', 'single-step', 'seccomp-trace', 'sysemu', 'sysemu-context'}
+        if native_skip:
+            expected_modes.add('syscall')
         timings = {}
         for mode, value in re.findall(r'mode=([\w-]+) 1000_rounds_ms=([\d.]+)', output):
             timings.setdefault(mode, []).append(float(value))
-        assert len(timings) == 6 and all(len(values) == 5 for values in timings.values())
+        assert set(timings) == expected_modes and all(len(values) == 5 for values in timings.values())
         suite.report['checkpointMilliseconds'] = {
             mode: {'samples': values, 'median': statistics.median(values)}
             for mode, values in timings.items()

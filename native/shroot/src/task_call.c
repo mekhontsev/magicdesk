@@ -4,13 +4,16 @@
 #include "syscall_result.h"
 #include "interception.h"
 #include "signal_protocol.h"
+#include "task_pending.h"
 #include <elf.h>
 #include <errno.h>
 #include <signal.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/ptrace.h>
 #include <linux/ptrace.h>
+#include <linux/seccomp.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
@@ -39,8 +42,31 @@ static int number(struct md_task_call *f,int value) {
     struct iovec span={&value,sizeof(value)};
     return trace(f,PTRACE_SETREGSET,(void *)NT_ARM_SYSTEM_CALL,&span);
 }
+int md_task_call_cancel_entry(long (*operation)(int,pid_t,void *,void *),pid_t actor,uintptr_t returned) {
+    if (!operation || actor<=0 || !returned) return -EINVAL;
+    struct md_task_call f={.trace=operation,.actor=actor};
+    struct user_pt_regs current;
+    int error=regs(&f,PTRACE_GETREGSET,&current);
+    if (!error) {
+        current.pc=returned; current.regs[8]=SYS_gettid;
+        error=regs(&f,PTRACE_SETREGSET,&current);
+    }
+    return error ? error : number(&f,SYS_gettid);
+}
+static int calling(struct md_task_call *f) {
+    int error=0;
+    if (f->interrupt_requested) {
+        error=md_task_call_cancel_entry(f->trace,f->actor,f->returned);
+        if (!error) f->active_number=SYS_gettid;
+        if (!error) f->interrupted_entry=1;
+    } else if (f->arguments.flags&MD_TASK_CALL_INTERRUPTIBLE)
+        error=trace(f,PTRACE_SETSIGMASK,(void *)sizeof(f->mask),&f->mask);
+    if (!error) { f->stage=CALLING; error=trace(f,PTRACE_SYSCALL,NULL,NULL); }
+    return error;
+}
 static int invoke(struct md_task_call *f) {
     f->replaced_entry=0;
+    f->seccomp_first_argument=f->arguments.value[0];
     struct user_pt_regs call=f->saved;
     call.pc=f->call;
     call.regs[8]=f->arguments.number;
@@ -52,6 +78,8 @@ static int invoke(struct md_task_call *f) {
 }
 static int replace_entry(struct md_task_call *f) {
     f->replaced_entry=1;
+    /* ARM64 seccomp samples orig_x0, not the replaced x0 register. */
+    f->seccomp_first_argument=f->original_first_argument;
     struct user_pt_regs call=f->saved;
     call.pc=f->returned;
     call.regs[8]=f->arguments.number;
@@ -59,19 +87,22 @@ static int replace_entry(struct md_task_call *f) {
     memcpy(call.regs,f->arguments.value,sizeof(f->arguments.value));
     int error=regs(f,PTRACE_SETREGSET,&call);
     if (!error) error=number(f,(int)f->arguments.number);
-    if (!error) { f->stage=CALLING; error=trace(f,PTRACE_SYSCALL,NULL,NULL); }
+    if (!error) error=calling(f);
     return error;
 }
 int md_task_call_begin(struct md_task_call *f,long (*operation)(int,pid_t,void *,void *),
         pid_t actor,enum md_task_call_boundary boundary,const struct user_pt_regs *resume,
         uintptr_t call,uintptr_t returned,const struct md_task_call_arguments *arguments) {
     if (!f || !operation || actor<=0 || !resume || !arguments || !call
+            || arguments->flags&~MD_TASK_CALL_INTERRUPTIBLE
             || returned!=call+4 || boundary<MD_TASK_CALL_USER || boundary>MD_TASK_CALL_EMULATED_ENTRY) return -EINVAL;
     if (f->stage) return -EBUSY;
     *f=(struct md_task_call){.trace=operation,.actor=actor,.boundary=boundary,
         .saved=*resume,.entry=*resume,.call=call,.returned=returned,.arguments=*arguments};
     struct ptrace_syscall_info observed;
     int error=info(f,&observed);
+    if (!error && (observed.op==PTRACE_SYSCALL_INFO_ENTRY || observed.op==PTRACE_SYSCALL_INFO_SECCOMP))
+        f->original_first_argument=observed.entry.args[0];
     unsigned expected=boundary==MD_TASK_CALL_EMULATED_ENTRY ? PTRACE_SYSCALL_INFO_ENTRY : (unsigned)boundary;
     if (!error && expected!=observed.op) error=-EINVAL;
     if (!error && (boundary==MD_TASK_CALL_ENTRY || boundary==MD_TASK_CALL_SECCOMP || boundary==MD_TASK_CALL_EMULATED_ENTRY)
@@ -129,12 +160,31 @@ static int finish(struct md_task_call *f,int restore) {
     if (!error) f->stage=COMPLETE;
     return error ? error : 1;
 }
+int md_task_call_retire_entry(struct md_task_call *f) {
+    if (!f || !f->stage) return -EINVAL;
+    if (f->retire_entry || f->boundary==MD_TASK_CALL_USER || f->boundary==MD_TASK_CALL_EXIT
+            || f->boundary==MD_TASK_CALL_EMULATED_ENTRY) return 0;
+    if (f->stage!=CALLING && f->stage!=CALL_ENTRY && f->stage!=RECOVERING) return -EINVAL;
+    if (f->boundary==MD_TASK_CALL_SECCOMP || f->boundary==MD_TASK_CALL_ENTRY)
+        f->retire_entry=1;
+    return 0;
+}
+int md_task_call_preserve_admission(struct md_task_call *f) {
+    if (!f || !f->stage) return -EINVAL;
+    if (f->admitted_entry) return 0;
+    if (f->retire_entry || f->stage!=CALLING || f->boundary==MD_TASK_CALL_EMULATED_ENTRY) return -EINVAL;
+    /* A cancelled native notification has already admitted this call too.
+     * Restore its dispatch boundary, not another application-site admission. */
+    f->boundary=MD_TASK_CALL_SECCOMP;
+    f->admitted_entry=1; return 0;
+}
 int md_task_call_again(struct md_task_call *f,const struct md_task_call_arguments *arguments) {
-    if (!f || f->stage!=COMPLETE || !arguments) return -EINVAL;
+    if (!f || f->stage!=COMPLETE || !arguments || arguments->flags&~MD_TASK_CALL_INTERRUPTIBLE) return -EINVAL;
     uint64_t blocked=md_signal_blockable_mask();
     int error=trace(f,PTRACE_SETSIGMASK,(void *)sizeof(blocked),&blocked);
     if (error) return error;
     f->arguments=*arguments; f->stage=CALL_ENTRY;
+    f->interrupt_requested=0; f->interrupted_entry=0;
     if (f->boundary==MD_TASK_CALL_ENTRY || f->boundary==MD_TASK_CALL_SECCOMP) {
         return replace_entry(f);
     }
@@ -152,7 +202,27 @@ int md_task_call_resume(struct md_task_call *f,int signal) {
         NULL,(void *)(intptr_t)signal);
 }
 int md_task_call_expects_interrupt(const struct md_task_call *f) {
-    return f && f->stage && f->stage!=COMPLETE && (f->restart_pending || f->stage==USER_RESTORING);
+    return f && f->stage && f->stage!=COMPLETE
+        && (f->restart_pending || f->interrupt_pending || f->stage==USER_RESTORING);
+}
+int md_task_call_interrupt(struct md_task_call *f) {
+    if (!f || !f->stage || f->stage==COMPLETE
+            || !(f->arguments.flags&MD_TASK_CALL_INTERRUPTIBLE)) return -EINVAL;
+    f->interrupt_requested=1;
+    if (f->interrupt_pending) return 0;
+    int error=trace(f,PTRACE_INTERRUPT,NULL,NULL);
+    if (!error) f->interrupt_pending=1;
+    return error;
+}
+int md_task_call_notification(const struct md_task_call *f,const struct seccomp_notif *q) {
+    return f && q && f->stage==CALLING && q->pid==(unsigned)f->actor
+        && q->data.nr==f->active_number && q->data.instruction_pointer==f->returned
+        && q->data.args[0]==f->seccomp_first_argument
+        && !memcmp(q->data.args+1,f->arguments.value+1,5*sizeof(q->data.args[0]));
+}
+static int forced_seccomp(void *context,const siginfo_t *info) {
+    (void)context;
+    return info->si_signo==SIGSYS && info->si_code==SYS_SECCOMP;
 }
 static int task_call_event(struct md_task_call *f,int status) {
     if (!f || !f->stage || f->stage==COMPLETE) return -EINVAL;
@@ -164,6 +234,10 @@ static int task_call_event(struct md_task_call *f,int status) {
     if (f->restart_pending && event==PTRACE_EVENT_STOP && signal==SIGTRAP) {
         f->restart_pending=0;
         return md_task_call_resume(f,0);
+    }
+    if (f->interrupt_pending && event==PTRACE_EVENT_STOP && signal==SIGTRAP) {
+        f->interrupt_pending=0;
+        if (f->stage!=USER_RESTORING) return md_task_call_resume(f,0);
     }
     struct user_pt_regs current;
     int error=regs(f,PTRACE_GETREGSET,&current);
@@ -183,6 +257,7 @@ static int task_call_event(struct md_task_call *f,int status) {
         struct ptrace_syscall_info observed;
         if (event || signal!=(SIGTRAP|0x80)) return -EPROTO;
         error=info(f,&observed); if (error) return error;
+        f->seccomp_first_argument=observed.entry.args[0];
         if (observed.op!=PTRACE_SYSCALL_INFO_ENTRY || current.pc!=f->returned
                 || observed.entry.nr!=(unsigned long)f->active_number
                 || (f->active_number!=SYS_restart_syscall
@@ -195,32 +270,37 @@ static int task_call_event(struct md_task_call *f,int status) {
             current.regs[0]=f->arguments.value[0];
             error=regs(f,PTRACE_SETREGSET,&current); if (error) return error;
         }
-        f->stage=CALLING;
-        return trace(f,PTRACE_SYSCALL,NULL,NULL);
+        return calling(f);
     }
     if (f->stage==RECOVERING || f->stage==REENTERING || f->stage==EXIT_REENTERING || f->stage==EXIT_SKIPPING) {
         if (event || signal!=(SIGTRAP|0x80)) return -EPROTO;
         struct ptrace_syscall_info observed;
         error=info(f,&observed); if (error) return error;
         if (f->stage==RECOVERING) {
-            unsigned long nr=(long)f->saved.regs[0]==-516 ? SYS_restart_syscall : f->saved.regs[8];
+            unsigned long nr=(long)f->saved.regs[0]==-516 ? SYS_restart_syscall : (unsigned long)(int)f->saved.regs[8];
             if (observed.op!=PTRACE_SYSCALL_INFO_ENTRY || observed.entry.nr!=nr
                     || current.pc!=f->returned) return -EPROTO;
             f->entry=current; f->entry.pc=f->saved.pc;
+            f->original_first_argument=observed.entry.args[0];
             return replace_entry(f);
         }
         if (f->stage==EXIT_SKIPPING) {
             if (observed.op!=PTRACE_SYSCALL_INFO_EXIT) return -EPROTO;
             error=number(f,(int)f->saved.regs[8]);
+            if (f->retire_entry) { f->boundary=MD_TASK_CALL_EXIT; f->retire_entry=0; }
             return error ? error : finish(f,1);
         }
-        if (observed.op!=PTRACE_SYSCALL_INFO_ENTRY || observed.entry.nr!=f->entry.regs[8]
+        /* ARM64's syscall number is signed 32-bit even though x8 is a full
+         * application register, including at an emulated signal checkpoint. */
+        if (observed.op!=PTRACE_SYSCALL_INFO_ENTRY || observed.entry.nr!=(unsigned long)(int)f->entry.regs[8]
                 || current.pc!=f->returned
                 || memcmp(observed.entry.args,f->entry.regs,sizeof(observed.entry.args))) return -EPROTO;
         /* Replay through the stable gate, then restore the original PC before
          * seccomp evaluates the entry. The source instruction may have been
          * patched or unmapped while its syscall was stopped. */
-        error=regs(f,PTRACE_SETREGSET,&f->entry); if (error) return error;
+        struct user_pt_regs entry=f->entry;
+        if (f->admitted_entry && f->stage==REENTERING) entry.pc=f->returned;
+        error=regs(f,PTRACE_SETREGSET,&entry); if (error) return error;
         if (f->stage==EXIT_REENTERING) {
             /* SYSEMU captured this entry before seccomp. Its exit restores
              * orig_x0 without re-executing a completed application call or
@@ -236,14 +316,19 @@ static int task_call_event(struct md_task_call *f,int status) {
         unsigned long cookie;
         error=trace(f,PTRACE_GETEVENTMSG,NULL,&cookie); if (error) return error;
         if (f->stage==RESTORING) {
-            if (current.pc!=f->saved.pc || current.regs[8]!=f->saved.regs[8]
+            if (current.pc!=(f->admitted_entry ? f->returned : f->saved.pc) || current.regs[8]!=f->saved.regs[8]
                     || memcmp(current.regs,f->saved.regs,6*sizeof(current.regs[0]))) return -EPROTO;
-            f->cookie=cookie; return finish(f,0);
+            if (f->admitted_entry && cookie!=MD_INTERCEPT_TASK) return -EPROTO;
+            f->cookie=cookie; return finish(f,f->admitted_entry);
         }
         if (f->stage!=CALLING || cookie!=MD_INTERCEPT_TASK || current.pc!=f->returned
                 || current.regs[8]!=(unsigned long)f->active_number
                 || (f->active_number!=SYS_restart_syscall
                     && memcmp(current.regs,f->arguments.value,sizeof(f->arguments.value)))) return -EPROTO;
+        if (f->interrupt_requested) {
+            error=number(f,-1); if (error) return error;
+            f->interrupted_entry=1;
+        }
         return trace(f,PTRACE_SYSCALL,NULL,NULL);
     }
     if (f->stage!=CALLING || event || signal!=(SIGTRAP|0x80) || current.pc!=f->returned) return -EPROTO;
@@ -252,7 +337,14 @@ static int task_call_event(struct md_task_call *f,int status) {
     if (observed.op!=PTRACE_SYSCALL_INFO_EXIT) return -EPROTO;
     uint64_t mask;
     error=trace(f,PTRACE_GETSIGMASK,(void *)sizeof(mask),&mask); if (error) return error;
-    if (!(mask&(UINT64_C(1)<<(SIGSYS-1)))) {
+    int interruptible=!!(f->arguments.flags&MD_TASK_CALL_INTERRUPTIBLE);
+    int forced=0;
+    if (interruptible && !(f->mask&(UINT64_C(1)<<(SIGSYS-1)))) {
+        forced=md_task_pending_scan(f->trace,f->actor,forced_seccomp,NULL);
+        if (forced<0) return forced;
+    }
+    if (!(mask&(UINT64_C(1)<<(SIGSYS-1)))
+            && (!interruptible || forced || (f->mask&(UINT64_C(1)<<(SIGSYS-1))))) {
         /* KILL_THREAD can report EXIT before its forced SIGSYS. Restoring the
          * saved blocked mask here would suppress death and revive the actor.
          * Keep native termination in charge; no global TRACEEXIT is required. */
@@ -260,13 +352,25 @@ static int task_call_event(struct md_task_call *f,int status) {
         return trace(f,PTRACE_CONT,NULL,NULL);
     }
     f->result=(long)current.regs[0];
-    if (md_syscall_restarting(f->result)) {
+    if (f->interrupted_entry) f->result=-EINTR;
+    if (interruptible) {
+        uint64_t blocked=md_signal_blockable_mask();
+        error=trace(f,PTRACE_SETSIGMASK,(void *)sizeof(blocked),&blocked);
+        if (error) return error;
+    }
+    if (!interruptible && md_syscall_restarting(f->result)) {
         /* EVENT_WAIT: let the kernel restore orig_x0/restart_block and stop at
          * the restarted entry. A group stop must not complete the injection
          * with an internal ERESTART result or repeat a completed side effect. */
         if (f->result==-516) f->active_number=SYS_restart_syscall;
         f->stage=CALL_ENTRY;
         return trace(f,PTRACE_SYSCALL,NULL,NULL);
+    }
+    if (interruptible && md_syscall_restarting(f->result)) {
+        /* The owner will restart the original call after restoration. Do not
+         * let this borrowed exit rewind the stable gate or reinterpret an
+         * original argument as its own ERESTART result during restoration. */
+        error=number(f,-1); if (error) return error;
     }
     if (f->boundary==MD_TASK_CALL_USER) {
         /* EVENT_WAIT: leave the syscall boundary before restoring user registers.
@@ -278,8 +382,8 @@ static int task_call_event(struct md_task_call *f,int status) {
     }
     struct user_pt_regs replay=f->entry; replay.pc=f->call;
     error=regs(f,PTRACE_SETREGSET,&replay); if (error) return error;
-    f->stage=f->boundary==MD_TASK_CALL_EXIT ? EXIT_REENTERING : REENTERING;
-    return trace(f,f->boundary==MD_TASK_CALL_EXIT || f->boundary==MD_TASK_CALL_EMULATED_ENTRY
+    f->stage=f->boundary==MD_TASK_CALL_EXIT || f->retire_entry ? EXIT_REENTERING : REENTERING;
+    return trace(f,f->boundary==MD_TASK_CALL_EXIT || f->retire_entry || f->boundary==MD_TASK_CALL_EMULATED_ENTRY
         ? PTRACE_SYSEMU : PTRACE_SYSCALL,NULL,NULL);
 }
 int md_task_call_event(struct md_task_call *f,int status) {
@@ -287,6 +391,16 @@ int md_task_call_event(struct md_task_call *f,int status) {
     if (result==-EPROTO) {
         int displaced=md_task_stop_displaced(f->trace,f->actor);
         if (displaced) return displaced>0 ? -ESRCH : displaced;
+        struct user_pt_regs current={0};
+        struct ptrace_syscall_info observed={0};
+        unsigned long cookie=0;
+        regs(f,PTRACE_GETREGSET,&current);
+        info(f,&observed);
+        if ((unsigned)status>>16==PTRACE_EVENT_SECCOMP)
+            trace(f,PTRACE_GETEVENTMSG,NULL,&cookie);
+        fprintf(stderr,"guest-runtime: task call protocol actor=%d stage=%d boundary=%d status=%x pc=%lx expected=%lx nr=%lu active=%ld x0=%lx expected0=%lx info=%u cookie=%lx\n",
+            f->actor,f->stage,f->boundary,status,(unsigned long)current.pc,f->returned,
+            (unsigned long)current.regs[8],f->active_number,(unsigned long)current.regs[0],f->arguments.value[0],observed.op,cookie);
     }
     return result;
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Foreign process roots in a stock Python userspace under the shell runtime."""
+"""Foreign process roots in stock Python under the selected Android identity."""
 import argparse
 from pathlib import Path
+from fixture_executor import FixtureExecutor
 from test_oci_services import Suite
 
 
@@ -10,15 +11,16 @@ def main():
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
     parser.add_argument('--entry', choices=('lazy', 'base'), default='lazy')
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.build, args.build)
+    suite = Suite(args.build, args.build, executor=args.executor)
     target = '/tmp/md-proc-root-' + suite.report['id']
     base = [suite.runner, '--store', args.store, '--user', '0:0',
             '--env', 'SHROOT_MACHINE_ENTRY=' + ('0' if args.entry == 'base' else '1')]
     suite.report['entryMode'] = args.entry
     try:
-        suite.transport.upload(suite.client, Path(__file__).with_name('test_proc_root_guest.py'), suite.base + '/probe.py')
-        suite.transport.upload(suite.client, Path(__file__).with_name('test_fd_selector_guest.py'), suite.base + '/selectors.py')
+        suite.upload(Path(__file__).with_name('test_proc_root_guest.py'), suite.base + '/probe.py')
+        suite.upload(Path(__file__).with_name('test_fd_selector_guest.py'), suite.base + '/selectors.py')
         suite.command(base + ['--', '/bin/mkdir', target])
         suite.command(base + ['--bind-ro', suite.base, target, '--deadline-seconds', '60', '--',
                               '/usr/bin/python3', target + '/selectors.py'])
@@ -31,7 +33,10 @@ def main():
         try:
             suite.command(base + ['--', '/bin/rmdir', target])
         finally:
-            suite.finish()
+            try:
+                suite.command(['rm', '-rf', suite.base], quiet=True)
+            finally:
+                suite.finish()
 
 
 if __name__ == '__main__':

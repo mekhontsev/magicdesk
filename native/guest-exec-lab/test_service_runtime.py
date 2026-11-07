@@ -26,8 +26,8 @@ def main():
         fixture = 'libmagicdesk_guest_service_runtime.so'
         for name in (fixture, 'libmagicdesk_guest_test_credentials.so'):
             destination = suite.base + '/fixtures/' + name
-            suite.transport.upload(suite.client, args.build / name, destination)
-            suite.command(['chmod', '700', destination])
+            suite.upload(args.build / name, destination)
+            suite.chmod('700', destination)
         suite.command([suite.base + '/fixtures/libmagicdesk_guest_test_credentials.so', suite.base + '/unit-store'])
 
         def run(store, *argv):

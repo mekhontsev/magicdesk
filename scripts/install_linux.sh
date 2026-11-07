@@ -6722,8 +6722,7 @@ if [ "$resume" = yes ]; then
     [ -z "$dns" ] && [ -z "$image" ] || fail '--resume retains image and DNS; use shroot dns to change DNS.'
 fi
 
-command -v shroot >/dev/null 2>&1 || fail 'Open a MagicDesk Shell console with shell access first.'
-case "$(id -u)" in 2000|0) ;; *) fail 'Shroot requires the selected Android shell (UID 2000) or root executor.' ;; esac
+command -v shroot >/dev/null 2>&1 || fail 'Open a MagicDesk console with Shroot available first.'
 require_magicdesk_version
 if [ "$yes" = no ]; then
     [ -t 0 ] || fail 'Interactive input is unavailable. Save the script before running it, or use --yes.'

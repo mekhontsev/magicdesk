@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "process_limits.h"
+#include "process_oom.h"
 #include "task_status.h"
 #include <assert.h>
 #include <errno.h>
@@ -24,7 +25,13 @@ struct accounting {
     struct scope *scopes;
     struct account *accounts[BUCKETS];
 };
-struct limits { unsigned references; struct md_process_limits value; rlim_t native_nofile_max; };
+struct limits {
+    unsigned references;
+    struct md_process_limits value;
+    rlim_t native_nofile_max;
+    rlim_t reserved_nofile;
+    struct md_process_oom oom;
+};
 struct md_process_member {
     unsigned references;
     struct accounting *owner;
@@ -100,7 +107,7 @@ struct md_process_member *md_process_member_new(const struct md_identity *identi
     m->owner=calloc(1,sizeof(*m->owner));
     m->limits=calloc(1,sizeof(*m->limits));
     if (m->owner) m->owner->members=1;
-    if (m->limits) *m->limits=(struct limits){1,*limit,limit->nofile.rlim_max};
+    if (m->limits) *m->limits=(struct limits){.references=1,.value=*limit,.native_nofile_max=limit->nofile.rlim_max};
     if (!m->owner || !m->limits || md_process_member_identity(m,identity)) {
         md_process_member_release(m); return NULL;
     }
@@ -141,7 +148,10 @@ int md_process_member_fork(struct md_process_member *parent,const struct md_iden
     if (flags&CLONE_THREAD) { m->limits=parent->limits; ++m->limits->references; }
     else {
         m->limits=malloc(sizeof(*m->limits));
-        if (m->limits) *m->limits=(struct limits){1,parent->limits->value,parent->limits->native_nofile_max};
+        if (m->limits) {
+            *m->limits=*parent->limits; m->limits->references=1;
+            m->limits->reserved_nofile=0;
+        }
     }
     if (!m->limits) { md_process_member_release(m); return -ENOMEM; }
     m->account=parent->account; charge(m->account,1);
@@ -154,9 +164,36 @@ int md_process_member_exec(struct md_process_member *m) {
     m->exec_check=0; return 0;
 }
 struct md_process_limits md_process_limits_value(const struct md_process_member *m) { return m->limits->value; }
+struct md_process_oom *md_process_member_oom(struct md_process_member *m) { return m ? &m->limits->oom : NULL; }
 rlim_t md_process_native_nofile(const struct md_process_member *m) {
     rlim_t soft=m->limits->value.nofile.rlim_cur, ceiling=m->limits->native_nofile_max;
     return soft<ceiling ? soft : ceiling;
+}
+static int native_nofile(struct limits *limits,pid_t pid,rlim_t soft,rlim_t reserve) {
+    struct rlimit native={.rlim_max=limits->native_nofile_max};
+    if (reserve>native.rlim_max) return -EMFILE;
+    native.rlim_cur=soft<native.rlim_max ? soft : native.rlim_max;
+    if (native.rlim_cur<reserve) native.rlim_cur=reserve;
+    return prlimit(pid,RLIMIT_NOFILE,&native,NULL) ? -errno : 0;
+}
+int md_process_nofile_reserve(struct md_process_member *m,pid_t pid,rlim_t minimum) {
+    if (!m || !minimum) return -EINVAL;
+    if (m->limits->reserved_nofile) return -EBUSY;
+    int error=native_nofile(m->limits,pid,m->limits->value.nofile.rlim_cur,minimum);
+    if (!error) m->limits->reserved_nofile=minimum;
+    return error;
+}
+int md_process_nofile_release(struct md_process_member *m,pid_t pid) {
+    if (!m || !m->limits->reserved_nofile) return -EINVAL;
+    int error=native_nofile(m->limits,pid,m->limits->value.nofile.rlim_cur,0);
+    if (!error) m->limits->reserved_nofile=0;
+    return error;
+}
+int md_process_limit_access(const struct md_identity *actor,const struct md_identity *target,int same_group) {
+    return same_group || md_identity_capable_in(actor,target->user_namespace,CAP_SYS_RESOURCE)
+        || (actor->uid.real==target->uid.real && actor->uid.real==target->uid.effective
+            && actor->uid.real==target->uid.saved && actor->gid.real==target->gid.real
+            && actor->gid.real==target->gid.effective && actor->gid.real==target->gid.saved) ? 0 : -EPERM;
 }
 int md_process_limit(struct md_process_member *m,const struct md_identity *actor,
         const struct md_identity *target,int same_group,unsigned resource,
@@ -166,10 +203,8 @@ int md_process_limit(struct md_process_member *m,const struct md_identity *actor
         : resource==RLIMIT_NOFILE ? &m->limits->value.nofile : NULL;
     if (resource>=RLIM_NLIMITS || (!value && next)) return -EINVAL;
     if (next && next->rlim_cur>next->rlim_max) return -EINVAL;
-    if (!same_group && !md_identity_capable_in(actor,target->user_namespace,CAP_SYS_RESOURCE)
-            && !(actor->uid.real==target->uid.real && actor->uid.real==target->uid.effective
-                && actor->uid.real==target->uid.saved && actor->gid.real==target->gid.real
-                && actor->gid.real==target->gid.effective && actor->gid.real==target->gid.saved)) return -EPERM;
+    int access=md_process_limit_access(actor,target,same_group);
+    if (access) return access;
     if (!value) {
         struct rlimit native;
         int error=(int)md_task_limit(native_pid ? native_pid : getpid(),resource,&native);
@@ -180,11 +215,10 @@ int md_process_limit(struct md_process_member *m,const struct md_identity *actor
     if (next && next->rlim_max>value->rlim_max
             && !md_identity_capable_in(actor,NULL,CAP_SYS_RESOURCE)) return -EPERM;
     if (next && resource==RLIMIT_NOFILE) {
-        struct rlimit native={.rlim_max=m->limits->native_nofile_max};
         /* Retain the executor's hard ceiling so a guest hard-limit reduction
          * remains reversible. The kernel still enforces every FD allocation. */
-        native.rlim_cur=next->rlim_cur<native.rlim_max ? next->rlim_cur : native.rlim_max;
-        if (prlimit(native_pid,RLIMIT_NOFILE,&native,NULL)) return -errno;
+        int error=native_nofile(m->limits,native_pid,next->rlim_cur,m->limits->reserved_nofile);
+        if (error) return error;
     }
     if (old) *old=*value;
     if (next) *value=*next;

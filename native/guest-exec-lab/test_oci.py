@@ -797,7 +797,7 @@ sys.stdin.read()
                 object_id = row[0]
             source, backing = db.execute('SELECT source,backing FROM objects WHERE object=?',
                                          (object_id,)).fetchone()
-            directory = pathlib.Path(db.execute('SELECT path FROM sources WHERE scope=? AND id=?', (ROOT, source)).fetchone()[0]) \
+            directory = store / pathlib.Path(db.execute('SELECT path FROM sources WHERE scope=? AND id=?', (ROOT, source)).fetchone()[0]) \
                 if source else store / 'objects'
             return directory / backing
 

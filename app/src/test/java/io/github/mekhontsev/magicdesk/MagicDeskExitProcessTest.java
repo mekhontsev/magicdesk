@@ -49,6 +49,7 @@ public final class MagicDeskExitProcessTest {
                 }
                 static class MagicDeskRuntime { static void detach(Object service) { events.add("detach"); } }
                 static class ShellAccess { static void removeStateListener(Object listener) { events.add("listener"); } }
+                static class PhoneDisplayGuard { static void requestRestore() { events.add("phone-restore"); } }
                 static class ConsoleTerminalRegistry { static void closeAll() { events.add("terminals"); } }
                 static class GuestEnvironmentOperations { static void closeCurrent() { events.add("guest-operations"); } }
                 static class GraphicalSessions { static void closeAll() { events.add("graphics"); } }
@@ -75,10 +76,10 @@ public final class MagicDeskExitProcessTest {
                     service.released.run();
                     check(events.isEmpty(), "service cleanup ran on task worker");
                     service.mHandler.dispatch();
-                    check(events.equals(List.of("detach", "listener", "displays", "desktop", "input",
+                    check(events.equals(List.of("detach", "listener", "phone-restore", "displays", "desktop", "input",
                             "terminals", "external-stop-request", "guest-operations", "graphics", "mcp", "cli", "handler", "complete")), "shutdown order: " + events);
                     service.closeRuntime();
-                    check(events.size() == 13, "onDestroy repeated completed cleanup");
+                    check(events.size() == 14, "onDestroy repeated completed cleanup");
                     check(service.mDestroyed && service.mDisplayInput == null && service.mMcpRuntime == null,
                             "runtime retained resources");
                 }

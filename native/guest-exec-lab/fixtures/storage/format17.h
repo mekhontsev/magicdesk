@@ -114,6 +114,21 @@ static const char format17_revision3[] =
         "FROM overlay_attributes; DROP TABLE overlay_attributes;"
     "UPDATE properties SET value=3 WHERE key='schema-revision';";
 
+static const char format17_revision4[] =
+    "CREATE TABLE dentry_paths(id INTEGER PRIMARY KEY,cookie INTEGER UNIQUE,"
+        "object TEXT NOT NULL REFERENCES objects ON DELETE CASCADE,"
+        "parent TEXT NOT NULL REFERENCES objects,name BLOB NOT NULL) STRICT;"
+    "CREATE INDEX dentry_paths_object ON dentry_paths(object,id);"
+    "CREATE INDEX dentry_paths_parent ON dentry_paths(parent);"
+    "CREATE TRIGGER dentry_added AFTER INSERT ON names "
+        "WHEN (SELECT kind FROM objects WHERE object=NEW.object)!=16384 BEGIN "
+        "INSERT INTO dentry_paths VALUES(NEW.cookie,NEW.cookie,NEW.object,NEW.parent,NEW.name); END;"
+    "CREATE TRIGGER dentry_removed AFTER DELETE ON names BEGIN "
+        "UPDATE dentry_paths SET cookie=NULL WHERE cookie=OLD.cookie; END;"
+    "INSERT INTO dentry_paths SELECT n.cookie,n.cookie,n.object,n.parent,n.name "
+        "FROM names n JOIN objects o ON n.object=o.object WHERE o.kind!=16384;"
+    "UPDATE properties SET value=4 WHERE key='schema-revision';";
+
 /* SLF2, uid=42, gid=43, mode=06750, empty ACL/capability payloads. */
 static const unsigned char format17_native_metadata[] = {
     0x53,0x4c,0x46,0x32, 42,0,0,0, 43,0,0,0, 0xe8,0x0d,0,0, 0,0,0,0, 0,0,0,0

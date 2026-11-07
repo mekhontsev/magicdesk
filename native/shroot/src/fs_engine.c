@@ -7,9 +7,11 @@
 #include "fuse_view.h"
 #include "shm_bridge.h"
 #include "fs_native.h"
+#include "host_open.h"
 #include "fd_filesystem.h"
 #include "proc_fdinfo.h"
 #include "procfs_view.h"
+#include "proc_paths.h"
 #include "fs_context.h"
 #include "image_catalogue.h"
 #include "inode_watch.h"
@@ -78,16 +80,29 @@ void md_fs_view_execute(struct md_filesystem *fs, const struct md_fs_request *q,
         if (error) out->error=error;
     }
 }
+static void root_accessed(struct md_filesystem *fs,const struct md_fs_request *q,
+        struct md_fs_result *access,struct md_fs_anchor **unused,struct md_fs_result *out,
+        const struct md_fs_output *output) {
+    (void)unused; (void)output;
+    *out=(struct md_fs_result){.fd=-1,.error=access->error};
+    if (out->error) return;
+    struct md_fs_location root;
+    int error=md_fs_root_location(fs,q->origin[0],&root);
+    if (error==-EXDEV) error=md_fs_root_capture(fs,q->directory[0],q->origin[0],&root);
+    if (!error) error=fs->actor ? md_domain_set_root(fs->actor->fs,&root) : -ENOTSUP;
+    out->error=error==-EXDEV ? -ENOTSUP : error;
+}
 static void root_opened(struct md_filesystem *fs,const struct md_fs_request *q,
         struct md_fs_result *opened,struct md_fs_anchor **origin,struct md_fs_result *out,
         const struct md_fs_output *output) {
-    (void)q; (void)output;
     *out=(struct md_fs_result){.fd=-1,.error=opened->error};
     if (out->error) return;
-    struct md_fs_location root;
-    int error=md_fs_root_capture(fs,opened->fd,*origin,&root);
-    if (!error) error=fs->actor ? md_domain_set_root(fs->actor->fs,&root) : -ENOTSUP;
-    out->error=error==-EXDEV ? -ENOTSUP : error;
+    int fd=*origin ? md_fs_anchor_fd(*origin) : opened->fd;
+    struct md_fs_request access={.operation=MD_FS_ACCESS,.directory={fd,-1},
+        .origin={*origin,NULL},.mode=X_OK,.flags=MD_AT_EACCESS};
+    struct md_fs_request next=*q;
+    next.directory[0]=fd; next.origin[0]=*origin; next.path[0]=NULL;
+    md_fs_view_then(fs,&next,&access,out,output,root_accessed);
 }
 static void change_root(struct md_filesystem *fs, struct md_guest_domain *context,
         const struct md_fs_request *q, struct md_fs_result *out,const struct md_fs_output *output) {
@@ -96,14 +111,11 @@ static void change_root(struct md_filesystem *fs, struct md_guest_domain *contex
     if (q->origin[0] && q->origin[0]->view && q->origin[0]->view!=fs->mounts && q->directory[0]!=MD_INODE_ROOT
             && (!q->path[0] || q->path[0][0]!='/')) { out->error=-ENOTSUP; return; }
     if (!md_identity_may_chroot(fs->store->identity)) { out->error = -EPERM; return; }
-    if (q->directory[0]>=0 && q->path[0] && !*q->path[0]) {
-        struct md_fs_location root;
-        out->error=md_fs_root_capture(fs,q->directory[0],q->origin[0],&root);
-        if (!out->error) out->error=md_domain_set_root(context,&root);
-        return;
-    }
     struct md_fs_request open = *q;
     open.operation = MD_FS_OPEN; open.flags = O_PATH | O_DIRECTORY | O_CLOEXEC;
+    if (q->directory[0]>=0 && q->path[0] && !*q->path[0]) {
+        open.operation=MD_FS_REOPEN; open.mode=MD_FS_REOPEN_NATIVE;
+    }
     md_fs_view_then(fs,q,&open,out,output,root_opened);
 }
 static int watch_add(struct md_filesystem *fs, int instance, int object,
@@ -188,10 +200,13 @@ static void task_opened(struct md_filesystem *fs,const struct md_fs_request *q,
     *out=(struct md_fs_result){.fd=-1,.error=opened->error};
     if (out->error) return;
     int directory=q->mode==MD_FS_TASK_CHDIR || q->mode==MD_FS_TASK_FCHDIR;
-    struct md_fs_request selected={.operation=MD_FS_ACCESS,.directory={opened->fd,-1},
+    /* This stage owns the published origin, not an untrusted supplied FD.
+     * Reuse its pin: inspecting a second proc FD can be denied by hidepid. */
+    int fd=*origin ? md_fs_anchor_fd(*origin) : opened->fd;
+    struct md_fs_request selected={.operation=MD_FS_ACCESS,.directory={fd,-1},
         .origin={*origin,NULL},.mode=directory ? X_OK : W_OK,.flags=MD_AT_EACCESS};
     struct md_fs_request next=*q;
-    next.directory[0]=opened->fd; next.origin[0]=*origin; next.path[0]=NULL;
+    next.directory[0]=fd; next.origin[0]=*origin; next.path[0]=NULL;
     md_fs_view_then(fs,&next,&selected,out,output,task_accessed);
 }
 static void task_path(struct md_filesystem *fs, const struct md_fs_request *q,
@@ -334,7 +349,12 @@ static void context_execute(struct md_fs_context *context,
         int existing=q->operation==MD_FS_OPEN && !(q->flags&O_CREAT)
             && (q->flags&O_TMPFILE)!=O_TMPFILE;
         long mask=context->authenticated ? (existing ? 0 : md_task_snapshot_umask(&context->task)) : -EPERM;
-        if (mask<0) { *out=(struct md_fs_result){.fd=-1,.error=(int)mask}; return; }
+        if (mask<0) {
+            *out=(struct md_fs_result){.fd=-1,.error=(int)mask,
+                .requires_task_status=context->authenticated
+                    && (mask==-ENOENT || mask==-EACCES || mask==-EPERM)};
+            return;
+        }
         captured=*q; captured.attributes.creation_mask=(unsigned)mask; q=&captured;
     }
     if (output && output->origin) {
@@ -345,7 +365,8 @@ static void context_execute(struct md_fs_context *context,
     if (q->operation==MD_FS_UMASK) {
         long mask=context->authenticated ? md_task_snapshot_umask(&context->task) : md_task_umask(context->actor);
         *out=(struct md_fs_result){.fd=-1,.error=mask<0 ? (int)mask : 0,
-            .position=mask<0 ? 0 : mask};
+            .position=mask<0 ? 0 : mask,.requires_task_status=context->authenticated
+                && (mask==-ENOENT || mask==-EACCES || mask==-EPERM)};
         return;
     }
     const struct md_task_snapshot *task=&context->task;
@@ -388,7 +409,8 @@ static void context_execute(struct md_fs_context *context,
         if (q->origin[i] && q->origin[i]->view!=fs->mounts)
             root_error=md_mount_graph_sync(q->origin[i]->view);
     if (!root_error && context->authenticated) root_error=md_fs_root_select(fs,&task->root);
-    struct md_inode_boundary boundary={.path=output ? output->data : NULL,.capacity=output ? output->capacity : 0};
+    struct md_inode_boundary boundary={.path=output ? output->data : NULL,.capacity=output ? output->capacity : 0,
+        .task_capture=output && output->task_capture};
     if (q->operation==MD_FS_OPEN && (q->flags&(O_PATH|O_NOFOLLOW))==(O_PATH|O_NOFOLLOW)
             && q->directory[1]>=0) boundary.proc_link_descriptor=(unsigned)q->directory[1]+1;
     struct md_inode_boundary *previous_boundary=fs->store->boundary;
@@ -417,6 +439,16 @@ static void context_execute(struct md_fs_context *context,
     else if (q->operation == MD_FS_TASK_PATH) task_path(fs,q,out,output);
     else if (q->operation==MD_FS_XATTR || q->operation==MD_FS_FXATTR) md_fs_xattr(fs,q,out,output);
     else md_fs_view_execute(fs,q,out,output);
+    if (out->error==-EXDEV && q->operation==MD_FS_PATH && q->mode==MD_FS_PATH_DISPLAY
+            && output && output->data && output->capacity) {
+        int error=md_view_fdpath(q->directory[0],output->data,output->capacity);
+        /* Anonymous descriptions and native proc/device names retain their
+         * kernel spelling. Storage paths still require guest translation. */
+        if (!error && (*(char *)output->data!='/' || md_host_path(output->data))) {
+            out->error=0; out->size=strlen(output->data)+1;
+        }
+    }
+    if (boundary.requires_task_capture) out->requires_task_capture=1;
     /* A no-follow proc inode can be inspected by its own protected task even
      * when the worker cannot traverse its fd directory. The walker first
      * admits the complete path and proc policy; an O_PATH retry captures the
@@ -458,10 +490,10 @@ static void context_execute(struct md_fs_context *context,
             while (*relative=='/') ++relative;
             struct open_how how={.flags=q->flags|O_CLOEXEC,.mode=q->mode,
                 .resolve=(q->resolve&~RESOLVE_IN_ROOT)|RESOLVE_BENEATH};
-            int fd=q->operation!=MD_FS_OPEN ? -1
-                : (int)syscall(SYS_openat2,root,*relative ? relative : ".",&how,sizeof(how));
-            out->error=q->operation!=MD_FS_OPEN ? -ENOTSUP : fd<0 ? -errno : 0;
-            out->fd=fd; close(root);
+            int fd=q->operation!=MD_FS_OPEN ? -ENOTSUP
+                : (int)md_host_open_resolved(root,*relative ? relative : ".",&how);
+            out->error=fd<0 ? fd : 0;
+            out->fd=fd<0 ? -1 : fd; close(root);
             if (!out->error) md_view_capture(fs,NULL,NULL,out,output);
         }
     }
@@ -584,6 +616,13 @@ static void inode_execute(struct md_filesystem *fs,
         r=md_catalogue_reopen(images,s,first,(int)q->flags,!!(q->mode&MD_FS_REOPEN_MUTABLE),
             &out->open_completion,output && output->origin && output->native_open_plan);
         if (r==-EXDEV && (q->mode&MD_FS_REOPEN_NATIVE) && !(output && output->native_open_plan)) {
+            /* A retained native proc pin has no mount provider to enforce
+             * guest credentials. Reopening it must use the same admission. */
+            if (fstat(first,&st)) { r=-errno; break; }
+            char path[PATH_MAX];
+            r=md_procfs_native_metadata(fs,first,&st,path,sizeof(path));
+            if (r>0) r=md_procfs_open_access(fs,path,&st,q->flags);
+            if (r<0) break;
             r=md_reopen_file(first,(int)q->flags,&out->open_completion);
             if ((r==-EACCES || r==-EPERM) && !(q->flags&(O_ACCMODE|O_PATH|O_TRUNC|O_DIRECTORY
                     |O_DIRECT|O_ASYNC|O_NOFOLLOW|O_CREAT|O_EXCL))) {

@@ -1245,7 +1245,7 @@ static void buffer_native_path_delivery(struct md_fs_buffer_service *service,
         assert(all_fds()==before);
     }
     for (unsigned scenario=0;scenario<3;++scenario) {
-        char directory[]="/data/local/tmp/md-buffer-link-XXXXXX",moved[sizeof(directory)+8];
+        char directory[]="md-buffer-link-XXXXXX",moved[sizeof(directory)+8];
         assert(mkdtemp(directory));
         int parent=open(directory,O_PATH|O_DIRECTORY|O_CLOEXEC); assert(parent>=0);
         char name[NAME_MAX+1]; memset(name,'l',NAME_MAX); name[NAME_MAX]=0;
@@ -1281,7 +1281,7 @@ static void buffer_cwd_delivery(struct md_fs_buffer_service *service, struct md_
         struct md_fs_buffer_frame *frame, struct md_fs_anchor *base, struct md_resource_wakeup *wake) {
     assert(!md_domain_set_cwd(resources->fs,base));
     unsigned before=all_fds();
-    int fd=open("/data/local/tmp",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(fd>=0);
+    int fd=open(".",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(fd>=0);
     struct stat expected; assert(!fstat(fd,&expected));
     for (unsigned scenario=0;scenario<5;++scenario) {
         assert(!md_domain_set_cwd(resources->fs,base));
@@ -1319,7 +1319,7 @@ static void buffer_cwd_delivery(struct md_fs_buffer_service *service, struct md_
         md_fs_anchor_release(cwd);
         assert(!md_fs_order_complete(&fs) && !md_fd_order_complete(&files));
         assert(!md_domain_set_cwd(resources->fs,base));
-        replacement=open("/data/local/tmp",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(replacement>=0);
+        replacement=open(".",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(replacement>=0);
         assert(dup3(replacement,fd,O_CLOEXEC)==fd && !close(replacement));
         assert(fcntl(fd,F_GETFD)==FD_CLOEXEC && all_fds()==before+1);
     }
@@ -1348,7 +1348,7 @@ static void buffer_cwd_capture(struct md_fs_buffer_service *service, struct md_f
             assert(md_fd_order_state(&files)==MD_RESOURCE_ORDER_QUEUED);
             assert(md_fs_order_state(&fs)==MD_RESOURCE_ORDER_QUEUED);
         }
-        assert(!md_fs_buffer_capture_finish(request,fd,scenario==1 || scenario==3 ? -EACCES : 0));
+        assert(!md_fs_buffer_capture_finish(request,fd,scenario==1 || scenario==3 ? -EACCES : 0,NULL,NULL,0));
         buffer_pending=NULL;
         if (!scenario) {
             while (buffer_callbacks==callbacks) worker_event(worker);
@@ -1383,11 +1383,11 @@ static void buffer_kernel_capture(struct md_fs_buffer_service *service, struct m
         assert(r && md_fs_buffer_capture_pending(r));
         memset(&frame->input,0,sizeof(frame->input));
         struct md_fs_task_capture target;
-        assert(!md_fs_buffer_capture_target(r,&target) && !strcmp(target.path,paths[0]));
+        assert(!md_fs_buffer_capture_target(r,&target,NULL,NULL,NULL) && !strcmp(target.path,paths[0]));
         assert(!md_fs_buffer_capture_start(r));
         int first=fcntl(md_fs_anchor_fd(base),F_DUPFD_CLOEXEC,0); assert(first>=0);
-        assert(!md_fs_buffer_capture_finish(r,first,0) && md_fs_buffer_capture_pending(r));
-        assert(!md_fs_buffer_capture_target(r,&target) && !strcmp(target.path,paths[1]));
+        assert(!md_fs_buffer_capture_finish(r,first,0,NULL,NULL,0) && md_fs_buffer_capture_pending(r));
+        assert(!md_fs_buffer_capture_target(r,&target,NULL,NULL,NULL) && !strcmp(target.path,paths[1]));
         struct md_fd_order files={0}; struct md_fs_order fs={0};
         assert(!md_fd_order_begin(resources->files,&files,wake));
         assert(!md_fs_order_begin(resources->fs,&fs,wake));
@@ -1400,7 +1400,7 @@ static void buffer_kernel_capture(struct md_fs_buffer_service *service, struct m
                 md_fs_buffer_cancel(&pending); assert(!pending);
             }
             int callbacks=buffer_callbacks;
-            assert(!md_fs_buffer_capture_finish(r,second,scenario==1 ? -EACCES : 0));
+            assert(!md_fs_buffer_capture_finish(r,second,scenario==1 ? -EACCES : 0,NULL,NULL,0));
             if (!scenario) {
                 while (buffer_callbacks==callbacks) worker_event(worker);
                 assert(!buffer_error && frame->reply.result.error==-ENOENT);

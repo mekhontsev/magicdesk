@@ -11,4 +11,5 @@ long md_task_signal_handlers(int tid, uint64_t *caught);
 long md_task_parent(int tid);
 /* Cross-task prlimit may be denied by Android while its proc snapshot is readable. */
 long md_task_limit(int tid,unsigned resource,struct rlimit *value);
+long md_task_limit_fd(int fd,unsigned resource,struct rlimit *value);
 #endif

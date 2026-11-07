@@ -62,28 +62,28 @@ try:
         setup = ''
     profile_path = output / 'module-profile.json'
     profile_path.write_text(json.dumps(profile, indent=2) + '\n')
-    suite.transport.upload(suite.client, profile_path, work + '/module-profile.json', overwrite=True)
+    suite.upload(profile_path, work + '/module-profile.json', overwrite=True)
     patch = subprocess.check_output(['sh', 'scripts/install_linux.sh', '--print-kwin-patch', profile['version']], text=True)
     pointer_patch = output / 'pointer.patch'
     pointer_patch.write_text(patch[patch.rindex('--- a/src/backends/wayland/wayland_backend.cpp'):])
-    suite.transport.upload(suite.client, pointer_patch, work + '/pointer.patch', overwrite=True)
+    suite.upload(pointer_patch, work + '/pointer.patch', overwrite=True)
     if args.name == 'debian-turnip':
         archive = Path('build/kwin-6.3.6.tar.xz')
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == '27f2205f06d58f1d1f480d2a94ae24022c2f95b9c1fdc5a549f8e143713fce12'
-        suite.transport.upload(suite.client, archive, work + '/' + archive.name, overwrite=True)
+        suite.upload(archive, work + '/' + archive.name, overwrite=True)
         full_patch = output / 'dmaheap.patch'
         full_patch.write_text(patch)
-        suite.transport.upload(suite.client, full_patch, work + '/dmaheap.patch', overwrite=True)
+        suite.upload(full_patch, work + '/dmaheap.patch', overwrite=True)
     if args.rebuild:
         suite.command(['rm', '-rf', work + '/objects'])
     if args.adapt:
         suite.command(['rm', '-f', work + '/adapt-result.json'])
     for name in ('kwin-module-build.py', 'kwin-module-state.h', 'kwin-module-state.cpp',
                  'kwin-module-layout.cpp', 'kwin-module-adapt.py'):
-        suite.transport.upload(suite.client, Path(__file__).with_name('fixtures') / name,
+        suite.upload(Path(__file__).with_name('fixtures') / name,
                                work + '/' + name, overwrite=True)
     suite.command(['chmod', '-R', 'a+rX', work])
-    suite.command(['chmod', '777', work])
+    suite.chmod('777', work)
     suite.command([suite.runner, '--store', info['store'], '--user', '0:0', '--',
                    '/bin/sh', '-c', 'PATH=/run/current-system/sw/bin:/usr/bin:/bin mkdir -p /tmp/md-kwin-module'])
     if args.name == 'debian-turnip':
@@ -139,7 +139,7 @@ finally:
             if exists:
                 destination = output / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                suite.transport.download(suite.client, work + '/' + name, destination, overwrite=True)
+                suite.download(work + '/' + name, destination, overwrite=True)
     finally:
         try:
             if owned and not args.keep:

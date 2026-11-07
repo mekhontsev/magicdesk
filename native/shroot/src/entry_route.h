@@ -25,10 +25,7 @@ static inline enum md_entry_route md_entry_route(int number) {
         MD_SOCKET_CALLS(CASE)
         case SYS_socket: case SYS_setsockopt: case SYS_recvmmsg:
         case SYS_chroot: case SYS_unshare: case SYS_setns:
-        case SYS_setuid: case SYS_setgid: case SYS_setreuid: case SYS_setregid:
-        case SYS_setresuid: case SYS_setresgid: case SYS_getresuid: case SYS_getresgid:
-        case SYS_setfsuid: case SYS_setfsgid: case SYS_setgroups: case SYS_getgroups:
-        case SYS_capget: case SYS_capset:
+        MD_IDENTITY_CALLS(CASE)
         case SYS_uname: case SYS_sethostname: case SYS_setdomainname:
         case SYS_shmget: case SYS_shmat: case SYS_shmdt: case SYS_shmctl:
         case SYS_semget: case SYS_semctl: case SYS_semop: case SYS_semtimedop:

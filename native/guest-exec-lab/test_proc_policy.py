@@ -697,7 +697,7 @@ def main():
                               'head -c 1 /proc/pressure/$name >/dev/null 2>&1 || available=0; '
                               'done; echo PSI=$available'])
         psi = '1' if 'PSI=1' in host else '0'
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         suite.command(prefix + ['--bind-ro', suite.base, target, '--deadline-seconds', '90', '--',
                                '/usr/bin/env', 'MD_TEST_PSI=' + psi,

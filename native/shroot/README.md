@@ -1,9 +1,12 @@
 # Shroot Native Runtime
 
-Shroot is a native ARM64 Linux userspace runtime for MagicDesk's already-authorized
-shell or root executor. Shell UID 2000 is the unrooted baseline. The APK packages
-standalone executables, not libraries loaded into ART. Guest-only capabilities
-are probed on explicit use and never become prerequisites for other services.
+Shroot is a native ARM64 Linux userspace runtime with one engine for Android
+application, authorized shell and root execution identities. Shell UID 2000
+remains the baseline for public launch workflows; application-UID integration
+uses the same [fixtures and contracts](../guest-exec-lab/host-execution.md).
+The APK packages standalone executables, not libraries loaded into ART.
+Guest-only capabilities are probed on explicit use and never become
+prerequisites for other services.
 
 Start with the [user guide](../../docs/shroot.md) for installation, named
 environments, Docker/Podman, init systems and supported application workflows.
@@ -38,7 +41,8 @@ selects Base explicitly. See
 One supervisor owns each process tree. Selective seccomp TRACE/USER_NOTIF directs
 operations needing adaptation to either a task-affine adapter or a filesystem
 worker. The supervisor is the sole kernel ptracer. Ordinary unselected data IO,
-memory, futex and signal-mask operations retain native execution; signal sending
+memory and futex operations retain native execution. Signal masks also stay
+native unless inherited Android policy requires the logical SIGSYS view. Signal sending
 always checks launch membership and guest credentials, even without a PID
 namespace. Group/broadcast sends select only supervised guest processes, never
 other Android processes sharing the executor UID. Features such as
@@ -109,7 +113,7 @@ Low-level framing is shared without moving resource policy into the parser:
 - `task_memory` reads guest strings in page-bounded chunks. A terminator before
   an inaccessible page remains valid; callers preserve their own error contract.
   Retained-memory reads require explicit owner-provided authority. Executable
-  metadata uses it only for same-process inspection after `dumpable=0`, never
+  metadata uses it only for authorized same-process inspection, never
   to authorize a foreign process's proc access.
 - `received_fds` owns exclusive parcel accumulation, immutable shared custody
   and provenance. Geometric growth transfers no FD twice and leaves both inputs
@@ -223,6 +227,59 @@ establish native-Linux sandbox equivalence. Unadapted syscalls, inherited host
 descriptors and the same-UID broker retain authority outside guest policy;
 interpreter/library admission and complete descriptor/root confinement remain
 incomplete. Use trusted inputs.
+
+`seccomp_install.h` classifies both installation APIs and their native results
+for the shared supervisor: listener FDs are successful results, while a
+positive-TID TSYNC failure does not publish a new filter. Both host identities
+reuse that contract. `seccomp_policy` supplies immutable snapshots,
+chain references and selective cBPF routing/evaluation. Application-UID
+execution uses it to admit cold Android-denied calls against original guest policy;
+the ordinary UID-2000 path does not enable host-SIGSYS translation.
+`seccomp_capture` lends the exact routed image from a peer-read-only
+`interception_buffers` pool until native completion or confirmed death. The
+caller owns guest copies and the existing address-space turn against mapping
+replacement; the policy module owns no guest memory, signal frames or process
+scheduler. Ordinary writable request pools are unchanged. See the
+[host execution contract](../guest-exec-lab/host-execution.md) for current
+coverage and limitations.
+
+The `seccomp_notify` owner supplies a virtual notification queue
+through the existing control-file ioctl/readiness model. The typed listener
+uses ordinary FD-table, fork and SCM_RIGHTS ownership. Its output acknowledgement
+reuses terminal buffer completion, and is requested only by RECV-like operations
+whose state depends on successful guest copying. The queue and last-close
+semantics, last-task HUP independent of FD lifetime, receiver-relative PID views
+and metadata-only O_PATH reopenings are coordinator-tested. Guest filter
+installation, original-call dispatch, CONTINUE, interruption/restart and ADDFD
+are connected to this owner. Typed ioctl input capture and `fd_install` retain
+source OFDs, fixed-slot metadata and atomic SEND semantics, including protected
+callers. Native read/write/poll paths do not consult this queue.
+
+The engine's `signal_actions`, `signal_view` and `task_signal_control`
+owners preserve logical SIGSYS actions, masks, pending state and handler-entry
+frames, including nonlocal handler exits. Proc status and debugger mask views
+reuse those owners; proc status does not expose an adapter's temporary mask.
+Protected copying borrows the existing `task_call` owner;
+ordinary native IO acquires no additional turn or observation. `signal_pending`
+separates thread-private and process-shared SIGSYS queues and the shared-sighand
+wait domain. Other signals retain native kernel queues. `signal_fd` integrates
+signalfd/read/readv, typed FD transfer, poll and task-affine epoll through the
+existing descriptor owners. Epoll publication commits logical ET/ONESHOT state
+only after the caller's copy succeeds; native task events validate the actual
+output buffer before consumption. The mapping turn covers that nonblocking
+publication, never a blocking wait. Parked waits release shared transport slots.
+
+Temporary masks for ppoll, pselect6, epoll_pwait/pwait2 and sigsuspend retain
+kernel handler-entry and sigreturn semantics, including nonlocal handler exits.
+TSYNC retains immutable admission snapshots for already admitted calls and
+pending Android denials. A group barrier is limited to filter installation;
+ordinary syscalls do not acquire global entry tracing. Owned completion gates
+finish the original admitted request without replaying it through a later filter.
+This admission/notification lifecycle is shared by app UID and UID 2000;
+only translation of Android's inherited SIGSYS policy is app-UID-specific.
+`guest_debugger` supplies typed seccomp events only when its host explicitly
+owns guest-filter admission. The production supervisor does not enable that
+TRACESECCOMP capability.
 
 See [guest credentials and Landlock](../../docs/shroot.md#guest-credentials),
 [namespace providers](process-resources.md) and

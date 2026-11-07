@@ -3,6 +3,7 @@
 #include "inode_watch.h"
 #include "inode_internal.h"
 #include "fs_operation.h"
+#include "storage_paths.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -82,6 +83,46 @@ static void generations(const char *path) {
     value(child,"/alias","upper"); value(base,"/alias","lower");
     md_inode_store_close(base); md_inode_store_close(child); md_inode_store_close(next);
     puts("PASS reopened COW generations retain direct source bodies, hardlink identity and independent writes");
+}
+static void relocated_sources(const char *base) {
+    char tree[PATH_MAX],moved[PATH_MAX],nested[PATH_MAX],source_path[PATH_MAX];
+    assert(snprintf(tree,sizeof(tree),"%s/relocation",base)<(int)sizeof(tree));
+    assert(snprintf(moved,sizeof(moved),"%s/relocated",base)<(int)sizeof(moved));
+    assert(snprintf(nested,sizeof(nested),"%s/nested",tree)<(int)sizeof(nested));
+    assert(!mkdir(tree,0700) && !mkdir(nested,0700));
+    struct md_inode_store *a=store(tree,"image"),*b=store(tree,"child");
+    int fd=open_file(a,"/file",O_CREAT|O_RDWR);
+    assert(write(fd,"lower",5)==5); close(fd);
+    assert(!md_inode_store_seal(a) && !md_inode_snapshot(a,b));
+    assert(!md_inode_store_seal(b));
+    struct md_inode_store *c=store(nested,"next");
+    assert(!md_inode_snapshot(b,c));
+    sqlite3_stmt *q=NULL;
+    assert(sqlite3_prepare_v2(c->db,"SELECT path FROM sources",-1,&q,NULL)==SQLITE_OK);
+    assert(sqlite3_step(q)==SQLITE_ROW);
+    assert(!strcmp((const char *)sqlite3_column_text(q,0),"../../image/objects"));
+    sqlite3_finalize(q);
+    md_inode_store_close(a); md_inode_store_close(b); md_inode_store_close(c);
+    assert(!rename(tree,moved));
+    assert(snprintf(nested,sizeof(nested),"%s/nested",moved)<(int)sizeof(nested));
+    c=reopen(nested,"next"); value(c,"/file","lower");
+    fd=open_file(c,"/file",O_RDWR); assert(pwrite(fd,"upper",5,0)==5); close(fd);
+    a=reopen(moved,"image"); value(a,"/file","lower");
+    md_inode_store_close(a); md_inode_store_close(c);
+    /* Existing absolute source rows are converted transactionally before move. */
+    b=reopen(moved,"child");
+    assert(snprintf(source_path,sizeof(source_path),"%s/image/objects",moved)<(int)sizeof(source_path));
+    assert(sqlite3_prepare_v2(b->db,"UPDATE sources SET path=?1",-1,&q,NULL)==SQLITE_OK);
+    assert(sqlite3_bind_text(q,1,source_path,-1,SQLITE_STATIC)==SQLITE_OK);
+    assert(sqlite3_step(q)==SQLITE_DONE); sqlite3_finalize(q);
+    char directory[PATH_MAX];
+    assert(!md_storage_directory_path(b->lifetime->root,directory,sizeof(directory)));
+    assert(!mdi_runtime_begin(b));
+    assert(!md_storage_sources_rebase(b->db,directory,directory));
+    assert(!mdi_commit(b,0)); md_inode_store_close(b);
+    assert(!rename(moved,tree)); b=reopen(tree,"child"); value(b,"/file","lower");
+    md_inode_store_close(b);
+    puts("PASS relative source links: nested snapshots, tree relocation, COW and absolute-link conversion");
 }
 int main(int argc, char **argv) {
     if (argc == 4 && !strcmp(argv[1], "--imported")) {
@@ -182,6 +223,7 @@ int main(int argc, char **argv) {
     close(watch); close(lower); close(image);
     md_inode_store_close(b); md_inode_store_close(a); md_inode_store_close(base);
     generations(argv[1]);
+    relocated_sources(argv[1]);
     puts("PASS backing-source lease retains the exact lower object across copy-up, rename and unlink");
     puts("PASS shared snapshots, copy-up, hardlinks, stable identity, retained FDs, file watches and native mmap");
     return 0;

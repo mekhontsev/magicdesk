@@ -1,9 +1,11 @@
 #define _GNU_SOURCE
 #include "fs_native.h"
+#include "host_open.h"
 #include "fs_mount_internal.h"
 #include "inode_internal.h"
 #include "proc_paths.h"
 #include "procfs_view.h"
+#include "linux_abi.h"
 #include <linux/magic.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -53,6 +55,11 @@ void md_fs_native_descriptor(struct md_filesystem *fs,const struct md_fs_request
     if (q->operation==MD_FS_FSTAT) {
         struct stat st;
         out->error=fstat(q->directory[0],&st) ? -errno : 0;
+        if (!out->error) {
+            char path[PATH_MAX];
+            int result=md_procfs_native_metadata(fs,q->directory[0],&st,path,sizeof(path));
+            if (result<0) out->error=result;
+        }
         if (!out->error) md_fs_stat_info(&st,&out->info);
         if (!out->error && (q->mode&MD_FS_STAT_MOUNT)) {
             struct statx native;
@@ -63,6 +70,14 @@ void md_fs_native_descriptor(struct md_filesystem *fs,const struct md_fs_request
                 if (!out->error) md_fs_info_mount(&out->info,mount,!!(native.stx_attributes&STATX_ATTR_MOUNT_ROOT));
             }
         }
+    } else if (q->operation==MD_FS_ACCESS && (!q->path[0] || !*q->path[0])) {
+        struct stat st;
+        if (fstat(q->directory[0],&st)) { out->error=-errno; return; }
+        char path[PATH_MAX];
+        int result=md_procfs_native_metadata(fs,q->directory[0],&st,path,sizeof(path));
+        if (result<0) out->error=result;
+        else if (result) out->error=q->flags&~(AT_EMPTY_PATH|AT_SYMLINK_NOFOLLOW|MD_AT_EACCESS) ? -EINVAL
+            : md_procfs_task_access(fs,path,&st,q->mode,!!(q->flags&MD_AT_EACCESS));
     } else if (q->operation==MD_FS_STATFS && (!q->path[0] || !*q->path[0])) {
         out->error=0;
         md_fs_statfs_result(q->directory[0],0,NULL,out,output);
@@ -109,8 +124,8 @@ static int task_relative(struct md_filesystem *fs, const char *path,
     enum md_proc_kind kind=ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind;
     if (!error && task.files && kind==MD_PROC_FD && ref.tail && !*ref.tail
             && (q->operation==MD_FS_STAT || q->operation==MD_FS_READLINK)
-            && (task.tid==fs->actor->tid || (!md_domain_restricted(fs->actor->fs)
-                && md_identity_may_inspect(&fs->actor->identity,&task.identity,1)))) {
+        && (task.tgid==fs->actor->tgid || (!md_domain_restricted(fs->actor->fs)
+                && md_process_may_inspect(&fs->actor->identity,&task.identity,1,task.access)))) {
         /* Capture metadata and the kernel target under the same table turn.
          * Never wait in the worker: an occupied table uses task-affine admission.
          * Typed proc/control carriers must still go through their provider. */
@@ -175,9 +190,9 @@ void md_fs_native_boundary(struct md_filesystem *fs, const struct md_inode_bound
      * /dev/fd must not resolve through this worker's self links. NO_SYMLINKS
      * still permits the final O_PATH|O_NOFOLLOW link for readlink/lstat. */
     struct open_how how={.flags=O_PATH|O_NOFOLLOW|O_CLOEXEC,.resolve=RESOLVE_NO_SYMLINKS};
-    int fd=(int)syscall(SYS_openat2,AT_FDCWD,boundary->path,&how,sizeof(how));
+    int fd=(int)md_host_open_resolved(AT_FDCWD,boundary->path,&how);
     if (fd<0) {
-        if (errno!=ELOOP && errno!=ENOSYS && errno!=EINVAL && errno!=EPERM) out->error=-errno;
+        if (fd!=-ELOOP && fd!=-ENOSYS && fd!=-EINVAL && fd!=-EPERM) out->error=fd;
         goto finished;
     }
     struct stat st;
@@ -208,7 +223,7 @@ void md_fs_native_boundary(struct md_filesystem *fs, const struct md_inode_bound
 finished:
     /* Proc access is caller-affine: a protected task can inspect itself even
      * when this worker cannot. Retry under that task's unchanged credentials. */
-    if (out->error==-EACCES || out->error==-EPERM) out->error=-EREMOTE;
+    if (out->error==-EACCES || out->error==-EPERM || out->error==-ENOENT) out->error=-EREMOTE;
     md_fs_anchor_release(origin);
     if (order.table) {
         int error=md_fd_order_cancel(&order);

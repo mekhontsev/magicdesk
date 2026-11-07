@@ -47,9 +47,10 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
             if (fileDirectory != null) return fileDirectory.resolve("socket").toString();
             java.nio.file.Path directory = null;
             try {
-                String base = clientUid == 0 || clientUid == 2000 ? "/data/local/tmp"
-                        : java.util.Objects.requireNonNull(System.getenv("HOME"));
-                directory = java.nio.file.Files.createTempDirectory(java.nio.file.Path.of(base), ".md-unix-");
+                var base = clientUid == 0 || clientUid == 2000
+                        ? RuntimeDataPaths.privileged(clientUid).temporary()
+                        : java.nio.file.Path.of(java.util.Objects.requireNonNull(System.getenv("TMPDIR")));
+                directory = java.nio.file.Files.createTempDirectory(base, ".md-unix-");
                 Os.chmod(directory.toString(), 0700);
                 String path = directory.resolve("socket").toString();
                 if (path.getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 108)

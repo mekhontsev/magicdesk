@@ -147,7 +147,25 @@ static int snapshot(struct network_proc *f,const struct md_identity *identity) {
     if (count) {
         char path[64]; snprintf(path,sizeof(path),"/proc/self/net/%s",names[f->table]);
         FILE *in=fopen(path,"re");
-        if (!in) error=-errno;
+        if (!in) {
+            error=-errno;
+            if (error==-EACCES || error==-EPERM || error==-ENOENT) {
+                /* Host policy can conceal all native socket tables. Publish
+                 * the namespace's owned endpoints and managed lifecycle;
+                 * unavailable kernel queue/timer counters remain zero. Never
+                 * retain native sockets just for diagnostic observation. */
+                unsigned index=0;
+                for (size_t i=0;i<count;++i) {
+                    const struct md_network_endpoint_info *e=&items[i];
+                    if (e->local.ip.family!=(ipv6 ? AF_INET6 : AF_INET)) continue;
+                    fprintf(out,"%4u: ",index++); socket_address(out,&e->local,ipv6);
+                    fputc(' ',out); socket_address(out,&e->peer,ipv6);
+                    fprintf(out," %02X 00000000:00000000 00:00000000 00000000 %5u        0 %llu\n",
+                        e->state,md_identity_visible_id(identity,0,e->uid),(unsigned long long)e->inode);
+                }
+                error=0;
+            }
+        }
         else {
             char *line=NULL; size_t capacity=0; unsigned index=0;
             while (getline(&line,&capacity,in)>=0) {

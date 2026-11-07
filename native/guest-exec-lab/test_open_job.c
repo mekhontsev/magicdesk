@@ -54,7 +54,7 @@ static int pin_pipe(int *control) {
     char path[64]; snprintf(path,sizeof(path),"/proc/self/fd/%d",pipefd[0]);
     int pin=open(path,O_PATH|O_CLOEXEC); assert(pin>=0);
     assert(!close(pipefd[0]) && !close(pipefd[1]));
-    char temporary[128]; snprintf(temporary,sizeof(temporary),"/data/local/tmp/md-open-job-%d-XXXXXX",getpid());
+    char temporary[128]; snprintf(temporary,sizeof(temporary),"md-open-job-%d-XXXXXX",getpid());
     *control=mkostemp(temporary,O_CLOEXEC);
     assert(*control>=0 && !unlink(temporary));
     assert(*control>=0 && !ftruncate(*control,8));

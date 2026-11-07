@@ -133,7 +133,7 @@ def main():
     target = '/tmp/md-readonly-exec-' + suite.report['id']
     prefix = [suite.runner, '--store', args.store, '--user', '0:0']
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         suite.command(suite.guest(args.store, '--user', '0:0', '--bind-ro', suite.base,
                                   target, '--deadline-seconds', '90', '--',

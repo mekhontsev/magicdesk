@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Namespace-owned IP policy files through ordinary proc IO, under shell."""
+"""Namespace-owned IP policy files through ordinary proc IO."""
 import argparse
 from contextlib import ExitStack
 import ctypes
@@ -15,6 +15,8 @@ import sys
 import tempfile
 
 BASE = '/proc/sys/net/ipv4/'
+GLOBAL4 = ('ip_unprivileged_port_start', 'ping_group_range', 'ip_local_port_range',
+           'ip_forward', 'tcp_keepalive_time', 'tcp_keepalive_intvl', 'tcp_keepalive_probes')
 
 
 def denied(action, code):
@@ -38,10 +40,51 @@ def write(name, text):
         os.close(fd)
 
 
+def host_coexistence():
+    paths = [BASE + name for name in GLOBAL4] + [
+        BASE + 'conf/all/route_localnet', '/proc/sys/net/ipv6/bindv6only',
+        '/proc/sys/net/bridge/bridge-nf-call-iptables',
+        '/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_established']
+    directories = ['/proc/sys/net', BASE, BASE + 'conf', '/proc/sys/net/ipv6']
+    def snapshot():
+        result = []
+        for path in paths + directories:
+            try:
+                value = sorted(os.listdir(path)) if path in directories else Path(path).read_bytes()
+                result.append((path, value))
+            except OSError as error:
+                result.append((path, error.errno))
+        return result
+    before = snapshot()
+    child = os.fork()
+    if not child:
+        libc = ctypes.CDLL(None, use_errno=True)
+        assert libc.unshare(0x40000000) == 0, ctypes.get_errno()
+        assert read('ip_forward') == ['0']
+        write('ip_forward', '1')
+        assert read('ip_forward') == ['1']
+        for path in paths:
+            assert Path(path).read_text().strip(), path
+        subprocess.run(['ip', 'link', 'add', 'md-sysctl-child', 'type', 'bridge'], check=True)
+        assert Path(BASE + 'conf/md-sysctl-child/route_localnet').read_text() == '0\n'
+        os._exit(0)
+    status = os.waitpid(child, 0)
+    assert status == (child, 0), status
+    after = snapshot()
+    assert after == before, [(old, new) for old, new in zip(before, after) if old != new]
+    print('PASS native parent proc remains native after managed child sysctl lookup', flush=True)
+
+
 def guest():
     os.environ['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
     def ip_proc(root):
         controls = Path(root) / 'sys/net'
+        # Direct lookup must work before readdir materializes any provider nodes.
+        for name in GLOBAL4:
+            node = controls / 'ipv4' / name
+            assert stat.S_ISREG(node.stat().st_mode)
+            assert node.read_text().strip(), node
+        assert set(GLOBAL4) <= set(os.listdir(controls / 'ipv4'))
         assert 'ipv4' in os.listdir(controls)
         assert 'ipv6' in os.listdir(controls)
         assert (controls / 'ipv6/conf/all/forwarding').read_text() == '0\n'
@@ -141,7 +184,8 @@ def guest():
             denied(lambda: monitor.setsockopt(270, 1, 6), errno.EOPNOTSUPP)
             assert monitor.getsockname()[1] == subscriptions
         os._exit(0)
-    assert os.waitpid(child, 0) == (child, 0)
+    result = os.waitpid(child, 0)
+    assert result == (child, 0), result
     print('PASS protocol-scoped netlink ports, collision, autobind and reuse', flush=True)
     with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, 0) as sender, \
             socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, 0) as monitor:
@@ -387,7 +431,7 @@ def guest():
         assert sorted(p.name for p in conf.iterdir()) == ['all', 'default', 'lo']
         link('add', 'md-view', 'type', 'bridge')
         assert sorted(p.name for p in conf.iterdir()) == ['all', 'default', 'lo', 'md-view']
-        assert sorted(p.name for p in (conf / 'md-view').iterdir()) == ['arp_notify', 'route_localnet', 'rp_filter']
+        assert sorted(p.name for p in (conf / 'md-view').iterdir()) == ['arp_notify', 'route_localnet', 'rp_filter', 'src_valid_mark']
         scoped = os.open(conf / 'md-view/route_localnet', os.O_RDWR)
         assert os.pwrite(scoped, b'1', 0) == 1
         assert read('conf/md-view/route_localnet') == ['1']
@@ -445,8 +489,11 @@ def main():
     target = '/tmp/md-net-sysctl-' + suite.report['id']
     prefix = [suite.runner, '--store', args.store, '--user', '0:0']
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
+        suite.command(prefix + suite.entry_options + ['--network', 'host', '--bind-ro', suite.base, target,
+                                '--deadline-seconds', '30', '--', '/usr/bin/python3', target + '/test.py', '--host-guest'],
+                      timeout=50)
         suite.command(prefix + suite.entry_options + ['--network', 'routed', '--bind-ro', suite.base, target, '--deadline-seconds', '60', '--',
                                 '/usr/bin/unshare', '--net', '--mount', '--pid', '--fork',
                                 '/usr/bin/python3', target + '/test.py', '--guest'],
@@ -460,4 +507,9 @@ def main():
 
 
 if __name__ == '__main__':
-    guest() if sys.argv[1:] == ['--guest'] else main()
+    if sys.argv[1:] == ['--guest']:
+        guest()
+    elif sys.argv[1:] == ['--host-guest']:
+        host_coexistence()
+    else:
+        main()

@@ -879,6 +879,8 @@ static void native_xattr_pins(void) {
                 assert(!seteuid(identity));
                 long result=required_call(&local,SYS_getxattr,
                     (uint64_t[]){(uintptr_t)name,(uintptr_t)attribute,(uintptr_t)bytes,sizeof(bytes),0,0});
+                if (identity==1000 ? result!=5 || memcmp(bytes,"first",5) : result!=-EACCES)
+                    fprintf(stderr,"xattr pin promoted=%u euid=%u result=%ld\n",promoted,identity,result);
                 assert(identity==1000 ? result==5 && !memcmp(bytes,"first",5) : result==-EACCES);
                 assert(!seteuid(0));
             }
@@ -1146,7 +1148,45 @@ static volatile sig_atomic_t escape_armed;
 static atomic_int escape_running;
 static void escape_handler(int signal) {
     (void)signal;
-    if (escape_armed) siglongjmp(escape,1);
+    if (escape_armed) {
+        /* siglongjmp may unblock another signal before restoring the stack. */
+        escape_armed=0;
+        siglongjmp(escape,1);
+    }
+}
+static void failed_frame_handler(int signal) { (void)signal; _exit(92); }
+static void failed_frame_recover(int signal,siginfo_t *info,void *context) {
+    (void)context;
+    assert(signal==SIGSEGV && info->si_code==SI_KERNEL);
+    sigset_t mask; assert(!sigprocmask(SIG_SETMASK,NULL,&mask));
+    assert(!sigismember(&mask,SIGUSR2) && !sigismember(&mask,SIGSYS));
+    struct sigaction action;
+    assert(!sigaction(SIGUSR2,NULL,&action) && action.sa_handler==SIG_DFL);
+    _exit(0);
+}
+static void failed_signal_frame(void) {
+    for (unsigned mode=0;mode<3;++mode) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            size_t size=65536;
+            void *memory=mmap(NULL,size,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+            assert(memory!=MAP_FAILED);
+            stack_t stack={.ss_sp=memory,.ss_size=size}; assert(!sigaltstack(&stack,NULL));
+            struct sigaction action={.sa_handler=failed_frame_handler,.sa_flags=SA_ONSTACK|SA_RESETHAND};
+            sigemptyset(&action.sa_mask); sigaddset(&action.sa_mask,SIGSYS);
+            int signal=mode==2 ? SIGSEGV : SIGUSR2;
+            assert(!sigaction(signal,&action,NULL));
+            if (mode==1) {
+                action=(struct sigaction){.sa_sigaction=failed_frame_recover,.sa_flags=SA_SIGINFO};
+                sigemptyset(&action.sa_mask); assert(!sigaction(SIGSEGV,&action,NULL));
+            }
+            raise(signal); _exit(93);
+        }
+        int status; assert(waitpid(child,&status,0)==child);
+        if (mode==1) assert(WIFEXITED(status) && !WEXITSTATUS(status));
+        else assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSEGV);
+    }
+    puts("PASS signal frame failure: guest SIGSEGV, recovery and action reset without supervisor failure");
 }
 static void *escape_sender(void *unused) {
     (void)unused;
@@ -1487,13 +1527,14 @@ static void filtered_close(void) {
     pid_t child=fork(); assert(child>=0);
     if (!child) {
         int fd=open(path,O_RDONLY); assert(fd>=0 && fd<190);
-        assert(dup2(fd,190)==190 && dup2(fd,191)==191 && !close(fd));
+        assert(dup2(fd,190)==190 && dup2(fd,191)==191 && dup2(fd,192)==192 && !close(fd));
         struct sock_filter instructions[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_close,0,4),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_close,0,5),
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,191,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EPERM),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,192,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_CLOSE|191),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
         };
@@ -1502,9 +1543,11 @@ static void filtered_close(void) {
         assert(!prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,&program));
         assert(!close(190));
         assert(close(191)==-1 && errno==EPERM);
+        assert(close(192)==-1 && errno==ENOSYS);
         struct stat st;
         assert(fstat(190,&st)==-1 && errno==EBADF);
         assert(!fstat(191,&st) && st.st_size==7);
+        assert(!fstat(192,&st) && st.st_size==7);
         assert(close(-1)==-1 && errno==EBADF);
         _exit(0);
     }
@@ -1608,7 +1651,7 @@ static void contracts(const char *executable) {
     pthread_t peers[4];
     for (unsigned i=0;i<4;++i) assert(!pthread_create(&peers[i],NULL,threaded,NULL));
     for (unsigned i=0;i<4;++i) assert(!pthread_join(peers[i],NULL));
-    capacity(); interrupted(); abandoned_memory(); jit_entry_resume(); context_changes(); credentials(); pid_namespace(); landlocked(); teardown();
+    capacity(); interrupted(); failed_signal_frame(); abandoned_memory(); jit_entry_resume(); context_changes(); credentials(); pid_namespace(); landlocked(); teardown();
     assert(!prctl(PR_SET_DUMPABLE,0));
     assert(!call6(SYS_newfstatat,AT_FDCWD,(uintptr_t)path,(uintptr_t)&st,0,0,0) && st.st_size==7);
     struct md_entry_channel *channel=(void *)client.opaque[MD_ENTRY_CLIENT_CHANNEL];
@@ -1674,6 +1717,9 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"--cursor-lease")) {
         cursor_contracts(); return 0;
     }
+    if (argc>1 && !strcmp(argv[1],"--xattr-pins")) {
+        native_xattr_pins(); return 0;
+    }
     if (argc>1 && !strcmp(argv[1],"--site-discovery")) {
         site_discovery(); return 0;
     }
@@ -1691,6 +1737,11 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"--native-signals")) {
         int fd=open(path,O_CREAT|O_RDWR,0600); assert(fd>=0 && write(fd,"payload",7)==7 && !close(fd));
         native_interruptions(); return 0;
+    }
+    if (argc>1 && !strcmp(argv[1],"--signal-abandon")) {
+        failed_signal_frame();
+        int fd=open(path,O_CREAT|O_RDWR,0600); assert(fd>=0 && write(fd,"payload",7)==7 && !close(fd));
+        abandoned_memory(); return 0;
     }
     if (argc>1 && (!strcmp(argv[1],"--birth-retirement") || !strcmp(argv[1],"--bursts"))) {
         int fd=open(path,O_CREAT|O_RDWR,0600); assert(fd>=0 && write(fd,"payload",7)==7 && !close(fd));

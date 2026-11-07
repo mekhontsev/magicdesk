@@ -54,6 +54,10 @@ int md_identity_in_group(const struct md_identity *v, uint32_t gid) {
     return v->groups && bsearch(&gid, v->groups->ids, v->groups->count,
         sizeof(gid), compare_gid) != NULL;
 }
+int md_identity_traceme(const struct md_identity *parent,const struct md_identity *child) {
+    return (parent->user_namespace==child->user_namespace && !(child->caps.permitted&~parent->caps.permitted))
+        || md_identity_capable_in(parent,child->user_namespace,CAP_SYS_PTRACE);
+}
 int md_identity_may_inspect(const struct md_identity *from, const struct md_identity *to, int filesystem) {
     if (md_identity_capable_in(from,to->user_namespace,CAP_SYS_PTRACE)) return 1;
     uint32_t uid=filesystem ? from->uid.fs : from->uid.real;

@@ -1,16 +1,19 @@
 #define _GNU_SOURCE
 #include "proc_file.h"
+#include "process_oom.h"
 #include "proc_sysctl.h"
 #include "proc_namespace.h"
 #include "pid_namespace.h"
 #include "fd_selector.h"
 #include "cgroup.h"
 #include "task_resources.h"
+#include "task_registry.h"
 #include "process_limits.h"
 #include "file_permissions.h"
 #include "directory_record.h"
 #include "fs_anchor.h"
 #include "mount_policy.h"
+#include "signal_view.h"
 #include <linux/magic.h>
 #include <dirent.h>
 #include <errno.h>
@@ -30,6 +33,8 @@ struct md_proc_file {
     struct md_identity process_identity;
     pid_t tracer;
     int process_state;
+    int process_inspectable;
+    struct md_signal_status signals;
     struct md_process_limits limits;
     int limits_valid;
     enum md_proc_file_kind kind;
@@ -49,10 +54,14 @@ struct md_proc_file {
     struct md_cgroup_member *cgroup;
     struct md_fs_anchor *placement;
     struct stat metadata;
+    int backing;
+    struct stat backing_metadata;
+    uint64_t backing_generation;
 };
 static const struct md_control_file_ops task_ops;
 static void destroy(struct md_fd_object *object) {
     struct md_proc_file *f=(void *)object;
+    if (f->backing>=0) close(f->backing);
     if (f->control) f->control->release(f->control_context);
     md_fs_anchor_release(f->placement);
     md_cgroup_member_release(f->cgroup);
@@ -125,10 +134,11 @@ struct md_proc_file *md_proc_file_open(struct md_user_namespace *target,
     if (error) { errno=error; return NULL; }
     struct md_proc_file *f=calloc(1,sizeof(*f));
     if (!f) return NULL;
+    f->backing=-1;
     error=md_resource_queue_init(&f->operations);
     if (error) { free(f); errno=-error; return NULL; }
     md_fd_object_init(&f->object,&type);
-    f->target=md_proc_file_sysctl(kind) || md_proc_file_namespace(kind) || directory || md_proc_file_process(kind)
+    f->target=md_proc_file_sysctl(kind) || md_proc_file_namespace(kind) || directory || md_proc_file_native_content(kind)
         ? NULL : md_user_namespace_retain(target);
     f->opener=md_identity_copy(opener); f->kind=kind; atomic_init(&f->flags,flags);
     return f;
@@ -237,10 +247,11 @@ void md_proc_file_pid_view(struct md_proc_file *f, struct md_pid_namespace *view
     f->pid_view=md_pid_namespace_retain(view); md_pid_namespace_release(old);
 }
 void md_proc_file_process_state(struct md_proc_file *f,const struct md_identity *identity,
-        struct md_pid_namespace *space,pid_t tracer,const struct md_process_limits *limits) {
+        struct md_pid_namespace *space,pid_t tracer,int inspectable,const struct md_process_limits *limits) {
     if (!md_proc_file_process(f->kind) || f->content) return;
     if (f->process_state) md_identity_release(&f->process_identity);
     f->process_identity=md_identity_copy(identity); f->process_state=1; f->tracer=tracer;
+    f->process_inspectable=inspectable;
     f->limits_valid=limits!=NULL;
     if (limits) f->limits=*limits;
     struct md_pid_namespace *old=f->process_pid_namespace;
@@ -250,14 +261,56 @@ void md_proc_file_cgroup(struct md_proc_file *f,struct md_cgroup_member *member)
     struct md_cgroup_member *old=f->cgroup;
     f->cgroup=md_cgroup_member_retain(member); md_cgroup_member_release(old);
 }
+void md_proc_file_signal_state(struct md_proc_file *f,const struct md_signal_status *signals) {
+    if (f->kind==MD_PROC_FILE_STATUS && !f->content)
+        f->signals=signals ? *signals : (struct md_signal_status){0};
+}
 struct md_proc_file_node md_proc_file_get_node(const struct md_proc_file *f) { return f->node; }
 enum md_proc_file_kind md_proc_file_kind(const struct md_proc_file *f) { return f->kind; }
 int md_proc_file_filesystem_paths(const struct md_proc_file *f) {
     return f && f->control && f->control->filesystem_paths;
 }
+struct anonymous_path {
+    atomic_uint references;
+    struct stat metadata;
+};
+static void *anonymous_path_retain(void *context) {
+    struct anonymous_path *p=context;
+    atomic_fetch_add_explicit(&p->references,1,memory_order_relaxed); return p;
+}
+static void anonymous_path_release(void *context) {
+    struct anonymous_path *p=context;
+    if (atomic_fetch_sub_explicit(&p->references,1,memory_order_acq_rel)==1) free(p);
+}
+static int anonymous_path_stat(void *context,struct stat *out) {
+    *out=((struct anonymous_path *)context)->metadata; return 0;
+}
+static int anonymous_path_access(void *context,const struct md_identity *id,unsigned mode) {
+    return md_file_permissions(&((struct anonymous_path *)context)->metadata,mode,id);
+}
+static const struct md_control_file_ops anonymous_path_ops={.retain=anonymous_path_retain,
+    .release=anonymous_path_release,.stat=anonymous_path_stat,.access=anonymous_path_access,
+    .filesystem=ANON_INODE_FS_MAGIC,.no_reopen=1};
+static struct md_proc_file *anonymous_reopen(const struct md_proc_file *f,
+        const struct md_control_opener *opener,int flags) {
+    if (!(flags&O_PATH)) { errno=ENXIO; return NULL; }
+    if (f->control==&anonymous_path_ops)
+        return md_proc_file_open_control(f->control,f->control_context,opener,flags);
+    /* O_PATH holds the anonymous inode, not the open file's authority. In
+     * particular, it must not keep a notification listener or device alive. */
+    struct anonymous_path *path=calloc(1,sizeof(*path));
+    if (!path) return NULL;
+    atomic_init(&path->references,1);
+    int error=f->control->stat(f->control_context,&path->metadata);
+    struct md_proc_file *next=error ? NULL : md_proc_file_open_control(&anonymous_path_ops,path,opener,flags);
+    if (error) errno=-error;
+    anonymous_path_release(path);
+    return next;
+}
 struct md_proc_file *md_proc_file_reopen(const struct md_proc_file *f,
         const struct md_control_opener *opener, int flags) {
     if (!opener || !opener->identity) { errno=EINVAL; return NULL; }
+    if (f->control && f->control->no_reopen) return anonymous_reopen(f,opener,flags);
     if (f->placement && !f->control && !(flags&O_PATH)) {
         unsigned mode=(flags&O_ACCMODE)==O_RDWR ? R_OK|W_OK : (flags&O_ACCMODE)==O_WRONLY ? W_OK : R_OK;
         if (flags&O_TRUNC) mode|=W_OK;
@@ -270,6 +323,11 @@ struct md_proc_file *md_proc_file_reopen(const struct md_proc_file *f,
     if (next) {
         next->node=f->node; md_proc_file_pid_view(next,f->pid_view); md_proc_file_cgroup(next,f->cgroup);
         md_proc_file_place(next,f->placement,&f->metadata);
+        if (f->backing>=0) {
+            int error=md_proc_file_backing(next,f->backing,&f->backing_metadata,f->backing_generation);
+            if (!error && f->directory) error=md_proc_file_directory_snapshot(next,f->directory,f->directory_size);
+            if (error) { md_proc_file_release(next); errno=-error; return NULL; }
+        }
     }
     return next;
 }
@@ -278,32 +336,42 @@ void md_proc_file_place(struct md_proc_file *f,struct md_fs_anchor *placement,co
     f->placement=md_fs_anchor_retain(placement); f->metadata=*metadata;
     md_fs_anchor_release(old);
 }
-int md_proc_file_task_stat(int pid,const struct md_identity *identity,enum md_proc_file_kind kind,
+void md_proc_file_task_metadata(int pid,const struct md_identity *identity,const struct md_process_access *access,enum md_proc_file_kind kind,
+        struct md_proc_file_node *node,struct stat *value) {
+    *node=(struct md_proc_file_node){value->st_dev,value->st_ino,pid};
+    md_process_file_owner(identity,access,value->st_mode,value->st_uid,&value->st_uid,&value->st_gid);
+    if (md_proc_file_directory(kind)) return;
+    if (!md_proc_file_native_content(kind))
+        value->st_ino=((uint64_t)value->st_ino<<2)|((unsigned)kind+1)|UINT64_C(0x8000000000000000);
+    value->st_mode=S_IFREG|(md_proc_file_process(kind) ? md_proc_file_process_mode(kind)
+        : md_proc_file_cgroup_kind(kind) ? 0444 : 0644);
+    value->st_nlink=1; value->st_rdev=0; value->st_size=0; value->st_blocks=0; value->st_blksize=getpagesize();
+}
+int md_proc_file_task_stat(int pid,const struct md_identity *identity,const struct md_process_access *access,enum md_proc_file_kind kind,
         struct md_proc_file_node *node,struct stat *value) {
     char path[64];
-    if (md_proc_file_directory(kind)) {
+    if (md_proc_file_directory(kind))
         snprintf(path,sizeof(path),"/proc/%d%s",pid,kind==MD_PROC_FILE_NS_DIRECTORY ? "/ns" : "");
-        if (stat(path,value)) return -errno;
-        *node=(struct md_proc_file_node){value->st_dev,value->st_ino,pid};
-        value->st_uid=identity->uid.effective; value->st_gid=identity->gid.effective;
-        return 0;
-    }
-    snprintf(path,sizeof(path),"/proc/%d/%s",pid,md_proc_file_process_name(kind));
+    else snprintf(path,sizeof(path),"/proc/%d/%s",pid,md_proc_file_process_name(kind));
     if (stat(path,value)) return -errno;
-    *node=(struct md_proc_file_node){value->st_dev,value->st_ino,pid};
-    int protected=value->st_uid!=getuid();
-    uint32_t uid=identity->uid.effective, gid=identity->gid.effective;
-    if (protected) {
-        uid=md_user_namespace_into(identity->user_namespace,0,0);
-        gid=md_user_namespace_into(identity->user_namespace,1,0);
-        if (uid==UINT32_MAX) uid=0;
-        if (gid==UINT32_MAX) gid=0;
-    }
-    if (!md_proc_file_process(kind))
-        value->st_ino=((uint64_t)value->st_ino<<2)|((unsigned)kind+1)|UINT64_C(0x8000000000000000);
-    value->st_mode=S_IFREG|(md_proc_file_process(kind) || md_proc_file_cgroup_kind(kind) ? 0444 : 0644);
-    value->st_nlink=1; value->st_rdev=0; value->st_size=0; value->st_blocks=0; value->st_blksize=getpagesize();
-    value->st_uid=uid; value->st_gid=gid; return 0;
+    md_proc_file_task_metadata(pid,identity,access,kind,node,value); return 0;
+}
+int md_proc_file_task_fd_stat(int fd,int pid,const struct md_identity *identity,const struct md_process_access *access,enum md_proc_file_kind kind,
+        struct md_proc_file_node *node,struct stat *value) {
+    if (fstat(fd,value)) return -errno;
+    md_proc_file_task_metadata(pid,identity,access,kind,node,value); return 0;
+}
+int md_proc_file_backing(struct md_proc_file *f,int fd,const struct stat *st,uint64_t generation) {
+    if (!f || !st || (!md_proc_file_task(f->kind) && !md_proc_file_directory(f->kind))
+            || f->backing>=0 || f->content) return -EINVAL;
+    if (st->st_dev!=f->node.device || st->st_ino!=f->node.inode) return -ESTALE;
+    int owned=fcntl(fd,F_DUPFD_CLOEXEC,0);
+    if (owned<0) return -errno;
+    f->backing=owned; f->backing_metadata=*st;
+    f->backing_generation=generation; return 0;
+}
+uint64_t md_proc_file_backing_generation(const struct md_proc_file *f) {
+    return f ? f->backing_generation : 0;
 }
 int md_proc_file_task_access(const struct md_identity *id,const struct stat *st,unsigned mode,int effective) {
     if (mode&~7U) return -EINVAL;
@@ -312,18 +380,35 @@ int md_proc_file_task_access(const struct md_identity *id,const struct stat *st,
     struct md_identity actor=md_identity_access(id,effective);
     return md_file_permissions(st,mode,&actor);
 }
-int md_proc_file_retained_stat(const struct md_proc_file *f,const struct md_identity *identity,struct stat *st) {
+static int retained_stat(const struct md_proc_file *f,const struct md_identity *identity,const struct md_process_access *access,int require_live,struct stat *st) {
     struct md_proc_file_node current={0};
-    int error=identity ? md_proc_file_task_stat(f->node.process,identity,f->kind,&current,st) : -ENOENT;
+    int error=identity ? md_proc_file_task_stat(f->node.process,identity,access,f->kind,&current,st) : -ENOENT;
+    if (f->backing>=0 && identity && (error==-ENOENT || error==-EACCES || error==-EPERM)) {
+        struct md_proc_file_node node;
+        *st=f->backing_metadata;
+        md_proc_file_task_metadata(f->node.process,identity,access,f->kind,&node,st);
+        return 0;
+    }
     if (error && error!=-ENOENT) return error;
     if (!identity || error || current.inode!=f->node.inode || current.device!=f->node.device) {
+        if (require_live) return -ESRCH;
         *st=(struct stat){.st_dev=f->node.device,
-            .st_ino=md_proc_file_directory(f->kind) || md_proc_file_process(f->kind) ? f->node.inode
+            .st_ino=md_proc_file_directory(f->kind) || md_proc_file_native_content(f->kind) ? f->node.inode
                 : (f->node.inode<<2)|((unsigned)f->kind+1)|UINT64_C(0x8000000000000000),
-            .st_mode=md_proc_file_directory(f->kind) ? S_IFDIR|0500 : S_IFREG|(md_proc_file_process(f->kind) ? 0444 : 0644),
+            .st_mode=md_proc_file_directory(f->kind) ? S_IFDIR|0500
+                : S_IFREG|(md_proc_file_process(f->kind) ? md_proc_file_process_mode(f->kind) : 0644),
             .st_nlink=1,.st_blksize=getpagesize()};
     }
     return 0;
+}
+int md_proc_file_retained_stat(const struct md_proc_file *f,struct md_task_registry *tasks,int require_live,struct stat *st) {
+    struct md_task_credentials target;
+    int error=md_task_registry_credentials(tasks,f->node.process,&target);
+    if (error && error!=-ESRCH) return error;
+    int same=!error && (!f->backing_generation || f->backing_generation==target.generation);
+    int result=retained_stat(f,same ? &target.identity : NULL,target.access,require_live,st);
+    if (!error) md_task_credentials_release(&target);
+    return result;
 }
 static void *task_retain(void *context) { return md_proc_file_retain(context); }
 static void task_release(void *context) { md_proc_file_release(context); }
@@ -332,8 +417,9 @@ static int task_stat(void *context,struct stat *st) {
     struct md_proc_file *f=context;
     if (f->placement) *st=f->metadata;
     else {
-        *st=(struct stat){.st_dev=f->node.device,.st_ino=f->node.inode,.st_mode=S_IFREG|0444,.st_nlink=1};
-        if (!md_proc_file_process(f->kind)) st->st_ino=(f->node.inode<<2)|((unsigned)f->kind+1)|UINT64_C(0x8000000000000000);
+        *st=(struct stat){.st_dev=f->node.device,.st_ino=f->node.inode,
+            .st_mode=S_IFREG|(md_proc_file_oom(f->kind) ? 0644 : md_proc_file_process_mode(f->kind)),.st_nlink=1};
+        if (!md_proc_file_native_content(f->kind)) st->st_ino=(f->node.inode<<2)|((unsigned)f->kind+1)|UINT64_C(0x8000000000000000);
     }
     return 0;
 }
@@ -349,6 +435,24 @@ int md_proc_file_descriptor(const struct md_proc_file *f) {
     if (!f) return -EINVAL;
     if (f->control && f->control->descriptor) return f->control->descriptor(f->control_context,f->flags);
     if (md_proc_file_directory(f->kind)) {
+        /* A path-only caller already owns this admitted inode. Reopening its
+         * name can need task-local FD capacity or lose access after dumpability
+         * changes; neither is required to retain the existing path authority. */
+        if ((f->flags&O_PATH) && f->placement && !md_fs_anchor_virtual(f->placement)) {
+            int source=md_fs_anchor_fd(f->placement);
+            struct stat st;
+            if (!fstat(source,&st) && st.st_dev==f->node.device && st.st_ino==f->node.inode) {
+                int fd=fcntl(source,F_DUPFD_CLOEXEC,0);
+                return fd<0 ? -errno : fd;
+            }
+        }
+        if (f->backing>=0) {
+            int flags=fcntl(f->backing,F_GETFL);
+            if (flags<0) return -errno;
+            if ((flags&(O_PATH|O_ACCMODE))!=(f->flags&(O_PATH|O_ACCMODE))) return -EACCES;
+            int fd=fcntl(f->backing,F_DUPFD_CLOEXEC,0);
+            return fd<0 ? -errno : fd;
+        }
         char path[64]; snprintf(path,sizeof(path),"/proc/%d%s",f->node.process,
             f->kind==MD_PROC_FILE_NS_DIRECTORY ? "/ns" : "");
         int fd=open(path,O_CLOEXEC|(f->flags&~(O_CREAT|O_EXCL|O_TRUNC|O_NOATIME)));
@@ -389,6 +493,16 @@ static pid_t process_number(struct md_pid_namespace *view, long native) {
     md_pid_identity_release(id); return number;
 }
 static void process_status_line(struct md_proc_file *f, FILE *out, const char *line) {
+    if (f->signals.known || f->signals.blocked_known) {
+        static const char *const names[]={"SigBlk:","SigPnd:","SigCgt:","SigIgn:","ShdPnd:"};
+        const uint64_t values[]={f->signals.blocked,f->signals.pending,f->signals.caught,f->signals.ignored,f->signals.shared_pending};
+        for (unsigned i=0;i<5;++i) if (!strncmp(line,names[i],7)) {
+            uint64_t native=strtoull(line+7,NULL,16);
+            uint64_t known=f->signals.known|(i==0 ? f->signals.blocked_known : 0);
+            uint64_t value=i==1 || i==4 ? native|values[i] : (native&~known)|(values[i]&known);
+            fprintf(out,"%s\t%016llx\n",names[i],(unsigned long long)value); return;
+        }
+    }
     if (f->process_state) {
         if (!strncmp(line,"TracerPid:",10)) {
             fprintf(out,"TracerPid:\t%d\n",process_number(f->pid_view,f->tracer)); return;
@@ -445,21 +559,31 @@ static void process_status_line(struct md_proc_file *f, FILE *out, const char *l
     fputs(line,out);
 }
 static int process_content(struct md_proc_file *f) {
+    if (f->process_state && !f->process_inspectable) {
+        if (f->kind==MD_PROC_FILE_IO) return -EACCES;
+        if (f->kind==MD_PROC_FILE_SYSCALL || f->kind==MD_PROC_FILE_STACK) return -EPERM;
+        if (f->kind==MD_PROC_FILE_WCHAN) {
+            f->content=strdup("0");
+            if (!f->content) return -ENOMEM;
+            f->content_size=1; return 0;
+        }
+    }
     char path[64];
     snprintf(path,sizeof(path),"/proc/%d/%s",f->node.process,md_proc_file_process_name(f->kind));
-    int fd=open(path,O_RDONLY|O_CLOEXEC);
+    int fd=f->backing>=0 ? f->backing : open(path,O_RDONLY|O_CLOEXEC);
     if (fd<0) return -errno;
     struct stat st;
-    int error=fstat(fd,&st) ? -errno : st.st_dev!=f->node.device || st.st_ino!=f->node.inode ? -ESRCH : 0;
+    int error=0;
+    if (f->backing<0) error=fstat(fd,&st) ? -errno : st.st_dev!=f->node.device || st.st_ino!=f->node.inode ? -ESRCH : 0;
     char source[16384]; size_t size=0;
     while (!error) {
-        ssize_t n=read(fd,source+size,sizeof(source)-1-size);
+        ssize_t n=pread(fd,source+size,sizeof(source)-1-size,(off_t)size);
         if (n<0) { if (errno==EINTR) continue; error=-errno; break; }
         if (!n) break;
         size+=(size_t)n;
         if (size==sizeof(source)-1) error=-EOVERFLOW;
     }
-    close(fd);
+    if (f->backing<0) close(fd);
     if (error) return error;
     source[size]=0;
     char *data=NULL; size_t length=0;
@@ -503,6 +627,8 @@ static int process_content(struct md_proc_file *f) {
                 process_status_line(f,out,value);
             }
         }
+    } else if (f->kind!=MD_PROC_FILE_STAT) {
+        fwrite(source,1,size,out);
     } else {
         /* comm may contain spaces and parentheses. Only the final ')' bounds
          * it; the remaining fields have the kernel's stable numeric grammar. */
@@ -514,6 +640,9 @@ static int process_content(struct md_proc_file *f) {
             for (char *value=strtok_r(end+2," \n",&save);value;value=strtok_r(NULL," \n",&save),++field) {
                 if (field==4 || field==5 || field==6 || field==8)
                     fprintf(out," %d",process_number(f->pid_view,strtol(value,NULL,10)));
+                else if (f->process_state && !f->process_inspectable
+                        && ((field>=26 && field<=30) || field==35 || (field>=45 && field<=52)))
+                    fprintf(out," %u",(field==26 || field==27) && strtoull(value,NULL,10) ? 1 : 0);
                 else fprintf(out," %s",value);
             }
             fputc('\n',out);
@@ -654,34 +783,56 @@ static int directory_append(struct md_proc_file *f,const char *name,unsigned cha
         name,length,inode,(int64_t)(f->directory_size+record),type);
     f->directory_size+=record; return 0;
 }
+static const char *const process_maps[]={"uid_map","gid_map","setgroups"};
+static int process_directory_chunk(struct md_proc_file *f,const char *data,size_t size,uint64_t *status_inode) {
+    for (size_t at=0;at<size;) {
+        struct md_directory_entry entry;
+        if (!md_directory_record_read(data+at,size-at,&entry)) return -EIO;
+        const char *name=data+at+offsetof(struct md_directory_entry,name);
+        if (!strcmp(name,"status")) *status_inode=entry.inode;
+        int mapped=0;
+        for (unsigned i=0;i<3;++i) mapped|=!strcmp(name,process_maps[i]);
+        int error=mapped ? 0 : directory_append(f,name,entry.type,entry.inode);
+        if (error) return error;
+        at+=entry.size;
+    }
+    return 0;
+}
+static int process_directory_end(struct md_proc_file *f,uint64_t status_inode,int error) {
+    if (!error && !status_inode) error=-ENOENT;
+    for (unsigned i=0; !error && i<3; ++i) error=directory_append(f,process_maps[i],DT_REG,
+        (status_inode<<2)|(i+1)|UINT64_C(0x8000000000000000));
+    if (error) { free(f->directory); f->directory=NULL; f->directory_size=f->directory_capacity=0; }
+    return error;
+}
+int md_proc_file_directory_snapshot(struct md_proc_file *f,const void *bytes,size_t size) {
+    if (!f || f->kind!=MD_PROC_FILE_PROCESS_DIRECTORY || f->directory || !bytes || size>65536) return -EINVAL;
+    uint64_t status_inode=0;
+    int error=process_directory_chunk(f,bytes,size,&status_inode);
+    return process_directory_end(f,status_inode,error);
+}
 static int process_directory(struct md_proc_file *f,const char *path) {
     if (f->directory) return 0;
-    int fd=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    int fd=f->backing>=0 ? fcntl(f->backing,F_DUPFD_CLOEXEC,0) : open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);
     if (fd<0) return -errno;
     struct stat st;
     int r=fstat(fd,&st) ? -errno : st.st_dev!=f->node.device || st.st_ino!=f->node.inode ? -ENOENT : 0;
-    static const char *const names[]={"uid_map","gid_map","setgroups"};
+    off_t saved=0;
+    if (!r && f->backing>=0) {
+        saved=lseek(fd,0,SEEK_CUR);
+        if (saved<0 || lseek(fd,0,SEEK_SET)<0) r=-errno;
+    }
+    uint64_t status_inode=0;
     char data[4096];
     while (!r) {
         ssize_t size=syscall(SYS_getdents64,fd,data,sizeof(data));
         if (size<0) { r=-errno; break; }
         if (!size) break;
-        for (size_t at=0; !r && at<(size_t)size;) {
-            struct md_directory_entry entry;
-            if (!md_directory_record_read(data+at,(size_t)size-at,&entry)) { r=-EIO; break; }
-            const char *name=data+at+offsetof(struct md_directory_entry,name);
-            int mapped=0;
-            for (unsigned i=0;i<3;++i) mapped|=!strcmp(name,names[i]);
-            if (!mapped) r=directory_append(f,name,entry.type,entry.inode);
-            at+=entry.size;
-        }
+        r=process_directory_chunk(f,data,(size_t)size,&status_inode);
     }
-    if (!r && fstatat(fd,"status",&st,0)) r=-errno;
-    for (unsigned i=0; !r && i<3; ++i) r=directory_append(f,names[i],DT_REG,
-        ((uint64_t)st.st_ino<<2)|(i+1)|UINT64_C(0x8000000000000000));
+    if (f->backing>=0 && saved>=0 && lseek(fd,saved,SEEK_SET)<0 && !r) r=-errno;
     close(fd);
-    if (r) { free(f->directory); f->directory=NULL; f->directory_size=f->directory_capacity=0; }
-    return r;
+    return process_directory_end(f,status_inode,r);
 }
 long md_proc_file_namespace_entries(uint64_t inode,int64_t *position,void *bytes,size_t capacity) {
     static const char *const names[]={".","..","user","mnt","uts","ipc","pid","pid_for_children","net","cgroup"};
@@ -700,7 +851,8 @@ static long directory_entries(struct md_proc_file_io *io, void *bytes, size_t ca
     char path[64]; snprintf(path,sizeof(path),"/proc/%d%s",f->node.process,
         f->kind==MD_PROC_FILE_NS_DIRECTORY ? "/ns" : "");
     struct stat st;
-    if (stat(path,&st)) return -errno;
+    int error=f->backing>=0 ? md_proc_file_retained_stat(f,io->tasks,1,&st) : stat(path,&st) ? -errno : 0;
+    if (error) return error;
     if (st.st_dev!=f->node.device || st.st_ino!=f->node.inode) return -ENOENT;
     if (capacity>io->length) capacity=io->length;
     size_t size=0;
@@ -723,6 +875,29 @@ static long directory_entries(struct md_proc_file_io *io, void *bytes, size_t ca
         return (long)size;
     }
     return md_proc_file_namespace_entries(f->node.inode,&io->next_position,bytes,capacity);
+}
+static long oom_io(struct md_proc_file_io *io,const struct md_identity *actor,void *bytes,size_t capacity) {
+    struct md_proc_file *f=io->file;
+    int writing=io->operation==MD_PROC_FILE_WRITE;
+    if (!io->oom) return -ESRCH;
+    if (writing && (md_fs_anchor_policy(f->placement)&MD_MOUNT_READONLY)) return -EROFS;
+    size_t length=io->length<capacity ? io->length : capacity;
+    if (length && !bytes) return -EFAULT;
+    char path[64];
+    snprintf(path,sizeof(path),"/proc/%d/%s",f->node.process,md_proc_file_process_name(f->kind));
+    struct stat st;
+    if (stat(path,&st)) return -errno;
+    if (st.st_dev!=f->node.device || st.st_ino!=f->node.inode) return -ESRCH;
+    int update=writing && !io->oom->virtualized ? open(path,O_WRONLY|O_CLOEXEC) : -1;
+    int error=writing && !io->oom->virtualized && update<0 ? -errno : 0;
+    if (error && error!=-EPERM && error!=-EACCES) return error;
+    snprintf(path,sizeof(path),"/proc/%d/oom_score_adj",f->node.process);
+    int value=open(path,O_RDONLY|O_CLOEXEC);
+    long result=value<0 ? -errno : md_process_oom_io(io->oom,actor,f->kind==MD_PROC_FILE_OOM_ADJ,
+        writing,value,update,error,bytes,length,io->offset);
+    if (value>=0) close(value);
+    if (update>=0) close(update);
+    return result;
 }
 long md_proc_file_io_execute(struct md_proc_file_io *io, const struct md_identity *writer, struct md_uts_namespace *uts,
         void *bytes, size_t capacity, size_t page_size) {
@@ -790,6 +965,7 @@ long md_proc_file_io_execute(struct md_proc_file_io *io, const struct md_identit
     }
     if (!io->positional) io->offset=f->position;
     if (io->offset<0) return io->result=-EINVAL;
+    if (md_proc_file_oom(f->kind)) return io->result=oom_io(io,writer,bytes,capacity);
     if (f->control && f->control->io) {
         size_t length=io->length<capacity ? io->length : capacity;
         if (length>MD_CONTROL_IO_MAX) length=MD_CONTROL_IO_MAX;

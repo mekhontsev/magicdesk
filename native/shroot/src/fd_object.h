@@ -7,6 +7,7 @@
  * It owns provenance/lifetime, not a duplicate of the application's data OFD. */
 struct md_fd_object;
 struct md_fd_weak;
+struct md_task_readiness_epoch { uint64_t domain, pending, configuration; };
 /* Last-reference notification; ordinary authorities have no weak state. */
 void md_fd_weak_retire(struct md_fd_weak *);
 struct md_fd_object_type {
@@ -29,6 +30,13 @@ struct md_fd_object_type {
      * open description may retain an ordinary filesystem anchor. */
     struct md_fs_anchor *(*origin)(struct md_fd_object *);
     struct md_control_file (*readiness)(struct md_fd_object *);
+    /* Non-consuming, task-affine supplement to native readiness. No owner is
+     * captured at open/dup time, and the native descriptor remains pollable. */
+    long (*task_poll)(struct md_fd_object *,const struct md_control_actor *);
+    /* Epoll edge identity for a task-affine supplement. Domain identifies the
+     * registration's wait queue, not the FD opener; pending advances only on
+     * a new event and configuration on changes that re-evaluate readiness. */
+    struct md_task_readiness_epoch (*task_poll_epoch)(struct md_fd_object *,const struct md_control_actor *);
     /* A confirmed descriptor close, not a reference drop or failed publication.
      * The table turn has ended. A pending result owns its independent lifetime. */
     long (*close)(struct md_fd_object *,const struct md_control_actor *,struct md_control_pending **);
@@ -40,6 +48,9 @@ struct md_fd_object {
 };
 static inline struct md_control_file md_fd_object_readiness(struct md_fd_object *o) {
     return o && o->type->readiness ? o->type->readiness(o) : (struct md_control_file){0};
+}
+static inline int md_fd_object_has_readiness(const struct md_fd_object *o) {
+    return o && (o->type->readiness || o->type->task_poll);
 }
 static inline unsigned md_fd_object_selectors(const struct md_fd_object *o) {
     return o ? o->type->selectors|(o->type->selector_mask ? o->type->selector_mask(o) : 0) : 0;

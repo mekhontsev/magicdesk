@@ -37,7 +37,7 @@ try:
     state.update(environment=info, runner=suite.runner, stock=args.stock)
     state['homeLeaseBefore'] = client.call('get_state')['homeLease']
     for name in ('weston-child-guard.c', 'weston-popup-probe.c'):
-        suite.transport.upload(client, Path(__file__).with_name('fixtures') / name, suite.base + '/' + name)
+        suite.upload(Path(__file__).with_name('fixtures') / name, suite.base + '/' + name)
     prefix = [suite.runner, '--store', info['store'], '--user', '0:0']
     suite.command([*prefix, '--', '/bin/mkdir', '-p', target])
     prefix += ['--bind', suite.base, target]
@@ -74,10 +74,10 @@ exec /usr/bin/weston --backend=wayland --renderer=gl --width=960 --height=640 --
     }.items():
         local = out / name
         local.write_text(text)
-        suite.transport.upload(client, local, suite.base + '/' + name)
-    suite.command(['chmod', '755', suite.base + '/client.sh'])
+        suite.upload(local, suite.base + '/' + name)
+    suite.chmod('755', suite.base + '/client.sh')
     suite.command(['chmod', '-R', 'a+rX', suite.base])
-    suite.command(['chmod', '777', suite.base])
+    suite.chmod('777', suite.base)
     classes = out / 'classes'
     compile_recipe(classes)
     recipe = subprocess.check_output(['java', '-cp', str(classes),
@@ -86,8 +86,8 @@ exec /usr/bin/weston --backend=wayland --renderer=gl --width=960 --height=640 --
     wrapper = out / 'shroot'
     wrapper.write_text('#!/system/bin/sh\nexec ' + shlex.join([suite.runner,
         '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'], '--bind', suite.base, target]) + ' "$@"\n')
-    suite.transport.upload(client, wrapper, suite.base + '/shroot')
-    suite.command(['chmod', '755', suite.base + '/shroot'])
+    suite.upload(wrapper, suite.base + '/shroot')
+    suite.chmod('755', suite.base + '/shroot')
     state['display'] = client.call('create_display', dict(type='virtual', width=960, height=640, densityDpi=160))
     assert not client.call('get_state')['automationAwake'].get('held')
     state['awakeLease'] = client.call('device.keep_awake', dict(displayId=state['display']['id'], durationMillis=180000))['leaseId']
@@ -99,7 +99,7 @@ exec /usr/bin/weston --backend=wayland --renderer=gl --width=960 --height=640 --
     launch.write_text('#!/system/bin/sh\nenv PATH=' + shlex.quote(suite.base + ':/system/bin') +
         ' /system/bin/sh -c ' + shlex.quote(recipe) + ' >' + shlex.quote(suite.base + '/desktop.log') + ' 2>&1\n'
         'status=$?\nprintf "%s\\n" "$status" > ' + shlex.quote(suite.base + '/exit-status') + '\nexit "$status"\n')
-    suite.transport.upload(client, launch, suite.base + '/launch.sh')
+    suite.upload(launch, suite.base + '/launch.sh')
     client.call('graphics.execute', dict(sessionId=state['sessionId'], command=shlex.join(['/system/bin/sh', suite.base + '/launch.sh'])))
     deadline = time.monotonic() + 45
     def exists(name):
@@ -142,7 +142,7 @@ finally:
             stop_owned_resources(client, shell, state)
         for name in ('desktop.log', 'client.log'):
             if shell('test ! -f ' + shlex.quote(suite.base + '/' + name) + ' || printf present'):
-                suite.transport.download(client, suite.base + '/' + name, out / name, overwrite=True)
+                suite.download(suite.base + '/' + name, out / name, overwrite=True)
         suite.command(['rm', '-rf', suite.base])
         if 'environment' in state:
             suite.command([suite.runner, '--store', info['store'], '--user', '0:0', '--', '/bin/rmdir', target])

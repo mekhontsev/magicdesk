@@ -1,9 +1,7 @@
 """Host-kernel capability profiles shared by native and distribution runners."""
 import json
 import os
-from pathlib import Path
 import shlex
-import tempfile
 
 
 class KernelProfile:
@@ -16,7 +14,10 @@ class KernelProfile:
         if self.name not in self.choices:
             raise ValueError('Unknown kernel profile: ' + self.name)
         self.options = [] if self.name == 'native' else ['--env', self.variable + '=' + self.name]
-        self.environment = [] if self.name == 'native' else ['env', self.variable + '=' + self.name]
+        # Android APK paths contain '='. env would consume the executable as
+        # another assignment; pass it as a positional shell argument instead.
+        self.environment = [] if self.name == 'native' else [
+            'sh', '-c', shlex.join(['export', self.variable + '=' + self.name]) + '\nexec "$@"', 'kernel-profile']
         self.evidence = {'profile': self.name, 'scope': 'host', 'launches': []}
 
     @classmethod
@@ -61,18 +62,12 @@ class KernelProfile:
         self.observe(output, required=True)
         self.evidence['owner'] = {'session': state['id'], 'launch': owned[0]}
 
-    def stage_launcher(self, upload, command, runner):
-        if not self.options:
-            return runner
-        # A real executable path also works for C fixtures and graphics recipes
-        # which receive the runner as a single argv element, not a shell command.
-        target = runner + '.kernel-profile'
-        with tempfile.TemporaryDirectory(prefix='shroot-kernel-profile-') as directory:
-            script = Path(directory) / 'run'
-            script.write_text('#!/system/bin/sh\nexec ' + shlex.join([runner, *self.options]) + ' "$@"\n')
-            upload(script, target)
-        command(['chmod', '700', target])
-        return target
+    def shell(self, command):
+        # Fixture runners retain this host-only selector for their supervisor,
+        # which consumes it before guest entry. No executable data-file wrapper.
+        prefix = (shlex.join(['export', self.variable + '=' + self.name]) if self.options
+                  else 'unset ' + self.variable)
+        return prefix + '\n' + command
 
     @classmethod
     def output(cls, output):

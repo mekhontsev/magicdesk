@@ -32,8 +32,8 @@ def main():
                         nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'))
     try:
         fixture = Path(__file__).with_name('fixtures') / 'buildkit-build.py'
-        suite.transport.upload(suite.client, fixture, state['directory'] + '/buildkit-build.py', overwrite=True)
-        suite.command(['chmod', '644', state['directory'] + '/buildkit-build.py'])
+        suite.upload(fixture, state['directory'] + '/buildkit-build.py', overwrite=True)
+        suite.chmod('644', state['directory'] + '/buildkit-build.py')
         result_name = 'buildkit-' + tag + '.json'
         command = shlex.join(['python3', state['target'] + '/buildkit-build.py',
                              state['target'] + '/' + result_name])
@@ -45,8 +45,8 @@ def main():
         response = json.loads(urllib.request.urlopen(request, timeout=900).read())
         log = args.session.parent / ('buildkit-' + tag + '.log')
         result = args.session.parent / result_name
-        suite.transport.download(suite.client, state['directory'] + '/' + tag + '.log', log)
-        suite.transport.download(suite.client, state['directory'] + '/' + result_name, result)
+        suite.download(state['directory'] + '/' + tag + '.log', log)
+        suite.download(state['directory'] + '/' + result_name, result)
         suite.report.update(log=str(log), probe=json.loads(result.read_text()))
         assert response['exitCode'] == 0 and suite.report['probe']['passed'], log.read_text()[-6000:]
         suite.report['passed'] = True

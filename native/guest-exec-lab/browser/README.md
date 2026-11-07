@@ -6,7 +6,8 @@ Use a prepared disposable Debian or Alpine store with matching browsers, librari
 and helper fixtures, never a personal browser profile.
 
 The runtime supports application filters but is **not a complete security
-sandbox**. Real executor credentials remain UID 2000 in these tests. The
+sandbox**. `--executor shell|app` selects the real Android identity without
+changing guest assertions; the store must belong to that executor. The
 [interception contract](../../shroot/interception.md) defines ownership,
 logical image admission and remaining isolation limits.
 
@@ -21,6 +22,10 @@ sh native/guest-exec-lab/browser/build.sh build/guest-browser
 python native/guest-exec-lab/browser/run.py --build build/guest-browser --store DEVICE_GUEST_STORE --expect-artifact /tmp/NEW_FIREFOX_PROFILE/page.png -- /bin/sh -ec 'mkdir /tmp/NEW_FIREFOX_PROFILE; exec /usr/bin/firefox-esr --headless --no-remote --profile /tmp/NEW_FIREFOX_PROFILE --window-size 800,600 --screenshot /tmp/NEW_FIREFOX_PROFILE/page.png "data:text/html,<h1>MagicDesk guest browser</h1>"'
 python native/guest-exec-lab/browser/test_browser.py --build build/guest-browser --store DEVICE_GUEST_STORE
 ```
+
+Use `--software` for the same DOM, screenshot and sandbox checks without Turnip
+or a render node. It selects CPU rendering, not `--no-sandbox`. The app executor
+uses the fixture-enabled APK and verifies its helper hashes against `--build`.
 
 The full-browser fixture defaults to Debian's packaged helper at
 `/usr/lib/chromium/chrome-sandbox`; `--helper` selects another guest path. It must
@@ -99,8 +104,9 @@ supply these explicitly; they are not downloaded by the runtime.
 
 ## Coverage And Limits
 
-Device coverage is NX809J, Android 16, Linux 6.12.23, 4 KiB pages, actual
-UID 2000 in the shell SELinux domain. Firefox's headless screenshot and
+Device coverage is NX809J, Android 16, Linux 6.12.23, 4 KiB pages. The shell
+executor runs as UID 2000; app-UID software Chromium coverage uses the real
+untrusted application domain. Firefox's headless screenshot and
 Chromium's three-profile JavaScript/PNG workflows establish execution, not
 arbitrary browsing, network/GPU compatibility or confinement.
 

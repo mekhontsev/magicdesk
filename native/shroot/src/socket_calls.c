@@ -108,6 +108,7 @@ static int message_remaining(uintptr_t pointer, unsigned sent) {
 }
 static long send_batch(const struct md_fs *fs, const char *exe, const unsigned long *a) {
     unsigned count = (unsigned)a[2];
+    if (!count) return invoke(SYS_sendmmsg,a);
     if (count > 1024) count = 1024; // Linux caps the vector at UIO_MAXIOV.
     for (unsigned i = 0; i < count; ++i) {
         uintptr_t offset = i * sizeof(struct mmsghdr), pointer = a[1] + offset;
@@ -129,6 +130,14 @@ static long send_batch(const struct md_fs *fs, const char *exe, const unsigned l
     return count;
 }
 long md_socket_address_call(const struct md_fs *fs, const char *exe, long nr, const unsigned long *a) {
+    unsigned long accepted[6];
+    if (nr==SYS_accept) {
+        /* Android permits accept4, but may reject the equivalent legacy call.
+         * Admission has already evaluated the application's original syscall. */
+        accepted[0]=a[0]; accepted[1]=a[1]; accepted[2]=a[2];
+        accepted[3]=accepted[4]=accepted[5]=0;
+        a=accepted; nr=SYS_accept4;
+    }
     if (md_socket_payload_native(nr,a[4])) return invoke(nr,a);
     /* recvmsg's ancillary adapter owns the complete receive/publication order,
      * including names. Its native fallback must not add a getsockopt syscall. */

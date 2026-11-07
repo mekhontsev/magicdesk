@@ -22,7 +22,7 @@ set(src ${CMAKE_CURRENT_SOURCE_DIR}/src)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/magicdesk-x11/lorie/src/main/cpp/lorie)
 target_sources(guest-sqlite PRIVATE ${src}/storage_database.c)
 set_source_files_properties(${src}/storage_database.c PROPERTIES COMPILE_OPTIONS "-std=c17;-Wall;-Wextra;-Werror")
-set(identity ${src}/guest_identity.c ${src}/user_namespace.c ${src}/namespace_identity.c ${src}/pid_namespace.c ${src}/process_limits.c ${src}/task_status.c)
+set(identity ${src}/guest_identity.c ${src}/process_access.c ${src}/user_namespace.c ${src}/namespace_identity.c ${src}/pid_namespace.c ${src}/process_limits.c ${src}/process_oom.c ${src}/task_status.c)
 set(raw ${src}/raw.c ${src}/memory.c ${src}/raw.S)
 set(wire ${src}/fs_wire.c ${src}/event_wait.c)
 add_library(guest-raw STATIC ${raw})
@@ -48,7 +48,7 @@ list(APPEND origins ${src}/native_mounts.c ${src}/devpts_view.c ${src}/cgroup.c 
     ${src}/ipc_namespace.c ${src}/mqueue_view.c ${src}/landlock_policy.c ${src}/landlock_file.c
     ${src}/mount_stream.c ${src}/mount_pin.c ${src}/mount_propagation.c ${src}/temporary_directory.c ${src}/private_tree.c
     ${src}/provider_tree.c ${src}/host_fs_view.c ${src}/device_events.c ${src}/identity_snapshot.c ${src}/proc_sysctl.c ${src}/user_sysctl.c ${src}/proc_static.c ${src}/kernel_policy.c ${src}/uts_namespace.c ${src}/control_event.c)
-list(APPEND origins ${fifo_descriptions} ${src}/fd_native_pin.c ${src}/network_ethernet.c ${src}/network_raw6.c ${src}/network_raw4.c ${src}/network_nexthop.c ${src}/network_autoconf.c ${src}/network_multicast.c ${src}/network_link.c ${src}/network_tc.c)
+list(APPEND origins ${fifo_descriptions} ${src}/descriptor_inode.c ${src}/fd_native_pin.c ${src}/network_ethernet.c ${src}/network_raw6.c ${src}/network_raw4.c ${src}/network_nexthop.c ${src}/network_autoconf.c ${src}/network_multicast.c ${src}/network_link.c ${src}/network_tc.c)
 list(APPEND origins ${src}/proc_file.c ${src}/proc_namespace.c ${src}/procfs_policy.c)
 list(APPEND origins ${src}/device_tree.c ${src}/kmsg_device.c ${src}/fuse_device.c ${src}/fuse_transport.c ${src}/fuse_session.c)
 list(APPEND origins ${src}/render_device.c ${src}/render_sysfs.c ${src}/sysfs_uevent.c)
@@ -62,19 +62,19 @@ set(mounts ${src}/fs_mounts.c ${src}/fs_mount_path.c ${src}/fs_mount_operations.
 list(APPEND mounts ${src}/binfmt.c ${src}/binfmt_rule.c ${src}/proc_paths.c ${src}/procfs_view.c ${src}/proc_fdinfo.c ${src}/fs_proc.c ${src}/fs_cgroup.c ${src}/fs_bpf.c ${src}/fs_sysfs.c ${src}/fs_mqueue.c ${src}/fs_mount_file.c ${src}/mount_source.c ${src}/fs_context.c
     ${src}/fs_landlock.c ${src}/fs_provider.c ${src}/fs_control.c ${src}/fs_mount_propagation.c)
 set(inodes ${src}/inode_store.c ${src}/inode_db.c ${src}/inode_schema.c ${src}/inode_super.c ${src}/inode_cache.c ${src}/inode_events.c ${src}/inode_watch.c ${src}/watch_queue.c ${src}/watch_source.c ${src}/inode_path.c ${src}/inode_path_cache.c
-    ${src}/inode_directory.c ${src}/inode_import.c ${src}/inode_socket.c ${src}/inode_backing.c ${src}/inode_snapshot.c ${src}/inode_view.c ${src}/inode_maintenance.c ${src}/inode_fifo.c ${src}/inode_channel.c ${src}/file_open.c
+    ${src}/inode_directory.c ${src}/inode_import.c ${src}/inode_socket.c ${src}/inode_backing.c ${src}/storage_paths.c ${src}/inode_snapshot.c ${src}/inode_view.c ${src}/inode_maintenance.c ${src}/inode_fifo.c ${src}/inode_channel.c ${src}/file_open.c
     ${identity} ${src}/task_registry.c ${src}/task_status.c ${src}/guest_domain.c ${src}/mount_namespace.c ${origins} ${src}/inode_metadata.c ${src}/inode_xattr.c ${src}/inode_capability.c ${src}/inode_acl.c ${src}/posix_acl.c
     ${src}/inode_overlay_policy.c ${src}/inode_landlock.c ${src}/inode_transient.c ${src}/inode_overlay.c ${src}/inode_overlay_write.c
     ${src}/inode_overlay_native.c)
 list(APPEND inodes ${src}/inode_reserve.c ${src}/inode_durability.c ${src}/inode_publication.c ${src}/inode_native.c ${src}/inode_leaf.c)
-set(namespace_engine ${src}/fs_engine.c ${src}/fs_native.c ${src}/fs_xattr.c ${src}/fs_operation.c ${src}/task_status.c ${src}/ipc_credentials.c ${src}/ipc_peer.c)
+set(namespace_engine ${src}/fs_engine.c ${src}/fs_native.c ${src}/host_open.c ${src}/fs_xattr.c ${src}/fs_operation.c ${src}/task_status.c ${src}/ipc_credentials.c ${src}/ipc_peer.c)
 list(APPEND namespace_engine ${src}/fs_devices.c ${src}/full_device.c ${src}/fs_continuation.c ${src}/readonly_file.c ${src}/fd_filesystem.c)
 list(APPEND namespace_engine ${src}/fs_render.c)
 list(APPEND namespace_engine ${src}/fuse_view.c ${src}/fuse_file.c ${src}/fuse_xattr.c ${src}/fuse_image.c ${src}/fuse_mapping.c ${src}/fuse_snapshot.c)
 list(APPEND namespace_engine ${src}/image_io.c ${src}/image_publish.c)
 list(APPEND namespace_engine ${src}/shm_bridge.c ${src}/ipc_namespace_memory.c ${src}/sysv_shm.c ${src}/ipc_storage.c ${src}/ipc_database.c ${src}/ipc_permissions.c)
 set(ipc ${src}/sysv_ipc.c ${src}/sysv_ipc_db.c ${src}/sysv_sem.c ${src}/sysv_msg.c ${src}/sysv_ipc_transport.c ${src}/ipc_storage.c ${src}/ipc_database.c ${src}/ipc_permissions.c)
-set(capsules ${src}/ipc_capsule.c ${src}/fd_bundle.c ${src}/ipc_received.c ${src}/descriptor_inode.c ${src}/descriptor_parcel.c)
+set(capsules ${src}/ipc_capsule.c ${src}/fd_bundle.c ${src}/ipc_received.c ${src}/descriptor_parcel.c)
 
 function(guest_executable name)
     add_executable(${name} ${ARGN})
@@ -100,6 +100,7 @@ guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c ${src}/
     ${src}/namespace.c ${src}/namespace_proc.c ${src}/namespace_mount.c ${src}/namespace_mount_fd.c ${src}/namespace_bpf.c ${src}/namespace_landlock.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_identity.c ${src}/socket_ancillary.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/task_receive.c ${src}/fs_client.c ${src}/fs_buffer_client.c ${src}/adapter_buffer.c ${src}/file_open.c ${wire} ${src}/raw.c ${src}/raw.S)
 target_sources(bootstrap PRIVATE ${src}/descriptor_calls.c ${src}/epoll_calls.c ${src}/descriptor_capture.c ${src}/freestanding_memory.c)
+target_sources(bootstrap PRIVATE ${src}/host_open.c)
 target_sources(bootstrap PRIVATE ${src}/pid_filter_program.c)
 guest_freestanding(bootstrap)
 target_sources(bootstrap PRIVATE ${src}/arguments.c ${src}/guest_copy.S ${src}/cooperative_entry.c ${src}/cooperative_native.S)
@@ -124,6 +125,9 @@ target_sources(supervisor PRIVATE ${src}/signal_delivery.c ${src}/svc_machine.c 
 target_sources(supervisor PRIVATE ${src}/control_epoll.c ${src}/fd_admission.c ${src}/task_call.c ${src}/task_filter.c ${src}/task_mapping.c ${src}/fd_filter_program.c ${src}/epoll_wait.c)
 target_sources(bootstrap PRIVATE ${src}/poll_calls.c)
 target_sources(supervisor PRIVATE ${src}/poll_wait.c)
+target_sources(supervisor PRIVATE ${src}/task_copy.c ${src}/seccomp_capture.c ${src}/seccomp_policy.c ${src}/seccomp_listener.c ${src}/seccomp_notify.c)
+target_sources(supervisor PRIVATE ${src}/task_signal_control.c ${src}/signal_actions.c ${src}/signal_view.c ${src}/signal_pending.c ${src}/signal_fd.c)
+target_sources(supervisor PRIVATE ${src}/pid_filter_program.c)
 target_sources(supervisor PRIVATE ${src}/input_session.c ${src}/input_devices.c ${src}/input_uinput.c)
 target_sources(supervisor PRIVATE ${src}/network_resolver.c)
 target_link_libraries(supervisor PRIVATE guest-sqlite guest-sha256 m)
@@ -140,7 +144,7 @@ target_link_libraries(service PRIVATE guest-sqlite guest-sha256 m)
 
 include(image-dependencies.cmake)
 guest_executable(image ${src}/image_main.c ${src}/image_io.c ${src}/image_json.c ${src}/launch_registry.c ${src}/image_launches.c ${src}/image_applications.c
-    ${src}/image_oci.c ${src}/image_layer.c ${src}/image_pool.c ${src}/image_backup.c ${src}/image_maintenance.c
+    ${src}/image_oci.c ${src}/image_layer.c ${src}/image_pool.c ${src}/image_backup.c ${src}/image_maintenance.c ${src}/image_relocate.c
     ${src}/image_acl.c ${src}/image_publish.c ${src}/image_launch.c ${src}/image_prepare.c ${src}/image_export.c ${src}/guest_accounts.c ${src}/socket_routes.c ${inodes}
     ${namespace_engine} ${mounts} ${src}/image_catalogue.c ${src}/elf_admission.c ${identity} ${src}/proc_paths.c
     ${src}/elf.c ${src}/fs_client.c ${wire} ${raw})
@@ -151,16 +155,56 @@ target_link_libraries(image PRIVATE guest-sqlite guest-sha256 archive_static m)
 
 install(TARGETS bootstrap supervisor run service image RUNTIME DESTINATION lib)
 
+add_library(guest-host-raw STATIC ${src}/host_policy.c)
+add_library(guest-host-libc STATIC ${src}/host_policy.c)
+target_compile_definitions(guest-host-libc PRIVATE MD_WRAP_LIBC)
+foreach(adapter guest-host-raw guest-host-libc)
+    target_compile_options(${adapter} PRIVATE -O2 -Wall -Wextra -Werror -fno-pie -fno-builtin)
+endforeach()
+function(guest_host_policy executable)
+    target_link_options(${executable} PRIVATE -Wl,--wrap=md_raw,--wrap=syscall)
+    target_link_libraries(${executable} PRIVATE guest-host-libc guest-host-raw)
+endfunction()
+foreach(executable bootstrap supervisor run service image)
+    guest_host_policy(${executable})
+endforeach()
+
 option(MAGICDESK_GUEST_FIXTURES "Build standalone native fixtures" OFF)
 if(MAGICDESK_GUEST_FIXTURES)
+    guest_executable(test_host_policy ../guest-exec-lab/test_host_policy.c)
+    target_link_libraries(test_host_policy PRIVATE guest-host-libc guest-host-raw)
+    target_compile_options(test_host_policy PRIVATE -iquote ${src} -UNDEBUG)
+    guest_executable(guest_policy ../guest-exec-lab/test_guest_policy.c)
+    guest_executable(debugger_guest ../guest-exec-lab/test_debugger_guest.c)
+    target_compile_options(debugger_guest PRIVATE -UNDEBUG)
+    guest_executable(readiness_benchmark ../guest-exec-lab/fixtures/readiness-benchmark.c)
+    target_compile_options(readiness_benchmark PRIVATE -UNDEBUG)
+    guest_executable(seccomp_replay ../guest-exec-lab/test_seccomp_replay.c ${src}/seccomp_policy.c)
+    guest_executable(filter_ownership ../guest-exec-lab/test_filter_ownership.c
+        ${src}/seccomp_policy.c ${src}/seccomp_capture.c ${src}/interception_buffers.c
+        ${src}/interception_memory.c ${src}/resource_order.c)
+    guest_executable(signal_shadow ../guest-exec-lab/test_signal_shadow.c ${src}/seccomp_policy.c ${src}/signal_delivery.c
+        ${src}/seccomp_capture.c ${src}/interception_buffers.c ${src}/interception_memory.c ${src}/resource_order.c
+        ${src}/task_call.c ${src}/task_copy.c ${src}/signal_view.c ${src}/signal_actions.c
+        ${src}/seccomp_reply.c ${src}/guest_debugger.c)
+    foreach(fixture guest_policy seccomp_replay filter_ownership signal_shadow)
+        target_compile_options(${fixture} PRIVATE -iquote ${src} -UNDEBUG)
+    endforeach()
+    guest_executable(test_seccomp_policy ../guest-exec-lab/test_seccomp_policy.c
+        ${src}/seccomp_policy.c ${src}/seccomp_capture.c ${src}/seccomp_reply.c
+        ${src}/signal_view.c ${src}/signal_actions.c ${src}/interception_buffers.c)
+    target_compile_options(test_seccomp_policy PRIVATE -iquote ${src} -UNDEBUG)
     target_sources(supervisor PRIVATE ../guest-exec-lab/kernel_profile.c)
     target_compile_definitions(supervisor PRIVATE MD_KERNEL_TESTING)
+    target_compile_definitions(run PRIVATE MD_KERNEL_TESTING)
     target_include_directories(supervisor PRIVATE ../guest-exec-lab)
     # Exercise the coordinator's private transitions without exporting test APIs.
     get_target_property(supervisor_state_sources supervisor SOURCES)
     list(REMOVE_ITEM supervisor_state_sources ${src}/supervisor.c)
     guest_executable(supervisor_state ../guest-exec-lab/test_supervisor_state.c ${src}/buffer_admission.S ${supervisor_state_sources})
+    target_sources(supervisor_state PRIVATE ../guest-exec-lab/test_seccomp_notify.c)
     target_compile_definitions(supervisor_state PRIVATE MD_NO_START MD_USE_LIBC)
+    guest_host_policy(supervisor_state)
     target_compile_options(supervisor_state PRIVATE -iquote ${src} -UNDEBUG)
     target_link_libraries(supervisor_state PRIVATE guest-sqlite guest-sha256 m)
     target_link_options(supervisor_state PRIVATE -Wl,--wrap=md_fs_buffer_adopt
@@ -170,6 +214,9 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_compile_options(test_svc_direct_signal PRIVATE -iquote ${src} -UNDEBUG $<$<COMPILE_LANGUAGE:C>:-mgeneral-regs-only> -fno-stack-protector)
     guest_executable(test_signal_delivery ../guest-exec-lab/test_signal_delivery.c ${src}/signal_delivery.c)
     target_compile_options(test_signal_delivery PRIVATE -iquote ${src} -UNDEBUG)
+    guest_executable(test_host_open ../guest-exec-lab/test_host_open.c ${src}/host_open.c)
+    target_compile_options(test_host_open PRIVATE -iquote ${src} -UNDEBUG)
+    target_link_options(test_host_open PRIVATE -Wl,--wrap=md_raw)
     guest_executable(test_svc_machine_signal ../guest-exec-lab/test_svc_machine_signal.c ${src}/svc_machine.c ${src}/signal_delivery.c)
     target_compile_options(test_svc_machine_signal PRIVATE -iquote ${src} -UNDEBUG)
     guest_executable(test_signal_checkpoint ../guest-exec-lab/test_signal_checkpoint.c ${src}/task_call.c ${src}/task_checkpoint.c ${src}/task_birth.c ${src}/checkpoint_entry.S ${src}/signal_delivery.c ${src}/guest_copy.S)
@@ -247,6 +294,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     guest_executable(test_pid_namespace ../guest-exec-lab/test_pid_namespace.c ${identity})
     target_compile_options(test_pid_namespace PRIVATE -iquote ${src} -UNDEBUG)
     guest_executable(capabilities ../guest-exec-lab/test_capabilities.c)
+    guest_host_policy(capabilities)
     target_compile_options(capabilities PRIVATE -iquote ${src} -UNDEBUG)
     guest_executable(clone3_guest ../guest-exec-lab/test_clone3_guest.c)
     target_compile_options(clone3_guest PRIVATE -UNDEBUG)
@@ -260,7 +308,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_control_poll.c ../guest-exec-lab/test_epoll_owner.c ../guest-exec-lab/test_fd_admission.c ${src}/control_epoll.c ${src}/fd_admission.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_fd_admission_live.c ${src}/task_call.c ${src}/task_filter.c ${src}/task_quiesce.c ${src}/fd_filter_program.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_task_mapping.c ${src}/task_mapping.c)
-    target_sources(test_task_resources PRIVATE ${src}/descriptor_inode.c ../guest-exec-lab/test_descriptor_inode.c)
+    target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_descriptor_inode.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_model.c ../guest-exec-lab/test_network_route.c ../guest-exec-lab/test_network_endpoint.c ../guest-exec-lab/test_socket_filter.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_ethernet.c ../guest-exec-lab/test_network_tc.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_nft.c)
@@ -314,6 +362,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_compile_options(fd_observation PRIVATE -iquote ${src} -UNDEBUG)
     target_link_libraries(fd_observation PRIVATE guest-sqlite m)
     guest_executable(task_helper_fd ../guest-exec-lab/test_task_helper_fd.c ${src}/task_helper.c ${src}/task_quiesce.c ${src}/task_checkpoint.c ${src}/task_wait.c
+        ${src}/task_call.c
         ${src}/mapping_observation.c ${src}/interception_memory.c ${src}/interception_buffers.c ${src}/proc_paths.c
         ${origins} ${src}/mount_namespace.c ${identity} ${raw})
     target_compile_options(task_helper_fd PRIVATE -iquote ${src} -UNDEBUG)
@@ -449,6 +498,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     guest_executable(service_runtime ../guest-exec-lab/test_service_runtime.c)
     target_compile_options(service_runtime PRIVATE -UNDEBUG)
     guest_executable(ipc_credentials_guest ../guest-exec-lab/test_ipc_credentials_guest.c)
+    target_compile_options(ipc_credentials_guest PRIVATE -UNDEBUG)
     guest_executable(ipc_io_job ../guest-exec-lab/test_ipc_io_job.c ${src}/ipc_io_job.c ${src}/event_wait.c ${raw})
     target_compile_options(ipc_io_job PRIVATE -iquote ${src} -UNDEBUG)
     target_compile_definitions(ipc_io_job PRIVATE MD_NO_START MD_USE_LIBC)
@@ -476,6 +526,17 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_compile_options(benchmark_file_batch PRIVATE -iquote ${src} -UNDEBUG)
     target_link_libraries(benchmark_file_batch PRIVATE guest-sqlite m)
     target_link_options(benchmark_file_batch PRIVATE -Wl,--wrap=fgetxattr -Wl,--wrap=getxattr -Wl,--wrap=fsync)
+    get_property(fixtures DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    list(REMOVE_ITEM fixtures bootstrap supervisor run service image)
+    foreach(fixture IN LISTS fixtures)
+        get_target_property(fixture_sources ${fixture} SOURCES)
+        list(FIND fixture_sources ${src}/inode_store.c owns_engine)
+        if(NOT owns_engine EQUAL -1 OR fixture STREQUAL "supervisor_state")
+            guest_host_policy(${fixture})
+            target_sources(${fixture} PRIVATE ../guest-exec-lab/host_fixture.c)
+            target_compile_options(${fixture} PRIVATE -iquote ${src} -UNDEBUG)
+        endif()
+    endforeach()
 endif()
 
 set_source_files_properties(${src}/svc_payload.c PROPERTIES

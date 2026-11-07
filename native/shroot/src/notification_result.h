@@ -23,6 +23,9 @@ int md_notification_same_call(const struct seccomp_data *,const struct seccomp_d
 /* A stopped-task admission owner may replace an expired token for the exact
  * restarted call. No operation, descriptor delivery or output is repeated. */
 int md_notification_rebind(int,struct seccomp_notif *,const struct seccomp_notif *);
+/* Retire an internal admission without replacing a published result. Returns
+ * 1 if the reply won, 0 if already replied/cancelled, or a negative error. */
+int md_notification_retire(int,uint64_t,long);
 int md_notification_result_status(struct md_notification_result *,const struct seccomp_data *,long);
 int md_notification_result_fd(struct md_notification_result *,const struct seccomp_data *,
     struct md_fd_origins *,int,struct md_fd_object *,unsigned);

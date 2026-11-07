@@ -158,16 +158,17 @@ int md_svc_machine_flush(struct md_svc_registry *r,struct md_svc_machine_thread 
     return recovery==2;
 }
 int md_svc_machine_signal(struct md_svc_registry *r,struct md_svc_machine_thread *s,pid_t pid,
-        struct md_signal_delivery *queue,int *deliver) {
-    siginfo_t info;
-    if (ptrace(PTRACE_GETSIGINFO,pid,NULL,&info)<0) return errno==EINVAL ? 0 : -errno;
+        struct md_signal_delivery *queue,struct md_task_signal_stop *stop,int *deliver) {
+    int error=md_task_signal_info(pid,stop);
+    if (error) return error==-EINVAL ? 0 : error;
+    siginfo_t info=stop->info;
     int signal=info.si_signo;
     if (signal<=0 || signal>=NSIG) return 0;
     if (signal==SIGSTOP || signal==SIGKILL || (info.si_code>0 && info.si_code!=SI_KERNEL))
         return 0;
-    struct user_pt_regs registers;
-    int error=regs(pid,PTRACE_GETREGSET,&registers);
+    error=md_task_signal_registers(pid,stop);
     if (error) return error;
+    struct user_pt_regs registers=stop->regs;
     struct md_svc_site *site=md_svc_registry_direct_at(r,pid,registers.pc,registers.sp);
     if (site && registers.pc==site->kernel_alias) {
         /* EVENT_WAIT: do_signal must compare its original restart PC before

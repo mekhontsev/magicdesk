@@ -63,7 +63,7 @@ int md_view_task_path(struct md_filesystem *fs, int fd, const char *name, const 
  * crossing and result publication materialize descriptors. No snapshot or
  * storage lock survives the walk, client copying, or entry to another store. */
 struct path_point {
-    int fd, logical;
+    int fd, logical, metadata_captured;
     struct stat identity;
     struct mdi_node node;
 };
@@ -97,6 +97,9 @@ void md_view_walk_destroy(struct md_view_walk_pending *p) {
 }
 int md_view_walk_ready(struct md_view_walk_pending *p) {
     return p && p->lookup ? p->lookup->ready(p->lookup) : -EINVAL;
+}
+struct md_fs_task_input *md_view_walk_task_input(struct md_view_walk_pending *p) {
+    return p && p->lookup ? p->lookup->task_input : NULL;
 }
 static void point_close(struct path_point *p) {
     if (p->fd>=0) close(p->fd);
@@ -269,7 +272,10 @@ static int walk_path(struct md_filesystem *fs, int base, const struct md_fs_anch
         follow=resume->follow; missing=resume->missing; resolve=resume->resolve;
         walk.resolve=resolve; links=resume->links; trailing=resume->trailing; last=resume->last;
         strcpy(todo,resume->todo); strcpy(name,resume->name);
-        r=point_native(&next,completed);
+        if (completed>=0 && resume->lookup->metadata) {
+            next=(struct path_point){.fd=completed,.identity=*resume->lookup->metadata,
+                .metadata_captured=1}; r=0;
+        } else r=point_native(&next,completed);
         resume->lookup->destroy(resume->lookup); resume->lookup=NULL;
         goto component_complete;
     }
@@ -293,6 +299,13 @@ static int walk_path(struct md_filesystem *fs, int base, const struct md_fs_anch
     if (r) return r;
     if (!from_root && origin && origin->child) return -ENOTDIR;
     r=point_native(&current,from_root ? md_view_root_fd(fs) : duplicate(base));
+    if ((r==-EACCES || r==-EPERM || r==-ENOENT) && current.fd>=0 && !from_root
+            && origin && origin->mount && origin->mount->backing==MD_MOUNT_PROC && origin->kind) {
+        /* The pinned descriptor already proves identity and inode type. Proc
+         * still owns access and attributes; this is not a metadata snapshot. */
+        current.identity=(struct stat){.st_dev=origin->device,.st_ino=origin->inode,.st_mode=origin->kind};
+        r=0;
+    }
     if (r) { point_close(&current); return r; }
     view = !from_root && origin ? origin->view : fs->mounts;
     mount = view ? &view->base : NULL;
@@ -322,6 +335,7 @@ static int walk_path(struct md_filesystem *fs, int base, const struct md_fs_anch
             if (!r) {
                 out->parent=duplicate(current.fd); out->fd=current.fd; current.fd=-1;
                 out->view=view; out->mount=mount; strcpy(out->name,".");
+                out->captured_metadata=current.identity; out->metadata_captured=current.metadata_captured;
                 r=out->parent<0 ? out->parent : 0;
             }
             break;
@@ -376,9 +390,11 @@ static int walk_path(struct md_filesystem *fs, int base, const struct md_fs_anch
             if (r==-EREMOTE && md_view_nosymfollow(mount)) r=-EOPNOTSUPP;
         }
         else {
-            if (mount && mount->backing==MD_MOUNT_PROC)
-                r=point_native(&next,md_procfs_step(fs,view,mount,current.fd,name,todo,
-                    follow>0 || (trailing && follow==0 && todo[strlen(todo)-1]=='/'),resolve));
+            if (mount && mount->backing==MD_MOUNT_PROC) {
+                next.fd=md_procfs_step(fs,view,mount,current.fd,&current.identity,name,todo,
+                    follow>0 || (trailing && follow==0 && todo[strlen(todo)-1]=='/'),resolve,&next.identity,pending ? &lookup : NULL);
+                r=next.fd<0 ? next.fd : 0;
+            }
             else if (mount && mount->backing==MD_MOUNT_DEVPTS)
                 r=point_native(&next,md_devpts_step(mount->devpts,current.fd,name));
             else {
@@ -390,7 +406,7 @@ static int walk_path(struct md_filesystem *fs, int base, const struct md_fs_anch
         if (r==-EINPROGRESS && lookup && pending) {
             r=walk_leave(&walk,0);
             struct md_fs_anchor *pins[3]={0};
-            if (!r) r=md_view_anchor_duplicate(fs,view,mount,current.fd,&pins[0]);
+            if (!r) r=md_view_anchor_pin(fs,view,mount,current.fd,&current.identity,&pins[0]);
             if (!r && boundary_fd>=0)
                 r=md_view_anchor_duplicate(fs,boundary_view,boundary_mount,boundary_fd,&pins[1]);
             if (!r && next_mount!=mount && next_mount && next_mount->source>=0)
@@ -428,10 +444,15 @@ component_complete:
                 int directory=mdi_backing_directory(walk.scope.store,&next.node);
                 if (directory<0) { point_close(&next); r=directory; break; }
                 n=readlinkat(directory,next.node.backing,target,sizeof(target));
-            } else n=readlinkat(next.fd,"",target,sizeof(target));
-            int error=errno;
+                if (n<0) n=-errno;
+            } else if (next_mount->backing==MD_MOUNT_PROC)
+                n=md_procfs_readlink(fs,next_mount,next.fd,target,sizeof(target));
+            else {
+                n=readlinkat(next.fd,"",target,sizeof(target));
+                if (n<0) n=-errno;
+            }
             point_close(&next);
-            if (n < 0) { r = -error; break; }
+            if (n < 0) { r = (int)n; break; }
             size_t rest_size = strlen(todo);
             if (!n) { r = -ENOENT; break; }
             if ((size_t)n + rest_size >= sizeof(target)) { r = -ENAMETOOLONG; break; }
@@ -466,6 +487,7 @@ component_complete:
             if (!r) {
                 out->parent=current.fd; current.fd=-1; out->fd=next.fd; next.fd=-1;
                 out->view=view; out->mount=next_mount; strcpy(out->name,name);
+                out->captured_metadata=next.identity; out->metadata_captured=next.metadata_captured;
             }
             point_close(&next); break;
         }

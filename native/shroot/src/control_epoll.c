@@ -15,12 +15,31 @@ struct interest {
     struct epoll_event event;
     int fd,wake,lifetime,armed,lifetime_armed,queued,disabled,owned_provider;
 };
+struct task_interest {
+    struct task_interest *next;
+    struct md_fd_weak *identity;
+    struct epoll_event event;
+    struct md_task_readiness_epoch seen, offered;
+    uint64_t token, domain, collected;
+    int fd, disabled, selected;
+};
+struct md_epoll_task_control {
+    struct md_control_epoll *queue;
+    struct task_interest *interest;
+    struct epoll_event event;
+    uint64_t domain;
+    int operation;
+};
 struct md_control_epoll {
     struct md_fd_object object;
     atomic_uint admission;
     int events,ready,signalled,next_virtual;
     unsigned pending;
     struct interest *first,*head,*tail;
+    int task_events, task_delivery;
+    uint64_t task_token, collection;
+    struct task_interest *tasks;
+    struct md_epoll_task_control *task_control;
 };
 enum { UNCERTAIN=1U<<28, PREPARING=1U<<29, NATIVE=1U<<30, VIRTUAL=1U<<31, EXPORTS=UNCERTAIN-1 };
 static void alias_lost(struct md_fd_object *object) {
@@ -110,6 +129,11 @@ static int transport_open(struct md_control_epoll *q) {
 static void destroy(struct md_fd_object *object) {
     struct md_control_epoll *q=(void *)object;
     while (q->first) discard(q,q->first);
+    while (q->tasks) {
+        struct task_interest *i=q->tasks; q->tasks=i->next;
+        md_fd_weak_release(i->identity); free(i);
+    }
+    if (q->task_events>=0) close(q->task_events);
     transport_close(q); free(q);
 }
 static unsigned selectors(const struct md_fd_object *object) {
@@ -124,7 +148,7 @@ struct md_control_epoll *md_control_epoll_new(void) {
     if (!q) return NULL;
     md_fd_object_init(&q->object,&type);
     atomic_init(&q->admission,0);
-    q->events=q->ready=-1;
+    q->events=q->ready=q->task_events=-1;
     return q;
 }
 struct md_fd_object *md_control_epoll_object(struct md_control_epoll *q) {
@@ -320,4 +344,143 @@ int md_control_epoll_collect(struct md_control_epoll *q,struct epoll_event *out,
     }
     int signal_error=ready_signal(q);
     return delivered ? delivered : error ? error : signal_error;
+}
+int md_control_epoll_task_descriptor(const struct md_control_epoll *q) {
+    return q ? q->task_events : -1;
+}
+static void task_remove(struct md_control_epoll *q,struct task_interest *i) {
+    struct task_interest **at=&q->tasks;
+    while (*at && *at!=i) at=&(*at)->next;
+    if (*at) *at=i->next;
+    md_fd_weak_release(i->identity); free(i);
+}
+static void task_reap(struct md_control_epoll *q) {
+    for (struct task_interest *i=q->tasks,*next;i;i=next) {
+        next=i->next;
+        if (md_fd_weak_expired(i->identity)
+                && (!q->task_control || q->task_control->interest!=i)) task_remove(q,i);
+    }
+}
+int md_control_epoll_task_begin(struct md_control_epoll *q,int operation,int fd,
+        struct md_fd_object *object,const struct md_control_actor *actor,const struct epoll_event *event,
+        struct epoll_event *native,struct md_epoll_task_control **out) {
+    if (!q || !object || !object->type->task_poll || !object->type->task_poll_epoch || !out || !native)
+        return -EINVAL;
+    if (operation!=EPOLL_CTL_ADD && operation!=EPOLL_CTL_MOD && operation!=EPOLL_CTL_DEL) return -EINVAL;
+    if (operation!=EPOLL_CTL_DEL && !event) return -EFAULT;
+    if (event && operation!=EPOLL_CTL_DEL && (event->events&(EPOLLEXCLUSIVE|EPOLLWAKEUP))) return -EOPNOTSUPP;
+    unsigned state=atomic_load_explicit(&q->admission,memory_order_acquire);
+    if (state&UNCERTAIN) return -ESTALE;
+    if (!(state&VIRTUAL)) return -EINVAL;
+    if (q->task_control || q->task_delivery) return -EAGAIN;
+    task_reap(q);
+    struct md_fd_weak *weak=atomic_load_explicit(&object->weak,memory_order_acquire);
+    struct task_interest *i=q->tasks;
+    while (i && !(i->fd==fd && i->identity==weak)) i=i->next;
+    if (operation==EPOLL_CTL_ADD ? i!=NULL : i==NULL) return operation==EPOLL_CTL_ADD ? -EEXIST : -ENOENT;
+    struct md_epoll_task_control *c=calloc(1,sizeof(*c));
+    if (!c) return -ENOMEM;
+    if (operation==EPOLL_CTL_ADD) {
+        if (q->task_token==UINT64_MAX) { free(c); return -EOVERFLOW; }
+        i=calloc(1,sizeof(*i));
+        if (!i) { free(c); return -ENOMEM; }
+        i->identity=md_fd_weak_observe(object);
+        if (!i->identity) { int error=-errno; free(i); free(c); return error; }
+        i->fd=fd; i->token=++q->task_token;
+        i->disabled=1; i->next=q->tasks; q->tasks=i;
+    }
+    if (q->task_events<0) q->task_events=epoll_create1(EPOLL_CLOEXEC);
+    if (q->task_events<0) {
+        int error=-errno;
+        if (operation==EPOLL_CTL_ADD) task_remove(q,i);
+        free(c); return error;
+    }
+    *c=(struct md_epoll_task_control){.queue=q,.interest=i,.operation=operation,
+        .event=event ? *event : (struct epoll_event){0},.domain=object->type->task_poll_epoch(object,actor).domain};
+    *native=(struct epoll_event){.events=c->event.events,.data.u64=i->token};
+    q->task_control=c; md_fd_object_retain(&q->object); *out=c;
+    return 0;
+}
+void md_control_epoll_task_finish(struct md_epoll_task_control *c,long result) {
+    if (!c) return;
+    struct md_control_epoll *q=c->queue;
+    struct task_interest *i=c->interest;
+    if ((!result && c->operation==EPOLL_CTL_DEL) || (result && c->operation==EPOLL_CTL_ADD)) task_remove(q,i);
+    else if (!result) {
+        i->event=c->event; i->disabled=0; i->seen=(struct md_task_readiness_epoch){0};
+        if (c->operation==EPOLL_CTL_ADD) i->domain=c->domain;
+    }
+    q->task_control=NULL; free(c); md_control_epoll_release(q);
+}
+void md_control_epoll_task_abandon(struct md_epoll_task_control *c) {
+    if (!c) return;
+    /* Native ctl may have committed before its caller vanished. A shared alias
+     * must not mistake that unknown result for an unchanged registration. */
+    alias_lost(&c->queue->object);
+    md_control_epoll_task_finish(c,-ECANCELED);
+}
+static uint32_t task_mask(struct task_interest *i,const struct md_control_actor *actor,
+        struct md_task_readiness_epoch *epoch) {
+    if (i->disabled) return 0;
+    struct md_fd_object *object=md_fd_weak_lock(i->identity);
+    if (!object) return 0;
+    *epoch=object->type->task_poll_epoch(object,actor);
+    long mask=epoch->domain==i->domain ? object->type->task_poll(object,actor) : 0;
+    md_fd_object_release(object);
+    if (mask<=0 || ((i->event.events&EPOLLET) && epoch->domain==i->seen.domain
+            && epoch->pending==i->seen.pending && epoch->configuration==i->seen.configuration)) return 0;
+    return (uint32_t)mask&requested(&i->event);
+}
+int md_control_epoll_task_ready(struct md_control_epoll *q,const struct md_control_actor *actor) {
+    if (!q) return 0;
+    for (struct task_interest *i=q->tasks;i;i=i->next) {
+        struct md_task_readiness_epoch epoch;
+        if (task_mask(i,actor,&epoch)) return 1;
+    }
+    return 0;
+}
+static void task_deliver(struct task_interest *i,struct epoll_event *out,uint32_t events,
+        struct md_task_readiness_epoch epoch,uint64_t collection) {
+    *out=(struct epoll_event){.events=events,.data=i->event.data};
+    i->offered=epoch; i->selected=1; i->collected=collection;
+}
+int md_control_epoll_task_delivery_begin(struct md_control_epoll *q) {
+    if (!q) return -EINVAL;
+    if (atomic_load_explicit(&q->admission,memory_order_acquire)&UNCERTAIN) return -ESTALE;
+    if (q->task_control || q->task_delivery) return 0;
+    q->task_delivery=1; return 1;
+}
+void md_control_epoll_task_delivery_finish(struct md_control_epoll *q,int copied) {
+    if (!q || !q->task_delivery) return;
+    for (struct task_interest *i=q->tasks;i;i=i->next) if (i->selected) {
+        if (copied) {
+            i->seen=i->offered;
+            if (i->event.events&EPOLLONESHOT) i->disabled=1;
+        }
+        i->selected=0;
+    }
+    q->task_delivery=0;
+}
+int md_control_epoll_task_collect(struct md_control_epoll *q,const struct md_control_actor *actor,
+        const struct epoll_event *native,int count,struct epoll_event *out,int capacity) {
+    if (!q || !q->task_delivery || capacity<0 || count<0 || count>capacity || (count && !native) || (capacity && !out)) return -EINVAL;
+    if (atomic_load_explicit(&q->admission,memory_order_acquire)&UNCERTAIN) return -ESTALE;
+    task_reap(q);
+    uint64_t collection=++q->collection;
+    int delivered=0;
+    for (int n=0;n<count;++n) {
+        struct task_interest *i=q->tasks;
+        while (i && i->token!=native[n].data.u64) i=i->next;
+        if (!i || i->disabled || i->collected==collection) continue;
+        struct md_task_readiness_epoch epoch={0};
+        uint32_t events=task_mask(i,actor,&epoch)|native[n].events;
+        task_deliver(i,out+delivered++,events,epoch,collection);
+    }
+    for (struct task_interest *i=q->tasks;i && delivered<capacity;i=i->next) {
+        if (i->collected==collection) continue;
+        struct md_task_readiness_epoch epoch={0};
+        uint32_t events=task_mask(i,actor,&epoch);
+        if (events) task_deliver(i,out+delivered++,events,epoch,collection);
+    }
+    return delivered;
 }

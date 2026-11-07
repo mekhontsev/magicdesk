@@ -100,7 +100,7 @@ def main():
     target = '/tmp/md-kmsg-' + suite.report['id']
     prefix = suite.guest(args.store, '--user', '0:0')
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         suite.command(prefix + ['--bind-ro', suite.base, target, '--deadline-seconds', '45', '--',
                                 '/usr/bin/python3', target + '/test.py', '--guest'], timeout=60)

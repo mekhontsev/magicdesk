@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "native_probe.h"
 #include "task_wait.h"
 #include "ipc_peer_service.h"
 #include "ipc_origins.h"
@@ -25,6 +26,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1152,16 +1154,17 @@ static void transfer_guest_send(const char *path, const char *runner, unsigned m
         char scenario[8], protection[8];
         snprintf(scenario,sizeof(scenario),"%u",mode); snprintf(protection,sizeof(protection),"%u",protected);
         execl(runner,runner,"--store",path,"--user","0:0","--deadline-seconds","20",
+            "--env","MAGICDESK_TEST_CAPTURE_FALLBACK=1",
             "--","/bin/test","--origin-send",scenario,protection,(char *)NULL);
         _exit(90);
     }
     close(application[0]); reap_child(child);
     struct md_ipc_origins *service=NULL; assert(!md_ipc_origins_new(o.worker,launch_id,&service));
-    unsigned messages=mode==4 || mode==5 || mode==7 || mode==11 || mode==14 || (mode==15 && !(protected&4))
+    unsigned messages=mode==4 || mode==5 || mode==7 || mode==11 || mode==14
         ? 0 : mode==6 || mode==13 ? 2 : 1;
     for (unsigned n=0;n<messages;++n) {
         char byte; struct md_fs_rights rights={0};
-        unsigned sender=mode!=9 && mode!=10 && (mode==8 || mode==13 || (protected&4));
+        unsigned sender=mode!=9 && mode!=10 && (mode==8 || mode==13 || mode==15 || (protected&4));
         unsigned tokens=mode==9 || mode==10 || sender, data=mode!=10;
         assert(md_fs_receive(application[1],&byte,1,&rights)==1 && byte=='s' && rights.count==data+tokens);
         if (tokens) {
@@ -1240,6 +1243,7 @@ void md_test_ipc_origin_guest(const char *path, const char *runner) {
             snprintf(scenario,sizeof(scenario),"%u",mode);
             snprintf(protection,sizeof(protection),"%u",protected);
             execl(runner,runner,"--store",path,"--user","0:0","--deadline-seconds","20",
+                "--env","MAGICDESK_TEST_CAPTURE_FALLBACK=1",
                 "--","/bin/test","--origin-receive",scenario,protection,(char *)NULL);
             _exit(90);
         }

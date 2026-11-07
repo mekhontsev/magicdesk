@@ -12,6 +12,14 @@
 static sqlite3_vfs anchored;
 static pthread_once_t initialized=PTHREAD_ONCE_INIT;
 static int status=SQLITE_ERROR;
+int md_database_temporary_directory(const char *path) {
+    if (path && path[0]!='/') return -EINVAL;
+    char *copy=path ? sqlite3_mprintf("%s",path) : NULL;
+    if (path && !copy) return -ENOMEM;
+    sqlite3_free(sqlite3_temp_directory);
+    sqlite3_temp_directory=copy;
+    return 0;
+}
 static int leaf(const char *name) {
     return name && *name && strcmp(name,".") && strcmp(name,"..")
         && !strchr(name,'/') && strlen(name)<=NAME_MAX;

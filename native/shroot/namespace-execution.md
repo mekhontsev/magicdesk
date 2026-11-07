@@ -2,7 +2,7 @@
 
 The internal supervisor/bootstrap pair's `--namespace ENDPOINT PROGRAM [ARGS]` mode executes
 ARM64 glibc/musl programs from the imported inode namespace. It does not fall back
-to the direct rootfs for unsupported virtual paths. This is an experimental
+to the direct rootfs for unsupported virtual paths. This is the native
 runtime used by named Shroot environments, not a host kernel mount namespace, security sandbox
 or complete Linux ABI.
 

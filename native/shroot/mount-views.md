@@ -269,6 +269,14 @@ append deduplicated `inode_custody` parcels; their exact spans and root identiti
 belong to the sealed graph. Even a repeated import validates all backing rights
 before reusing a known view. Forwarding retains those original leases.
 
+Host-backed sources and attachment points require an admission-time SCM_RIGHTS
+check: opening an O_PATH descriptor does not imply that the executor may receive
+it over a Unix socket. Startup binds and guest mount operations share this check.
+Nontransferable carriers keep their metadata in the existing local custody path;
+they are never published as incomplete portable graphs. Namespace copies retain
+the result, and placement changes check newly selected host carriers. Ordinary
+path lookup and file IO perform no transfer probe.
+
 Proc provider roots carry their immutable visibility and PSI-admission policy
 alongside the existing PID-namespace identity, upper-tree lease and superblock
 policy. Import validates this typed policy before publishing the graph; live

@@ -100,6 +100,22 @@ long md_fs_receive_fds(int socket, void *data, size_t size, int *fds, unsigned c
 long md_fs_peek_fds(int socket, void *data, size_t size, int *fds, unsigned capacity, unsigned *count) {
     return receive_fds(socket,data,size,fds,capacity,count,MSG_PEEK);
 }
+int md_fs_rights_transferable(const int *fds, unsigned count) {
+    if (!count || count>MD_FS_MAX_FDS || !fds) return -EINVAL;
+    int pair[2], received[MD_FS_MAX_FDS]; unsigned installed=0;
+    long r=RAW4(socketpair,AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC|SOCK_NONBLOCK,0,pair);
+    if (r<0) return (int)r;
+    char byte=1;
+    r=md_fs_send_fds(pair[0],&byte,1,fds,count);
+    if (r==1) r=md_fs_receive_fds(pair[1],&byte,1,received,count,&installed);
+    for (unsigned i=0;i<installed;++i) RAW1(close,received[i]);
+    RAW1(close,pair[0]); RAW1(close,pair[1]);
+    /* An LSM may admit open(O_PATH) but reject file_receive. This private
+     * packet has exact capacity; a truncated control means lost authority. */
+    if (r==-EPROTO || r==-EACCES || r==-EPERM) return 0;
+    if (r<0) return (int)r;
+    return r==1 && byte==1 && installed==count;
+}
 long md_fs_receive_receipt(int socket, struct md_fd_receipt *receipt, unsigned capacity,
         struct md_fs_rights *rights, uint64_t exchange) {
     rights->count=0;

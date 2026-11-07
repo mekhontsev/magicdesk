@@ -201,7 +201,7 @@ sh ~/install_linux.sh
 The URL is the maintained installer on `main`. Repeating the download replaces
 the script only after a successful transfer, without changing installed Linux
 environments. Under shell UID 2000, `~` is `/data/local/tmp/magicdesk/`; root
-consoles use `/data/local/tmp/magicdesk-root/home`. Download before executing
+consoles use `/data/local/tmp/magicdesk/root`. Download before executing
 so the script can read your answers from the terminal; do not pipe it into `sh`.
 For unreleased installer changes, use `develop` with the development APK.
 For the script shipped with a specific release, replace `main` with its tag,

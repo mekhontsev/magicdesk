@@ -72,22 +72,23 @@ static int pid_sensitive(const struct seccomp_data *d) {
 }
 static void pid_filter(void) {
     struct md_pid_filter_program p;
-    const uintptr_t gate=UINT64_C(0x2012345678);
-    md_pid_filter_build(gate,&p);
+    const uintptr_t gate=UINT64_C(0x2012345678),task=UINT64_C(0x3012345698);
+    md_pid_filter_build(gate,task,&p);
     assert(p.count && p.count<=MD_PID_FILTER_INSTRUCTIONS);
-    const uintptr_t sites[]={gate,gate+4,gate+(UINT64_C(1)<<32),0};
+    const uintptr_t sites[]={gate,gate+4,gate+(UINT64_C(1)<<32),0,
+        task,task+4,task-(UINT64_C(1)<<32)};
     const unsigned extra[]={TIOCGPGRP,TIOCSPGRP,TIOCGSID};
     for (unsigned nr=0;nr<512;++nr) for (unsigned command=0;command<512+3;++command)
         for (unsigned i=0;i<sizeof(sites)/sizeof(*sites);++i) {
             uint64_t value=(command<512 ? command : extra[command-512])|(UINT64_C(1)<<32);
             struct seccomp_data d={.nr=(int)nr,.instruction_pointer=sites[i],.args={value,value}};
-            unsigned want=sites[i]!=gate && pid_sensitive(&d)
+            unsigned want=sites[i]!=gate && sites[i]!=task && pid_sensitive(&d)
                 ? SECCOMP_RET_TRACE|MD_INTERCEPT_PROCESS : SECCOMP_RET_ALLOW;
             unsigned reads=0;
             assert(evaluate_program(p.code,p.count,&d,&reads)==want);
             if (!pid_sensitive(&d) && nr!=SYS_futex && nr!=SYS_ioctl && nr!=SYS_prctl) assert(!reads);
         }
-    puts("PASS PID filter: exact gate, PID calls, PI/non-PI futex, terminal/subreaper arguments and cacheable native calls");
+    puts("PASS PID filter: exact runtime/task gates, PID calls, PI/non-PI futex, terminal/subreaper arguments and cacheable native calls");
 }
 static unsigned expected(unsigned kind,int fd,const struct seccomp_data *d) {
     if (kind==MD_FD_SELECTOR_POLL)

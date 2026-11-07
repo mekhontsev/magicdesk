@@ -107,6 +107,7 @@ static long data_message(long nr,const unsigned long *a) {
 }
 static long data_send_batch(const unsigned long *a) {
     unsigned count=(unsigned)a[2];
+    if (!count) return md_raw(SYS_sendmmsg,a[0],a[1],a[2],a[3],0,0);
     if (count>1024) count=1024;
     for (unsigned i=0;i<count;++i) {
         struct mmsghdr *item=(struct mmsghdr *)a[1]+i;

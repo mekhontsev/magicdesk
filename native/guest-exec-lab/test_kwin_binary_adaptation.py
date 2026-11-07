@@ -32,10 +32,10 @@ def main():
         info = suite.installed_environment(args.name)
         suite.report['environment'] = info
         for name in FIXTURES:
-            suite.transport.upload(suite.client, Path(__file__).with_name('fixtures') / name,
+            suite.upload(Path(__file__).with_name('fixtures') / name,
                                    work + '/' + name, overwrite=True)
-        suite.command(['chmod', '777', work])
-        suite.command(['chmod', '644', *[work + '/' + name for name in FIXTURES]])
+        suite.chmod('777', work)
+        suite.chmod('644', *[work + '/' + name for name in FIXTURES])
         suite.command([suite.runner, '--store', info['store'], '--user', '1000:1000',
                        '--', '/bin/mkdir', '-p', '/tmp/md-kwin-binary'])
         guest = [suite.runner, '--store', info['store'], '--user', '1000:1000',
@@ -58,7 +58,7 @@ def main():
                 if exists:
                     destination = output / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
-                    suite.transport.download(suite.client, work + '/' + name, destination, overwrite=True)
+                    suite.download(work + '/' + name, destination, overwrite=True)
     finally:
         try:
             if work_owned and not args.keep:

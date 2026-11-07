@@ -2284,9 +2284,11 @@ packages ninja meson pkgconf
                 self.assertNotEqual(0, self.run_script("--yes", *args).returncode)
                 self.assertEqual([], self.calls())
 
-    def test_regular_app_uid_is_rejected_without_elevation(self):
-        self.assertNotEqual(0, self.run_script("--yes", TEST_UID="10001").returncode)
-        self.assertEqual([], self.calls())
+    def test_app_uid_uses_same_capability_probe_and_recipe_without_elevation(self):
+        result = self.run_script("--yes", TEST_UID="10001")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["--probe"], self.calls()[0])
+        self.assertIn("Linux is ready", result.stdout)
 
     def test_noninteractive_stdin_requires_explicit_consent(self):
         result = self.run_script()

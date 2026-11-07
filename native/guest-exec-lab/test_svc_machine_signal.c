@@ -33,6 +33,12 @@ static unsigned mode;
 static int expected_restart, word;
 static char alternate[65536];
 static sigjmp_buf escape;
+static unsigned info_reads,register_reads;
+static long signal_trace(int request,pid_t pid,void *address,void *data) {
+    if (request==PTRACE_GETSIGINFO) ++info_reads;
+    if (request==PTRACE_GETREGSET) ++register_reads;
+    return ptrace(request,pid,address,data);
+}
 static void handler(int number,siginfo_t *info,void *context) {
     ucontext_t *uc=context;
     char stack;
@@ -153,7 +159,13 @@ static void run(unsigned selected,int timed) {
     struct md_signal_delivery queue={0};
     int deliver=0;
     {
-        assert(md_svc_machine_signal(&registry,&machine,pid,&queue,&deliver)==1 && deliver==SIGUSR1);
+        struct md_task_signal_stop observation;
+        md_task_signal_stop_init(&observation,signal_trace);
+        info_reads=register_reads=0;
+        assert(!md_task_signal_info(pid,&observation));
+        assert(!md_task_signal_registers(pid,&observation));
+        assert(md_svc_machine_signal(&registry,&machine,pid,&queue,&observation,&deliver)==1 && deliver==SIGUSR1);
+        assert(info_reads==1 && register_reads==1);
         assert(machine.signal_alias==(uintptr_t)alias_svc);
         assert(md_svc_machine_flush(&registry,&machine,pid)==1);
         assert(!md_svc_machine_drain(&registry,&machine,pid,NULL,0) && machine.draining);

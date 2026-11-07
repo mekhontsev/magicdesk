@@ -413,7 +413,7 @@ def main():
     suite = Suite(args.build, args.build)
     target = '/tmp/md-ethernet-' + suite.report['id']
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(suite.guest(args.store, '--user', '0:0', '--', '/bin/mkdir', target))
         for entry in (0, 1):
             suite.command(suite.guest(args.store, '--user', '0:0', '--network', 'bridge',

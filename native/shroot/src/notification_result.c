@@ -8,6 +8,13 @@ int md_notification_same_call(const struct seccomp_data *a,const struct seccomp_
     return a->nr==b->nr && a->arch==b->arch && a->instruction_pointer==b->instruction_pointer
         && !memcmp(a->args,b->args,sizeof(a->args));
 }
+int md_notification_retire(int listener,uint64_t id,long value) {
+    struct seccomp_notif_resp reply={.id=id,.val=value};
+    if (!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply)) return 1;
+    /* SEND arbitrates against concurrent ADDFD_SEND. A replied token can
+     * remain present until the tracee consumes it, producing EINPROGRESS. */
+    return errno==ENOENT || errno==EINPROGRESS ? 0 : -errno;
+}
 int md_notification_rebind(int listener,struct seccomp_notif *old,const struct seccomp_notif *next) {
     if (!old || !next || old->id==next->id || old->pid!=next->pid || !md_notification_same_call(&old->data,&next->data))
         return -EINVAL;

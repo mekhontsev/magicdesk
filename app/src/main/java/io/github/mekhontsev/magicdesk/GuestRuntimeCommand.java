@@ -10,7 +10,7 @@ public final class GuestRuntimeCommand {
             + "\"${MAGICDESK_RUNTIME:?Missing shell runtime}/guest-runtime\") || exit $?\n"
             + "md_library() { CLASSPATH=\"$MAGICDESK_COMMAND_APK\" /system/bin/app_process / "
             + "io.github.mekhontsev.magicdesk.GuestEnvironmentMain \"$md_guest\" "
-            + "\"${MAGICDESK_GUEST_HOME:-$MAGICDESK_RUNTIME/guest-environments}\" \"$@\"; }\n"
+            + "\"${MAGICDESK_GUEST_HOME:-$HOME/linux}\" \"$@\"; }\n"
             + "md_image() { md_action=$1; md_store=$2; shift 2\n"
             + "case \"$md_action\" in run|exec|login)\n"
             + LinuxAudioEnvironment.shrootArguments() + GamepadWire.shrootArguments()

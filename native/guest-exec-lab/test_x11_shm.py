@@ -27,14 +27,14 @@ def main():
         suite.command(prefix + ['--', '/bin/mkdir', target])
         target_created = True
         suite.command(suite.image_command('export-tree', args.store, '/usr/share/X11/xkb', suite.base + '/xkb'))
-        suite.transport.upload(client, Path(__file__).with_name('mitshm_guest.py'), suite.base + '/test.py')
-        suite.transport.upload(client, args.build / 'md-await-exit', suite.base + '/await')
+        suite.upload(Path(__file__).with_name('mitshm_guest.py'), suite.base + '/test.py')
+        suite.upload(args.build / 'md-await-exit', suite.base + '/await')
         with tempfile.TemporaryDirectory() as directory:
             wrapper = Path(directory) / 'shroot'
             wrapper.write_text('#!/system/bin/sh\nexec ' + shlex.join([suite.runner,
                 '--deadline-seconds', '90', '--bind-ro', suite.base, target]) + ' "$@"\n')
-            suite.transport.upload(client, wrapper, suite.base + '/shroot')
-        suite.command(['chmod', '700', suite.base + '/shroot', suite.base + '/await'])
+            suite.upload(wrapper, suite.base + '/shroot')
+        suite.chmod('700', suite.base + '/shroot', suite.base + '/await')
         classes = args.build / 'recipe-classes'
         suite.report['connectionSourceHashes'] = compile_recipe(classes)
         session = client.call('graphics.start', dict(protocol='x11', backend='shell', connection='routed',

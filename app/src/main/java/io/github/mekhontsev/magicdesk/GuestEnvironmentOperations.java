@@ -40,7 +40,7 @@ final class GuestEnvironmentOperations {
 
     static String read(String library, android.os.CancellationSignal cancellation, String... arguments) throws IOException {
         requireShell();
-        var session = new ShellCommandSession("/data/local/tmp");
+        var session = new ShellCommandSession(RuntimeDataPaths.privileged(ShellAccess.currentSnapshot().uid).root().toString());
         if (cancellation != null) cancellation.setOnCancelListener(session::close);
         try {
             var output = new java.io.ByteArrayOutputStream();
@@ -105,7 +105,7 @@ final class GuestEnvironmentOperations {
         final int uid;
         final boolean playback;
         final OperationResources resources = new OperationResources();
-        final ShellCommandSession session = new ShellCommandSession("/data/local/tmp");
+        final ShellCommandSession session;
         final byte[] tail = new byte[65536];
         int used;
         long bytes, revision;
@@ -116,6 +116,7 @@ final class GuestEnvironmentOperations {
 
         Operation(String command, int uid, boolean playback) {
             this.command = command; this.uid = uid; this.playback = playback;
+            this.session = new ShellCommandSession(RuntimeDataPaths.privileged(uid).root().toString());
         }
 
         void run() {

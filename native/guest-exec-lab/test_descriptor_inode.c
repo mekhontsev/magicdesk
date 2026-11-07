@@ -46,7 +46,7 @@ void test_descriptor_inode(void) {
     value=snapshot(same,&root); assert((value.st_mode&07777)==0600);
     int ends[2], other[2], metadata=-1;
     assert(!pipe2(ends,O_CLOEXEC) && !pipe2(other,O_CLOEXEC));
-    int directory=open("/data/local/tmp",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(directory>=0);
+    int directory=open(".",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(directory>=0);
     int error=md_descriptor_inode_export(same,ends[0],directory,&metadata);
     if (error) fprintf(stderr,"anonymous metadata export error=%d\n",error);
     assert(!error); close(directory);

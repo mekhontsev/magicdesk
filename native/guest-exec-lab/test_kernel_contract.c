@@ -27,6 +27,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "native_probe.h"
 
 static pid_t child(void) {
     pid_t parent = getpid(), pid = fork(); assert(pid >= 0);
@@ -447,6 +448,7 @@ static void proc_owners(void) {
     puts("OBS proc-self-and-thread-self independent-fs=1 independent-files=1");
 }
 int main(int argc, char **argv) {
+    md_test_native_probe(argc,argv);
     assert((argc==3 || (argc==4 && !strcmp(argv[3],"--filtered"))) && !chdir(argv[2])); setbuf(stdout, NULL);
     if (argc==4) {
         struct sock_filter instructions[]={
