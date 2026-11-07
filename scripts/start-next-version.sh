@@ -71,5 +71,11 @@ awk -v version="$version" -v code="$version_code" '
 mv "$temporary" "$properties"
 trap - EXIT HUP INT TERM
 
+notes="$project_dir/docs/releases/$version.md"
+if [ ! -e "$notes" ]; then
+    mkdir -p "$(dirname "$notes")"
+    printf '# MagicDesk %s\n' "$version" > "$notes"
+fi
+
 printf 'Started MagicDesk %s development cycle (versionCode %s).\n' \
     "$version" "$version_code"
