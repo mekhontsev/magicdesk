@@ -1,7 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
+import java.io.IOException;
 import java.util.List;
 
 import org.junit.Test;
@@ -73,5 +75,79 @@ public final class DesktopInputDeviceDiscoveryTest {
     @Test(expected = java.io.IOException.class)
     public void truncatedInventoryIsNotAnEmptyDeviceList() throws Exception {
         DesktopInputDeviceDiscovery.findKeyboards("Event Hub State:\n  Devices:\n");
+    }
+
+    @Test
+    public void recognizesSingleAndMultiTouchIncludingDisabledViewport() throws Exception {
+        final List<DesktopTouchscreenDevice> screens = DesktopInputDeviceDiscovery.findTouchscreens(
+                InputDeviceDiscoveryFixture.TOUCHSCREENS);
+        assertEquals(2, screens.size());
+        assertEquals("/dev/input/event21", screens.get(0).path);
+        assertEquals("usb-monitor", screens.get(0).location);
+        assertEquals(0x1234, screens.get(0).vendorId);
+        assertEquals(0x0002, screens.get(0).productId);
+        assertEquals("usb-single-touch", screens.get(1).location);
+    }
+
+    @Test
+    public void readerIdentityCannotBeInferredFromNamesOrAndroidIds() throws Exception {
+        final String dump = InputDeviceDiscoveryFixture.TOUCHSCREENS
+                .replace("EventHub Devices: [ 21 22 ]", "EventHub Devices: [ 121 122 ]");
+        final List<DesktopTouchscreenDevice> screens = DesktopInputDeviceDiscovery.findTouchscreens(dump);
+        assertEquals(1, screens.size());
+        assertEquals("usb-single-touch", screens.get(0).location);
+    }
+
+    @Test
+    public void readerMustAlsoClassifyTouchscreenAsExternal() throws Exception {
+        final String dump = InputDeviceDiscoveryFixture.TOUCHSCREENS
+                .replace("Classes: TOUCH | TOUCH_MT\n", "Classes: TOUCH | TOUCH_MT | EXTERNAL\n")
+                .replace("IsExternal: true", "IsExternal: unknown");
+        assertEquals(List.of(), DesktopInputDeviceDiscovery.findTouchscreens(dump));
+    }
+
+    @Test
+    public void externalTouchClassAloneDoesNotImplyTouchscreen() throws Exception {
+        final String dump = InputDeviceDiscoveryFixture.TOUCHSCREENS
+                .replace("DeviceType: TOUCH_SCREEN", "DeviceType: POINTER");
+        assertEquals(List.of(), DesktopInputDeviceDiscovery.findTouchscreens(dump));
+    }
+
+    @Test
+    public void externalStylusFlagIsNotExternalKeyboardOrMouse() throws Exception {
+        final String dump = InputDeviceDiscoveryFixture.TOUCHSCREENS
+                .replace("Classes: TOUCH | EXTERNAL_STYLUS",
+                        "Classes: KEYBOARD | ALPHAKEY | CURSOR | EXTERNAL_STYLUS");
+        assertEquals(List.of(), DesktopInputDeviceDiscovery.findMice(dump));
+        final List<DesktopKeyboardDevice> keyboards = DesktopInputDeviceDiscovery.findKeyboards(dump);
+        assertEquals(1, keyboards.size());
+        assertEquals("usb-monitor", keyboards.get(0).location);
+    }
+
+    @Test
+    public void touchscreenNeedsAnAssociableLocation() throws Exception {
+        final String dump = InputDeviceDiscoveryFixture.TOUCHSCREENS
+                .replace("Location: usb-single-touch", "Location:");
+        final List<DesktopTouchscreenDevice> screens = DesktopInputDeviceDiscovery.findTouchscreens(dump);
+        assertEquals(1, screens.size());
+        assertEquals("usb-monitor", screens.get(0).location);
+    }
+
+    @Test
+    public void incompleteTouchInventoryCannotReleaseExistingRoutes() {
+        final String dump = InputDeviceDiscoveryFixture.TOUCHSCREENS;
+        assertThrows(IOException.class, () -> DisplayInputRoutingSession.selectPorts(
+                dump.substring(0, dump.indexOf("Input Dispatcher State:"))));
+    }
+
+    @Test
+    public void doesNotReadStaleDeviceStateAfterReaderSection() throws Exception {
+        final String dump = InputDeviceDiscoveryFixture.TOUCHSCREENS + """
+                  Device 128: Unknown touch device
+                    EventHub Devices: [ 28 ]
+                    IsExternal: true
+                    DeviceType: TOUCH_SCREEN
+                """;
+        assertEquals(2, DesktopInputDeviceDiscovery.findTouchscreens(dump).size());
     }
 }

@@ -350,9 +350,16 @@ Desktop targets. A virtual display does not emulate another Android version.
 ## Control Display Input
 
 Select the destination and press **Control this display** before using a
-phone-attached mouse, keyboard or MagicDesk's phone touchpad there. This works
-independently of Desktop, including on Android 14. **Release input** restores
-the previous routing; opening an application alone never acquires input.
+phone-attached mouse, keyboard, external touchscreen or MagicDesk's phone
+touchpad there. This works independently of Desktop, including on Android 14.
+**Release input** restores the previous routing; opening an application alone
+never acquires input.
+
+An external touchscreen must first be recognized by Android as a touch device.
+MagicDesk associates it with the selected display; Android delivers touch and
+multitouch directly. The phone's built-in touchscreen is not redirected.
+This does not install missing USB/HID drivers or override firmware-static
+input routes.
 
 On Android 14, the selected screen must expose an input viewport and match
 Android's shared pointer target. Follow the input setup's **System desktop mode

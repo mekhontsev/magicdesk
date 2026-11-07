@@ -37,3 +37,13 @@ final class DesktopKeyboardDevice extends DesktopInputDevice {
         super(path, location, vendorId, productId);
     }
 }
+
+final class DesktopTouchscreenDevice extends DesktopInputDevice {
+    DesktopTouchscreenDevice(
+            final String path,
+            final String location,
+            final int vendorId,
+            final int productId) {
+        super(path, location, vendorId, productId);
+    }
+}

@@ -14,10 +14,12 @@ public final class DesktopInputReportSnapshotTest {
     public void ownedPhysicalAndVirtualPortsUseFullAssociationSet() {
         final LinkedHashSet<String> owned = new LinkedHashSet<>(Arrays.asList(
                 "usb-keyboard",
+                "usb-touchscreen",
                 "magicdesk-mouse",
                 "missing-keyboard"));
         final Map<String, String> associations = new LinkedHashMap<>();
         associations.put("usb-keyboard", "display:21");
+        associations.put("usb-touchscreen", "display:21");
         associations.put("magicdesk-mouse", "display:21");
         associations.put("unrelated-port", "display:4");
 
@@ -27,7 +29,7 @@ public final class DesktopInputReportSnapshotTest {
 
         assertEquals(
                 new LinkedHashSet<>(Arrays.asList(
-                        "usb-keyboard", "magicdesk-mouse")),
+                        "usb-keyboard", "usb-touchscreen", "magicdesk-mouse")),
                 state.active.keySet());
         assertEquals(
                 new LinkedHashSet<>(Arrays.asList("missing-keyboard")),

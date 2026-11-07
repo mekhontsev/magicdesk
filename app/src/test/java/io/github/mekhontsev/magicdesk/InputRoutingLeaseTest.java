@@ -49,6 +49,36 @@ public final class InputRoutingLeaseTest {
     }
 
     @Test
+    public void touchHotplugUsesSharedLeaseAndRestoresPriorRoutes() throws Exception {
+        final Fixture fixture = new Fixture();
+        fixture.state.staticPorts.put("built-in-panel", 0);
+        fixture.state.runtimePorts.put("usb-single-touch", 21);
+        fixture.state.uniqueIds.put("usb-single-touch", "local:previous-monitor");
+        final String connected = InputDeviceDiscoveryFixture.TOUCHSCREENS;
+        fixture.lease.reconcile("overlay:1", DisplayInputRoutingSession.selectPorts(connected));
+        assertEquals(Set.of("magicdesk-mouse", "usb-monitor", "usb-single-touch"),
+                fixture.journal.keySet());
+        assertEquals("overlay:1", fixture.state.uniqueIds.get("usb-single-touch"));
+        assertFalse(fixture.state.runtimePorts.containsKey("usb-single-touch"));
+        final int calls = fixture.calls.size();
+        fixture.lease.reconcile("overlay:1", DisplayInputRoutingSession.selectPorts(connected));
+        assertEquals(calls, fixture.calls.size());
+
+        final String disconnected = connected.replace("Location: usb-single-touch", "Location:");
+        fixture.lease.reconcile("overlay:1", DisplayInputRoutingSession.selectPorts(disconnected));
+        assertEquals("local:previous-monitor", fixture.state.uniqueIds.get("usb-single-touch"));
+        assertEquals(Integer.valueOf(21), fixture.state.runtimePorts.get("usb-single-touch"));
+        assertEquals("overlay:1", fixture.state.uniqueIds.get("usb-monitor"));
+
+        fixture.lease.reconcile("overlay:1", DisplayInputRoutingSession.selectPorts(connected));
+        new InputRoutingLease(fixture, fixture).recover();
+        assertEquals(Map.of("usb-single-touch", "local:previous-monitor"), fixture.state.uniqueIds);
+        assertEquals(Map.of("usb-single-touch", 21), fixture.state.runtimePorts);
+        assertEquals(Map.of("built-in-panel", 0), fixture.state.staticPorts);
+        assertTrue(fixture.journal.isEmpty());
+    }
+
+    @Test
     public void changedExternalRouteIsNotOverwrittenAtClose() throws Exception {
         final Fixture fixture = new Fixture();
         fixture.state.uniqueIds.put("usb", "local:phone");

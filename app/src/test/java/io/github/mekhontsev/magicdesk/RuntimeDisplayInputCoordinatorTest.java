@@ -92,6 +92,12 @@ public final class RuntimeDisplayInputCoordinatorTest {
                 DisplayInputRoutingSession.selectPorts("Event Hub State:\nInput Reader State:\n"));
     }
 
+    @Test public void externalTouchscreensUseSharedRoutesWithoutClaimingPhoneOrTouchpads()
+            throws Exception {
+        assertEquals(Set.of("magicdesk-mouse", "usb-monitor", "usb-single-touch"),
+                DisplayInputRoutingSession.selectPorts(InputDeviceDiscoveryFixture.TOUCHSCREENS));
+    }
+
     @Test public void preparationAndClosingStateGateEveryReconcile() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Display { static final int INVALID_DISPLAY = -1; }

@@ -18,6 +18,7 @@ final class DesktopInputReportSnapshot {
     final int physicalMice;
     final int virtualMice;
     final int physicalKeyboards;
+    final int physicalTouchscreens;
     final Set<String> ownedPorts;
     final Map<String, String> activeAssociations;
     final Set<String> missingAssociations;
@@ -34,6 +35,7 @@ final class DesktopInputReportSnapshot {
             final int physicalMice,
             final int virtualMice,
             final int physicalKeyboards,
+            final int physicalTouchscreens,
             final Set<String> ownedPorts,
             final Map<String, String> activeAssociations,
             final Set<String> missingAssociations,
@@ -48,6 +50,7 @@ final class DesktopInputReportSnapshot {
         this.physicalMice = physicalMice;
         this.virtualMice = virtualMice;
         this.physicalKeyboards = physicalKeyboards;
+        this.physicalTouchscreens = physicalTouchscreens;
         this.ownedPorts = ownedPorts;
         this.activeAssociations = activeAssociations;
         this.missingAssociations = missingAssociations;
@@ -70,6 +73,7 @@ final class DesktopInputReportSnapshot {
         int physicalMice = -1;
         int virtualMice = -1;
         int physicalKeyboards = -1;
+        int physicalTouchscreens = -1;
         Set<String> ownedPorts = new LinkedHashSet<>();
         Map<String, String> activeAssociations = new LinkedHashMap<>();
         Set<String> missingAssociations = new LinkedHashSet<>();
@@ -91,6 +95,7 @@ final class DesktopInputReportSnapshot {
                 virtualMice = countMousePorts(mice, true);
                 physicalMice = mice.size() - virtualMice;
                 physicalKeyboards = keyboards.size();
+                physicalTouchscreens = DesktopInputDeviceDiscovery.findTouchscreens(inputDump).size();
                 ownedPorts = ShellAccess.ownedInputPorts();
                 routing = FrameworkInputRoutingSnapshot.parse(inputDump);
                 final Map<String, String> allAssociations = routing.labels();
@@ -111,6 +116,7 @@ final class DesktopInputReportSnapshot {
                 physicalMice,
                 virtualMice,
                 physicalKeyboards,
+                physicalTouchscreens,
                 ownedPorts,
                 activeAssociations,
                 missingAssociations,
@@ -137,6 +143,8 @@ final class DesktopInputReportSnapshot {
                 .append(", virtualMice=").append(countLabel(virtualMice))
                 .append(", physicalKeyboards=")
                 .append(countLabel(physicalKeyboards))
+                .append(", physicalTouchscreens=")
+                .append(countLabel(physicalTouchscreens))
                 .append(", ownedPorts=").append(ownedPorts)
                 .append(", activeAssociations=")
                 .append(activeAssociations)

@@ -112,6 +112,10 @@ public final class DisplayInputRoutingSession implements AutoCloseable {
         for (final DesktopMouseDevice mouse : DesktopInputDeviceDiscovery.findMice(inputDump)) {
             ports.add(mouse.location);
         }
+        for (final DesktopTouchscreenDevice touchscreen :
+                DesktopInputDeviceDiscovery.findTouchscreens(inputDump)) {
+            ports.add(touchscreen.location);
+        }
         return ports;
     }
 

@@ -343,8 +343,19 @@ desktop panels. Keep this split when adding vendor-specific behavior.
 ## Physical Input
 
 Hardware events travel through Android's physical devices and their explicit
-desktop display associations. Android owns repeat, modifiers, cursor motion,
-acceleration, hover, dragging and secondary-button semantics.
+display associations. Android owns repeat, modifiers, cursor motion,
+acceleration, hover, dragging, secondary-button semantics and multitouch.
+External touchscreens use the same `DisplayInputRoutingSession` and reversible
+`InputRoutingLease` as keyboards and mice, including hotplug and cleanup.
+Discovery joins EventHub nodes to InputReader's `TOUCH_SCREEN` classification
+by EventHub ID, not name or Android device ID. The EventHub `TOUCH` class alone
+also includes touchpads. Built-in panels, virtual touch devices and unclassified
+touch nodes are not selected. A touchscreen disabled by a missing viewport is
+still eligible for routing. The existing bounded input snapshot supplies this
+inventory and the report's touchscreen count; no per-event forwarding or new
+polling is involved. Hardware/firmware detection and usable input viewports
+remain prerequisites, and firmware-static routes are not overwritten.
+
 `DesktopShortcutService` consumes only MagicDesk shortcuts; each physical
 keyboard has its own `KeyboardShortcutStateMachine`. Consumed key-down/up
 pairs remain balanced across modifier release and repeated keys. Unplugging a

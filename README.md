@@ -522,8 +522,10 @@ release still need verification. See [compatibility](docs/compatibility.md) and
 
 ## Input And Optional Features
 
-**Control input** routes physical Android keyboards and mice independently of
-Desktop. Android retains layouts, repeat, pointer acceleration and hover.
+**Control input** routes physical Android keyboards, mice and external
+touchscreens independently of Desktop. Android retains layouts, repeat,
+pointer acceleration, hover and multitouch. Touchscreens must be recognized
+by Android; the phone's built-in touchscreen keeps its own routing.
 The optional phone touchpad supplies a relative mouse; the normal Android IME
 handles text. **Show keyboard on app display** requests the IME beside the app,
 subject to firmware and keyboard support.
