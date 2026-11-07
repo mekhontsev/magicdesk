@@ -190,6 +190,11 @@ static void restricted_descriptors(int via_prctl) {
         int proc=open("/proc/self/uid_map",O_RDONLY); assert(proc>=0);
         struct sock_filter rules[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,0,4),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[1])),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,FIOCLEX,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_prctl,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EPERM),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_seccomp,0,1),
@@ -235,6 +240,11 @@ static void restricted_descriptors(int via_prctl) {
         assert(fcntl(target,F_GETFD)==0);
         int wide=syscall(SYS_fcntl,copy,high|F_DUPFD_CLOEXEC,101); assert(wide>=101);
         assert(fcntl(wide,F_GETFD)==FD_CLOEXEC);
+        assert(!syscall(SYS_ioctl,wide,high|FIONCLEX,~0UL));
+        assert(fcntl(wide,F_GETFD)==0);
+        assert(syscall(SYS_ioctl,wide,high|FIOCLEX,~0UL)==-1 && errno==EACCES);
+        assert(fcntl(wide,F_GETFD)==0);
+        assert(!fcntl(wide,F_SETFD,FD_CLOEXEC));
         assert(!syscall(SYS_close_range,(unsigned)target,(unsigned)target,
             CLOSE_RANGE_UNSHARE|CLOSE_RANGE_CLOEXEC));
         assert(fcntl(target,F_GETFD)==FD_CLOEXEC);

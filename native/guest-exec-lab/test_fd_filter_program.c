@@ -104,6 +104,8 @@ static unsigned expected(unsigned kind,int fd,const struct seccomp_data *d) {
         case SYS_sendfile: selected=2; break;
         }
     } else if (kind==MD_FD_SELECTOR_PROC) {
+        if (d->nr==SYS_ioctl && ((unsigned)d->args[1]==FIOCLEX || (unsigned)d->args[1]==FIONCLEX))
+            return SECCOMP_RET_ALLOW;
         switch (d->nr) {
         case SYS_mprotect: return d->args[2]&PROT_WRITE ? SECCOMP_RET_TRACE|MD_INTERCEPT_MEMORY : SECCOMP_RET_ALLOW;
         case SYS_read: case SYS_write: case SYS_readv: case SYS_writev:
@@ -151,7 +153,7 @@ void test_fd_filter_program(void) {
     const struct md_fd_filter_gates gates={0x1112345678,0x2212345678,0x3312345678,0x5512345678};
     const uintptr_t exempt[]={gates.raw,gates.watch,gates.task,gates.native};
     const int fds[]={0,190,511,512,1024*1024,-1};
-    const unsigned commands[]={0,F_GETFL,F_SETFL,F_GETFD,F_GET_SEALS,F_ADD_SEALS,F_DUPFD,F_DUPFD_CLOEXEC,FIONREAD,FIONBIO};
+    const unsigned commands[]={0,F_GETFL,F_SETFL,F_GETFD,F_GET_SEALS,F_ADD_SEALS,F_DUPFD,F_DUPFD_CLOEXEC,FIONREAD,FIONBIO,FIOCLEX,FIONCLEX};
     struct md_fd_filter_program built;
     assert(md_fd_filter_build(MD_FD_SELECTOR_PROC,0,&gates,NULL)==-EINVAL);
     assert(md_fd_filter_build(MD_FD_SELECTOR_PROC,0,NULL,&built)==-EINVAL && !built.count);

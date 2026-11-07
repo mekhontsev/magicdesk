@@ -109,6 +109,14 @@ int md_fd_filter_build(enum md_fd_selector_kind kind,int fd,
         DUPLICATES
     );
     if (kind==MD_FD_SELECTOR_PROC) COPY_PROGRAM(
+        /* CLOEXEC belongs to the descriptor table, not its provider. The base
+         * filter observes the native mutation and publishes its exact result. */
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,0,5),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[1])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,FIOCLEX,1,0),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,FIONCLEX,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
         /* Controlled shared mappings may have a writable provider backing.
          * Only tasks admitting controlled descriptors acquire this check. */
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_mprotect,0,4),

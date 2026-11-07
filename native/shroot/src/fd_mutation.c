@@ -4,15 +4,23 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/close_range.h>
+#include <sys/ioctl.h>
 #include <sys/syscall.h>
 
+static int descriptor_flags(long nr,const unsigned long *args,unsigned *flags) {
+    if (nr==SYS_fcntl && (unsigned)args[1]==F_SETFD) *flags=args[2]&FD_CLOEXEC;
+    else if (nr==SYS_ioctl && (unsigned)args[1]==FIOCLEX) *flags=FD_CLOEXEC;
+    else if (nr==SYS_ioctl && (unsigned)args[1]==FIONCLEX) *flags=0;
+    else return 0;
+    return 1;
+}
 int md_fd_mutation_loan(const struct md_fd_order *turn,long nr,const unsigned long a[6],
         int *number,struct md_fd_loan **loan) {
     if (!turn || !turn->table || !a || !number || !loan || *loan) return -EINVAL;
     if (md_fd_order_state(turn)!=MD_RESOURCE_ORDER_RUNNING) return -EBUSY;
     *number=-1;
     if (!md_fd_origins_has_loans(turn->table)) return 0;
-    unsigned first,last;
+    unsigned first,last,flags;
     if (nr==SYS_close) {
         if ((int)a[0]<0) return 0;
         first=last=(unsigned)(int)a[0];
@@ -22,8 +30,8 @@ int md_fd_mutation_loan(const struct md_fd_order *turn,long nr,const unsigned lo
     } else if (nr==SYS_close_range) {
         if ((unsigned)a[0]>(unsigned)a[1] || (unsigned)a[2]) return 0;
         first=(unsigned)a[0]; last=(unsigned)a[1];
-    } else if (nr==SYS_fcntl && (unsigned)a[1]==F_SETFD) {
-        if ((int)a[0]<0 || (a[2]&FD_CLOEXEC)) return 0;
+    } else if (descriptor_flags(nr,a,&flags)) {
+        if ((int)a[0]<0 || flags) return 0;
         first=last=(unsigned)(int)a[0];
     } else return 0;
     return md_fd_origins_loan_range(turn,first,last,number,loan);
@@ -31,6 +39,13 @@ int md_fd_mutation_loan(const struct md_fd_order *turn,long nr,const unsigned lo
 int md_fd_mutation_prepare(struct md_fd_origins *files, long nr,
         const unsigned long a[6], struct md_fd_mutation *out) {
     *out=(struct md_fd_mutation){.nr=nr,.args={a[0],a[1],a[2]}};
+    unsigned descriptor;
+    if (descriptor_flags(nr,a,&descriptor)) {
+        /* Normalize metadata only: the original syscall still runs in the
+         * caller, preserving ioctl validation and application seccomp policy. */
+        out->nr=SYS_fcntl; out->args[1]=F_SETFD; out->args[2]=descriptor;
+        return 0;
+    }
     unsigned command=(unsigned)a[1];
     if (nr==SYS_fcntl) out->args[1]=command;
     int duplicate=nr==SYS_dup || nr==SYS_dup3

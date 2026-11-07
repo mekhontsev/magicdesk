@@ -4,6 +4,8 @@ import argparse
 import array
 import ctypes
 import errno
+import fcntl
+import json
 import os
 from pathlib import Path
 import select
@@ -11,6 +13,90 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
+import termios
+from contextlib import ExitStack
+
+
+def inherited(cases):
+    for fd, kept, mode, address in cases:
+        if not kept:
+            try:
+                fcntl.fcntl(fd, fcntl.F_GETFD)
+            except OSError as error:
+                assert error.errno == errno.EBADF, error
+            else:
+                raise AssertionError(('CLOEXEC descriptor survived', fd))
+            continue
+        assert fcntl.fcntl(fd, fcntl.F_GETFD) == 0
+        assert stat.S_IFMT(os.fstat(fd).st_mode) == mode
+        if address is not None:
+            family, kind, expected = address
+            with socket.socket(family, kind, fileno=fd) as sock:
+                assert list(sock.getsockname()) == expected
+        else:
+            os.close(fd)
+
+
+def inheritability(host_network=False):
+    with ExitStack() as cleanup:
+        regular = cleanup.enter_context(tempfile.TemporaryFile())
+        descriptors = [('file', regular.fileno(), None)]
+        for fd in os.pipe2(os.O_CLOEXEC):
+            cleanup.callback(os.close, fd)
+            descriptors.append(('pipe', fd, None))
+        sockets = [(socket.AF_UNIX, socket.SOCK_STREAM), (socket.AF_INET, socket.SOCK_STREAM),
+                   (socket.AF_INET6, socket.SOCK_DGRAM)]
+        # Android can deny native netlink ioctls; the managed provider must support them.
+        if not host_network:
+            sockets.append((socket.AF_NETLINK, socket.SOCK_RAW))
+        for family, kind in sockets:
+            sock = cleanup.enter_context(socket.socket(family, kind))
+            for keep in (True, False):
+                sock.set_inheritable(keep)
+                assert sock.get_inheritable() == keep
+            if family in (socket.AF_INET, socket.AF_INET6):
+                sock.bind(('127.0.0.1' if family == socket.AF_INET else '::1', 0))
+            address = None if family == socket.AF_UNIX else (family, kind, list(sock.getsockname()))
+            descriptors.append(('socket-' + str(family), sock.fileno(), address))
+        proc = os.open('/proc/self/uid_map', os.O_RDONLY | os.O_CLOEXEC)
+        cleanup.callback(os.close, proc)
+        descriptors.append(('proc', proc, None))
+        epoll = cleanup.enter_context(select.epoll())
+        descriptors.append(('epoll', epoll.fileno(), None))
+        event = os.eventfd(0, os.EFD_CLOEXEC)
+        cleanup.callback(os.close, event)
+        descriptors.append(('eventfd', event, None))
+        cases = []
+        for name, fd, address in descriptors:
+            for command, expected in ((termios.FIONCLEX, 0), (termios.FIOCLEX, fcntl.FD_CLOEXEC)) * 2:
+                assert fcntl.ioctl(fd, command) == 0
+                assert fcntl.fcntl(fd, fcntl.F_GETFD) == expected, name
+            for keep in (True, False):
+                os.set_inheritable(fd, keep)
+                assert os.get_inheritable(fd) == keep, name
+                copy = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 200)
+                cleanup.callback(os.close, copy)
+                assert fcntl.ioctl(copy, termios.FIONCLEX if keep else termios.FIOCLEX) == 0
+                cases.append((copy, keep, stat.S_IFMT(os.fstat(fd).st_mode), address))
+            print('PASS descriptor inheritability:', name, flush=True)
+        path = os.open('/proc/self', os.O_PATH | os.O_CLOEXEC)
+        cleanup.callback(os.close, path)
+        closed = os.dup(regular.fileno())
+        os.close(closed)
+        for fd in (closed, path):
+            for command in (termios.FIOCLEX, termios.FIONCLEX):
+                try:
+                    fcntl.ioctl(fd, command)
+                except OSError as error:
+                    assert error.errno == errno.EBADF, error
+                else:
+                    raise AssertionError(('invalid ioctl succeeded', fd, command))
+        child = os.fork()
+        if not child:
+            os.execv(sys.executable, [sys.executable, __file__, '--inherited', json.dumps(cases)])
+        assert os.waitpid(child, 0)[1] == 0
+        print('PASS FIOCLEX/FIONCLEX: kernel flags, Python API, dup, exec and retained object identity', flush=True)
 
 
 def guest():
@@ -118,17 +204,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
+    parser.add_argument('--network', choices=('host', 'routed'), default='routed')
+    from test_oci_services import add_machine_entry_argument
+    from kernel_profile import KernelProfile
+    add_machine_entry_argument(parser)
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
     from test_oci_services import Server, Suite
-    suite = Suite(args.build, args.build)
+    suite = Suite(args.build, args.build, machine_entry=args.machine_entry, kernel_profile=args.kernel_profile)
     target = '/tmp/md-descriptor-' + suite.report['id']
-    prefix = [suite.runner, '--store', args.store, '--user', '0:0', '--deadline-seconds', '60']
+    prefix = [suite.runner, '--store', args.store, '--user', '0:0', '--network', args.network,
+              *suite.entry_options, '--deadline-seconds', '60']
     try:
         suite.transport.upload(suite.client, Path(__file__), suite.base + '/fixture.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         run = prefix + ['--bind-ro', suite.base, target, '--']
         for namespace in ([], ['/usr/bin/unshare', '--user', '--map-users=0:0:65536',
                               '--map-groups=0:0:65536', '--mount']):
+            suite.command(run + namespace + ['/usr/bin/python3', target + '/fixture.py', '--inheritability']
+                          + (['--host-network'] if args.network == 'host' else []))
             suite.command(run + namespace + ['/usr/bin/python3', target + '/fixture.py', '--guest'])
         endpoint = target + '.sock'
         server = Server(suite, run + ['/usr/bin/python3', target + '/fixture.py', '--server', endpoint])
@@ -196,7 +290,11 @@ def transfer(role, path):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] in ('--server', '--client'):
+    if '--inheritability' in sys.argv:
+        inheritability('--host-network' in sys.argv)
+    elif len(sys.argv) > 1 and sys.argv[1] == '--inherited':
+        inherited(json.loads(sys.argv[2]))
+    elif len(sys.argv) > 1 and sys.argv[1] in ('--server', '--client'):
         transfer(sys.argv[1], sys.argv[2])
     else:
         guest() if '--guest' in sys.argv else main()

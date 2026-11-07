@@ -19,7 +19,7 @@
     BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_FD)
 
 struct md_fd_filter_gates { uintptr_t raw,watch,task,native; };
-enum { MD_FD_FILTER_INSTRUCTIONS=256 };
+enum { MD_FD_FILTER_INSTRUCTIONS=264 };
 struct md_fd_filter_program {
     struct sock_filter code[MD_FD_FILTER_INSTRUCTIONS];
     unsigned short count;

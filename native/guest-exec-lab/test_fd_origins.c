@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/eventfd.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
@@ -671,6 +672,21 @@ static void mutations(struct md_fs_anchor *a, struct md_fs_anchor *b) {
     assert(!md_fd_mutation_finish(&op,files,-EPERM)); expect(files,10,a,0);
     assert(!md_fd_mutation_prepare(files,SYS_fcntl,args,&op));
     assert(!md_fd_mutation_finish(&op,files,0)); expect(files,10,a,FD_CLOEXEC);
+    const unsigned commands[]={FIONCLEX,FIOCLEX};
+    for (unsigned i=0;i<2;++i) {
+        args[1]=(1UL<<32)|commands[i]; args[2]=~0UL;
+        assert(!md_fd_mutation_prepare(files,SYS_ioctl,args,&op));
+        assert(!md_fd_mutation_finish(&op,files,-EPERM)); expect(files,10,a,i ? 0 : FD_CLOEXEC);
+        assert(!md_fd_mutation_prepare(files,SYS_ioctl,args,&op));
+        allocation_budget=0;
+        assert(!md_fd_mutation_finish(&op,files,0)); expect(files,10,a,i ? FD_CLOEXEC : 0);
+        allocation_budget=-1;
+        put(files,13,b,FD_CLOEXEC);
+        args[0]=13;
+        assert(!md_fd_mutation_prepare(files,SYS_ioctl,args,&op));
+        assert(!md_fd_mutation_abandon(&op,files)); expect(files,13,NULL,0);
+        args[0]=10;
+    }
     assert(!md_fd_mutation_prepare(files,SYS_close,args,&op));
     assert(!md_fd_mutation_finish(&op,files,-EPERM)); expect(files,10,a,FD_CLOEXEC);
     assert(!md_fd_mutation_prepare(files,SYS_close,args,&op));
@@ -1661,6 +1677,13 @@ static void native_loans(void) {
         md_fd_origins_finish(&update,result ? result : 14);
         if (!result) {
             assert(md_fd_origins_loan_matches(&turn,14,loan)==1);
+            unsigned long args[6]={14,(1UL<<32)|FIOCLEX,~0UL};
+            struct md_fd_loan *held=NULL; int selected=-1;
+            assert(!md_fd_mutation_loan(&turn,SYS_ioctl,args,&selected,&held) && !held);
+            args[1]=(1UL<<32)|FIONCLEX;
+            assert(md_fd_mutation_loan(&turn,SYS_ioctl,args,&selected,&held)==1);
+            assert(selected==14 && held==loan);
+            md_fd_loan_release(held);
             md_fd_loan_end(loan);
             int number=-1;
             assert(md_fd_origins_loan_next(&turn,&number)==1 && number==14);

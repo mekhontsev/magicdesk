@@ -7038,6 +7038,9 @@ static void filter_revoke_entry(struct thread *t,const struct user_pt_regs *r) {
 }
 static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) {
     long nr = r->regs[8];
+    /* Descriptor-table ioctls retain native validation and FD bookkeeping;
+     * a managed/offline socket does not give them network semantics. */
+    if (cookie==MD_INTERCEPT_FD && nr==SYS_ioctl) return 0;
     if (nr==SYS_reboot && t->phase==IDLE) {
         struct md_pid_namespace *space=md_pid_identity_namespace(t->resources.pid);
         int error=md_pid_namespace_reboot(space,&t->identity,r->regs[0],r->regs[1],r->regs[2]);
