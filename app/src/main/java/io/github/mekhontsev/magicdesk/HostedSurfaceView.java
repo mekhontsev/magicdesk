@@ -302,10 +302,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     @Override public boolean onKeyUp(int key, KeyEvent event) { return key(event, false) || super.onKeyUp(key, event); }
 
     boolean mouseNavigationButton(KeyEvent event) {
-        if (output == null || !inputAllowed || !event.isFromSource(InputDevice.SOURCE_MOUSE)
-                || event.getAction() != KeyEvent.ACTION_DOWN && event.getAction() != KeyEvent.ACTION_UP)
-            return false;
-        return pointerInput.keyButton(event.getKeyCode(), event.getAction() == KeyEvent.ACTION_DOWN);
+        return output != null && inputAllowed && HostedPointerInput.navigationKey(event);
     }
 
     HostedKeyboardShortcuts.Target keyboardShortcuts() {
@@ -320,6 +317,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
             }
             @Override public boolean key(KeyEvent event) {
                 if (!valid()) return false;
+                if (mouseNavigationButton(event)) return true;
                 boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
                 if (down) held.put(event.getKeyCode(), new KeyEvent(event));
                 else held.remove(event.getKeyCode());

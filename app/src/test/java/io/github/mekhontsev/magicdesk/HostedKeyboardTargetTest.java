@@ -74,11 +74,16 @@ public final class HostedKeyboardTargetTest {
     @Test public void outputFocusAndKeyboardRevocationCancelTheCapturedStream() throws Exception {
         RuntimeSourceFixture.verify("""
             static class KeyEvent {
-                static int ACTION_DOWN=0;
-                int key,scan,action;
+                static final int ACTION_DOWN=0,ACTION_UP=1,KEYCODE_BACK=4,KEYCODE_FORWARD=125;
+                int key,scan,action,source;
                 KeyEvent(int key,int scan,int action) { this.key=key; this.scan=scan; this.action=action; }
                 KeyEvent(KeyEvent e) { this(e.key,e.scan,e.action); }
                 int getKeyCode() { return key; } int getScanCode() { return scan; } int getAction() { return action; }
+                boolean isFromSource(int mask) { return (source & mask)==mask; }
+            }
+            static class InputDevice { static final int SOURCE_MOUSE=0x2002, SOURCE_MOUSE_RELATIVE=0x20004; }
+            static class HostedPointerInput {
+            """ + RuntimeSourceFixture.methods("HostedPointerInput", "navigationKey") + """
             }
             static class HostedKeyboardShortcuts {
                 interface Target { boolean key(KeyEvent event); void release(); }
@@ -98,9 +103,17 @@ public final class HostedKeyboardTargetTest {
             SparseIntArray keys=new SparseIntArray(); Output output=new Output();
             long keyboardGeneration; boolean inputAllowed=true,keyboardAllowed=true,shown=true,attached=true,focused=true;
             boolean isAttachedToWindow() { return attached; } boolean isShown() { return shown; } boolean isFocused() { return focused; }
-            """ + RuntimeSourceFixture.topLevelMethods("HostedSurfaceView", "keyboardShortcuts", "sendKey", "releaseHeldKeys") + """
+            """ + RuntimeSourceFixture.topLevelMethods("HostedSurfaceView", "keyboardShortcuts", "sendKey", "releaseHeldKeys", "mouseNavigationButton") + """
             public static void verify() {
                 Fixture view=new Fixture(); var first=view.keyboardShortcuts();
+                for (int source : new int[]{InputDevice.SOURCE_MOUSE, InputDevice.SOURCE_MOUSE_RELATIVE}) {
+                    for (int code : new int[]{4,125}) for (int action : new int[]{0,1}) {
+                        var mouse=new KeyEvent(code,0,action); mouse.source=source;
+                        check(first.key(mouse), "mouse navigation duplicate not consumed");
+                    }
+                }
+                first.release();
+                check(view.output.events.isEmpty(), "mouse navigation leaked into the keyboard stream");
                 KeyEvent alt=new KeyEvent(57,56,0);
                 check(first.key(alt),"Alt rejected"); alt.key=99; // Accessibility owns and recycles its event.
                 first.release(); first.release();

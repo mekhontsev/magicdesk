@@ -8,6 +8,8 @@ public final class X11InputEncodingTest {
         assertEquals(1, X11InputEncoding.button(HostedSurfaceOutput.Button.PRIMARY));
         assertEquals(2, X11InputEncoding.button(HostedSurfaceOutput.Button.MIDDLE));
         assertEquals(3, X11InputEncoding.button(HostedSurfaceOutput.Button.SECONDARY));
+        assertEquals(8, X11InputEncoding.button(HostedSurfaceOutput.Button.BACK));
+        assertEquals(9, X11InputEncoding.button(HostedSurfaceOutput.Button.FORWARD));
     }
 
     @Test public void evdevCodesOutsideEightBitX11RangeUseAndroidFallback() {

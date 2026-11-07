@@ -79,6 +79,7 @@ struct Client {
     bool preedit, committed, fullscreen, maximized, deleted;
     bool data_device_manager;
     int key_down, key_up, button_down, button_up;
+    int navigation_down[2], navigation_up[2];
     int width, height, frames;
     bool pacing_started;
     bool closed;
@@ -257,6 +258,12 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
         uint32_t time, uint32_t button, uint32_t state) {
     (void)pointer; (void)serial; (void)time;
     struct Client *client = data;
+    if (button == BTN_SIDE || button == BTN_EXTRA) {
+        int index = button == BTN_SIDE ? 0 : 1;
+        if (state == WL_POINTER_BUTTON_STATE_PRESSED) client->navigation_down[index]++;
+        else client->navigation_up[index]++;
+        return;
+    }
     assert(button == BTN_LEFT);
     if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
         client->button_down++;
@@ -537,6 +544,8 @@ static void toplevel_close(void *data, struct xdg_toplevel *toplevel) {
     assert(client->presented > 0);
     assert(client->key_down == 1 && client->key_up == 1);
     assert(client->button_down == 1 && client->button_up == 1);
+    for (int index = 0; index < 2; ++index)
+        assert(client->navigation_down[index] == 1 && client->navigation_up[index] == 1);
     if (interaction) assert(client->committed && client->fullscreen && client->maximized && client->width == 40 && client->height == 30);
     if (pointer_lock_test) assert(client->locks == 3 && client->unlocks == 2 && client->relative_events == 3 && !client->pointer_locked);
     client->closed = true;
@@ -826,6 +835,17 @@ int main(int argc, char **argv) {
             assert(mdw_output_focus(output, true));
             assert(!mdw_output_pointer(output, NAN, .5));
             assert(mdw_output_pointer(output, .25, .25));
+            assert(!mdw_output_button(output, (MdwButton)-1, true));
+            assert(!mdw_output_button(output, (MdwButton)(MDW_FORWARD + 1), true));
+            assert(mdw_output_button(output, MDW_BACK, true));
+            assert(mdw_output_button(output, MDW_BACK, true));
+            assert(mdw_output_button(output, MDW_BACK, false));
+            assert(mdw_output_button(output, MDW_BACK, false));
+            // Retain forward for release-on-revocation checks. Interactive move/resize
+            // uses wlroots' single-button grab contract and needs a fresh primary press.
+            assert(mdw_output_button(output, MDW_FORWARD, true));
+            assert(mdw_output_button(output, MDW_FORWARD, true));
+            if (interaction) assert(mdw_output_button(output, MDW_FORWARD, false));
             assert(mdw_output_button(output, MDW_PRIMARY, true));
             assert(mdw_output_key(output, KEY_A, true));
             MdwOutput *dependents = mdw_output_borrow_dependents(output);

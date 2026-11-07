@@ -76,6 +76,25 @@ public final class HostedShellTextureViewTest {
             """);
     }
 
+    @Test public void sideButtonsNeedNoTouchDownButStillRespectInputRegions() throws Exception {
+        verify("""
+            var view = new HostedShellTextureView(new Context(), new HostedShellOutput(), error -> {});
+            long g = view.admission.begin(); view.admission.pixels(g); view.admission.layout(g); view.admission.region(g);
+            view.input = frame().inputPixels(80,40);
+            for (int button : new int[]{8,16}) {
+                var press=event(11,30); press.button=button;
+                check(!view.onGenericMotionEvent(press), "side button stole an input hole");
+                press.x=10;
+                check(view.onGenericMotionEvent(press) && !view.contact, "generic side button needs no touch contact");
+                var release=event(12,30); release.button=button;
+                check(view.onGenericMotionEvent(release), "held side button release outside lost");
+                check(!view.pointer.navigationHeld(), "side button lease survived release");
+                view.onGenericMotionEvent(press); view.onWindowFocusChanged(false);
+                check(!view.pointer.navigationHeld(), "focus loss retained side button");
+            }
+            """);
+    }
+
     private static void verify(String body) throws Exception {
         String source = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "HostedShellTextureView.java"));
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk",
@@ -131,18 +150,24 @@ public final class HostedShellTextureViewTest {
         static class MotionEvent {
             static final int ACTION_DOWN=0, ACTION_UP=1, ACTION_CANCEL=3, ACTION_HOVER_EXIT=10,
                 ACTION_BUTTON_PRESS=11, ACTION_BUTTON_RELEASE=12;
-            int action; float x;
+            static final int BUTTON_BACK=8, BUTTON_FORWARD=16;
+            int action, button; float x;
+            int getActionButton() { return button; }
             int getActionMasked() { return action; } float getX() { return x; } float getY() { return 10; }
         }
         static MotionEvent event(int action, float x) { var e = new MotionEvent(); e.action=action; e.x=x; return e; }
         static class HostedPointerInput {
-            boolean dragging;
+            boolean dragging, navigation;
             HostedPointerInput(TextureView view) { }
             void bind(HostedShellOutput output) { }
-            void release() { dragging=false; }
+            void release() { dragging=navigation=false; }
             void viewport(HostedViewport viewport) { }
-            boolean event(MotionEvent event) { return true; }
+            boolean event(MotionEvent event) {
+                if (event.button==8 || event.button==16) navigation=event.action==11;
+                return true;
+            }
             boolean dragging() { return dragging; }
+            boolean navigationHeld() { return navigation; }
         }
         static class HostedShellOutput {
             int closes, detaches;

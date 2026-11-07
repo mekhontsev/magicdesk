@@ -86,12 +86,7 @@ final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable 
     }
 
     @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-        if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)
-                && (event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK
-                        || event.getKeyCode() == android.view.KeyEvent.KEYCODE_FORWARD)) {
-            super.dispatchKeyEvent(event);
-            return true;
-        }
+        if (HostedPointerInput.navigationKey(event)) return true;
         if (event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK && releaseKeyboard != null) {
             if (event.getAction() == android.view.KeyEvent.ACTION_UP) releaseKeyboard.run();
             return true;

@@ -19,7 +19,7 @@ final class HostedPointerInput {
     private HostedSurfaceOutput output;
     private HostedViewport viewport = HostedViewport.EMPTY;
     private float x = .5f, y = .5f, startX, startY, previousX, previousY;
-    private int buttons, physicalButtons, keyButtons;
+    private int buttons, physicalButtons;
     private boolean contact, pendingTap, syntheticButton, scrolling, relative, moved, windowGesture;
     private long captureSerial;
 
@@ -37,6 +37,7 @@ final class HostedPointerInput {
         viewport = next;
     }
     boolean dragging() { return (buttons & MotionEvent.BUTTON_PRIMARY) != 0 || direct.dragging(); }
+    boolean navigationHeld() { return (buttons & (MotionEvent.BUTTON_BACK | MotionEvent.BUTTON_FORWARD)) != 0; }
 
     /** The host now tracks raw display coordinates until the window gesture releases the button. */
     void windowGesture() { windowGesture = true; view.removeCallbacks(longPress); }
@@ -44,7 +45,6 @@ final class HostedPointerInput {
     void release() {
         direct.cancel(output);
         physicalButtons = 0;
-        keyButtons = 0;
         syntheticButton = false;
         updateButtons();
         forget();
@@ -55,20 +55,15 @@ final class HostedPointerInput {
         direct.forget();
         forget();
         buttons = physicalButtons = 0;
-        keyButtons = 0;
         syntheticButton = false;
     }
 
-    boolean keyButton(int keyCode, boolean down) {
-        int mask = switch (keyCode) {
-            case KeyEvent.KEYCODE_BACK -> MotionEvent.BUTTON_BACK;
-            case KeyEvent.KEYCODE_FORWARD -> MotionEvent.BUTTON_FORWARD;
-            default -> 0;
-        };
-        if (mask == 0) return false;
-        keyButtons = down ? keyButtons | mask : keyButtons & ~mask;
-        updateButtons();
-        return true;
+    /** Android duplicates these pointer buttons as keys directed at keyboard focus, not the pointer target. */
+    static boolean navigationKey(KeyEvent event) {
+        return (event.isFromSource(InputDevice.SOURCE_MOUSE)
+                || event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE))
+                && (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP)
+                && (event.getKeyCode() == KeyEvent.KEYCODE_BACK || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD);
     }
 
     private void forget() {
@@ -157,7 +152,9 @@ final class HostedPointerInput {
                 && action != MotionEvent.ACTION_POINTER_UP) return false;
 
         if (action == MotionEvent.ACTION_DOWN) {
-            release();
+            // Android DOWN/UP cover only the first three mouse buttons. Side buttons can remain held.
+            if (mouse && !finger) { direct.cancel(output); cancelTouch(); }
+            else release();
             contact = true;
             relative = rawPad;
             startX = previousX = event.getX();
@@ -175,7 +172,7 @@ final class HostedPointerInput {
         if (mouse && !finger && !classified && !scrolling) {
             position(event.getX(), event.getY());
             updateButtons();
-            if (action == MotionEvent.ACTION_UP) release();
+            if (action == MotionEvent.ACTION_UP) forget();
             return true;
         }
         if (classified || (finger && event.getPointerCount() > 1 && physicalButtons == 0)) {
@@ -258,7 +255,7 @@ final class HostedPointerInput {
     }
 
     private void updateButtons() {
-        int next = physicalButtons | keyButtons | (syntheticButton ? MotionEvent.BUTTON_PRIMARY : 0);
+        int next = physicalButtons | (syntheticButton ? MotionEvent.BUTTON_PRIMARY : 0);
         for (HostedSurfaceOutput.Button button : BUTTONS) {
             int mask = switch (button) {
                 case PRIMARY -> MotionEvent.BUTTON_PRIMARY;

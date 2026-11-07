@@ -145,9 +145,12 @@ final class HostedShellTextureView extends TextureView implements TextureView.Su
         if (!admission.ready()) return false;
         int action = event.getActionMasked();
         // ViewGroup re-hit-tests generic button events. A native sibling can own DOWN in the same bounds.
+        // Side buttons have no DOWN/UP contact stream, only generic button events.
+        boolean navigation = event.getActionButton() == MotionEvent.BUTTON_BACK
+                || event.getActionButton() == MotionEvent.BUTTON_FORWARD;
         if ((action == MotionEvent.ACTION_BUTTON_PRESS || action == MotionEvent.ACTION_BUTTON_RELEASE)
-                && !contact) return false;
-        if (action != MotionEvent.ACTION_HOVER_EXIT && !contact
+                && !contact && !navigation) return false;
+        if (action != MotionEvent.ACTION_HOVER_EXIT && !contact && !pointer.navigationHeld()
                 && !contains(event.getX(), event.getY())) return false;
         return pointer.event(event);
     }

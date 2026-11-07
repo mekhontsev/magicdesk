@@ -5,6 +5,60 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public final class HostedPointerInputTest {
+    @Test public void mouseNavigationKeysAreDuplicatesButKeyboardBackRemainsAndroidOwned() throws Exception {
+        verify("""
+            for (int source : new int[]{InputDevice.SOURCE_MOUSE, InputDevice.SOURCE_MOUSE_RELATIVE}) {
+                for (int action : new int[]{0,1}) for (int code : new int[]{4,125})
+                    check(HostedPointerInput.navigationKey(new KeyEvent(source,action,code)), "mouse key duplicate");
+                check(!HostedPointerInput.navigationKey(new KeyEvent(source,2,4)), "multiple is not a button edge");
+                check(!HostedPointerInput.navigationKey(new KeyEvent(source,0,29)), "typing is not a pointer button");
+            }
+            check(!HostedPointerInput.navigationKey(new KeyEvent(0x101,0,4)), "keyboard Back belongs to Android");
+            check(!HostedPointerInput.navigationKey(new KeyEvent(0,1,4)), "system Back belongs to Android");
+            """);
+    }
+
+    @Test public void sideButtonsStayHeldAcrossPrimaryClicksAndReleaseAtTheirOwnPosition() throws Exception {
+        verify("""
+            var f = new Input(); f.source=InputDevice.SOURCE_MOUSE; f.tool=MotionEvent.TOOL_TYPE_MOUSE;
+            f.buttons=24; f.send(11,1,200,300); f.send(11,1,200,300);
+            check(f.input.navigationHeld() && f.out.pressX==.2f, "side buttons use pointer coordinates");
+            f.buttons=25; f.send(0,1,200,300); f.send(11,1,200,300);
+            f.buttons=24; f.send(12,1,400,300); f.send(1,1,400,300);
+            check(f.input.navigationHeld(), "primary UP cannot release held side buttons");
+            f.buttons=16; f.send(12,1,400,300);
+            f.buttons=0; f.send(12,1,400,300);
+            check(f.out.edges.equals(List.of("BACK:true","FORWARD:true","PRIMARY:true","PRIMARY:false",
+                "BACK:false","FORWARD:false")), "one press/release per physical button");
+            check(!f.input.navigationHeld(), "final release clears lease");
+            """);
+    }
+
+    @Test public void capturedNavigationButtonsAreBalancedAndReleasedOnLoss() throws Exception {
+        verify("""
+            var f=new Input(); f.source=InputDevice.SOURCE_MOUSE_RELATIVE; f.tool=MotionEvent.TOOL_TYPE_MOUSE;
+            f.buttons=24; f.input.captured(f.event(11,1,0,0),7); f.input.captured(f.event(11,1,0,0),7);
+            f.buttons=16; f.input.captured(f.event(12,1,0,0),7);
+            f.input.release(); f.input.release();
+            check(f.out.edges.equals(List.of("BACK:true","FORWARD:true","BACK:false","FORWARD:false")),
+                "capture loss releases each button once");
+            check(f.out.deltas.isEmpty(), "button edges do not synthesize motion");
+            """);
+    }
+
+    @Test public void sideButtonsDoNotLeakAcrossOutputReplacementOrViewportLoss() throws Exception {
+        verify("""
+            var f=new Input(); f.source=InputDevice.SOURCE_MOUSE; f.tool=MotionEvent.TOOL_TYPE_MOUSE;
+            f.buttons=24; f.send(11,1,100,100);
+            var replacement=new Output(); f.input.bind(replacement);
+            f.buttons=0; f.send(12,1,100,100);
+            check(f.out.edges.equals(List.of("BACK:true","FORWARD:true","BACK:false","FORWARD:false")), "old lease released");
+            check(replacement.edges.isEmpty(), "late UP cannot create an edge on new output");
+            f.buttons=24; f.send(11,1,100,100); f.input.viewport(HostedViewport.EMPTY);
+            check(replacement.edges.equals(f.out.edges), "viewport loss releases side buttons");
+            """);
+    }
+
     @Test public void capturedMouseKeepsEveryDeltaAndDoesNotClampOrWarp() throws Exception {
         verify("""
             var f=new Input(); f.source=InputDevice.SOURCE_MOUSE_RELATIVE; f.tool=MotionEvent.TOOL_TYPE_MOUSE;
@@ -332,7 +386,7 @@ public final class HostedPointerInputTest {
     private static final String STUBS = """
         enum HostedTouchPhase { BEGIN, UPDATE, END }
         interface HostedSurfaceOutput {
-            enum Button { PRIMARY, MIDDLE, SECONDARY }
+            enum Button { PRIMARY, MIDDLE, SECONDARY, BACK, FORWARD }
             void pointer(float x,float y); void button(float x,float y,Button button,boolean down);
             void scroll(float x,float y,float h,float v);
             void relative(long serial,float dx,float dy);
@@ -376,6 +430,11 @@ public final class HostedPointerInputTest {
             static int getLongPressTimeout(){return 500;}
         }
         static class InputDevice { static final int SOURCE_TOUCHPAD=0x100008, SOURCE_MOUSE=0x2002, SOURCE_TOUCHSCREEN=0x1002, SOURCE_MOUSE_RELATIVE=0x20004; }
+        record KeyEvent(int source, int action, int keyCode) {
+            static final int ACTION_DOWN=0,ACTION_UP=1,KEYCODE_BACK=4,KEYCODE_FORWARD=125;
+            int getAction(){return action;} int getKeyCode(){return keyCode;}
+            boolean isFromSource(int mask){return (source & mask)==mask;}
+        }
         static class DesktopAutomationEventJournal {
             static int count;
             static final List<String> details=new ArrayList<>();
@@ -387,7 +446,7 @@ public final class HostedPointerInputTest {
                 ACTION_HOVER_ENTER=9,ACTION_HOVER_EXIT=10,ACTION_BUTTON_PRESS=11,ACTION_BUTTON_RELEASE=12;
             static final int TOOL_TYPE_FINGER=1,TOOL_TYPE_STYLUS=2,TOOL_TYPE_MOUSE=3,TOOL_TYPE_ERASER=4,CLASSIFICATION_TWO_FINGER_SWIPE=3;
             static final int BUTTON_STYLUS_PRIMARY=32,BUTTON_STYLUS_SECONDARY=64,AXIS_TILT=25,AXIS_ORIENTATION=8;
-            static final int BUTTON_PRIMARY=1,BUTTON_SECONDARY=2,BUTTON_TERTIARY=4;
+            static final int BUTTON_PRIMARY=1,BUTTON_SECONDARY=2,BUTTON_TERTIARY=4,BUTTON_BACK=8,BUTTON_FORWARD=16;
             static final int AXIS_HSCROLL=10,AXIS_VSCROLL=9,
                 AXIS_GESTURE_SCROLL_X_DISTANCE=50,AXIS_GESTURE_SCROLL_Y_DISTANCE=51;
             int action,count,source,tool,buttons,classification,device; float x,y,h,v,gx,gy;
