@@ -14,6 +14,18 @@ public class GuestApplicationRecordsTest {
     private static final String A = "00000000-0000-0000-0000-000000000001";
     private static final String B = "00000000-0000-0000-0000-000000000002";
 
+    @Test public void identicalLibrariesRetainTheirSelectedExecutor() throws Exception {
+        String records = new JSONArray().put(entry(A, "linux", "/usr/share/applications/editor.desktop",
+                "Name=Editor\nExec=editor\nIcon=editor\n")).toString();
+        var user = GuestApplicationRecords.parse(records, DesktopExecBackend.APP).entries().get(0);
+        var shell = GuestApplicationRecords.parse(records, DesktopExecBackend.SHELL).entries().get(0);
+        assertNotEquals(user.desktopFilePath, shell.desktopFilePath);
+        assertEquals(DesktopExecBackend.APP, user.shortcut.execBackend);
+        assertEquals(DesktopExecBackend.SHELL, shell.shortcut.execBackend);
+        assertNotEquals(ApplicationIconKey.of(user.shortcut, ""), ApplicationIconKey.of(shell.shortcut, ""));
+        assertEquals(user.shortcut.exec, shell.shortcut.exec);
+    }
+
     @Test public void identitiesAreEnvironmentScopedAndRecipesUseImmutableStores() throws Exception {
         var records = new JSONArray();
         for (String id : new String[]{A, B}) records.put(entry(id, "linux", "/usr/share/applications/editor.desktop",

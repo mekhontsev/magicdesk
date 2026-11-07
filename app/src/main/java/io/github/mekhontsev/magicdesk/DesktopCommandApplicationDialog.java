@@ -86,6 +86,15 @@ final class DesktopCommandApplicationDialog {
                 return thread;
             });
 
+    private static boolean isLinuxBackend(int position) { return position == 3 || position == 4 || position == 6; }
+    private static DesktopExecBackend selectedBackend(int position) {
+        return switch (position) {
+            case 0, 4 -> DesktopExecBackend.SHELL;
+            case 5, 6 -> DesktopExecBackend.APP;
+            default -> DesktopExecBackend.TERMUX;
+        };
+    }
+
     private DesktopCommandApplicationDialog() {
     }
 
@@ -110,7 +119,7 @@ final class DesktopCommandApplicationDialog {
 
         label(activity, form, R.string.command_app_backend);
         final Spinner backend = spinner(activity, R.array.command_app_backends,
-                initial.backend.ordinal());
+                initial.backend == DesktopExecBackend.APP ? 5 : initial.backend.ordinal());
         form.addView(backend, matchWrap());
         final LinearLayout graphicsFields = new LinearLayout(activity);
         graphicsFields.setOrientation(LinearLayout.VERTICAL);
@@ -164,11 +173,11 @@ final class DesktopCommandApplicationDialog {
             private String guestDirectory = "";
 
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                boolean isLinux = position >= 3;
+                boolean isLinux = isLinuxBackend(position);
                 graphicsFields.setVisibility(position == 2 || (isLinux && presentation.getSelectedItemPosition() != 0)
                         ? View.VISIBLE : View.GONE);
                 wholeDesktop.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
-                linux.setBackend(position == 4 ? DesktopExecBackend.SHELL : DesktopExecBackend.TERMUX);
+                linux.setBackend(selectedBackend(position));
                 linux.setActive(isLinux);
                 if (!isLinux) protocol.setEnabled(true);
                 linux.setGraphical(presentation.getSelectedItemPosition() != 0);
@@ -194,7 +203,7 @@ final class DesktopCommandApplicationDialog {
         presentation.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 linux.setGraphical(position != 0);
-                if (backend.getSelectedItemPosition() >= 3)
+                if (isLinuxBackend(backend.getSelectedItemPosition()))
                     graphicsFields.setVisibility(position != 0 ? View.VISIBLE : View.GONE);
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
@@ -218,7 +227,7 @@ final class DesktopCommandApplicationDialog {
                                 R.string.desktop_entry_name_required));
                         return;
                     }
-                    final boolean isLinux = backend.getSelectedItemPosition() >= 3;
+                    final boolean isLinux = isLinuxBackend(backend.getSelectedItemPosition());
                     if (command.getText().toString().trim().isEmpty()
                             && !(isLinux && presentation.getSelectedItemPosition() == 0)) {
                         command.setError(activity.getString(
@@ -251,7 +260,7 @@ final class DesktopCommandApplicationDialog {
                                 : new DesktopCommandApplicationDraft(
                                     name.getText().toString(),
                                     command.getText().toString(),
-                                    backend.getSelectedItemPosition() == 0 ? DesktopExecBackend.SHELL : DesktopExecBackend.TERMUX,
+                                    selectedBackend(backend.getSelectedItemPosition()),
                                     workingDirectory,
                                     DesktopCommandApplicationDraft.FileArguments
                                             .values()[arguments

@@ -28,6 +28,11 @@ final class CommandExecution {
             uid = termux.uid;
             scope = termux.packageName;
             home = termux.homeDirectory;
+        } else if (backend == DesktopExecBackend.APP) {
+            termux = null;
+            uid = android.system.Os.getuid();
+            scope = "app:" + uid;
+            home = context.getDataDir().toString();
         } else {
             if (!ShellAccess.isReady()) throw new IllegalStateException("Privileged command service is unavailable");
             termux = null;
@@ -48,6 +53,8 @@ final class CommandExecution {
             current.requireAvailable();
             if (current.uid != uid || !current.packageName.equals(scope))
                 throw new IllegalStateException("Termux identity changed");
+        } else if (backend == DesktopExecBackend.APP) {
+            if (android.system.Os.getuid() != uid) throw new IllegalStateException("Application identity changed");
         } else if (!ShellAccess.isReady() || ShellAccess.currentSnapshot().uid != uid)
             throw new IllegalStateException("The command service identity changed");
     }
@@ -56,19 +63,45 @@ final class CommandExecution {
         return termux == null ? AndroidShell.path(context) : termux.homeDirectory + "/../usr/bin/bash";
     }
 
+    ExecutorSocketEndpoint.Factory endpointFactory() {
+        if (backend == DesktopExecBackend.TERMUX) throw new IllegalStateException("Termux admission requires its broker");
+        return (name, targetUid, timeout, receiver) -> {
+            requireCurrent();
+            if (targetUid != uid) throw new SecurityException("Wrong executor identity");
+            return backend == DesktopExecBackend.APP
+                    ? new ShellUnixEndpoint(name, uid, timeout, receiver, java.nio.file.Path.of(temporaryDirectory()))
+                    : ShellAccess.openUnixEndpoint(name, uid, timeout, receiver);
+        };
+    }
+
+    String temporaryDirectory() {
+        return termux != null ? termux.homeDirectory + "/../usr/tmp"
+                : RuntimeDataPaths.selected(uid, context.getDataDir().toPath()).temporary().toString();
+    }
+
+    ShellCommandSession session(String directory) { return session(directory, true); }
+
+    ShellCommandSession session(String directory, boolean inheritCommandChannel) {
+        requireCurrent();
+        String token = java.util.UUID.randomUUID().toString().replace("-", "");
+        return new ShellCommandSession(directory == null || directory.isEmpty() ? home : directory,
+                backend == DesktopExecBackend.SHELL ? new ShellCommandExecutor("__MAGICDESK_CWD_" + token + "__", inheritCommandChannel) : new ShellCommandExecutor("__MAGICDESK_CWD_" + token + "__",
+                        () -> {
+                            requireCurrent();
+                            return backend == DesktopExecBackend.APP ? new LocalCommandStream(context, inheritCommandChannel)
+                                    : new TermuxCommandStream(context, termux, inheritCommandChannel);
+                        }), token);
+    }
+
     Closeable start(String command, String directory, String stdin, ShellCommandOutput.Sink stdout,
             DetailedCompletion completion) {
         requireCurrent();
-        String token = java.util.UUID.randomUUID().toString().replace("-", "");
-        ShellCommandSession session = new ShellCommandSession(directory.isEmpty() ? home : directory,
-                termux == null ? null : new ShellCommandExecutor("__MAGICDESK_CWD_" + token + "__",
-                        () -> new TermuxCommandStream(context, termux)), token);
+        ShellCommandSession session = session(directory);
         AtomicBoolean closed = new AtomicBoolean();
         WORK.execute(() -> {
             try {
                 requireCurrent();
-                String setup = termux == null ? "" : AutomationCommandRuntime.get(context).prepareTermux(termux);
-                var result = session.execute(setup + invocation(shell(), command, stdin), stdout);
+                var result = session.execute(invocation(shell(), command, stdin), stdout);
                 if (!closed.get()) completion.complete(result, null);
             } catch (IOException | RuntimeException error) {
                 if (!closed.get()) completion.complete(null, error);

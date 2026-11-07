@@ -35,8 +35,6 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     private static final String TAG = "MagicDeskShell";
     private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
     private static final long STREAM_STOP_GRACE_MILLIS = 1_000L;
-    private static final String PTY_HELPER_NAME =
-            "libmagicdesk_pty_bridge.so";
     private final Context mContext;
     private final Map<Long, OwnedStreamSession> mStreams =
             new ConcurrentHashMap<>();
@@ -558,21 +556,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                     ParcelFileDescriptor.createPipe();
             readSide = pipe[0];
             writeSide = pipe[1];
-            final File helper = new File(
-                    mContext.getApplicationInfo().nativeLibraryDir,
-                    PTY_HELPER_NAME);
-            final String shell = AndroidShell.path(mContext);
-            ProcessBuilder builder = ShellExecutionEnvironment.processBuilder(
-                    mContext,
-                    true,
-                    helper.getAbsolutePath(),
-                    Integer.toString(rows),
-                    Integer.toString(columns),
-                    workingDirectory,
-                    shell);
-            builder.environment().putAll(TerminalLaunchEnvironment.decode(environment));
-            builder.environment().put("SHELL", shell);
-            builder.environment().put(AndroidShell.PATH_ENV, shell);
+            ProcessBuilder builder = ProcessPtyTransport.builder(mContext, workingDirectory, rows, columns,
+                    TerminalLaunchEnvironment.decode(environment));
             process = builder.redirectErrorStream(true).start();
             final PtyStreamSession session = new PtyStreamSession(
                     requestId, process, writeSide, ownerToken);
@@ -1908,21 +1893,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         @Override
         void copyOutput(final InputStream input, final OutputStream output)
                 throws IOException {
-            final StringBuilder header = new StringBuilder();
-            int value = -1;
-            while (header.length() < 192
-                    && (value = input.read()) >= 0
-                    && value != '\n') {
-                header.append((char) value);
-            }
-            if (value != '\n'
-                    || !header.toString().startsWith("MAGICDESK_PTY ")) {
-                shellPidReady.countDown();
-                throw new IOException("invalid PTY helper handshake");
-            }
             try {
-                endpoint = PtyEndpoint.parse(
-                        header.substring("MAGICDESK_PTY ".length()));
+                endpoint = PtyControlProtocol.readEndpoint(input);
             } catch (IOException error) {
                 shellPidReady.countDown();
                 throw new IOException("invalid PTY shell process", error);

@@ -42,9 +42,8 @@ public final class CommandConsoleActivity extends Activity
     private boolean mPermissionRequested;
 
     static Intent createIntent(final Context context) {
-        return new Intent(context, CommandConsoleActivity.class).putExtra(
-                EXTRA_INITIAL_DIRECTORY,
-                ShellDesktopDirectory.ABSOLUTE_PATH);
+        var backend = ConsolePreferences.selected(context);
+        return createIntentAtDirectory(context, backend.home(context), backend);
     }
 
     static AppLaunchTarget launchTarget() {
@@ -99,9 +98,7 @@ public final class CommandConsoleActivity extends Activity
                 || workingDirectory.isEmpty()
                 ? createIntentAtDirectory(
                         context,
-                        backend == DesktopExecBackend.TERMUX
-                                ? TermuxIntegration.homeDirectory(context)
-                                : ShellDesktopDirectory.ABSOLUTE_PATH,
+                        backend.home(context),
                         backend)
                 : createIntentAtDirectory(
                         context, workingDirectory, backend);
@@ -139,11 +136,10 @@ public final class CommandConsoleActivity extends Activity
         // A tmux attachment instead remembers the terminal, never a transient server session ID.
         final String command = source.getStringExtra(EXTRA_AUTO_RUN_COMMAND);
         if (command != null && !command.isBlank() && !source.hasExtra(EXTRA_TMUX_SESSION)) return null;
-        final boolean termux = isTermux(source);
-        return new DesktopApplicationShortcut(context.getString(termux
-                ? R.string.console_termux_title : R.string.console_title), "", "", launchTarget(),
-                termux ? createTermuxIntent(context).toUri(Intent.URI_INTENT_SCHEME) : "",
-                DesktopLaunchMode.AUTO, !termux, DesktopExecBackend.SHELL, false);
+        final DesktopExecBackend backend = backend(source);
+        return new DesktopApplicationShortcut(context.getString(backend.title()), "", "", launchTarget(),
+                createIntentAtDirectory(context, backend.home(context), backend).toUri(Intent.URI_INTENT_SCHEME),
+                DesktopLaunchMode.AUTO, false, backend, false);
     }
 
     static Intent createTmuxIntent(Context context, TmuxSessionProvider.Session session) {
@@ -159,9 +155,7 @@ public final class CommandConsoleActivity extends Activity
         mBackend = backend(getIntent());
         DesktopTaskDescription.apply(
                 this,
-                mBackend == DesktopExecBackend.TERMUX
-                        ? R.string.console_termux_title
-                        : R.string.console_title,
+                mBackend.title(),
                 R.drawable.ic_file_console);
         BuiltInWindowRegistry.register(this);
         getWindow().setSoftInputMode(
@@ -316,8 +310,7 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     public void onTitleChanged(final String title) {
-        final String fallback = getString(mBackend == DesktopExecBackend.TERMUX
-                ? R.string.console_termux_title : R.string.console_title);
+        final String fallback = getString(mBackend == null ? R.string.console_title : mBackend.title());
         final var snapshot = ConsoleTerminalRegistry.status(mTerminalRegistryId);
         final String label = snapshot == null ? TerminalTaskLabel.resolve(fallback,
                 mSession == null ? TerminalProcessInfo.unknown() : mSession.foregroundProcess(), title)
@@ -469,9 +462,11 @@ public final class CommandConsoleActivity extends Activity
             try {
                 var environment = new java.util.LinkedHashMap<>(audio.environment());
                 environment.putAll(files.prepare());
-                TerminalTransport terminal = backend == DesktopExecBackend.TERMUX
-                        ? TermuxPtyTransport.open(application, directory, rows, columns, startupCommand, environment)
-                        : ShellAccess.openPty(directory, rows, columns, environment);
+                TerminalTransport terminal = switch (backend) {
+                    case APP -> new ProcessPtyTransport(application, directory, rows, columns, environment);
+                    case TERMUX -> TermuxPtyTransport.open(application, directory, rows, columns, startupCommand, environment);
+                    case SHELL -> ShellAccess.openPty(directory, rows, columns, environment);
+                };
                 return new ScopedTerminalTransport(terminal, audio);
             } catch (IOException | RuntimeException error) { audio.close(); throw error; }
         };
@@ -509,7 +504,7 @@ public final class CommandConsoleActivity extends Activity
                 }
                 return;
             }
-        } else if (mSnapshot == null || !mSnapshot.isReady()) {
+        } else if (mBackend == DesktopExecBackend.SHELL && (mSnapshot == null || !mSnapshot.isReady())) {
             return;
         }
         if (!mSession.isReady()) {

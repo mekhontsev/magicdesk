@@ -24,7 +24,7 @@ final class DesktopAutomationTerminalWindows {
                     args.optString("backend", "shell"));
             if (backend == DesktopExecBackend.SHELL) {
                 requireShell();
-            } else {
+            } else if (backend == DesktopExecBackend.TERMUX) {
                 final var endpoint = TermuxIntegration.inspect(MagicDeskApplication.applicationContext());
                 if (!endpoint.available()) {
                     return DesktopAutomationResult.failure(endpoint.canRequestPermission()
@@ -36,13 +36,9 @@ final class DesktopAutomationTerminalWindows {
             final String directory = DesktopExecWorkingDirectory.normalize(
                     args.optString(
                             "directory",
-                            backend == DesktopExecBackend.TERMUX
-                                    ? TermuxIntegration.homeDirectory(MagicDeskApplication.applicationContext())
-                                    : ShellDesktopDirectory.ABSOLUTE_PATH));
+                            backend.home(MagicDeskApplication.applicationContext())));
             final String resolvedDirectory = directory.isEmpty()
-                    ? (backend == DesktopExecBackend.TERMUX
-                            ? TermuxIntegration.homeDirectory(MagicDeskApplication.applicationContext())
-                            : ShellDesktopDirectory.ABSOLUTE_PATH)
+                    ? backend.home(MagicDeskApplication.applicationContext())
                     : directory;
             final String command = DesktopExecCommand.normalize(
                     args.optString("command", ""));

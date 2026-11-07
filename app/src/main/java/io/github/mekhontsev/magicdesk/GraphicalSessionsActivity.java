@@ -239,14 +239,14 @@ public final class GraphicalSessionsActivity extends Activity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
         android.widget.Spinner backend = new android.widget.Spinner(this);
-        UiChoiceAdapter.bind(backend, new String[]{"Termux", "Shell / root"});
-        backend.setSelection(TermuxIntegration.isAvailable(this) ? 0 : 1);
+        var executors = List.of(DesktopExecBackend.APP, DesktopExecBackend.SHELL, DesktopExecBackend.TERMUX);
+        UiChoiceAdapter.bind(backend, executors.stream().map(item -> getString(item.title())).toList());
         fields.addView(backend);
         EditText keyboard = field(fields, R.string.x11_keyboard_directory);
-        keyboard.setVisibility(backend.getSelectedItemPosition() == 0 ? android.view.View.GONE : android.view.View.VISIBLE);
+        keyboard.setVisibility(executors.get(backend.getSelectedItemPosition()) == DesktopExecBackend.TERMUX ? android.view.View.GONE : android.view.View.VISIBLE);
         backend.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
-                keyboard.setVisibility(position == 0 ? android.view.View.GONE : android.view.View.VISIBLE);
+                keyboard.setVisibility(executors.get(position) == DesktopExecBackend.TERMUX ? android.view.View.GONE : android.view.View.VISIBLE);
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
@@ -255,7 +255,7 @@ public final class GraphicalSessionsActivity extends Activity {
                 .setPositiveButton(R.string.x11_start, null).create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
                     try {
-                        var executor = backend.getSelectedItemPosition() == 0 ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL;
+                        var executor = executors.get(backend.getSelectedItemPosition());
                         if (DesktopExecRunner.prepareBackend(this, executor) != DesktopExecRunner.StartResult.STARTED) return;
                         var selectedProtocol = protocol.getSelectedItemPosition() == 0
                                 ? GraphicalProtocol.X11 : GraphicalProtocol.WAYLAND;

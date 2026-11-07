@@ -58,7 +58,7 @@ final class X11Execution {
 
     private Closeable startServerProcess(X11LaunchSpec spec, CommandExecution.Completion completion) throws IOException {
         if (commands.termux != null) return commands.start(spec.serverCommand, "", spec.id, spec.stdin, completion);
-        String keyboard = HostedKeyboardData.prepare(context, keyboardSource);
+        String keyboard = HostedKeyboardData.prepare(context, commands, keyboardSource);
         Path directory = Path.of(spec.directory);
         Files.createDirectories(directory.getParent());
         Files.createDirectory(directory);

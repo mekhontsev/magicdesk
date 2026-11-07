@@ -1,5 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="console_app_title">User</string>
+    <string name="executor_android_shell">Shell</string>
     <string name="black_screen">Tela preta (sem suspensão)</string>
     <string name="black_screen_hint">Tela preta; pressione uma tecla de volume para sair</string>
     <string name="guest_command_access">Permitir o controle do MagicDesk e do Android</string>
@@ -250,11 +252,13 @@
     <string name="command_app_directory_invalid">Insira um diretório absoluto</string>
     <string name="command_app_mime_invalid">Insira tipos MIME válidos separados por ponto e vírgula</string>
     <string-array name="command_app_backends">
-        <item>Shell do Android</item>
+        <item>Shell</item>
         <item>Termux</item>
         <item>Gráficos do Termux</item>
         <item>Linux (Termux)</item>
-        <item>Linux (Shell / root)</item>
+        <item>Linux (Shell)</item>
+        <item>User</item>
+        <item>Linux (User)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>Nenhum</item>

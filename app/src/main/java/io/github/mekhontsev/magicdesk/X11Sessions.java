@@ -63,7 +63,7 @@ final class X11Sessions {
 
     private static Session start(Context context, String name, String command, String directory, String desktopFile,
             RecentApplicationStore.Entry recipe, DesktopExecBackend backend, GraphicalLaunchOptions graphics) {
-        if (graphics.connectionMode() == GraphicalConnectionMode.ROUTED && backend != DesktopExecBackend.SHELL)
+        if (graphics.connectionMode() == GraphicalConnectionMode.ROUTED && backend == DesktopExecBackend.TERMUX)
             throw new IllegalArgumentException("Routed connections require the selected Shell executor");
         Context app = context.getApplicationContext();
         X11Execution execution = new X11Execution(app, backend, graphics.keyboardDirectory());
@@ -537,7 +537,7 @@ final class X11Sessions {
                 if (graphics.connectionMode() == GraphicalConnectionMode.ROUTED) {
                     var resource = resources.reserve();
                     try {
-                        var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, process::acceptClient, this::fail);
+                        var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, 0, execution.commands.endpointFactory(), process::acceptClient, this::fail);
                         resource.attach(endpoint);
                         clientEndpoint = endpoint.name;
                     } catch (java.io.IOException | RuntimeException failure) { resource.close(); throw failure; }

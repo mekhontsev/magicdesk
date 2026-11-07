@@ -193,7 +193,7 @@ final class WaylandSessions {
             WORK.execute(() -> {
                 try {
                     if (stopped()) { resource.close(); return; }
-                    var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, current::acceptClient,
+                    var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, 0, execution.commands.endpointFactory(), current::acceptClient,
                             error -> MAIN.post(() -> fail(error)));
                     resource.attach(endpoint);
                     MAIN.post(() -> clientEndpointReady(endpoint.name));

@@ -16,12 +16,14 @@ import java.security.SecureRandom;
 final class TermuxCommandStream implements CommandStream {
     private final Context context;
     private final TermuxIntegration.Endpoint endpoint;
+    private final boolean inheritCommandChannel;
     private ServerSocket server;
     private Socket connecting, socket;
     private boolean closed;
 
-    TermuxCommandStream(Context context, TermuxIntegration.Endpoint endpoint) {
+    TermuxCommandStream(Context context, TermuxIntegration.Endpoint endpoint, boolean inheritCommandChannel) {
         this.context = context.getApplicationContext(); this.endpoint = endpoint;
+        this.inheritCommandChannel = inheritCommandChannel;
     }
 
     private Socket connect() throws IOException {
@@ -61,6 +63,10 @@ final class TermuxCommandStream implements CommandStream {
                     byte[] hello = new byte[64]; input.readFully(hello);
                     if (!MessageDigest.isEqual(hello, token.getBytes(StandardCharsets.US_ASCII))) continue;
                     peer.setSoTimeout(0); peer.setTcpNoDelay(true);
+                    String setup = AutomationCommandRuntime.get(context).prepareTermux(endpoint);
+                    if (!inheritCommandChannel) setup += "unset " + MagicDeskCli.ENDPOINT_ENV + "\n";
+                    peer.getOutputStream().write(setup.getBytes(StandardCharsets.UTF_8));
+                    peer.getOutputStream().flush();
                     synchronized (this) {
                         if (closed) throw new IOException("Command channel is closed");
                         socket = peer; accepted = true;

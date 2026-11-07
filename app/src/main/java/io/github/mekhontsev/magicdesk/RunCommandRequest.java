@@ -26,9 +26,13 @@ record RunCommandRequest(String backend, int executorUid, String termuxPackage, 
         }
         if (integer(json, "version", -1) != 1) throw new IllegalArgumentException("Unsupported request version");
         String backend = string(json, "backend", "");
-        if (!Set.of("shell", "termux", "shroot").contains(backend)) throw new IllegalArgumentException("Unknown backend");
+        if (!Set.of("app", "shell", "termux", "shroot").contains(backend)) throw new IllegalArgumentException("Unknown backend");
         int uid = integer(json, "executorUid", -1);
-        if (!backend.equals("termux") && uid != 0 && uid != 2000)
+        if (backend.equals("shroot")) GuestLaunchPlan.requireIdentity(uid);
+        else if (backend.equals("app")) {
+            if (uid < 10000) throw new IllegalArgumentException("executorUid must select the MagicDesk app UID");
+            GuestLaunchPlan.requireIdentity(uid);
+        } else if (backend.equals("shell") && uid != 0 && uid != 2000)
             throw new IllegalArgumentException("executorUid must explicitly select 2000 or 0");
         String termux = string(json, "termuxPackage", ""), guest = string(json, "environmentId", "");
         if (backend.equals("termux")) {

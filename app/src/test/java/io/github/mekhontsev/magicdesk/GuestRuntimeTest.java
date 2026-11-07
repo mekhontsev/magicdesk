@@ -202,6 +202,8 @@ public class GuestRuntimeTest {
             builder.environment().put("PATH", tools + ":" + System.getenv("PATH"));
             builder.environment().put("MAGICDESK_GRAPHICS_ENDPOINT", "opaque ' endpoint");
             builder.environment().put("DISPLAY", ":37");
+            builder.environment().put("MAGICDESK_TOOLS", tools.toString());
+            builder.environment().put("MAGICDESK_ANDROID_SHELL", "sh");
             var process = builder.start();
             String[] arguments = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\n");
             assertEquals(0, process.waitFor());
@@ -226,6 +228,8 @@ public class GuestRuntimeTest {
         builder.environment().put("PATH", tools + ":" + System.getenv("PATH"));
         builder.environment().put("MAGICDESK_GRAPHICS_ENDPOINT", "endpoint");
         builder.environment().put("MAGICDESK_GUEST_LIBRARIES", "/host/helpers");
+        builder.environment().put("MAGICDESK_TOOLS", tools.toString());
+        builder.environment().put("MAGICDESK_ANDROID_SHELL", "sh");
         builder.environment().put("MAGICDESK_GUEST_FILES_SOCKET", "files-socket");
         builder.environment().put("MAGICDESK_GUEST_FILES_TOKEN", "files-token");
         var process = builder.start();

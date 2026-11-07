@@ -6510,9 +6510,9 @@ prepare_recovery() {
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 require_magicdesk_version() {
-    command -v magicdesk >/dev/null 2>&1 || fail 'magicdesk is unavailable. Open a MagicDesk Shell console first.'
+    command -v magicdesk >/dev/null 2>&1 || fail 'magicdesk is unavailable. Open a MagicDesk User or Shell console first.'
     installed_magicdesk_version_code=$(magicdesk get_state --field data.app.versionCode) || \
-        fail "Cannot determine MagicDesk version. Use MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer and open a new Shell console."
+        fail "Cannot determine MagicDesk version. Use MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer and open a new User or Shell console."
     case "$installed_magicdesk_version_code" in
         ''|*[!0-9]*) fail 'Invalid MagicDesk versionCode; expected a non-negative Android version code.' ;;
     esac
@@ -6520,7 +6520,7 @@ require_magicdesk_version() {
         fail 'Invalid MagicDesk versionCode; expected a non-negative Android version code.'
     fi
     [ "$installed_magicdesk_version_code" -ge "$MIN_MAGICDESK_VERSION_CODE" ] || \
-        fail "This installer requires MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer (versionCode $MIN_MAGICDESK_VERSION_CODE; installed $installed_magicdesk_version_code). Update MagicDesk, open a new Shell console and try again."
+        fail "This installer requires MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer (versionCode $MIN_MAGICDESK_VERSION_CODE; installed $installed_magicdesk_version_code). Update MagicDesk, open a new User or Shell console and try again."
 }
 ask() {
     printf '%s [%s]: ' "$1" "$2"
@@ -6650,7 +6650,7 @@ admin_exec() (
     admin_target=$1
     shift
     # exec retains image HOME; setup must use the selected account's home instead.
-    exec shroot login "$admin_target" --user root "$@"
+    shroot login "$admin_target" --user root "$@"
 )
 package_exec() (
     package_target=$1
@@ -6722,7 +6722,7 @@ if [ "$resume" = yes ]; then
     [ -z "$dns" ] && [ -z "$image" ] || fail '--resume retains image and DNS; use shroot dns to change DNS.'
 fi
 
-command -v shroot >/dev/null 2>&1 || fail 'Open a MagicDesk console with Shroot available first.'
+command -v shroot >/dev/null 2>&1 || fail 'Open a MagicDesk User or Shell console with Shroot available first. This installer does not install PRoot environments.'
 require_magicdesk_version
 if [ "$yes" = no ]; then
     [ -t 0 ] || fail 'Interactive input is unavailable. Save the script before running it, or use --yes.'
@@ -6836,6 +6836,7 @@ if [ -n "$image" ]; then source_kind=oci; else image=$source; fi
 [ "$resume" = yes ] || check_dns
 
 printf '\n%s %s ARM64 | %s | GUI=%s | graphics=%s\n' "$distro" "$version" "$name" "$gui" "$gpu"
+printf 'Library: %s | runtime: Shroot (managed)\n' "${MAGICDESK_GUEST_HOME:-$HOME/linux}"
 printf 'Locale=%s | timezone=%s | fonts=%s | application entries=%s\n' "$locale_name" "$zone" "$fonts" "$protocol"
 printf 'Guest account=%s | extra packages=%s | package cache=%s\n' "${new_user:-unchanged}" "${extras:-none}" "$cache"
 if [ "$gpu" = turnip ] || [ "$gpu" = auto ] || [ "$gui" = plasma ] || [ "$gui" = weston ]; then

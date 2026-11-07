@@ -116,8 +116,7 @@ final class GraphicalSessions {
     static Session start(Context context, GraphicalProtocol protocol, String name, String command, String directory,
             DesktopExecBackend backend, String keyboard, boolean desktop, GraphicalConnectionMode connection) {
         new GraphicalLaunchOptions(protocol, desktop, keyboard, "", "", connection);
-        RuntimeCapabilities.current(context).require(context, backend == DesktopExecBackend.TERMUX
-                ? RuntimeCapabilities.Service.TERMUX : RuntimeCapabilities.Service.SHELL);
+        RuntimeCapabilities.current(context).require(context, backend.service());
         return switch (protocol) {
             case X11 -> {
                 String cwd = DesktopExecWorkingDirectory.normalize(directory);

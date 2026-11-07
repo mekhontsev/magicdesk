@@ -10,30 +10,42 @@ public final class RecentLaunchContractTest {
                 static class Context { String getString(int id) { return "title-" + id; } }
                 static class R { static class string { static int console_title = 1, console_termux_title = 2; } }
                 enum DesktopLaunchMode { AUTO }
-                enum DesktopExecBackend { SHELL }
+                enum DesktopExecBackend { SHELL, TERMUX, APP;
+                    int title() { return ordinal(); }
+                    String home(Context context) { return "/" + name(); }
+                }
                 static class Intent {
                     static final int URI_INTENT_SCHEME = 1;
                     boolean termux;
+                    DesktopExecBackend backend;
                     String command;
                     Set<String> extras = new HashSet<>();
                     boolean hasExtra(String key) { return extras.contains(key); }
                     String getStringExtra(String key) { return command; }
-                    String toUri(int scheme) { return termux ? "termux-clean" : "shell-clean"; }
+                    String toUri(int scheme) { return backend.name() + "-clean"; }
                 }
                 record DesktopApplicationShortcut(String name, String icon, String exec, Object target,
                         String intent, DesktopLaunchMode mode, boolean defaults, DesktopExecBackend backend, boolean terminal) { }
-                static boolean isTermux(Intent intent) { return intent.termux; }
-                static Intent createTermuxIntent(Context context) { Intent intent = new Intent(); intent.termux = true; return intent; }
+                static DesktopExecBackend backend(Intent intent) { return intent.backend != null ? intent.backend
+                        : intent.termux ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL; }
+                static Intent createIntentAtDirectory(Context c, String directory, DesktopExecBackend backend) {
+                    check(directory.equals(backend.home(c)), "runtime directory leaked");
+                    Intent clean = new Intent(); clean.backend = backend; return clean;
+                }
                 static Object launchTarget() { return "console"; }
                 public static void verify() {
                     Context context = new Context();
                     Intent source = new Intent();
                     source.extras.add("terminal-id"); source.extras.add("directory");
                     var shell = recentLaunch(context, source);
-                    check(shell.defaults() && shell.intent().isEmpty(), "shell remembered runtime extras");
+                    check(!shell.defaults() && shell.intent().equals("SHELL-clean"), "shell lost explicit identity");
+                    source.backend = DesktopExecBackend.APP;
+                    var app = recentLaunch(context, source);
+                    check(app.backend() == DesktopExecBackend.APP && app.intent().equals("APP-clean"), "app lost identity");
+                    source.backend = null;
                     source.termux = true;
                     var termux = recentLaunch(context, source);
-                    check(!termux.defaults() && termux.intent().equals("termux-clean"), "Termux lost its backend");
+                    check(!termux.defaults() && termux.intent().equals("TERMUX-clean"), "Termux lost its backend");
                     check(!termux.name().equals(shell.name()), "terminal titles are indistinguishable");
                     source.extras.add(EXTRA_AUTO_RUN_COMMAND);
                     source.command = "";

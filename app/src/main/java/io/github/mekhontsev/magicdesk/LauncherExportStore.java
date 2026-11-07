@@ -19,7 +19,9 @@ final class LauncherExportStore {
                     || path.indexOf('\0') >= 0 || path.length() > 4096 || profile < 0
                     || termuxPackage == null || (!termuxPackage.isEmpty() && !PackageNameValidator.isSafe(termuxPackage))
                     || (termuxPackage.isEmpty() ? termuxUid != -1 : termuxUid < 0)
-                    || (source.equals("termux") ? shellUid != -1 || termuxPackage.isEmpty() : shellUid != 0 && shellUid != 2000))
+                    || (source.equals("termux") ? shellUid != -1 || termuxPackage.isEmpty()
+                            : shellUid != 0 && shellUid != 2000 && !(source.equals("guest") && shellUid >= 10000
+                                    && shellUid % 100000 >= 10000 && shellUid % 100000 <= 19999)))
                 throw new IllegalArgumentException("Invalid launcher source identity");
         }
         JSONObject json() throws org.json.JSONException {

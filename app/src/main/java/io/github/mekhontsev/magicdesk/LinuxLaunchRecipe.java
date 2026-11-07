@@ -22,8 +22,8 @@ final class LinuxLaunchRecipe {
             if (backend == null) throw new IllegalArgumentException("Select an executor");
             if (kind == Kind.PROOT && backend != DesktopExecBackend.TERMUX)
                 throw new IllegalArgumentException("proot-distro requires Termux");
-            if ((kind == Kind.GUEST || kind == Kind.MANAGED_GUEST) && backend != DesktopExecBackend.SHELL)
-                throw new IllegalArgumentException("Shroot requires the Shell executor");
+            if ((kind == Kind.GUEST || kind == Kind.MANAGED_GUEST) && backend == DesktopExecBackend.TERMUX)
+                throw new IllegalArgumentException("Shroot requires MagicDesk or Android Shell");
             if (magicDesk && kind == Kind.SCRIPT)
                 throw new IllegalArgumentException("Prepared scripts supply their own command client mapping");
             keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
@@ -108,7 +108,7 @@ final class LinuxLaunchRecipe {
             }
             host.append(" -- ").append(String.join(" ", guest.stream().map(LinuxLaunchRecipe::q).toList()));
         }
-        if (graphical && environment.backend() == DesktopExecBackend.SHELL && environment.keyboardDirectory().isEmpty())
+        if (graphical && environment.backend() != DesktopExecBackend.TERMUX && environment.keyboardDirectory().isEmpty())
             throw new IllegalArgumentException("Enter the XKB data directory in the prepared Linux environment");
         List<String> invocation = environment.magicDesk()
                 ? List.of("magicdesk-connect", "--", "sh", "-c", host.toString()) : List.of("sh", "-c", host.toString());
@@ -145,7 +145,7 @@ final class LinuxLaunchRecipe {
                         GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments());
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
-                exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, !graphical)
+                exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(), !graphical)
                 .withLiteralExec(true).withGraphics(graphical ? new GraphicalLaunchOptions(protocol,
                         presentation == Presentation.DESKTOP, keyboard, "",
                         "GUEST:" + environment.target().length() + ":" + environment.target() + ":" + user, GraphicalConnectionMode.ROUTED) : null);
