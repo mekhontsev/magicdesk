@@ -1,9 +1,10 @@
 # Shroot Native Runtime
 
-Shroot is a native ARM64 Linux userspace runtime with one engine for Android
-application, authorized shell and root execution identities. Shell UID 2000
-remains the baseline for public launch workflows; application-UID integration
-uses the same [fixtures and contracts](../guest-exec-lab/host-execution.md).
+Shroot is a native ARM64 Linux userspace runtime with one engine for the User
+(MagicDesk app UID) and Shell (authorized UID 2000 or 0) executors. Both use the
+same [fixtures and contracts](../guest-exec-lab/host-execution.md), with separate
+storage and retained launch identities. A root-backed Shell service is not a
+separate native-root implementation.
 The APK packages standalone executables, not libraries loaded into ART.
 Guest-only capabilities are probed on explicit use and never become
 prerequisites for other services.

@@ -277,12 +277,12 @@ invalidating existing IO. Readonly mounts protect metadata, not device IO.
 
 ## Native Publication
 
-Eligible guest creation uses native leaves by default, without an experimental
-flag. The parent must be attached, local, have
+Eligible guest creation uses native leaves by default. The parent must be
+attached, local, have
 virtual permissions and no default ACL. The store probes user-xattr metadata on
 an unnamed temporary file during admission/reconnection; failure retains the
 catalogue allocator. Inspection does not probe or mutate. Trusted tree imports
-using physical permissions retain their previous allocation path; OCI metadata
+using physical permissions use the catalogue allocator; OCI metadata
 and directories created with guest credentials use virtual permissions.
 
 An eligible private regular leaf (logical UID/GID zero, owner-readable/writable,

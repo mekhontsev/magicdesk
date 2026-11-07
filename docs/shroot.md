@@ -1,7 +1,8 @@
 # Shroot
 
-Shroot runs ARM64 Linux userspace through MagicDesk's explicitly selected shell
-or root executor. The unrooted path uses Android's authorized shell UID 2000.
+Shroot runs ARM64 Linux userspace through MagicDesk's explicitly selected
+User (app UID) or Shell executor (normally UID 2000). User needs no Shizuku or
+root; Shell uses the configured privileged service and may run as UID 0.
 It needs neither Termux, PRoot, a virtual machine nor a replacement Android
 kernel. glibc and musl distributions, applications, init systems and container
 engines use the same runtime.
@@ -21,8 +22,8 @@ describes how those contracts are tested.
 
 ## Requirements
 
-- MagicDesk on Android 14+ and an authorized shell/root service. Shizuku or
-  Shevery supplies shell access without Android root. Managed Desktop is
+- MagicDesk on Android 14+. Shell execution additionally requires an authorized
+  service; Shizuku or Shevery supplies it without Android root. Managed Desktop is
   optional and has its own Android 15+ requirement.
 - Linux 5.15+ with the required operations permitted under the selected executor.
   Kernel version, Android version and build success alone do not establish this.
@@ -160,7 +161,7 @@ elapsed time; loaded-library listings are not an acceleration measurement.
 [`scripts/install_linux.sh`](../scripts/install_linux.sh) installs ARM64 Linux
 through the same named-environment manager. Run it in
 [MagicDesk Console](getting-started.md#open-the-android-shell-console)
-with shell or root access. Termux and managed Desktop are not required.
+with **User** or **Shell** selected. Termux and managed Desktop are not required.
 Download the file before running it so terminal input remains available for
 the questions:
 
@@ -171,8 +172,15 @@ sh ~/install_linux.sh
 
 This is the maintained download address. The installer can be updated without
 replacing the APK; download again to atomically replace `~/install_linux.sh`.
-UID 2000's shell home is `/data/local/tmp/magicdesk/`; root consoles use
-`/data/local/tmp/magicdesk/root`. Release tags retain the installer matching
+User's home is MagicDesk's private app data directory. Shell UID 2000 uses
+`/data/local/tmp/magicdesk/`; Shell with UID 0 uses
+`/data/local/tmp/magicdesk/root`. Each stores installations in `~/linux`.
+The installer and `--resume` operate only in their console's library, without
+switching executor or converting storage. The Linux picker labels entries
+`Alpine (User)` or `Debian (Shell)`; Shell keeps that name even with root access.
+Both executors use managed Shroot format 17. Root authority alone does not
+select native chroot/mount behavior or a different storage format.
+Release tags retain the installer matching
 that release.
 The current installer requires MagicDesk 2.2.5 or newer (`versionCode` 232),
 which supplies the completion-owned DMA-BUF consumer required by its Turnip
@@ -344,7 +352,7 @@ The installer does not run a background network monitor or overwrite later edits
 #### Resume An Interrupted Installation
 
 In [MagicDesk Console](getting-started.md#open-the-android-shell-console),
-using the same shell/root executor as before:
+using the same executor as before:
 
 ```sh
 shroot list
@@ -700,7 +708,7 @@ shroot remove tools
 shroot prune
 ```
 
-The named-environment manager uses the selected shell executor. It needs neither
+The named-environment manager uses the selected User or Shell executor. It needs neither
 Termux, Python, an external download tool nor a Docker daemon. Image import
 does not execute package scripts. The installer above is the separate step
 that configures packages and GUI services.
@@ -1274,7 +1282,7 @@ IP/name lookup, outbound DNS/HTTP, port conflicts and shutdown pass without
 Android root. This is separate from guest-root Docker and does not certify
 every RootlessKit driver or cgroup delegation setup.
 
-For both engines, guest root is still real Android UID 2000. Enabled cgroups
+For both engines, guest root retains the selected Android executor's actual UID. Enabled cgroups
 provide membership, freezer state, enforced hierarchical PID limits and sampled
 CPU/RSS counters. CPU quotas, cpuset affinity, memory and device limits remain
 unenforced; these are not full kernel resource controls.

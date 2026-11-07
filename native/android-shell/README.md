@@ -1,6 +1,6 @@
 # Android Shell
 
-MagicDesk packages unmodified upstream mksh R59c for its Android shell execution.
+MagicDesk packages unmodified upstream mksh R59c for User and Shell execution.
 The pinned, SHA-256-verified archive is the original upstream tarball mirrored
 by Debian, not Debian's patched package. This is a build adapter, not a shell fork.
 Future updates must pin a release/archive and review its Android configuration;
@@ -44,8 +44,9 @@ replaced. Resolution is lazy; missing mksh fails its requested command, not
 unrelated Binder services or app startup.
 
 `TerminalShellIntegration` sets shell-local `HISTFILE` and `HISTSIZE` in the owned
-interactive rc. History lives in `$XDG_STATE_HOME/shell_history`, normally
-`~/.local/state/shell_history`. Shell and root have separate HOME/state paths.
+interactive rc. History lives in `$XDG_STATE_HOME/shell_history`, resolved to
+`$HOME/files/state/shell_history`. App, shell and root identities have separate
+HOME/state paths.
 The shell owns the binary format, command boundaries, locking, append and startup
 compaction. The 2000-command setting is a recall/compaction size, not a strict
 on-disk quota while sessions are active. There is no database, polling, per-command
@@ -68,7 +69,7 @@ It uses private temporary homes and new subprocesses, never a user terminal.
 Do not replace the APK or terminate an existing terminal just to run this fixture.
 It checks `sh`/`mksh` identity, no-shebang execution with an isolated PATH, explicit
 and missing interpreters, and noninteractive rc/history exclusion.
-Verify new Console sessions under UID 2000 independently of Desktop: arrow-key
+Verify new User and Shell console sessions independently of Desktop: arrow-key
 recall, concurrent consoles, multiline input, process termination/reopen, and
 normal installer/Ctrl+C behavior. Repeat on API 34 and with the NDK-built APK;
 successful local compilation is not firmware compatibility coverage.

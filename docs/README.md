@@ -24,7 +24,7 @@ coverage, not a chronological development log.
 | Interface | Guide |
 | --- | --- |
 | MCP, CLI, permissions, observations and self-tests | [Automation](automation.md) |
-| Android applications invoking shell/Termux commands | [External command API](run-command.md) |
+| Android applications invoking User, Shell or Termux commands | [External command API](run-command.md) |
 | X11 applications and desktops | [X11](x11.md) |
 | Wayland applications, desktops and panels | [Wayland](wayland.md) |
 | Shared rendering and GPU boundaries | [Graphics](graphics.md) |

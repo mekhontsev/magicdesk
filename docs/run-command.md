@@ -15,7 +15,9 @@ extra grants authority. APK-exported application launchers do not receive this p
 Grant this access only to trusted applications: it permits arbitrary commands
 under the configured shell/root or selected Termux identity, not a restricted subset
 of MCP operations. Shroot environment selection is not a security sandbox.
-Shell/Shroot requests must name the expected UID (2000 or 0); a mismatch fails.
+User/Shell/Shroot requests must name the expected actual UID; a mismatch fails.
+`app` selects MagicDesk's own UID. `shell` permits 2000 or 0; `shroot` selects
+the library of the named app or service UID.
 Termux requests must name the currently selected package. MagicDesk neither starts
 a new privilege backend nor switches identities to satisfy a request.
 
@@ -52,8 +54,8 @@ Extras:
 | Field | Meaning |
 | --- | --- |
 | `version` | Required; `1`. Unknown versions/fields fail. |
-| `backend` | Required: `shell`, `termux`, or `shroot`. |
-| `executorUid` | Required for shell/Shroot: `2000` or `0`. Omit for Termux. |
+| `backend` | Required: `app`, `shell`, `termux`, or `shroot`. |
+| `executorUid` | Required for app/Shell/Shroot: the actual executor UID. Shell accepts `2000` or `0`; app accepts only MagicDesk\'s UID. Omit for Termux. |
 | `termuxPackage` | Required only for Termux, e.g. `com.termux`. |
 | `environmentId` | Required only for Shroot; stable UUID from `shroot list --json`. |
 | `program` | Required absolute executable path in the selected environment. |

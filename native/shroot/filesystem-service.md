@@ -101,8 +101,8 @@ Startup/shutdown controls remain eventfds. Socket payloads and semaphore counter
 do not use this contract.
 
 The abstract Unix SOCK_SEQPACKET endpoint has no filesystem path to translate.
-Both ends check SO_PEERCRED against their effective UID. Device fixtures require
-the already-selected shell UID 2000; build-host tests use the host UID. This is
+Both ends check SO_PEERCRED against their effective UID. Device fixtures retain
+the selected app or shell executor; build-host tests use the host UID. This is
 not authorization between mutually hostile processes sharing a UID, and the
 executor remains unsuitable as a security sandbox.
 

@@ -8,6 +8,8 @@ between distributions sharing a package manager, libc or init system.
 Last reconciled: 2026-11-03. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
+App-UID acceptance is recorded in [host execution](host-execution.md); these
+Shell table cells do not implicitly certify User installations.
 
 - [Reading Results](#reading-results)
 - [Linux 5.15 Capability Profile](#linux-515-capability-profile)

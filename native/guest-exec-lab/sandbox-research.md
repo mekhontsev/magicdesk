@@ -89,7 +89,7 @@ do not establish arbitrary exec, signal or process-lifetime compatibility.
 
 ## Signal-Neutral Checkpoints
 
-The common `task_checkpoint` owner now serves normal bootstrap control markers
+The common `task_checkpoint` owner serves normal bootstrap control markers
 through selective TRACE or scoped SYSEMU. `task_call` owns native entry/exit
 without a return BRK, and `signal_delivery` chains actual delivery stops without
 service single-step. Build the controls with `MAGICDESK_GUEST_FIXTURES=ON`:
@@ -151,9 +151,9 @@ The additional SYSEMU controls cover:
 - Sixteen native-entry replay cases: a real signal interrupts the original
   syscall without changing its number to -1. Entry and seccomp boundaries
   retain native write-once versus read EINTR/SA_RESTART behavior, original
-  metadata and a protected tracee. Unlike the old cancellation protocol, the
-  original call can complete before the handler, as with ordinary ptrace
-  delivery. Integration must preserve that ownership, not replay the call.
+  metadata and a protected tracee. The original call can complete before the
+  handler, as with ordinary ptrace delivery. Integration must preserve that
+  ownership, not replay the call.
 - Four register-copy cases: an owned load/store sequence publishes x3-x18,
   including x7/x8 payloads, through SYSEMU. An interrupt exposes the hidden x7
   before restoring application registers. The marker is identified by exact
@@ -188,7 +188,7 @@ not integrated Shroot copy implementations or coverage of every kernel.
 The same mode compares the production `guest_copy.S` with self-`process_vm` and
 a pipe round trip, rotating five rounds of 32768 copies of 128 bytes. Reports
 retain raw timings, medians and CPU-frequency context over the command envelope,
-not per-thread execution frequency. The first measured medians were 0.19 ms for
+not per-thread execution frequency. The recorded fixture medians are 0.19 ms for
 userspace, 6.8 ms for either `process_vm` direction and 8.4 ms for the pipe.
 The roughly 0.2 microsecond extra cost per kernel copy excludes PID lookup and
 adapter integration; it is not a measured whole-application slowdown.
@@ -204,7 +204,7 @@ separate helper lifecycle solely for this case.
 
 ### Combined Replay Protocol
 
-The retained-signal experiment now chains real delivery stops inside the same
+The retained-signal fixture chains real delivery stops inside the same
 kernel `get_signal` invocation. Each stop installs its retained siginfo, blocks
 that signal and queues/unblocks the next signal's own number. The final stop
 restores the application's mask. No application register or syscall number is
@@ -316,7 +316,7 @@ x0 when the kernel restarts using the application's private orig_x0. Four
 job-control tests verify private/shared CONT custody, cancellation by STOP,
 native LISTEN and no unintended group wake.
 
-The integration matrix includes the 142-check filesystem-signal suite, now with
+The integration matrix includes the 142-check filesystem-signal suite with
 ignored-SIGTRAP modes, protected memory, filters and metadata interruption;
 helper FD custody/cancellation, buffer/control events, file results/returns,
 mapping-task and private-memory tests; lazy signal recovery and thread churn;

@@ -694,8 +694,8 @@ the Debian source archive/preparation helper. Its repository baseline is
 `636a8dab1ef4eb94720733dedb8a4f754c55b8ec`; extract it only into a separate checkout
 of that baseline, not over an unrelated worktree. This is a local research
 backup, not a commit, release or backup of installed guest environments.
-Temporary device work directories were removed. Re-running requires the
-prepared guests and compiler/source caches described by the fixture profiles;
+Re-running requires the prepared guests and compiler/source caches described
+by the fixture profiles;
 the archive does not contain complete SteamOS/NixOS build environments.
 
 ### Rootfs Fixtures
