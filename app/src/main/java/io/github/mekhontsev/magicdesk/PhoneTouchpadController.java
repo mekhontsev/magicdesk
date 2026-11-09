@@ -10,6 +10,11 @@ final class PhoneTouchpadController {
     private PhoneTouchpadController() {
     }
 
+    static boolean canOpen() {
+        return isSupported(MagicDeskRuntime.inputDisplayId())
+                && ShellAccess.isReady() && MagicDeskRuntime.isPointerTransportReady();
+    }
+
     static void open() {
         final int displayId = MagicDeskRuntime.inputDisplayId();
         if (displayId > Display.DEFAULT_DISPLAY) {

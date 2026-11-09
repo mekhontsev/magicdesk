@@ -18,7 +18,7 @@ public final class ControlActivity extends Activity
         MagicDeskSessionHost {
     private static final int REQUEST_NOTIFICATIONS = 1;
     private static final String EXTRA_PANEL_ACTION = "panelAction";
-    enum LaunchAction { PANEL, CONSOLE, BLACK_SCREEN }
+    enum LaunchAction { PANEL, CONSOLE, BLACK_SCREEN, TOUCHPAD }
     private static WeakReference<ControlActivity> sActive =
             new WeakReference<>(null);
     private static java.util.concurrent.CompletableFuture<Boolean> sBlackScreenRequest;
@@ -120,6 +120,8 @@ public final class ControlActivity extends Activity
             TerminalSessions.resumeMostRecent(this);
         } else if (LaunchAction.BLACK_SCREEN.name().equals(action)) {
             openBlackScreen();
+        } else if (LaunchAction.TOUCHPAD.name().equals(action)) {
+            openTouchpad();
         }
     }
 
@@ -536,6 +538,10 @@ public final class ControlActivity extends Activity
 
     @Override
     public void openTouchpad() {
+        if (!PhoneTouchpadController.canOpen()) {
+            refresh();
+            return;
+        }
         mStatus = getString(R.string.status_touchpad_opening);
         refresh();
         PhoneTouchpadController.open();

@@ -26,6 +26,7 @@ public final class MagicDeskRuntimeService extends Service
     private static final int BLACK_SCREEN_REQUEST_CODE = 4;
     private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
     private static final int OPEN_TERMINAL_REQUEST_CODE = 3;
+    private static final int OPEN_TOUCHPAD_REQUEST_CODE = 5;
     private final PlatformDriver mPlatform = PlatformDrivers.current();
 
     private Handler mHandler;
@@ -836,6 +837,11 @@ public final class MagicDeskRuntimeService extends Service
         content.setOnClickPendingIntent(R.id.notification_black_screen, phoneActivityPendingIntent(
                 BLACK_SCREEN_REQUEST_CODE,
                 ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.BLACK_SCREEN)));
+        content.setViewVisibility(R.id.notification_touchpad,
+                PhoneTouchpadController.canOpen() ? android.view.View.VISIBLE : android.view.View.GONE);
+        content.setOnClickPendingIntent(R.id.notification_touchpad, phoneActivityPendingIntent(
+                OPEN_TOUCHPAD_REQUEST_CODE,
+                ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.TOUCHPAD)));
 
         final Notification.Builder builder =
                 new Notification.Builder(this, CHANNEL_ID);

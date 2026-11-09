@@ -165,13 +165,11 @@ final class PhoneControlPanelController {
         mConnectWirelessDisplay.setEnabled(state.wirelessConnectionUiAvailable
                 && !state.sessionOperationInProgress
                 && !state.displayOperation);
-        final boolean canOpenTouchpad = MagicDeskRuntime.inputDisplayId() > 0
-                && MagicDeskRuntime.isPointerTransportReady() && state.shellReady;
         final boolean busy = state.sessionOperationInProgress || state.displayOperation;
         mCreateDisplay.setEnabled(state.shellReady && !busy);
         final int inputDisplay = MagicDeskRuntime.inputDisplayId();
         mReleaseInput.setEnabled(state.shellReady && !busy && inputDisplay >= 0);
-        mTouchpad.setEnabled(canOpenTouchpad);
+        mTouchpad.setEnabled(PhoneTouchpadController.canOpen());
     }
 
     static boolean canCloseDesktop(

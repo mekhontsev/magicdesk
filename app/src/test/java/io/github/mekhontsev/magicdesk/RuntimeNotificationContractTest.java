@@ -28,7 +28,7 @@ public final class RuntimeNotificationContractTest {
                         + "MagicDeskRuntimeService.java"));
 
         assertTrue(source.contains("PendingIntent.getActivity("));
-        for (String action : new String[]{"PANEL", "CONSOLE", "BLACK_SCREEN"}) {
+        for (String action : new String[]{"PANEL", "CONSOLE", "BLACK_SCREEN", "TOUCHPAD"}) {
             assertTrue(source.contains("ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction." + action + ")"));
         }
         final String notification = RuntimeSourceFixture.methods("MagicDeskRuntimeService", "buildNotification");
@@ -56,13 +56,13 @@ public final class RuntimeNotificationContractTest {
                 .contains("android:taskAffinity=\"${applicationId}.control\""));
     }
 
-    @Test public void compactNotificationHasThreeAccessibleExistingIcons() throws Exception {
+    @Test public void compactNotificationHasThreeIconsAndClickablePanelText() throws Exception {
         final var xml = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
                 .parse(Path.of("src/main/res/layout/runtime_notification.xml").toFile());
         final var buttons = xml.getElementsByTagName("ImageButton");
         org.junit.Assert.assertEquals(3, buttons.getLength());
-        final String[] ids = {"notification_panel", "notification_console", "notification_black_screen"};
-        final String[] icons = {"ic_quick_controls", "ic_file_console", "ic_phone_screen_off"};
+        final String[] ids = {"notification_console", "notification_black_screen", "notification_touchpad"};
+        final String[] icons = {"ic_file_console", "ic_phone_screen_off", "ic_touchpad"};
         final String notification = RuntimeSourceFixture.methods("MagicDeskRuntimeService", "buildNotification");
         for (int i = 0; i < ids.length; i++) {
             final var button = (org.w3c.dom.Element) buttons.item(i);
@@ -73,6 +73,15 @@ public final class RuntimeNotificationContractTest {
             assertTrue(button.getAttribute("android:contentDescription").startsWith("@string/"));
             assertTrue(notification.contains("setOnClickPendingIntent(R.id." + ids[i] + ","));
         }
+        org.junit.Assert.assertEquals("gone", ((org.w3c.dom.Element) buttons.item(2)).getAttribute("android:visibility"));
+        assertTrue(notification.contains("PhoneTouchpadController.canOpen() ? android.view.View.VISIBLE : android.view.View.GONE"));
+        final var text = (org.w3c.dom.Element) xml.getElementsByTagName("LinearLayout").item(1);
+        org.junit.Assert.assertEquals("@+id/notification_panel", text.getAttribute("android:id"));
+        org.junit.Assert.assertEquals("1", text.getAttribute("android:layout_weight"));
+        org.junit.Assert.assertEquals("true", text.getAttribute("android:screenReaderFocusable"));
+        org.junit.Assert.assertEquals(2, text.getElementsByTagName("TextView").getLength());
+        assertTrue(notification.contains("setOnClickPendingIntent(R.id.notification_panel, openControlPanelPendingIntent)"));
+        assertTrue(notification.contains(".setContentIntent(openControlPanelPendingIntent)"));
     }
 
     @Test
@@ -95,7 +104,7 @@ public final class RuntimeNotificationContractTest {
     @Test public void panelActionsRequireFocusedResumedPhoneAndAreConsumedBeforeExecution() throws Exception {
         RuntimeSourceFixture.verify("""
                 static final String EXTRA_PANEL_ACTION="panelAction";
-                enum LaunchAction { PANEL, CONSOLE, BLACK_SCREEN }
+                enum LaunchAction { PANEL, CONSOLE, BLACK_SCREEN, TOUCHPAD }
                 static class Intent {
                     String action;
                     String getStringExtra(String key) { return action; }
@@ -126,13 +135,14 @@ public final class RuntimeNotificationContractTest {
                 final KeyguardManager keyguard=new KeyguardManager();
                 final BlackScreenMode mBlackScreen=new BlackScreenMode();
                 boolean mResumed,focused,unavailable;
-                int blackEnters;
+                int blackEnters, touchpadOpens;
                 Intent getIntent(){return intent;}
                 boolean hasWindowFocus(){return focused;}
                 boolean isActivityUnavailable(){return unavailable;}
                 Display getDisplay(){return display;}
                 KeyguardManager getSystemService(Class<?> type){return keyguard;}
                 void openBlackScreen(){check(intent.action==null,"action not consumed");mBlackScreen.active=true;blackEnters++;}
+                void openTouchpad(){check(intent.action==null,"action not consumed");touchpadOpens++;applyLaunchAction();}
                 public static void verify() {
                     var panel=new Fixture();panel.intent.action="CONSOLE";
                     panel.applyLaunchAction();
@@ -151,6 +161,10 @@ public final class RuntimeNotificationContractTest {
                     sBlackScreenRequest=new CompletableFuture<>();var request=sBlackScreenRequest;
                     panel.mBlackScreen.active=true;panel.intent.action="PANEL";panel.applyLaunchAction();
                     check(!panel.mBlackScreen.active && request.isCompletedExceptionally(),"explicit panel did not supersede black mode");
+                    panel.intent.action="TOUCHPAD";panel.focused=false;panel.applyLaunchAction();
+                    check(panel.touchpadOpens==0 && panel.intent.action!=null,"touchpad bypassed foreground panel");
+                    panel.focused=true;panel.applyLaunchAction();panel.applyLaunchAction();
+                    check(panel.touchpadOpens==1,"touchpad action repeated");
                     panel.intent.action="CONSOLE";panel.mResumed=false;panel.applyLaunchAction();
                     check(TerminalSessions.opens==1 && panel.intent.action!=null,"consumed action while paused");
                     panel.mResumed=true;panel.unavailable=true;panel.applyLaunchAction();
@@ -165,5 +179,35 @@ public final class RuntimeNotificationContractTest {
         for (String method : new String[]{"onNewIntent", "onResume", "onWindowFocusChanged"}) {
             assertTrue(RuntimeSourceFixture.methods("ControlActivity", method).contains("applyLaunchAction()"));
         }
+    }
+
+    @Test public void touchpadAvailabilityIsSharedAndDoesNotRequireDesktop() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Display { static final int DEFAULT_DISPLAY = 0; }
+                static class ShellAccess { static boolean ready; static boolean isReady() { return ready; } }
+                static class MagicDeskRuntime {
+                    static int display = -1;
+                    static boolean pointer;
+                    static int inputDisplayId() { return display; }
+                    static boolean isPointerTransportReady() { return pointer; }
+                }
+                public static void verify() {
+                    for (int display : new int[] {-1, 0, 7}) {
+                        for (boolean shell : new boolean[] {false, true}) {
+                            for (boolean pointer : new boolean[] {false, true}) {
+                                MagicDeskRuntime.display = display; ShellAccess.ready = shell;
+                                MagicDeskRuntime.pointer = pointer;
+                                check(canOpen() == (display > 0 && shell && pointer), "incorrect touchpad admission");
+                            }
+                        }
+                    }
+                }
+                """ + RuntimeSourceFixture.methods("PhoneTouchpadController", "canOpen", "isSupported"));
+        assertTrue(RuntimeSourceFixture.methods("PhoneControlPanelController", "render")
+                .contains("mTouchpad.setEnabled(PhoneTouchpadController.canOpen())"));
+        String open = RuntimeSourceFixture.methods("ControlActivity", "openTouchpad");
+        assertTrue(open.indexOf("!PhoneTouchpadController.canOpen()") < open.indexOf("PhoneTouchpadController.open()"));
+        assertTrue(RuntimeSourceFixture.methods("MagicDeskRuntimeService", "ensureInputRuntime")
+                .contains("updateNotification()"));
     }
 }
