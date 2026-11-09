@@ -558,11 +558,11 @@ static void transfer_epoll(const char *path,unsigned typed) {
     transfer_prepare(&f);
     assert(md_fd_message_exports_native(f.message,0));
     assert(!md_fd_message_exports_native(f.message,1));
-    assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,1,objects[0],(struct md_control_file){0},&event)==-EBUSY);
+    assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,1,objects[0],(struct md_control_file){0},&event,-1)==-EBUSY);
     /* Deliver to another worker/IPC owner with no local origin registry. The
      * capsule must preserve the native OFD, not require the sender's pointer. */
     md_fd_message_export_end(f.message,1);
-    assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,1,objects[0],(struct md_control_file){0},&event)==-EOPNOTSUPP);
+    assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,1,objects[0],(struct md_control_file){0},&event,-1)==-EOPNOTSUPP);
     close(ep); if (typed) close(fds[2]);
     receive_begin(&f); transfer_wait(&f.owner[1],&f.result[1]);
     assert(!f.result[1].error && !md_ipc_origins_take(&f.result[1].request,&f.result[1].received,NULL));

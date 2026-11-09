@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fifo_readiness.h"
+#include "control_subscription.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -78,8 +79,11 @@ static long poll_value(void *context) {
     return mask;
 }
 static int poll_native(void *context) { return ((struct md_fifo_readiness *)context)->active; }
+static int subscribe(void *context,int native,uint32_t events,struct md_control_file *out) {
+    return md_control_subscription(md_fifo_readiness_control(context),native,-1,events,out);
+}
 static const struct md_control_file_ops operations={.poll_descriptor=poll_descriptor,.poll=poll_value,
-    .poll_native=poll_native};
+    .poll_native=poll_native,.poll_subscribe=subscribe};
 struct md_control_file md_fifo_readiness_control(struct md_fifo_readiness *f) {
     return f ? (struct md_control_file){&operations,f} : (struct md_control_file){0};
 }

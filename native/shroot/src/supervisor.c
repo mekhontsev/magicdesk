@@ -4713,13 +4713,22 @@ static void readiness_start(struct thread *t) {
         if (o->operation) {
             o->target=md_fd_origins_object(t->resources.files,o->number,NULL);
             struct md_control_file provider=md_fd_object_readiness(o->target);
+            if (md_control_epoll_from_object(o->target) && o->operation!=EPOLL_CTL_DEL
+                    && (o->event.events&EPOLLEXCLUSIVE)) { readiness_reply(t,-EINVAL); return; }
             if (md_control_epoll_from_object(o->target)
                     && md_fd_object_selectors(o->target)) { readiness_reply(t,-EOPNOTSUPP); return; }
             if (!provider.ops || !provider.ops->poll) { readiness_reply(t,MD_EPOLL_NATIVE); return; }
             if (!queue) { readiness_reply(t,-EINVAL); return; }
+            if (o->operation==EPOLL_CTL_ADD && (o->event.events&EPOLLEXCLUSIVE) && provider.ops->poll_subscribe) {
+                /* Capture under the existing table turn; only cold layered
+                 * exclusive ADD needs a native source. Ordinary waits do not. */
+                int captured=md_fd_capture_native(t->pid,&o->number,1,&o->received);
+                if (captured<0) { readiness_reply(t,captured); return; }
+                if (!captured) { readiness_capture(t,MD_BUFFER_EPOLL_CAPTURE_READY,0); return; }
+            }
             CHECK(!md_fd_order_complete(&o->files));
             if (o->operation!=EPOLL_CTL_ADD) {
-                readiness_reply(t,md_control_epoll_ctl(queue,o->operation,o->number,o->target,provider,&o->event)); return;
+                readiness_reply(t,md_control_epoll_ctl(queue,o->operation,o->number,o->target,provider,&o->event,-1)); return;
             }
         } else {
             if (!queue) { readiness_reply(t,MD_EPOLL_NATIVE); return; }
@@ -4787,7 +4796,8 @@ static void readiness_start(struct thread *t) {
         readiness_admission_release(o,0);
     }
     struct md_control_file provider=md_fd_object_readiness(o->target);
-    readiness_reply(t,md_control_epoll_ctl(queue,o->operation,o->number,o->target,provider,&o->event));
+    readiness_reply(t,md_control_epoll_ctl(queue,o->operation,o->number,o->target,provider,&o->event,
+        o->received ? o->received->fds[0] : -1));
 }
 static void readiness_capture(struct thread *t,unsigned command,long value) {
     struct readiness_owner *o=t->readiness;
@@ -4805,6 +4815,7 @@ static void readiness_capture(struct thread *t,unsigned command,long value) {
     }
     if (error) { readiness_reply(t,error); return; }
     CHECK(!md_fd_order_complete(&o->files));
+    if (o->operation) { readiness_start(t); return; }
     o->native_caller=1;
     buffer_reply(t,MD_EPOLL_CAPTURED);
 }

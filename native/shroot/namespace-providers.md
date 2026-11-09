@@ -48,8 +48,16 @@ unpublished transport. The owner keys registrations by
 retained open-description identity plus registering FD. Native kernel epoll
 registrations and application event data remain untouched, including equal data
 values. Virtual events are collected into a separate result slice through a
-bounded ready queue. Level, edge and one-shot interests share provider readiness;
-exclusive and wake-lock requests return an explicit unsupported error.
+bounded ready queue. Level, edge and one-shot interests share provider readiness.
+Exclusive ADD applies the kernel's source-wakeup policy; invalid event masks and
+MOD of an exclusive interest return `EINVAL`, and DEL permits a fresh ADD.
+For layered TCP/FIFO readiness, `control_subscription` owns an independent kernel
+registration on a cold-captured original descriptor, not on the internal epoll
+transport. It retains no data FD and revalidates the provider after each wake;
+TCP handshake completion has a separate notification gate. Ordinary interests
+and native queues do not allocate this subscription or capture an extra FD.
+As with Linux, exclusive notification means one or more observers, not an exact
+one-worker scheduling guarantee. Suspend-inhibiting `EPOLLWAKEUP` remains unsupported.
 The enclosing descriptor custodian supplies confirmed OFD retirement, including
 aliases and queued transfers. Registration references alone cannot determine it.
 Cross-owner admission installs the selected queue's filters before activating

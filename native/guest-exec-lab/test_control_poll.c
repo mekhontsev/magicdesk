@@ -38,7 +38,7 @@ static void ready(int fd,int expected) {
 static int interest(struct md_control_epoll *q,int fd,struct md_proc_file *f,
         uint32_t events,uint64_t data) {
     struct epoll_event e={.events=events,.data.u64=data};
-    return md_control_epoll_ctl(q,EPOLL_CTL_ADD,fd,md_proc_file_object(f),md_proc_file_control(f),&e);
+    return md_control_epoll_ctl(q,EPOLL_CTL_ADD,fd,md_proc_file_object(f),md_proc_file_control(f),&e,-1);
 }
 static void epoll_sysctl(void) {
     unsigned before=descriptors();

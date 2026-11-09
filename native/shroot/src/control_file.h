@@ -154,6 +154,11 @@ struct md_control_file_ops {
      * Negative return values are errors, never application event masks. */
     int (*poll_descriptor)(void *,int *descriptor);
     long (*poll)(void *);
+    /* Exclusive subscriptions to layered native readiness need the original
+     * caller FD, not an internal epoll transport. Returns an owned per-interest
+     * provider; its release must not retain or close the original data OFD.
+     * The caller holds the target identity while evaluating its poll method. */
+    int (*poll_subscribe)(void *,int descriptor,uint32_t events,struct md_control_file *);
     /* True when the original application descriptor now supplies equivalent
      * native readiness. Existing virtual epoll subscriptions remain valid. */
     int (*poll_native)(void *);

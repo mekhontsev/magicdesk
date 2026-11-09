@@ -13,7 +13,7 @@ struct interest {
     struct md_fd_weak *identity;
     struct md_control_file provider;
     struct epoll_event event;
-    int fd,wake,lifetime,armed,lifetime_armed,queued,disabled;
+    int fd,wake,lifetime,armed,lifetime_armed,queued,disabled,owned_provider;
 };
 struct md_control_epoll {
     struct md_fd_object object;
@@ -65,6 +65,7 @@ static void dequeue(struct md_control_epoll *q,struct interest *i) {
 static int arm(struct md_control_epoll *q,struct interest *i) {
     if (i->wake<0 || i->armed) return 0;
     struct epoll_event event={.events=EPOLLIN|EPOLLET,.data.ptr=i};
+    if (!i->owned_provider) event.events|=i->event.events&EPOLLEXCLUSIVE;
     if (epoll_ctl(q->events,EPOLL_CTL_ADD,i->wake,&event)) return -errno;
     i->armed=1; return 0;
 }
@@ -86,6 +87,7 @@ static void discard(struct md_control_epoll *q,struct interest *i) {
     }
     if (i->previous) i->previous->next=i->next; else q->first=i->next;
     if (i->next) i->next->previous=i->previous;
+    if (i->owned_provider) md_control_file_release(i->provider);
     md_fd_weak_release(i->identity); free(i);
 }
 static void transport_close(struct md_control_epoll *q) {
@@ -188,15 +190,20 @@ static void reap(struct md_control_epoll *q) {
     }
 }
 static uint32_t requested(const struct epoll_event *e) {
-    return (e->events&~(EPOLLET|EPOLLONESHOT))|EPOLLERR|EPOLLHUP;
+    return (e->events&~(EPOLLET|EPOLLONESHOT|EPOLLEXCLUSIVE|EPOLLWAKEUP))|EPOLLERR|EPOLLHUP;
 }
 static int control(struct md_control_epoll *q,int operation,int fd,
-        struct md_fd_object *identity,struct md_control_file provider,const struct epoll_event *event) {
+        struct md_fd_object *identity,struct md_control_file provider,const struct epoll_event *event,int native) {
     if (!q || !identity || fd<0) return -EINVAL;
     if (operation!=EPOLL_CTL_ADD && operation!=EPOLL_CTL_MOD && operation!=EPOLL_CTL_DEL) return -EINVAL;
     if (operation!=EPOLL_CTL_DEL && !event) return -EFAULT;
-    /* These policies need a distinct owner; do not silently approximate them. */
-    if (event && operation!=EPOLL_CTL_DEL && (event->events&(EPOLLEXCLUSIVE|EPOLLWAKEUP))) return -EOPNOTSUPP;
+    if (event && operation!=EPOLL_CTL_DEL) {
+        if ((event->events&EPOLLEXCLUSIVE) && (operation!=EPOLL_CTL_ADD
+                || (event->events&~(EPOLLIN|EPOLLOUT|EPOLLERR|EPOLLHUP|EPOLLET|EPOLLWAKEUP|EPOLLEXCLUSIVE))))
+            return -EINVAL;
+        /* Suspend inhibition has no virtual owner. */
+        if (event->events&EPOLLWAKEUP) return -EOPNOTSUPP;
+    }
     int observed=harvest(q);
     if (observed) return observed;
     reap(q);
@@ -211,6 +218,7 @@ static int control(struct md_control_epoll *q,int operation,int fd,
     }
     if (operation==EPOLL_CTL_MOD) {
         if (!i) return -ENOENT;
+        if (i->event.events&EPOLLEXCLUSIVE) return -EINVAL;
         int error=arm(q,i);
         if (error) return error;
         long mask=i->provider.ops->poll(i->provider.context);
@@ -229,8 +237,13 @@ static int control(struct md_control_epoll *q,int operation,int fd,
     i->identity=md_fd_weak_observe(identity); i->provider=provider;
     if (!i->identity) { int error=-errno; free(i); return error; }
     i->next=q->first; if (q->first) q->first->previous=i; q->first=i;
-    int descriptor=-1;
-    int error=provider.ops->poll_descriptor ? provider.ops->poll_descriptor(provider.context,&descriptor) : 0;
+    int descriptor=-1,error=0;
+    if ((event->events&EPOLLEXCLUSIVE) && provider.ops->poll_subscribe) {
+        error=provider.ops->poll_subscribe(provider.context,native,event->events,&i->provider);
+        if (!error) i->owned_provider=1;
+    }
+    provider=i->provider;
+    if (!error && provider.ops->poll_descriptor) error=provider.ops->poll_descriptor(provider.context,&descriptor);
     if (!error && descriptor>=0) {
         i->wake=fcntl(descriptor,F_DUPFD_CLOEXEC,3);
         if (i->wake<0) error=-errno;
@@ -258,7 +271,7 @@ static int control(struct md_control_epoll *q,int operation,int fd,
     return error;
 }
 int md_control_epoll_ctl(struct md_control_epoll *q,int operation,int fd,
-        struct md_fd_object *identity,struct md_control_file provider,const struct epoll_event *event) {
+        struct md_fd_object *identity,struct md_control_file provider,const struct epoll_event *event,int native) {
     if (!q) return -EINVAL;
     if (atomic_load_explicit(&q->admission,memory_order_acquire)&UNCERTAIN) return -ESTALE;
     int admitted=0;
@@ -268,7 +281,7 @@ int md_control_epoll_ctl(struct md_control_epoll *q,int operation,int fd,
     } else if (atomic_load_explicit(&q->admission,memory_order_acquire)&PREPARING) {
         return -EBUSY;
     }
-    int error=control(q,operation,fd,identity,provider,event);
+    int error=control(q,operation,fd,identity,provider,event,native);
     /* A failed first subscription publishes no virtual state. Native send
      * reservations and activation exclude one another, including worker races. */
     if (admitted) {

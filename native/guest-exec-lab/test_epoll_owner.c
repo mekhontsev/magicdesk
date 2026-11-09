@@ -136,22 +136,22 @@ static void export_admission(int *budget) {
         assert(md_fd_message_export_begin(a)==-EBUSY);
         for (unsigned i=0;i<253;++i) assert(md_fd_message_exports_native(a,i)==!(i%2));
         assert(!md_fd_message_exports_native(a,253));
-        assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event)==-EBUSY);
+        assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event,-1)==-EBUSY);
         md_fd_message_export_end(a,mode==1);
         md_fd_message_release(a);
-        assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event)
+        assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event,-1)
             ==(mode==1 ? -EOPNOTSUPP : -EBUSY));
         if (mode!=3) md_fd_message_export_end(b,mode==2);
         md_fd_message_release(b); /* mode 3: implicit cancellation */
         *budget=-1;
-        int result=md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event);
+        int result=md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event,-1);
         assert(result==((mode==1 || mode==2) ? -EOPNOTSUPP : 0));
         if (!result) {
             struct md_fd_object *object=md_control_epoll_object(q);
             a=capture(&object,1);
             assert(!md_fd_message_export_begin(a) && !md_fd_message_exports_native(a,0));
             md_fd_message_export_end(a,1); md_fd_message_release(a);
-            assert(!md_control_epoll_ctl(q,EPOLL_CTL_DEL,7,target,provider,NULL));
+            assert(!md_control_epoll_ctl(q,EPOLL_CTL_DEL,7,target,provider,NULL,-1));
             assert(object->type->export_begin(object)==-EOPNOTSUPP);
         }
         md_control_epoll_release(q);
@@ -162,7 +162,7 @@ static void export_admission(int *budget) {
     struct md_fd_message *message=capture(objects,2);
     assert(md_fd_message_export_begin(message)==-ENOMEM);
     assert(!md_fd_message_exports_native(message,0));
-    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event));
+    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event,-1));
     md_fd_message_release(message); md_fd_object_release(&failure); md_control_epoll_release(q);
     struct export_race race={0}; pthread_t worker;
     assert(!pthread_barrier_init(&race.gate,NULL,2));
@@ -170,11 +170,11 @@ static void export_admission(int *budget) {
     for (unsigned n=0;n<1000;++n) {
         q=md_control_epoll_new(); assert(q); race.object=md_control_epoll_object(q);
         pthread_barrier_wait(&race.gate);
-        int result=md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event);
+        int result=md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event,-1);
         pthread_barrier_wait(&race.gate);
         assert((result==-EBUSY && !race.result) || (!result && race.result==-EOPNOTSUPP));
         pthread_barrier_wait(&race.gate);
-        if (result) assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event));
+        if (result) assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,7,target,provider,&event,-1));
         md_control_epoll_release(q);
     }
     assert(!pthread_join(worker,NULL)); pthread_barrier_destroy(&race.gate);
@@ -197,7 +197,7 @@ static void target_retirement(int *budget) {
     struct md_fd_origins *child=md_fd_origins_fork(files,0); assert(child);
     struct md_control_epoll *q=md_control_epoll_new(); assert(q);
     struct epoll_event event={.events=0,.data.u64=42},out;
-    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,40,md_proc_file_object(source),md_proc_file_control(source),&event));
+    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,40,md_proc_file_object(source),md_proc_file_control(source),&event,-1));
     struct md_fd_weak *weak=md_fd_weak_observe(md_proc_file_object(source)); assert(weak);
     md_proc_file_release(source);
     mutation(files,SYS_close,40,0,0,0,budget);
@@ -242,7 +242,7 @@ static void staged_admission(int *budget) {
     assert(md_fd_object_selectors(md_fd_message_origins(message)[0])==((1U<<MD_FD_SELECTOR_EPOLL)|(1U<<MD_FD_SELECTOR_EPOLL_TARGET)));
     assert(!md_fd_message_export_begin(message) && !md_fd_message_exports_native(message,0));
     md_fd_message_export_end(message,0);
-    assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,8,object,(struct md_control_file){0},NULL)==-EBUSY);
+    assert(md_control_epoll_ctl(q,EPOLL_CTL_ADD,8,object,(struct md_control_file){0},NULL,-1)==-EBUSY);
     assert(!md_control_epoll_admit_finish(q,0));
     assert(!md_fd_object_selectors(object));
     assert(md_control_epoll_descriptor(q)==-1);
@@ -285,7 +285,7 @@ static void uncertain_aliases(int *budget) {
         assert(md_control_epoll_admit_begin(q)==-ESTALE);
         struct epoll_event event;
         assert(md_control_epoll_collect(q,&event,1)==-ESTALE);
-        assert(md_control_epoll_ctl(q,EPOLL_CTL_DEL,99,NULL,(struct md_control_file){0},NULL)==-ESTALE);
+        assert(md_control_epoll_ctl(q,EPOLL_CTL_DEL,99,NULL,(struct md_control_file){0},NULL,-1)==-ESTALE);
         if (mutation==1) assert(md_control_epoll_admit_begin(replaced)==-ESTALE);
         else { assert(md_control_epoll_admit_begin(replaced)==1); assert(!md_control_epoll_admit_finish(replaced,0)); }
         md_fd_origins_release(files); md_control_epoll_release(q); md_control_epoll_release(replaced);
@@ -306,7 +306,7 @@ static void uncertain_wakeup(int *budget) {
     assert(!md_fd_origins_prepare_object(files,md_control_epoll_object(q),0,&update));
     md_fd_origins_finish(&update,10);
     struct epoll_event event={.events=0};
-    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,20,md_proc_file_object(source),md_proc_file_control(source),&event));
+    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,20,md_proc_file_object(source),md_proc_file_control(source),&event,-1));
     assert(!md_control_epoll_collect(q,&event,1));
     struct pollfd wake={md_control_epoll_descriptor(q),POLLIN,0};
     assert(!poll(&wake,1,0));
@@ -552,7 +552,7 @@ void test_epoll_owner(int *budget) {
     struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&(struct md_control_opener){.identity=&id},O_RDONLY);
     md_control_file_release(provider); assert(source);
     struct epoll_event event={.events=EPOLLPRI,.data.u64=UINT64_MAX},out;
-    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,40,md_proc_file_object(source),md_proc_file_control(source),&event));
+    assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,40,md_proc_file_object(source),md_proc_file_control(source),&event,-1));
     int transport=md_control_epoll_descriptor(q); assert(transport>=0);
     struct md_fd_message *queued=NULL; int number=11;
     assert(!md_fd_message_capture(child,&number,1,&queued));
@@ -575,7 +575,7 @@ void test_epoll_owner(int *budget) {
     *budget=-1;
     object=md_fd_origins_object(files,received,NULL);
     assert(md_control_epoll_from_object(object)==q); md_fd_object_release(object);
-    assert(!md_control_epoll_ctl(q,EPOLL_CTL_DEL,40,md_proc_file_object(source),(struct md_control_file){0},NULL));
+    assert(!md_control_epoll_ctl(q,EPOLL_CTL_DEL,40,md_proc_file_object(source),(struct md_control_file){0},NULL,-1));
     assert(md_control_epoll_descriptor(q)==transport);
     *budget=0; md_fd_origins_exec(files); md_fd_origins_release(files); *budget=-1;
     assert(fcntl(transport,F_GETFD)==-1 && errno==EBADF);

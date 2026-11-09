@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "control_epoll.h"
 #include "control_event.h"
+#include "control_subscription.h"
 #include "event_signal.h"
 #include "fd_weak.h"
 #include <assert.h>
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 extern void control_no_allocation(int);
@@ -20,7 +22,7 @@ struct sample {
     struct md_fd_object identity;
     struct md_control_cursor cursor;
     uint32_t events;
-    int error;
+    int error,level;
 };
 static void destroy(struct md_fd_object *object) {
     struct sample *s=(void *)object;
@@ -38,6 +40,7 @@ static int wake(void *context,int *descriptor) {
 static long sample_poll(void *context) {
     struct sample *s=context;
     if (s->error) return s->error;
+    if (s->level) return s->events;
     int changed=md_control_cursor_poll(&s->cursor);
     if (changed<0) return changed;
     return s->events|(changed ? EPOLLPRI|EPOLLERR : 0);
@@ -51,7 +54,7 @@ static struct sample *sample(struct md_control_event *source,uint32_t events) {
 }
 static int ctl(struct md_control_epoll *q,int op,int fd,struct sample *s,uint32_t events,uint64_t data) {
     struct epoll_event e={.events=events,.data.u64=data};
-    return md_control_epoll_ctl(q,op,fd,&s->identity,(struct md_control_file){&ops,s},&e);
+    return md_control_epoll_ctl(q,op,fd,&s->identity,(struct md_control_file){&ops,s},&e,-1);
 }
 static unsigned descriptors(void) {
     DIR *d=opendir("/proc/self/fd"); assert(d);
@@ -119,7 +122,7 @@ static void policies(void) {
     empty(q);
     assert(!ctl(q,EPOLL_CTL_MOD,1,a,EPOLLIN|EPOLLONESHOT,5));
     assert(md_control_epoll_collect(q,out,2)==1 && out[0].data.u64==5); empty(q);
-    assert(ctl(q,EPOLL_CTL_MOD,2,b,EPOLLIN|EPOLLEXCLUSIVE,6)==-EOPNOTSUPP);
+    assert(ctl(q,EPOLL_CTL_MOD,2,b,EPOLLIN|EPOLLEXCLUSIVE,6)==-EINVAL);
     assert(ctl(q,EPOLL_CTL_ADD,3,b,EPOLLWAKEUP,6)==-EOPNOTSUPP);
     assert(!md_control_event_publish(source));
     assert(md_control_epoll_collect(q,out,2)==1 && out[0].data.u64==4);
@@ -159,6 +162,73 @@ static void mixed(void) {
     close(native); close(counter);
     assert(descriptors()==before);
     puts("PASS mixed native/virtual epoll: existing equal data, 100000 rounds without allocation or FD leak");
+}
+static void exclusive(void) {
+    unsigned before=descriptors();
+    struct md_control_event *source=md_control_event_new(); assert(source);
+    struct sample *s=sample(source,0);
+    s->level=1;
+    struct md_control_epoll *q[3];
+    for (unsigned i=0;i<3;++i) { q[i]=md_control_epoll_new(); assert(q[i]); }
+    const uint32_t flags=EPOLLIN|EPOLLEXCLUSIVE;
+    assert(ctl(q[0],EPOLL_CTL_ADD,9,s,flags|EPOLLONESHOT,9)==-EINVAL);
+    assert(ctl(q[0],EPOLL_CTL_ADD,9,s,flags|EPOLLPRI,9)==-EINVAL);
+    assert(ctl(q[0],EPOLL_CTL_ADD,9,s,flags|EPOLLRDHUP,9)==-EINVAL);
+    assert(ctl(q[0],EPOLL_CTL_MOD,9,s,flags,9)==-EINVAL);
+    for (unsigned i=0;i<3;++i) {
+        assert(!ctl(q[i],EPOLL_CTL_ADD,9,s,EPOLLIN|EPOLLET|(i ? EPOLLEXCLUSIVE : 0),i));
+        empty(q[i]);
+    }
+    assert(ctl(q[1],EPOLL_CTL_ADD,9,s,flags,9)==-EEXIST);
+    assert(ctl(q[1],EPOLL_CTL_MOD,9,s,EPOLLIN,9)==-EINVAL);
+    for (unsigned round=0;round<32;++round) {
+        s->events=EPOLLIN; assert(!md_control_event_publish(source));
+        unsigned exclusive_ready=0;
+        for (unsigned i=0;i<3;++i) {
+            struct epoll_event out;
+            int count=md_control_epoll_collect(q[i],&out,1);
+            assert(count>=0 && (i || count==1));
+            if (count) {
+                assert(out.data.u64==i && (out.events&EPOLLIN));
+                assert(!(out.events&(EPOLLEXCLUSIVE|EPOLLET)));
+                if (i) ++exclusive_ready;
+            }
+        }
+        assert(exclusive_ready);
+        s->events=0;
+        assert(md_control_cursor_poll(&s->cursor)==1);
+        for (unsigned i=0;i<3;++i) empty(q[i]);
+    }
+    assert(!ctl(q[1],EPOLL_CTL_DEL,9,s,UINT32_MAX,0));
+    assert(!ctl(q[1],EPOLL_CTL_ADD,9,s,EPOLLIN,10));
+    assert(!ctl(q[1],EPOLL_CTL_MOD,9,s,EPOLLIN|EPOLLONESHOT,11));
+    release(s);
+    for (unsigned i=0;i<3;++i) { empty(q[i]); md_control_epoll_release(q[i]); }
+    md_control_event_release(source);
+    assert(descriptors()==before);
+    puts("PASS exclusive epoll: masks, ADD/MOD/DEL, mixed observers, data and retirement");
+}
+static void subscription_lifetime(void) {
+    unsigned before=descriptors();
+    struct md_control_event *source=md_control_event_new(); assert(source);
+    struct sample *s=sample(source,0);
+    struct md_control_file provider={&ops,s},subscription={0};
+    int sockets[2]; assert(!socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,sockets));
+    unsigned acquired=descriptors();
+    control_fail_allocation(1);
+    assert(md_control_subscription(provider,sockets[0],-1,EPOLLIN|EPOLLEXCLUSIVE,&subscription)==-ENOMEM);
+    control_fail_allocation(0);
+    assert(descriptors()==acquired && !subscription.ops);
+    assert(md_control_subscription(provider,sockets[0],-1,EPOLLPRI|EPOLLEXCLUSIVE,&subscription)==-EINVAL);
+    assert(descriptors()==acquired && !subscription.ops);
+    assert(!md_control_subscription(provider,sockets[0],-1,EPOLLIN|EPOLLEXCLUSIVE,&subscription));
+    close(sockets[0]);
+    char byte;
+    assert(recv(sockets[1],&byte,1,MSG_DONTWAIT)==0);
+    md_control_file_release(subscription); close(sockets[1]);
+    release(s); md_control_event_release(source);
+    assert(descriptors()==before);
+    puts("PASS layered subscription rollback and native socket final-close semantics");
 }
 static void batch_retirement(void) {
     struct md_control_event *source=md_control_event_new(); assert(source);
@@ -274,5 +344,6 @@ void test_control_epoll(void) {
     assert(!md_control_epoll_admit_finish(q,1));
     assert(!md_control_epoll_native_wait(object));
     md_control_epoll_release(q);
-    identities(); policies(); mixed(); batch_retirement(); admission_failure(); retired_oneshot();
+    identities(); policies(); mixed(); exclusive(); subscription_lifetime();
+    batch_retirement(); admission_failure(); retired_oneshot();
 }

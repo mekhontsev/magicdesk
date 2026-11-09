@@ -305,33 +305,48 @@ def port():
         return probe.getsockname()[1]
 
 
-def nginx(suite, store, controls=False):
+def nginx_workers(suite, store, controls, workers):
     number = port()
     config = f'''user nginx;
-worker_processes 1;
+worker_processes {workers};
 error_log {'stderr' if controls else '/dev/stderr'} info;
 pid /tmp/md-nginx.pid;
 events {{ worker_connections 32; }}
 http {{ access_log off; server {{ listen 127.0.0.1:{number}; root /usr/share/nginx/html; }} }}
 '''
     suite.command(suite.run(store, '--entrypoint', '/bin/sh', '--', '-ec',
-                            'printf %s "$1" > /tmp/md-nginx.conf', 'fixture', config))
-    server = Server(suite, suite.run(store, '--', 'nginx', '-c', '/tmp/md-nginx.conf', '-g', 'daemon off;'))
+                            'printf %s "$1" > /tmp/md-nginx.conf; '
+                            'rm -f /tmp/md-nginx-stop; mkfifo /tmp/md-nginx-stop', 'fixture', config))
+    # Keep shutdown in the server's supervised process tree. Another image run
+    # is an independent PID/signal domain even when it uses the same store.
+    server = Server(suite, suite.run(store, '--network', 'routed', '--', '/bin/sh', '-ec',
+        '/docker-entrypoint.sh nginx -c /tmp/md-nginx.conf -g "daemon off;" & master=$!; '
+        'read -r stop < /tmp/md-nginx-stop; '
+        'nginx -c /tmp/md-nginx.conf -s quit; wait "$master"'))
     try:
-        server.ready('start worker process')
-        client = http.client.HTTPConnection('127.0.0.1', number, timeout=10)
-        try:
-            client.request('GET', '/')
-            response = client.getresponse()
-            body = response.read()
-            assert response.status == 200 and b'Welcome to nginx!' in body, (response.status, body)
-        finally:
-            client.close()
-        suite.command(suite.run(store, '--entrypoint', 'nginx', '--', '-c', '/tmp/md-nginx.conf', '-s', 'quit'))
+        for _ in range(os.cpu_count() if workers == 'auto' else workers):
+            server.ready('start worker process ')
+        for _ in range(16):
+            client = http.client.HTTPConnection('127.0.0.1', number, timeout=10)
+            try:
+                client.request('GET', '/', headers={'Connection': 'close'})
+                response = client.getresponse()
+                body = response.read()
+                assert response.status == 200 and b'Welcome to nginx!' in body, (response.status, body)
+            finally:
+                client.close()
+        assert not any('fatal code' in line or 'epoll_ctl(' in line for line in server.log), server.log
+        suite.command(suite.run(store, '--entrypoint', '/bin/sh', '--', '-ec',
+                                'printf "quit\\n" > /tmp/md-nginx-stop'))
         server.completed()
     finally:
         server.close()
-    print('PASS nginx workers and HTTP response; logging control=' + str(controls), flush=True)
+    print(f'PASS nginx workers={workers} and HTTP response; logging control={controls}', flush=True)
+
+
+def nginx(suite, store, controls=False):
+    for workers in (1, 2, 'auto'):
+        nginx_workers(suite, store, controls, workers)
 
 
 def redis(suite, store, controls=False):
@@ -783,6 +798,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--build', type=Path, help='Explicit native build instead of installed APK helpers')
+    add_machine_entry_argument(parser)
     KernelProfile.add_argument(parser)
     parser.add_argument('--controls', action='store_true',
                         help='Explicit controls: nginx stderr directive and redis --user redis, not default-entrypoint passes')
@@ -792,7 +808,7 @@ def main():
         group.add_argument('--' + name + '-instance', help='Explicit disposable prepared instance on device')
     args = parser.parse_args()
     assert any(getattr(args, name) or getattr(args, name + '_instance') for name in NAMES)
-    suite = Suite(args.output, args.build, kernel_profile=args.kernel_profile)
+    suite = Suite(args.output, args.build, machine_entry=args.machine_entry, kernel_profile=args.kernel_profile)
     suite.report['controls'] = args.controls
     try:
         for name, test in (('nginx', nginx), ('redis', redis), ('postgres', postgres),

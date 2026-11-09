@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "network_connection.h"
+#include "control_subscription.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -36,19 +37,21 @@ struct md_network_connection *md_network_connection_new(int fd) {
     if (error) { md_network_connection_free(c); errno=error; return NULL; }
     return c;
 }
+static int prepare_completion(struct md_network_connection *c) {
+    if (c->completion>=0) return 0;
+    int fd=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK);
+    if (fd<0) return -errno;
+    struct epoll_event e={.events=EPOLLIN,.data.u64=1};
+    if (epoll_ctl(c->wake,EPOLL_CTL_ADD,fd,&e)) { int error=-errno; close(fd); return error; }
+    c->completion=fd; return 0;
+}
 int md_network_connection_begin(struct md_network_connection *c) {
     if (!c) return 0;
     pthread_mutex_lock(&c->lock);
     int error=0;
     if (c->state==PENDING) error=-EALREADY;
     else if (c->state==COMPLETE) error=-EISCONN;
-    if (!error && c->completion<0) {
-        int fd=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK);
-        struct epoll_event e={.events=EPOLLIN,.data.u64=1};
-        if (fd<0) error=-errno;
-        else if (epoll_ctl(c->wake,EPOLL_CTL_ADD,fd,&e)) { error=-errno; close(fd); }
-        else c->completion=fd;
-    }
+    if (!error) error=prepare_completion(c);
     if (!error) {
         uint64_t value;
         while (read(c->completion,&value,sizeof(value))>0) {}
@@ -117,7 +120,15 @@ static int poll_wait_descriptor(void *context,int *fd) {
     pthread_mutex_lock(&c->lock); *fd=c->completion;
     pthread_mutex_unlock(&c->lock); return 0;
 }
+static int subscribe(void *context,int native,uint32_t events,struct md_control_file *out) {
+    struct md_network_connection *c=context;
+    pthread_mutex_lock(&c->lock);
+    int error=prepare_completion(c);
+    if (!error) error=md_control_subscription(md_network_connection_readiness(c),native,c->completion,events,out);
+    pthread_mutex_unlock(&c->lock); return error;
+}
 static const struct md_control_file_ops operations={.poll_descriptor=poll_descriptor,.poll=poll_value,
+    .poll_subscribe=subscribe,
     .poll_native=poll_native,.poll_wait_descriptor=poll_wait_descriptor};
 struct md_control_file md_network_connection_readiness(struct md_network_connection *c) {
     return c ? (struct md_control_file){&operations,c} : (struct md_control_file){0};

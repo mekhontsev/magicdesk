@@ -34,7 +34,7 @@ long md_epoll_call(long nr,const unsigned long *a) {
     }
     if (!result) result=md_guest_buffer_control(MD_BUFFER_EPOLL_BEGIN,0,0);
     if (result>0 && result!=MD_EPOLL_NATIVE && result!=MD_EPOLL_CAPTURED) {
-        int fd=(int)a[0];
+        int fd=(int)a[nr==SYS_epoll_ctl ? 2 : 0];
         const struct md_descriptor_capture_protocol p={MD_FS_BUFFER_EPOLL_ADMIT,MD_BUFFER_EPOLL_CAPTURE_READY,
             MD_BUFFER_EPOLL_CAPTURE_SENT,MD_BUFFER_EPOLL_CAPTURE_OBSERVED,MD_EPOLL_CAPTURED,
             f->admission.number ? &f->admission : NULL};

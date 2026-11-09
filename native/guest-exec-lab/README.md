@@ -513,7 +513,13 @@ protected stdio metadata, CLOEXEC, read/mmap/close and single-effect O_EXCL.
 The optional installed `file` utility is reported separately when unavailable.
 
 `test_epoll_runtime.py --build BUILD --store STORE --trace --machine-entry`
-runs mixed/native readiness, signal masks, shared-table races and denied
+includes exclusive FIFO/signalfd subscriptions, aliases, invalid mask/MOD
+requests, retirement and application-filter coverage. The OCI nginx fixture
+checks 1, 2 and automatic worker counts over routed TCP, repeated HTTP requests
+and shutdown in the server's own signal domain; `--base`, `--machine-entry`
+and `--kernel-profile linux-5.15` select independent admission checks.
+
+The epoll fixture also runs mixed/native readiness, signal masks, shared-table races and denied
 retirement through guest strace. Cold-admission cases add a first virtual interest
 to an already-blocked finite or infinite epoll wait, including protected callers
 and epoll_pwait2. Native-ready cases cover one-shot consumption, invalid output

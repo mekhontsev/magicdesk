@@ -711,8 +711,70 @@ static void native_wait_capacity(void) {
     close(ready[0]); close(fd);
     puts("PASS mixed epoll: 64 filtered forked native waits leave shared transport available");
 }
+static void exclusive_sources(void) {
+    char path[96];
+    snprintf(path,sizeof(path),"/tmp/md-exclusive-%ld",(long)getpid());
+    assert(!mkfifo(path,0600));
+    int reader=open(path,O_RDONLY|O_NONBLOCK|O_CLOEXEC),writer=-1;
+    assert(reader>=0);
+    int alias=dup(reader); assert(alias>=0);
+    int queues[2]={epoll_create1(EPOLL_CLOEXEC),epoll_create1(EPOLL_CLOEXEC)};
+    for (unsigned i=0;i<2;++i) {
+        assert(queues[i]>=0);
+        struct epoll_event event={.events=EPOLLIN|EPOLLET|(i ? EPOLLEXCLUSIVE : 0),.data.u64=41+i};
+        assert(!epoll_ctl(queues[i],EPOLL_CTL_ADD,reader,&event));
+        assert(!epoll_wait(queues[i],&event,1,0));
+    }
+    struct epoll_event event={.events=EPOLLIN};
+    assert(epoll_ctl(queues[1],EPOLL_CTL_MOD,reader,&event)==-1 && errno==EINVAL);
+    event.events=EPOLLIN|EPOLLEXCLUSIVE|EPOLLONESHOT;
+    assert(epoll_ctl(queues[1],EPOLL_CTL_ADD,alias,&event)==-1 && errno==EINVAL);
+    writer=open(path,O_WRONLY|O_NONBLOCK|O_CLOEXEC); assert(writer>=0);
+    close(reader);
+    for (unsigned round=0;round<8;++round) {
+        byte_write(writer);
+        for (unsigned i=0;i<2;++i) {
+            /* EVENT_WAIT: data notification, with a deadline failing lost wakeups. */
+            assert(epoll_wait(queues[i],&event,1,2000)==1);
+            assert(event.events==EPOLLIN && event.data.u64==41+i);
+        }
+        byte_read(alias);
+        for (unsigned i=0;i<2;++i) assert(!epoll_wait(queues[i],&event,1,0));
+    }
+    close(writer);
+    for (unsigned i=0;i<2;++i) {
+        assert(epoll_wait(queues[i],&event,1,2000)==1 && event.events==EPOLLHUP);
+    }
+    close(alias);
+    for (unsigned i=0;i<2;++i) { assert(!epoll_wait(queues[i],&event,1,0)); close(queues[i]); }
+    assert(!unlink(path));
+
+    sigset_t mask,previous;
+    sigemptyset(&mask); sigaddset(&mask,SIGUSR1);
+    assert(!sigprocmask(SIG_BLOCK,&mask,&previous));
+    int signal=signalfd(-1,&mask,SFD_CLOEXEC|SFD_NONBLOCK),ep=epoll_create1(EPOLL_CLOEXEC);
+    assert(signal>=0 && ep>=0);
+    event=(struct epoll_event){.events=EPOLLIN|EPOLLEXCLUSIVE,.data.u64=UINT64_MAX};
+    assert(!epoll_ctl(ep,EPOLL_CTL_ADD,signal,&event));
+    event.events=EPOLLIN;
+    assert(epoll_ctl(ep,EPOLL_CTL_MOD,signal,&event)==-1 && errno==EINVAL);
+    for (unsigned round=0;round<8;++round) {
+        assert(!raise(SIGUSR1));
+        assert(epoll_wait(ep,&event,1,2000)==1 && event.events==EPOLLIN && event.data.u64==UINT64_MAX);
+        struct signalfd_siginfo info;
+        assert(read(signal,&info,sizeof(info))==sizeof(info) && info.ssi_signo==SIGUSR1);
+        assert(!epoll_wait(ep,&event,1,0));
+    }
+    assert(!epoll_ctl(ep,EPOLL_CTL_DEL,signal,(void *)1));
+    close(signal); close(ep); assert(!sigprocmask(SIG_SETMASK,&previous,NULL));
+    puts("PASS mixed epoll: exclusive FIFO and signalfd, aliases, masks, data and retirement");
+}
 int main(int argc,char **argv) {
     setbuf(stdout,NULL);
+    if (argc==2 && !strcmp(argv[1],"--exclusive")) { exclusive_sources(); return 0; }
+    if (argc==2 && !strcmp(argv[1],"--exclusive-filtered")) {
+        assert(!filter_probe()); exclusive_sources(); return 0;
+    }
     if (argc==2 && !strcmp(argv[1],"--native-ready")) { native_ready(); return 0; }
     if (argc==2 && !strcmp(argv[1],"--native-capacity")) { native_wait_capacity(); return 0; }
     if (argc==2 && !strcmp(argv[1],"--cold-admission")) {

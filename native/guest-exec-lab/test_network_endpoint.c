@@ -27,7 +27,7 @@ static void endpoint_option(struct md_fd_object *o,int fd,unsigned level,unsigne
     if (error) fprintf(stderr,"endpoint option %u/%u: %d\n",level,option,error);
     assert(!error);
 }
-static void connection_observers(struct md_network_namespace *n,unsigned family) {
+static void connection_observers(struct md_network_namespace *n,unsigned family,uint32_t policy) {
     struct md_fd_object *object=NULL; int fd=-1;
     assert(!md_network_endpoint_open(n,0,family,SOCK_STREAM,0,&object,&fd));
     struct md_inet_address address={.ip=md_ip_loopback(family)};
@@ -39,10 +39,10 @@ static void connection_observers(struct md_network_namespace *n,unsigned family)
     assert(peer>=0);
     struct md_control_file provider=md_fd_object_readiness(object);
     struct md_control_epoll *queues[2]={md_control_epoll_new(),md_control_epoll_new()};
-    struct epoll_event event={.events=EPOLLIN|EPOLLET,.data.u64=42},observed;
+    struct epoll_event event={.events=EPOLLIN|EPOLLET|policy,.data.u64=42},observed;
     for (unsigned i=0;i<2;++i) {
         assert(queues[i]);
-        assert(!md_control_epoll_ctl(queues[i],EPOLL_CTL_ADD,fd,object,provider,&event));
+        assert(!md_control_epoll_ctl(queues[i],EPOLL_CTL_ADD,fd,object,provider,&event,fd));
     }
     for (unsigned round=0;round<32;++round) {
         assert(write(peer,"x",1)==1);
@@ -61,7 +61,7 @@ static void connection_observers(struct md_network_namespace *n,unsigned family)
     for (unsigned i=0;i<2;++i) md_control_epoll_release(queues[i]);
     close(peer); close(server); close(fd); md_fd_object_release(object);
 }
-static void refused_connect(struct md_network_namespace *n,const struct md_inet_address *target) {
+static void refused_connect(struct md_network_namespace *n,const struct md_inet_address *target,uint32_t policy) {
     struct md_fd_object *object=NULL; int fd=-1;
     assert(!md_network_endpoint_open(n,0,target->ip.family,SOCK_STREAM|SOCK_NONBLOCK,0,&object,&fd));
     struct md_inet_address client={.ip=md_ip_loopback(target->ip.family)},gateway;
@@ -71,10 +71,10 @@ static void refused_connect(struct md_network_namespace *n,const struct md_inet_
     path.translated=path.original;
     struct md_control_file provider=md_fd_object_readiness(object);
     struct md_control_epoll *queue=md_control_epoll_new();
-    struct epoll_event event={.events=EPOLLOUT|EPOLLET,.data.u64=42},observed;
+    struct epoll_event event={.events=EPOLLOUT|EPOLLET|policy,.data.u64=42},observed;
     assert(queue && provider.ops);
     /* Registration before connect must remain valid when mediation starts. */
-    assert(!md_control_epoll_ctl(queue,EPOLL_CTL_ADD,fd,object,provider,&event));
+    assert(!md_control_epoll_ctl(queue,EPOLL_CTL_ADD,fd,object,provider,&event,fd));
     pthread_mutex_lock(&n->fabric->lock);
     assert(!md_network_forward_route(n,object,SOCK_STREAM,&client,target,&path,&gateway));
     assert(md_inet_connect(fd,&gateway,0)==-1 && errno==EINPROGRESS);
@@ -111,7 +111,8 @@ static void refused_connect(struct md_network_namespace *n,const struct md_inet_
 static void forwarded_connect(unsigned family) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     assert(n);
-    connection_observers(n,family);
+    connection_observers(n,family,0);
+    connection_observers(n,family,EPOLLEXCLUSIVE);
     struct md_inet_address bad={.ip=md_ip_any(family),.port=htons(9)};
     if (family==AF_INET) bad.ip.v4=htonl(INADDR_BROADCAST);
     else { bad.ip.bytes[0]=0xfe; bad.ip.bytes[1]=0x80; bad.ip.bytes[15]=1; }
@@ -134,7 +135,7 @@ static void forwarded_connect(unsigned family) {
     /* A reserved but non-listening port rejects the SYN. Nonblocking connect
      * reports EINPROGRESS first; the queued SO_ERROR must not become success
      * merely because the relay itself can accept a local connection. */
-    for (unsigned i=0;i<32;++i) refused_connect(n,&target);
+    for (unsigned i=0;i<32;++i) refused_connect(n,&target,i&1 ? EPOLLEXCLUSIVE : 0);
     assert(!listen(server,1));
     fd=socket(family,SOCK_STREAM|SOCK_CLOEXEC,0);
     assert(fd>=0 && !md_inet_bind(fd,&client,0) && !md_inet_name(fd,0,&client));
