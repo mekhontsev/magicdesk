@@ -30,6 +30,9 @@ int md_notification_result_status(struct md_notification_result *,const struct s
 int md_notification_result_fd(struct md_notification_result *,const struct seccomp_data *,
     struct md_fd_origins *,int,struct md_fd_object *,unsigned);
 int md_notification_result_matches(const struct md_notification_result *,const struct seccomp_data *);
+/* Only queued descriptor publication can yield to a competing table owner.
+ * The provider retains its completed result across notification cancellation. */
+int md_notification_result_queued(const struct md_notification_result *);
 int md_notification_result_offer(struct md_notification_result *,int,uint64_t,struct md_resource_wakeup *);
 int md_notification_result_progress(struct md_notification_result *);
 /* Scalar SEND acceptance does not prove consumption when a signal races it.

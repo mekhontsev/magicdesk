@@ -12047,12 +12047,19 @@ static void describe_pending_tasks(void) {
         if (!group) ++total;
         if (shown==16 || (t->pid==t->tgid)!=!group) continue;
         ++shown;
-        fprintf(stderr,"Shroot: pending pid=%d tgid=%d phase=%d stopped=%d listening=%d interrupt=%d syscall=%llu buffer=%d broker=%d ipc=%d outgoing=%d action=%d readiness=%d\n",
-            t->pid,t->tgid,t->phase,t->kernel_stopped,t->listening,t->interrupt_pending,t->original.regs[8],
+        fprintf(stderr,"Shroot: pending pid=%d tgid=%d phase=%d stopped=%d resume=%d listening=%d interrupt=%d syscall=%llu buffer=%d broker=%d ipc=%d outgoing=%d action=%d readiness=%d\n",
+            t->pid,t->tgid,t->phase,t->kernel_stopped,t->kernel_resume,t->listening,t->interrupt_pending,t->original.regs[8],
             t->buffer_call!=NULL,t->broker_completion!=NULL,t->ipc_pending!=NULL,t->outgoing!=NULL,
             t->action!=NULL,t->readiness!=NULL);
     }
     if (total>shown) fprintf(stderr,"Shroot: pending tasks shown=%u total=%u\n",shown,total);
+    if (task_action_execution) {
+        struct task_action *owner=task_action_execution;
+        fprintf(stderr,"Shroot: task action requester=%d actor=%d stage=%d brokerBorrowed=%d\n",
+            owner->requester ? owner->requester->pid : 0,owner->actor ? owner->actor->pid : 0,
+            task_action_call(owner)->stage,owner->broker_borrowed);
+        if (task_action_barrier) md_task_quiesce_describe(task_action_barrier,STDERR_FILENO);
+    }
     md_broker_describe(broker,STDERR_FILENO);
 }
 static void cancellation_expired(void) {

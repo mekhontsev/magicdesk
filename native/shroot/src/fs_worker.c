@@ -403,12 +403,13 @@ void md_fs_worker_notifications(struct md_fs_worker *w, int fd, void *context,
     w->prepare_wait=prepare;
     pthread_mutex_unlock(&w->lock); md_queue_signal_send(&w->wake);
 }
+void md_fs_worker_notify(struct md_fs_worker *w) { md_queue_signal_send(&w->done); }
 void md_fs_worker_publish(struct md_fs_worker *w, struct md_fs_work *work) {
     work->next = NULL;
     work->published_at=md_cost_begin(w->statistics ? &w->delivery : NULL);
     pthread_mutex_lock(&w->lock);
     *w->completed_tail = work; w->completed_tail = &work->next;
-    pthread_mutex_unlock(&w->lock); md_queue_signal_send(&w->done);
+    pthread_mutex_unlock(&w->lock); md_fs_worker_notify(w);
 }
 int md_fs_worker_submit(struct md_fs_worker *w, struct md_fs_work *work) {
     if (!w || !work || !work->run || !work->complete) return -EINVAL;

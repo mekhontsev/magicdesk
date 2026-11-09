@@ -42,6 +42,9 @@ int md_notification_result_fd(struct md_notification_result *r,const struct secc
 int md_notification_result_matches(const struct md_notification_result *r,const struct seccomp_data *call) {
     return r && r->active && call && md_notification_same_call(&r->call,call);
 }
+int md_notification_result_queued(const struct md_notification_result *r) {
+    return r && md_fd_order_state(&r->install.files)==MD_RESOURCE_ORDER_QUEUED;
+}
 int md_notification_result_progress(struct md_notification_result *r) {
     if (!r || !r->active || !r->pending || r->delivered) return -EINVAL;
     if (r->source>=0) {

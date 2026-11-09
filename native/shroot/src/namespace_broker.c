@@ -151,8 +151,11 @@ struct task {
 static void describe_task(const struct task *t,int fd) {
     dprintf(fd,"Shroot: broker pid=%d eligible=%d stopped=%d held=%d status=%#x borrowed=%d operation=%d recovering=%d\n",
         t->pid,t->eligible,t->stopped,t->held,t->status,t->borrowed,t->operation!=NULL,t->recovering);
-    if (t->operation) dprintf(fd,"Shroot: broker operation pid=%d nativePlan=%d\n",
-        t->pid,t->operation->native_plan);
+    if (t->operation) dprintf(fd,"Shroot: broker operation pid=%d nativePlan=%d files=%d fs=%d executed=%d deliveryQueued=%d direct=%d nativeBorrowed=%d\n",
+        t->pid,t->operation->native_plan,md_fd_order_state(&t->operation->order),
+        md_fs_order_state(&t->operation->fs_order),t->operation->executed,
+        md_notification_result_queued(&t->operation->completion),
+        t->operation->channel!=NULL,t->native_borrowed);
     struct md_entry_channel *c=t->channel;
     if (c) dprintf(fd,"Shroot: channel pid=%d state=%u enabled=%u caller=%u awake=%u sleeping=%u native=%u\n",
         t->pid,atomic_load(&c->state),atomic_load(&c->enabled),atomic_load(&c->caller),
@@ -312,7 +315,8 @@ int md_broker_native_borrow(struct md_namespace_broker *b,pid_t pid,int *stopped
         if (t->native_borrowed) result=-EBUSY;
         else if (t->held && (!WIFSTOPPED(t->status) || (unsigned)t->status>>16==PTRACE_EVENT_EXIT
                 || (unsigned)t->status>>16==PTRACE_EVENT_EXEC)) result=-ESRCH;
-        else if (op && op->native_plan!=3 && md_fd_order_state(&op->order)!=MD_RESOURCE_ORDER_QUEUED)
+        else if (op && op->native_plan!=3 && md_fd_order_state(&op->order)!=MD_RESOURCE_ORDER_QUEUED
+                && !md_notification_result_queued(&op->completion))
             result=-EBUSY;
         else {
             if (t->channel) atomic_store_explicit(&t->channel->native_regular,0,memory_order_release);
@@ -802,7 +806,13 @@ static int reply(struct operation *op, const void *data) {
         if (result==MD_NOTIFICATION_STATUS) result=md_notification_result_reply(&op->completion);
         result_observed(op->owner,result);
         if (result==MD_NOTIFICATION_CANCELLED) { recover(op); return 0; }
-        if (result==MD_NOTIFICATION_WAIT) return 2;
+        if (result==MD_NOTIFICATION_WAIT) {
+            /* A selector/capture owner may hold this table and need the
+             * receiver. The effect is complete: publish borrowable admission,
+             * retaining the result if interrupting its notification cancels it. */
+            md_fs_worker_notify(op->owner->worker);
+            return 2;
+        }
         if (result==MD_NOTIFICATION_DELIVERED) op->result.error=op->completion.value<0 ? (int)op->completion.value : 0;
         return result<0 ? result : 1;
     }

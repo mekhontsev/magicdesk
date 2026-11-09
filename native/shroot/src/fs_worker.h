@@ -72,6 +72,9 @@ int md_fs_worker_submit(struct md_fs_worker *, struct md_fs_work *);
 /* Supervisor-only: dispatch each completion to its explicit owner, including
  * remaining completions after an earlier callback failed. */
 int md_fs_worker_dispatch(struct md_fs_worker *);
+/* A retained operation changed admission state without completing. Notify the
+ * supervisor's existing event source so dependent owners can retry. */
+void md_fs_worker_notify(struct md_fs_worker *);
 void md_fs_worker_publish(struct md_fs_worker *, struct md_fs_work *);
 void md_fs_worker_notifications(struct md_fs_worker *, int, void *,
         int (*)(void *, struct md_filesystem *, short), int (*prepare_wait)(void *));

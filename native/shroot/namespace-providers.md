@@ -68,6 +68,10 @@ virtual interests. It releases unrelated file tables after capturing aliases;
 later descriptor transfers admit the reserved selectors through their ordinary
 publication owner. Only tables containing existing aliases remain held through
 selector installation. No file-table turn spans a blocking readiness wait.
+An owner may borrow a receiver awaiting queued FD publication: the operation's
+completed result stays retained across notification cancellation. The worker
+announces this admission change through its existing completion event source,
+so a table owner never waits for delivery that requires its own turn to finish.
 
 Blocking epoll and selected FIFO poll/select reuse the task-affine native-wait
 owner, including signal delivery and cancellation. Shared-table epoll captures

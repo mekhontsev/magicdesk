@@ -66,7 +66,9 @@ void md_test_notification_result(void) {
     assert(sends==4 && !installs); sends=0; send_error=0;
     expired=0;
     struct md_notification_result result={0};
+    assert(!md_notification_result_queued(&result));
     assert(!md_notification_result_fd(&result,&call,files,source,&origin,O_CLOEXEC));
+    assert(!md_notification_result_queued(&result));
     assert(md_notification_result_matches(&result,&call));
     for (unsigned i=0;i<6;++i) {
         call.args[i]^=1; assert(!md_notification_result_matches(&result,&call)); call.args[i]^=1;
@@ -76,6 +78,7 @@ void md_test_notification_result(void) {
     assert(!result.delivered && result.source==source && !sends);
     install_error=0; expired=0;
     assert(md_notification_result_offer(&result,listener,2,NULL)==MD_NOTIFICATION_DELIVERED);
+    assert(!md_notification_result_queued(&result));
     assert(result.value==42 && installs==2 && !sends);
     struct md_fd_object *published=md_fd_origins_object(files,42,NULL);
     assert(published==&origin); md_fd_object_release(published);
@@ -99,11 +102,15 @@ void md_test_notification_result(void) {
     assert(!md_notification_result_fd(&result,&call,files,source,&origin,0));
     install_error=0;
     assert(md_notification_result_offer(&result,listener,5,NULL)==MD_NOTIFICATION_WAIT);
+    assert(md_notification_result_queued(&result));
     expired=1;
     assert(md_notification_result_progress(&result)==MD_NOTIFICATION_CANCELLED);
+    assert(!md_notification_result_queued(&result));
     expired=0;
     assert(md_notification_result_offer(&result,listener,6,NULL)==MD_NOTIFICATION_WAIT);
+    assert(md_notification_result_queued(&result));
     assert(!md_notification_result_clear(&result) && !md_fd_order_complete(&busy));
+    assert(!md_notification_result_queued(&result));
     assert(installs==3 && sends==2 && !released && fcntl(source,F_GETFD)>=0);
     assert(!md_notification_result_status(&result,&call,-ENOENT));
     expired=1;
