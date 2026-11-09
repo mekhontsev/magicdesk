@@ -216,9 +216,7 @@ static void reap(struct md_control_epoll *q) {
 static uint32_t requested(const struct epoll_event *e) {
     return (e->events&~(EPOLLET|EPOLLONESHOT|EPOLLEXCLUSIVE|EPOLLWAKEUP))|EPOLLERR|EPOLLHUP;
 }
-static int control(struct md_control_epoll *q,int operation,int fd,
-        struct md_fd_object *identity,struct md_control_file provider,const struct epoll_event *event,int native) {
-    if (!q || !identity || fd<0) return -EINVAL;
+static int validate_control(int operation,const struct epoll_event *event) {
     if (operation!=EPOLL_CTL_ADD && operation!=EPOLL_CTL_MOD && operation!=EPOLL_CTL_DEL) return -EINVAL;
     if (operation!=EPOLL_CTL_DEL && !event) return -EFAULT;
     if (event && operation!=EPOLL_CTL_DEL) {
@@ -228,6 +226,13 @@ static int control(struct md_control_epoll *q,int operation,int fd,
         /* Suspend inhibition has no virtual owner. */
         if (event->events&EPOLLWAKEUP) return -EOPNOTSUPP;
     }
+    return 0;
+}
+static int control(struct md_control_epoll *q,int operation,int fd,
+        struct md_fd_object *identity,struct md_control_file provider,const struct epoll_event *event,int native) {
+    if (!q || !identity || fd<0) return -EINVAL;
+    int validated=validate_control(operation,event);
+    if (validated) return validated;
     int observed=harvest(q);
     if (observed) return observed;
     reap(q);
@@ -366,9 +371,8 @@ int md_control_epoll_task_begin(struct md_control_epoll *q,int operation,int fd,
         struct epoll_event *native,struct md_epoll_task_control **out) {
     if (!q || !object || !object->type->task_poll || !object->type->task_poll_epoch || !out || !native)
         return -EINVAL;
-    if (operation!=EPOLL_CTL_ADD && operation!=EPOLL_CTL_MOD && operation!=EPOLL_CTL_DEL) return -EINVAL;
-    if (operation!=EPOLL_CTL_DEL && !event) return -EFAULT;
-    if (event && operation!=EPOLL_CTL_DEL && (event->events&(EPOLLEXCLUSIVE|EPOLLWAKEUP))) return -EOPNOTSUPP;
+    int validated=validate_control(operation,event);
+    if (validated) return validated;
     unsigned state=atomic_load_explicit(&q->admission,memory_order_acquire);
     if (state&UNCERTAIN) return -ESTALE;
     if (!(state&VIRTUAL)) return -EINVAL;
@@ -378,6 +382,7 @@ int md_control_epoll_task_begin(struct md_control_epoll *q,int operation,int fd,
     struct task_interest *i=q->tasks;
     while (i && !(i->fd==fd && i->identity==weak)) i=i->next;
     if (operation==EPOLL_CTL_ADD ? i!=NULL : i==NULL) return operation==EPOLL_CTL_ADD ? -EEXIST : -ENOENT;
+    if (operation==EPOLL_CTL_MOD && (i->event.events&EPOLLEXCLUSIVE)) return -EINVAL;
     struct md_epoll_task_control *c=calloc(1,sizeof(*c));
     if (!c) return -ENOMEM;
     if (operation==EPOLL_CTL_ADD) {
@@ -396,7 +401,8 @@ int md_control_epoll_task_begin(struct md_control_epoll *q,int operation,int fd,
         free(c); return error;
     }
     *c=(struct md_epoll_task_control){.queue=q,.interest=i,.operation=operation,
-        .event=event ? *event : (struct epoll_event){0},.domain=object->type->task_poll_epoch(object,actor).domain};
+        .event=operation!=EPOLL_CTL_DEL ? *event : (struct epoll_event){0},
+        .domain=object->type->task_poll_epoch(object,actor).domain};
     *native=(struct epoll_event){.events=c->event.events,.data.u64=i->token};
     q->task_control=c; md_fd_object_retain(&q->object); *out=c;
     return 0;

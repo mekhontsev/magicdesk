@@ -56,6 +56,9 @@ registration on a cold-captured original descriptor, not on the internal epoll
 transport. It retains no data FD and revalidates the provider after each wake;
 TCP handshake completion has a separate notification gate. Ordinary interests
 and native queues do not allocate this subscription or capture an extra FD.
+Task-affine sources use the same flag validation and registration lifetime;
+their native registration executes in the caller and retains `EPOLLEXCLUSIVE`,
+while logical readiness is evaluated in that caller's signal domain.
 As with Linux, exclusive notification means one or more observers, not an exact
 one-worker scheduling guarantee. Suspend-inhibiting `EPOLLWAKEUP` remains unsupported.
 The enclosing descriptor custodian supplies confirmed OFD retirement, including

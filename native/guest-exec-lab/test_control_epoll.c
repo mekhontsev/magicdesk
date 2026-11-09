@@ -347,16 +347,17 @@ static int task_collect(struct md_control_epoll *q,const struct md_control_actor
     md_control_epoll_task_delivery_finish(q,1);
     return result;
 }
-static void task_affinity(void) {
+static void task_affinity(uint32_t policy) {
     unsigned before=descriptors();
     struct md_control_epoll *q=md_control_epoll_new(); assert(q);
     struct task_sample *s=calloc(1,sizeof(*s)); assert(s);
     md_fd_object_init(&s->object,&task_type); s->mask=EPOLLIN; s->revision=1;
     struct md_control_actor actor={.pid=17,.status_flags=1},other={.pid=18,.status_flags=1};
     struct md_epoll_task_control *operation=NULL,*busy=NULL;
-    struct epoll_event e={.events=EPOLLIN|EPOLLET,.data.u64=UINT64_MAX},native,out[4];
+    struct epoll_event e={.events=EPOLLIN|EPOLLET|policy,.data.u64=UINT64_MAX},native,out[4];
     assert(md_control_epoll_admit_begin(q)==1 && !md_control_epoll_admit_finish(q,1));
     assert(!md_control_epoll_task_begin(q,EPOLL_CTL_ADD,7,&s->object,&actor,&e,&native,&operation));
+    assert(native.events==e.events);
     uint64_t token=native.data.u64;
     assert(token && token!=UINT64_MAX);
     assert(md_control_epoll_task_begin(q,EPOLL_CTL_ADD,8,&s->object,&actor,&e,&native,&busy)==-EAGAIN && !busy);
@@ -372,13 +373,27 @@ static void task_affinity(void) {
     assert(md_control_epoll_task_delivery_begin(q)==1);
     assert(!md_control_epoll_task_delivery_begin(q));
     assert(md_control_epoll_task_collect(q,&actor,NULL,0,out,4)==1);
-    assert(md_control_epoll_task_begin(q,EPOLL_CTL_MOD,7,&s->object,&actor,&e,&native,&busy)==-EAGAIN);
+    assert(md_control_epoll_task_begin(q,EPOLL_CTL_ADD,8,&s->object,&actor,&e,&native,&busy)==-EAGAIN);
     md_control_epoll_task_delivery_finish(q,0);
     assert(task_collect(q,&actor,&returned,1,out,4)==1 && out[0].data.u64==UINT64_MAX);
     assert(!md_control_epoll_task_ready(q,&actor));
     assert(!task_collect(q,&actor,NULL,0,out,4));
     ++s->revision;
     assert(task_collect(q,&actor,NULL,0,out,4)==1);
+    if (policy&EPOLLEXCLUSIVE) {
+        assert(md_control_epoll_task_begin(q,EPOLL_CTL_MOD,7,&s->object,&actor,&e,&native,&busy)==-EINVAL);
+        e.events=EPOLLIN;
+        assert(md_control_epoll_task_begin(q,EPOLL_CTL_MOD,7,&s->object,&actor,&e,&native,&busy)==-EINVAL);
+        assert(!md_control_epoll_task_begin(q,EPOLL_CTL_DEL,7,&s->object,&actor,
+            (const struct epoll_event *)1,&native,&operation));
+        md_control_epoll_task_finish(operation,0);
+        e.events=EPOLLIN|EPOLLEXCLUSIVE|EPOLLONESHOT;
+        assert(md_control_epoll_task_begin(q,EPOLL_CTL_ADD,7,&s->object,&actor,&e,&native,&busy)==-EINVAL);
+        e.events=EPOLLIN|EPOLLONESHOT;
+        assert(!md_control_epoll_task_begin(q,EPOLL_CTL_ADD,7,&s->object,&actor,&e,&native,&operation));
+        md_control_epoll_task_finish(operation,0);
+        returned.data.u64=native.data.u64;
+    }
     e.events=EPOLLIN|EPOLLONESHOT;
     assert(!md_control_epoll_task_begin(q,EPOLL_CTL_MOD,7,&s->object,&actor,&e,&native,&operation));
     md_control_epoll_task_finish(operation,0);
@@ -417,5 +432,5 @@ void test_control_epoll(void) {
     assert(!md_control_epoll_native_wait(object));
     md_control_epoll_release(q);
     identities(); policies(); mixed(); exclusive(); subscription_lifetime();
-    batch_retirement(); admission_failure(); retired_oneshot(); task_affinity();
+    batch_retirement(); admission_failure(); retired_oneshot(); task_affinity(0); task_affinity(EPOLLEXCLUSIVE);
 }
