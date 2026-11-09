@@ -54,6 +54,10 @@ concurrent database access; shareable backing custody remains a separate owner.
 The mounted-store LRU targets 16 connections, skipping active references. Nested
 scopes and in-flight births can temporarily exceed that target; pruning/cache
 misses trim idle excess. Cache capacity is not a guest `EMFILE` condition.
+Mount-table policy reads reuse an existing connection to the same catalogue
+across retained overlay scopes. They use the catalogue gate and current policy
+query, without opening an overlay writer or importing another mount's flags.
+They neither enlarge the IO cache nor add a separately invalidated policy cache.
 
 `inode_db.c` owns transactions, allocation, identities and metadata queries;
 `inode_schema.c` owns creation, format/revision admission, metadata upgrades,
@@ -740,6 +744,11 @@ independent of OCI parsing and launch-local directory attachments.
   also request explicit barriers. Data or checkpoint errors propagate; they are
   not converted into successful durability acknowledgements.
 - Detached objects and uncommitted allocations are retained and audited separately.
+  The native image helper's `maintain STORE` command collects unused projection
+  views and untracked physical allocations under the exclusive store lifetime
+  gate. A live owner causes EBUSY before any maintenance; ordinary `prepare`
+  and guest syscalls do not perform this scan. Shared source bodies and allocated
+  reserves remain referenced and are retained.
   There is no live garbage collector for ordinary detached objects. Removing metadata while another process
   holds an FD would break descriptor lookup. Long-lived stores can therefore
   accumulate unreachable backing data; live reclamation remains unsupported.

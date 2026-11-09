@@ -5,7 +5,7 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-11-03. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-11-07. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 App-UID acceptance is recorded in [host execution](host-execution.md); these
@@ -18,6 +18,7 @@ Shell table cells do not implicitly certify User installations.
 - [Packaged Browsers And Portals](#packaged-browsers-and-portals)
 - [Desktop And Development](#desktop-and-development)
 - [Added System Workloads](#added-system-workloads)
+- [K3s](#k3s)
 - [Evidence And Open Work](#evidence-and-open-work)
 
 ## Reading Results
@@ -318,6 +319,36 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 
 ### K3s
 
+K3s is required in the selected matrix for **every recipe OS**, independently
+for Shell and User. Reuse `test_k3s.py`; an init system or package manager does
+not exclude a recipe. Missing test prerequisites remain B, never NA by default.
+The paired cells retain lazy/Base entry results. Cluster receipts below qualify
+only their named topology and host profile, not untested configurations.
+The process fixture uses the normal Linux service umask `022`; Shroot itself
+preserves the caller's mask, including Android's private app mask.
+
+| Recipe ID | Shell | User |
+| --- | --- | --- |
+| debian | P/N | P/N |
+| ubuntu | N/N | P/N |
+| alpine | P/N | F/N |
+| fedora | N/N | P/N |
+| arch | N/N | P/N |
+| opensuse | N/N | P/N |
+| openkylin | N/N | P/N |
+| deepin | N/N | P/N |
+| manjaro | N/N | P/N |
+| void | N/N | N/N |
+| armtix | N/N | P/N |
+| nixos | N/N | P/N |
+| steamos | N/N | P/N |
+
+Distribution-specific User acceptance, Alpine's unresolved workload shutdown
+failure, and separate persistent boot/recovery results are recorded in
+[host execution](host-execution.md#qualifying-evidence). A passing boot/recovery
+run does not replace workload lifecycle acceptance. The following receipts are
+Shell results; they do not certify User or another distribution.
+
 The qualified binary is stock ARM64 k3s v1.37.1+k3s1, running as
 guest root under shell UID 2000, with stock container seccomp enabled. Passing
 requires Node Ready, CoreDNS, positive kubelet root filesystem capacity,
@@ -578,6 +609,15 @@ This ledger retains current acceptance evidence and unresolved blockers, not
 the history of repaired defects. Replace a failed status after a qualifying
 rerun and remove its resolved explanation. Regression coverage belongs in the
 tests. Local report paths identify evidence, not durable public downloads.
+
+User-executor coverage uses existing recipe stores through the borrowed-store
+fixture rather than creating copies. Per-distribution scope and remaining
+failures are recorded in [host execution](host-execution.md#qualifying-evidence),
+including init/service lifecycle, containers and virtual machines, k3s,
+packaged browsers/portals, VS Code and recipe desktop workflows.
+Keep User evidence separate from the Shell results above. Shared runtime
+fixes require focused Shell regressions, not an implicit rerun or promotion of
+the entire Shell matrix.
 
 Detailed receipts are grouped in [Distribution acceptance evidence](distribution-evidence.md):
 

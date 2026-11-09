@@ -41,8 +41,14 @@ fabrics.
 
 Published TCP/UDP ports become shared typed DNAT rules reached from PREROUTING
 and OUTPUT on the gateway;
-private guest binds do not automatically publish. `network_filter_update`
-shares validation, direct-flow compatibility, frontend reservation and commit
+private guest binds do not automatically publish.
+Local loopback clients are source-translated to the gateway address for both
+families before entering the private link; external client addresses remain
+unchanged. Conntrack retains the original tuple for replies. This keeps guest
+reverse-path filtering meaningful without disabling it or leaking loopback
+addresses across the link.
+
+`network_filter_update` shares validation, direct-flow compatibility, frontend reservation and commit
 with the nftables adapter. It prepares all resources before state replacement;
 the netlink adapter still publishes its ACK before committing. Failure aborts
 all reservations. Teardown joins the existing forwarding owner and releases
@@ -159,6 +165,10 @@ explicit binds (including port zero) and listeners reserve real Android ports
 through separate forwarding frontends; automatic outgoing binds do not publish
 a listener. Guest backing sockets use ephemeral native ports. Conflicts and
 final release belong to the same endpoint/forwarding owners.
+Reusable UDP wildcard and address-specific endpoints share the existing physical
+listener. Closing the wildcard retains that listener while a matching endpoint
+still owns it; ingress must resolve a live logical receiver before delivery.
+This admission does not add interception to ordinary payload read/write.
 Local OUTPUT uses loopback interface metadata, independently of the FIB owner
 used for source selection and scoped endpoint binding. DNAT reroutes the
 translated destination through the same flow owner. Socket output binding
@@ -374,6 +384,14 @@ owner; dynamic entries remain in lwIP. Permanent entries do not require a packet
 stack. Committed static changes invalidate matching dynamic caches; failed
 publication leaves both unchanged. Writes require namespace `CAP_NET_ADMIN`;
 proxy ARP is unsupported.
+
+Administrative link flags share one rtnetlink/ioctl owner. `IFF_NOARP` is
+available on managed links, including TAP: packet-stack unicast without a static
+neighbor uses the link's own hardware address without ARP/ND resolution, while
+multicast keeps its protocol mapping. ARP input/output is suppressed and flag
+transitions retire dynamic neighbor state. Masked updates preserve other flags;
+an unmasked nonzero flag set replaces mutable flags, while an attribute-only
+zero/zero update preserves them. These changes do not intercept native payload IO.
 
 Shroot remains the address/route authority; lwIP does not run DHCP, DNS or SLAAC
 configuration or independent IPv6 MTU updates. Both families use the link MTU

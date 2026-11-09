@@ -9,6 +9,7 @@ Android Activities, named environments or launcher configuration.
 | Filesystem context | `CLONE_FS` | `CLONE_FS` | Retained |
 | Mount view | Shared independently of `CLONE_FS`; `CLONE_NEWNS` copies | `CLONE_NEWNS` copies and separates FS context | Retained |
 | Descriptor-origin annotations | `CLONE_FILES` | `CLONE_FILES`, `CLOSE_RANGE_UNSHARE` | Detach; remove close-on-exec entries |
+| Process inspection/dumpability | `CLONE_VM` shares; independent address spaces copy | Retained | New address-space owner, including after vfork |
 | Semaphore undo | `CLONE_SYSVSEM` | `CLONE_SYSVSEM` | Retained |
 | UTS names | Shared; `CLONE_NEWUTS` copies | `CLONE_NEWUTS` copies | Retained |
 | SysV IPC namespace | Shared; `CLONE_NEWIPC` creates an empty namespace | `CLONE_NEWIPC` creates an empty namespace and separates semaphore undo | Retained |
@@ -85,6 +86,9 @@ it only to the confirmed child and releases it on failure or task disposal.
 Threads share the process limit; independent processes inherit a copy. Registry
 custody retains unreaped zombies. A quota-pressure check can release kernel-reaped
 charges without discarding identities still needed by a pending translated wait.
+Child-notification metadata has a separate lifetime: copied PID mappings and
+credentials survive reaping without retaining process-limit charges, task
+resources or namespace references. See [PID views](namespace-providers.md#pid-and-proc-views).
 Normal file/socket IO does not inspect counters or scan tasks.
 Cached accounting scopes use stable namespace identity values, including their
 generation, rather than owning namespace references. Keeping an accounting
@@ -251,9 +255,13 @@ participant resumes guest execution. Nonleader exec transfers the executing
 thread's resources to its resulting process identity; teardown of the replaced
 leader must not release the executing thread's owners. Kernel exec detaches
 shared descriptor tables, but not shared filesystem context or semaphore undo.
-Exec prepares its detached annotation owner before the kernel call. The confirmed
-exec event commits that owner and removes close-on-exec entries before transferring
-the executing nonleader's resources. Failed exec does not change the owner.
+Exec prepares its detached annotation table and new process-inspection owner in
+one resource transaction before the kernel call. The confirmed exec event commits
+both and removes close-on-exec entries before transferring the executing nonleader's
+resources. Failed exec retains both original owners. A vfork child shares the
+parent's inspection state only until exec: later credential or dumpability changes
+belong to the new address space, not the parent's. Guest proc access and debugger
+admission use that same owner; native task dumpability remains runtime-owned.
 Fork copies annotations at its actual birth event and releases the turn before
 waiting for vfork completion. `close_range` with CLOSE_RANGE_UNSHARE uses the same
 prepare/commit/rollback transaction as `unshare(CLONE_FILES)`, then applies its

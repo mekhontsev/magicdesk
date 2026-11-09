@@ -154,7 +154,12 @@ it requires the guest's Python, D-Bus and init packages, not Weston. Use `run
 --root` for commands and always `stop --name NAME` afterward. Default-target
 boot remains a separate `test_os_boot.py` assertion. Docker defaults to its stock
 service; alternate daemon profiles are
-explicit diagnostic cases. `test_booted_nspawn.py --session SESSION --machine
+explicit diagnostic cases. Docker's `--image-archive /guest/path/image.tar`
+loads a prepared image when it is absent, instead of pulling from a registry;
+the requested image must be present after loading. This separates local container
+acceptance from download availability without weakening the network checks.
+`--trace-runtime` traces the fixture-owned rootless Docker runtime for diagnosis;
+it is not a performance run. `test_booted_nspawn.py --session SESSION --machine
 MACHINE` uses an existing `/var/lib/machines/MACHINE`, while
 `test_booted_lxc.py --session SESSION --archive ROOTFS.tar.gz` creates and removes
 its own container from a systemd/D-Bus/iproute2/Python rootfs. The latter two
@@ -166,12 +171,19 @@ machine image: private users/PID/mount/network namespaces, read-only and writabl
 binds, outbound and published TCP/UDP, normal exit, killed leader, and removal
 of nftables publications and veth interfaces across three launches.
 
-Graphical `installed_desktop.py` sessions hold a 30-minute awake lease on their
+Graphical `installed_desktop.py` sessions normally hold a 30-minute awake lease on their
 own virtual display, renewed by `run`, `attach` and `capture`. A phone-screen
 lease does not keep that display active. Release a separately owned lease before
 starting the fixture; it never replaces another owner. After lease expiry,
 stop/restart the fixture before qualifying GUI results. `stop` removes the owned
-display and its lease; headless sessions acquire neither.
+display and its lease; headless sessions acquire neither. `start --offscreen`
+retains a graphical output without an Android display or viewer and never
+acquires or renews an awake lease. The caller must keep the device awake when
+qualifying offscreen graphics or timing results.
+`start --statistics` enables the native operation-cost and entry counters for
+either session type; `stop` retains their shutdown output in `boot.log`.
+Leave it off for ordinary timing comparisons and use `--diagnostics` separately
+when a full transition trace is needed.
 
 ## Network Fixtures
 
@@ -190,19 +202,33 @@ init boot; its default remains routed. Reports identify the native binaries.
 
 ### K3s
 
-`test_k3s.py BUILD ENVIRONMENT K3S_ARM64 --machine-entry` uses an installed
+`test_k3s.py [BUILD] ENVIRONMENT K3S_ARM64 --machine-entry` uses an installed
 recipe environment with Python 3, util-linux and a verified upstream k3s binary.
 The receipt records its SHA-256, version, runtime hashes and entry/kernel profile.
-Container images are pulled by stock containerd, so initial readiness depends on
-registry access. No distribution packages are built or installed by the fixture.
+Container images are imported or pulled by stock containerd. Repeatable
+`--images ARCHIVE.tar` supplies verified airgap or workload archives through
+each node's normal image inbox; receipts record their hashes. Missing images
+still require registry access. No distribution packages are built or installed
+by the fixture.
+
+K3s is in scope for every recipe OS. Use `--executor app|shell` to select the
+host identity; omitted `BUILD` tests the installed APK. `--store PATH` selects
+an already accessible store instead of resolving the recipe name. This also
+supports the [borrowed-store handoff](host-execution.md#borrowing-an-installed-environment)
+without a second rootfs. A result applies only to its recorded OS and executor.
 
 The default profile uses stock VXLAN; `--backend host-gw` selects the alternative.
 `test_k3s.py` always uses one selected distribution. For a mixed cluster run
-`test_k3s_cluster.py BUILD SERVER_ENVIRONMENT AGENT_ENVIRONMENT K3S_ARM64`.
+`test_k3s_cluster.py [BUILD] SERVER_ENVIRONMENT AGENT_ENVIRONMENT K3S_ARM64`.
+It additionally accepts `--agent-store PATH` for an explicit agent store.
 Both entrypoints share `k3s_fixture.py` for workloads, lifecycle and cleanup.
 The mixed fixture attaches the existing agent store read-only and gives it
 private configuration and runtime mounts. It does not install packages or copy
 the rootfs; receipts identify both distributions and the staged runtime.
+Each node retains distribution inputs under `/var`, including certificate stores
+referenced from `/etc`. Kubelet, CNI, Rancher and log data have separate empty
+mounts. Missing mountpoints are prepared before read-only attachment and only
+those empty directories are removed afterwards; installed data is retained.
 Use `test_k3s.py --nodes 2` for two nodes within one distribution; the mixed
 entrypoint always uses two nodes. Server and agent have independent network,
 PID, mount, UTS and cgroup namespaces, connected by a veth underlay on the same device.
@@ -223,9 +249,13 @@ or networking between separate devices.
 
 `test_k3s_boot.py BUILD ENVIRONMENT K3S_ARM64 INSTALL_SH --init systemd|openrc`
 tests one installed recipe through the production `magicdesk-init` helper.
+Each boot uses a private bridge, so distribution services can bind guest ports
+such as the DNS stub's 53 without publishing privileged Android listeners.
 Supply a verified binary and its unmodified upstream installation script; their
 hashes are recorded. The installer runs inside the first boot and installs the
-stock enabled service. Repeatable `--images ARCHIVE.tar` supplies verified
+stock enabled service. API readiness and the init service's completed activation
+are checked separately; observing an activating service never restarts it.
+Repeatable `--images ARCHIVE.tar` supplies verified
 upstream airgap bundles or workload OCI archives through k3s's normal agent
 image directory. Images absent from those archives still require registry access.
 Three complete Shroot launches cover initial boot,
@@ -233,10 +263,16 @@ orderly poweroff/restart, then exact-supervisor SIGKILL and recovery. Each boot
 checks Node Ready, CoreDNS, pod DNS/Service IO and a synced local-path PVC write;
 recovery also compares node, namespace, pod, volume, Service and credential
 identity. Killing a supervisor is distinct from a k3s-only restart or power loss.
-The fixture refuses an existing k3s installation, preserves pre-existing
-kubelet/CNI state and removes its own installation after all launches stop.
-It accepts the same entry/kernel profiles. Its phase logs and receipts are
-separate from the broader multi-node workload checks above.
+The fixture refuses an existing k3s installation and preserves pre-existing
+kubelet/CNI state. Preparation and cleanup both run inside the production init
+session, including the distribution's own mounts of `/etc` and `/var`. After
+test launches stop, a cleanup boot retires the stock service and restores owned
+files. Interrupted launches are stopped by their exact registry identity.
+It accepts the same entry/kernel profiles, `--executor app|shell`, and `--store`
+for an existing store accessible to that executor, including a borrowed store.
+Native control fixtures use the executor's verified executable mapping; the
+guest installation does not switch Android identity. Its phase logs and receipts
+are separate from the broader multi-node workload checks above.
 
 `test_network_vxlan.py BUILD ENVIRONMENT` checks the packet/control contract
 independently of k3s and registry availability. It covers an independent wire
@@ -323,11 +359,12 @@ Android addresses nor routes, DNS or privileged ports are changed.
 
 `probe_podman_runtime.py BUILD STORE --rootless-user USER --exercise-ports
 --internet` runs stock Podman as an existing disposable guest user with
-subuid/subgid ranges and the distribution's UID-map/slirp4netns packages.
+subuid/subgid ranges and the distribution's UID-map/network helper packages.
 Only private API mounts are prepared as guest root. Containers retain normal
-seccomp and cgroup settings. The rootless default network is `slirp4netns`;
+seccomp and cgroup settings. Rootless checks retain the installed Podman's
+default network; `--network` selects an explicit diagnostic alternative.
 tests cover external TCP/UDP ports, outbound IO, conflicts and teardown.
-Named-peer DNS checks apply to the separate bridge mode, not isolated slirp
+Named-peer DNS checks apply to the separate bridge mode, not isolated rootless
 networks. The fixture ends its Podman pause process with `podman system migrate`.
 
 `probe_docker_runtime.py BUILD STORE --rootless-user USER --storage-driver overlay2
@@ -338,6 +375,12 @@ then checks two containers, published TCP/UDP, peer IP/name lookup, outbound IO,
 port conflicts and teardown. The named diagnostic `rootless*` profiles without
 `--rootless-user` only enter a guest user namespace; they do not substitute for
 this ordinary-user integration test.
+
+`test_booted_containers.py --session SESSION --engine podman|docker --rootless`
+runs the same probes through an existing ordinary-user init-session controller.
+It retains that user's identity and the booted system mounts; it neither starts
+a rootful daemon nor prepares another sysfs/cgroup view. Without `--rootless`,
+the driver tests the booted rootful service.
 
 `test_lwip_context` checks namespace-local protocol state and memory limits;
 the `test_task_resources` target includes `test_network_tun.c` for TUN/TAP ABI,
@@ -398,6 +441,8 @@ binds otherwise request privileged Android ports. For this packet scenario,
 `INITRD` is the official gzip-compressed Alpine initramfs, from which the fixture
 builds its private VM image, not the raw kernel-contract CPIO used by the direct
 TCG test. Modular libvirt preparation starts both the QEMU and network services.
+Without `--network`, omit `--initrd` to build the shared Landlock contract
+image from `--build`; `--direct` runs that same image without Libvirt.
 The echo peer lives beyond a routed veth
 in a separate namespace and verifies the translated IPv4 source and port range.
 `--network-forward open` checks the same topology without NAT; IPv6 uses routed
@@ -470,9 +515,26 @@ values through original and newly mounted proc views, including denied writers
 and explicitly rejected strict overcommit. Repeat supported fixtures with
 `--kernel-profile linux-5.15` to exercise capability fallbacks.
 
-`test_thread_identity_runtime.py BUILD STORE FIXTURE --debuggers` checks libc
+`test_thread_identity_runtime.py BUILD STORE [FIXTURE] --debuggers` checks libc
 thread identities and multi-threaded setuid/setgid/setgroups, including strace
 both inside and outside a PID namespace. The store must contain strace and GDB.
+`--executor app|shell` selects the Android identity; without a prebuilt fixture,
+the test compiles against that store's libc. `--case robust` independently checks
+list registration/query and mutex owner death after thread exit, process exit,
+SIGKILL and exec, both directly and inside a logical PID namespace. This is a
+strict acceptance test, including currently unsupported owner-death paths;
+libc accepting a robust attribute alone is not a pass.
+`test_resources.py BUILD --case robust-futex --executor app|shell` tests the
+cleanup cursor and retained-address-space executor independently of libc:
+atomic owner replacement, sleeping-waiter wakeup, exit/SIGKILL/exec, private
+child reaping, coalesced/directed SIGCHLD and subreaper adoption, including
+concurrently blocked signalfd/waitpid readers and non-leader parent borrowing.
+The same native signal queues supply those readers after retirement. Cleanup
+faults retain the application's SIGSEGV disposition; malformed-list walks yield
+bounded progress turns without accepting another cleanup over unfinished work.
+The fixture uses `task_retained`, `task_robust` and `task_child_reap`, not its own
+implementation of those operations. These components are not yet connected to
+runtime robust-list registration, so this is not a distribution-mutex pass.
 Signal information remains native while stopped and is translated separately
 for debugger observation and delivery to the target.
 Compile the fixture with both stock glibc and musl: `--pid-futex` also checks

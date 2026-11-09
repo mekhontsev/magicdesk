@@ -112,6 +112,10 @@ newer kernel arrival of the same signal. Both policies wait for reconstruction
 of the guest context, including the cancelled checkpoint's syscall-exit stop.
 Retry observation runs only in guest execution, never inside adapter allocation
 or another owner's native protocol.
+The instruction-level signal fixture includes positive-code `SIGCHLD` delivery
+at each covered entry stage, with context, altstack, restart and filter checks.
+The stock Go stress combines file IO, UDP, concurrent child exec/reaping, GC,
+preemption and CPU profiling, with and without an application seccomp filter.
 
 `test_cooperative_runtime.py --machine-entry` runs the existing complete entry
 contract. `test_svc_patch.py` and `test_svc_libc.py`

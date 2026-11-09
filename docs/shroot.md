@@ -961,8 +961,16 @@ the selected executor's identity, or other terminals' login policy. Installed
 services, `/etc` and `/var/lib` persist; `/run`, `/tmp` and `/dev` belong to this
 boot. Only boot an idle environment: independent launches do not share its
 service manager or runtime mounts. `magicdesk-init COMMAND ARG...` runs that
-command as the console service instead of the login shell. `exec` replaces the
+command once as the console service instead of the automatically restarted
+login shell; command failure does not trigger a retry. `exec` replaces the
 calling shell so that shutdown also ends that Shroot launch.
+
+For systemd-networkd, the helper publishes
+`/run/systemd/network/80-magicdesk-uplink.network`: it retains the launch's
+static `eth0` addresses and routes without requesting DHCP. Other links keep
+their normal configuration. To manage that uplink yourself, use an earlier
+matching `.network` file or the same filename in `/etc/systemd/network`, following
+[networkd's configuration precedence](https://www.freedesktop.org/software/systemd/man/latest/systemd.network.html).
 
 Install missing init packages before boot (`systemd-sysv` and `dbus` on Debian;
 `openrc` on Alpine). The helper also uses util-linux, supplied by the recipe.

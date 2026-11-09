@@ -177,6 +177,13 @@ dup/reopen, `NS_GET_NSTYPE`, `NS_GET_OWNER_UID`, `NS_GET_USERNS` and `NS_GET_PAR
 use that identity. Related user namespaces must lie within the caller's user
 namespace; the initial user namespace has no parent. Related-FD publication
 uses the same ordered descriptor installation as ordinary proc control files.
+Proc opens, reopens and namespace ioctls use typed adapter checkpoints, not
+private guest `prctl` calls. Managed launches adopt their prepared descriptors
+through the ordinary file-result owner; direct-rootfs launches retain the same
+SCM_RIGHTS publication used by network providers. Cancellation and receiving
+file-table ownership remain common to both paths. Internal native PID/TID
+queries also use a task-owned scalar checkpoint, so an application's filter
+need not permit identity or path-discovery syscalls solely for the adapter.
 Local SCM_RIGHTS keeps namespace owners alive after the creating task exits.
 The namespace directory enumerates the implemented user/mount/UTS/IPC/pid/pid_for_children/net/cgroup entries,
 independently of the host's CONFIG_USER_NS. Directory positions belong to a
@@ -257,10 +264,10 @@ namespace with SIGINT status; RESTART/RESTART2 use SIGHUP, without automatically
 starting another init. The supervisor terminates its owned init and reuses the
 ordinary descendant teardown. No request reaches Android's reboot syscall;
 the initial native PID view returns EPERM. The exit reason stays with the
-retained PID identity for translated wait4/waitid, SIGCHLD and sigtimedwait,
-including protected output memory. Native-only wait consumers without the PID
-selector, and native signalfd payloads, retain the host SIGKILL metadata; no
-global wait or read interception is installed for that distinction.
+retained PID identity for translated wait4/waitid, SIGCHLD, sigtimedwait and
+selected signalfd reads, including protected output memory. Native-only wait4
+consumers without the PID selector retain the host SIGKILL status; no global
+wait4 or read interception is installed for that distinction.
 
 PI futex commands are explicitly unavailable inside a logical PID
 namespace: their userspace owner words contain guest TIDs, which cannot safely
@@ -297,9 +304,14 @@ namespace fixture compares the zombie/group lifecycle with a native control.
 
 Reaping removes lookup visibility independently of open pidfds.
 Automatically reaped children are collected only when no pending native wait
-result still needs translation. Collection is lifecycle-triggered, not polling.
-Debugger notifications retain their own visible number and do not reap a child's
-real-parent result.
+result still needs translation and the parent's pending SIGCHLD has been
+observed. Collection is lifecycle-triggered, not polling. Pending child notices
+retain immutable PID mappings, guest UID and namespace-exit reason independently
+of process lookup visibility. Private and shared slots follow kernel coalescing;
+same-group threads share the latter, exec retains them and fork starts empty.
+Deferred delivery and debugger stops carry the same snapshot. Neither a pending
+notice nor a debugger notification keeps the child addressable after reaping.
+Debugger notifications do not reap a child's real-parent result.
 Typed pidfds retain the process object through dup, fork and local SCM_RIGHTS;
 they add no duplicate host descriptor. Signal checks and execution share the
 file-table turn, so close/reuse cannot replace the checked target. Kernel
@@ -345,11 +357,20 @@ The initial unmounted host-proc passthrough retains native PSI access behavior.
 `test_fs_context.c` covers complete/partial/denied/error admission, and
 `test_proc_policy.py` checks both mount APIs, listing, lookup, bind and copy.
 
-The proc provider retains native `uptime` when Android permits opening it.
-Otherwise its read-only fallback samples `CLOCK_BOOTTIME`, including suspend,
-on a fresh read and retains that sample for partial reads. Host-wide CPU idle
-accounting is unavailable through this clock; the second field is zero, not
-a measured idle counter. Admission occurs once per proc view, not on file IO.
+The proc provider retains native `uptime` and `stat` independently when Android
+permits opening them. Otherwise read-only fallbacks sample `CLOCK_BOOTTIME`,
+including suspend, and retain each sample for partial reads. `uptime` has no
+host-wide CPU idle accounting; its second field is zero, not a measured idle
+counter. Restricted `stat` supplies aggregate CPU user/system ticks from the
+launch's existing cgroup accounting owner, without requiring a cgroup mount.
+Its idle field is elapsed configured CPU capacity not charged to this launch, not Android
+physical idle time; other CPU categories are zero and per-CPU, interrupt and
+process counters are omitted. `btime` uses realtime and boot clocks. Task samples
+share the existing 100 ms on-demand accounting cache and terminal-exit owner;
+there is no periodic scan or additional syscall interception. Tasks gone before
+accounting was first observed cannot contribute historical CPU usage.
+Admission occurs once per proc view, not on file IO. The shared proc-exec fixture
+checks CPU syntax, boot epoch and rewind through initial and nested proc mounts.
 
 Immutable guest proc text shares one read-only provider: `devices` describes
 the guest driver families, and `cmdline` contains only a newline because a
@@ -390,6 +411,11 @@ Logical mount entries follow public mount-ID order, independently of reusable
 internal slots. A newly attached mount follows the existing entries; a table
 opened before the change but not yet read observes the new snapshot. This
 supports consumers which identify recursive bind additions by their table suffix.
+Mount changes signal pollers and mark open tables dirty without rendering them.
+A new read snapshot is prepared on the existing filesystem worker, using the
+open description's retained root and namespace. Partial reads keep their captured
+snapshot; rewinding observes subsequent changes. Cancellation retains no new
+guest authority, and ordinary file IO does not use this refresh path.
 
 Ordinary inode storage reports its backing filesystem type in mount tables,
 consistent with its native `statfs` capacity and type. The worker's existing
@@ -476,6 +502,13 @@ snapshots or per-read proxy is added. Virtual network attributes keep their type
 provider, live namespace state and existing errors. Node classification is shared
 by metadata and open handling rather than repeated for each dispatch stage.
 
+Managed bridges expose `brif` membership, each port's `master` and
+`brport/bridge` links, and read-only `brport/state`. The state comes from live
+link carrier and bridge administrative state; the supported non-STP bridge is
+either disabled or forwarding. Renames preserve open port attributes; detach,
+reattach and link removal retire their old controls. Topology revisions update
+dentries, while reads use the retained namespace model, not Android sysfs.
+
 An unchanged initial sysfs mount preserves the inode fast path and bounded
 metadata operation windows. A cold namespace proof identifies its covered
 logical inode; the inode walker falls back before crossing that boundary,
@@ -560,6 +593,10 @@ of ambiguous hardlink names in the backing store. Path reconstruction walks
 ancestors iteratively with fixed scratch space, prepending only each local
 suffix; mount depth does not consume worker stack. Retained-root boundaries,
 detached children and the caller's pathname capacity remain enforced.
+Mount reconciliation retires targets whose inode is unlinked or whose retained
+native descriptor returns ENOENT, including proc task dentries after process
+exit. Mount tables omit unreachable placements without failing the remaining
+inventory; already-open descriptors retain their mount and data access.
 Native proc/dev sources use the
 task-local capture path. `mount_propagation` owns weak namespace-family
 membership and retained peer/master ancestry. `fs_mount_propagation` prepares
@@ -665,6 +702,12 @@ path and descriptor-publication turn; the filesystem worker cannot acquire the
 terminal on its behalf. PID namespace terminal group/session ioctls translate
 through the common PID owner; native permission errors are preserved.
 
+If Android rejects an append open on a pinned native PTY, `file_open` retries
+ordinary write admission and sets the actual OFD's `O_APPEND` flag before
+publication. This fallback requires both character-device and devpts identity;
+regular-file denials are unchanged. Worker and caller-completed opens share it,
+without intercepting terminal reads or writes or changing successful native opens.
+
 This is a private name/membership view over native PTYs, not a kernel devpts
 mount or a separate index allocator. It does not hide already inherited terminal
 descriptions or explicit native `/dev` attachments. TIOCGPTPEER-created slave
@@ -675,6 +718,22 @@ logical chmod/chown still applies to that original instance. Creation without
 O_NOCTTY uses the same caller-completed open as a named slave. Ordinary terminal
 IO is not forwarded through the filesystem worker. Cross-supervisor mount export
 fails explicitly for private devpts.
+
+`pty_events` supplements native inotify only when the executor cannot watch
+its own allocated PTYs. Successful descriptor publication and final retained
+open-description release supply OPEN/CLOSE events; the last master retires the
+slave watch. O_PATH and failed publications do not produce data-open events.
+Dup, fork, exec and exit use the shared descriptor lifetime. The observer retains
+only inode pins, never master/slave data FDs, and does not intercept terminal IO.
+Guest devpts read permissions apply to both native and supplemental watches.
+The native path remains selected when its initial capability probe succeeds.
+
+The supplement covers OPEN, CLOSE and DELETE_SELF for launch-owned PTYs, not
+inherited host terminals or ACCESS/MODIFY events. An unobserved alias change or
+SCM_RIGHTS export invalidates the local observation with IN_IGNORED rather than
+fabricating final-close events. Export keeps native descriptor behavior and
+ordinary portable provenance where the mount permits it. No polling or promise
+of observing unrelated host processes is introduced.
 
 ## Cgroups
 
@@ -734,9 +793,20 @@ are allocated only for observed controls. Ordinary file IO does not consult this
 accounting. This lets systemd retire completed scopes without a periodic scan.
 
 The v2 hierarchy advertises cpu, cpuset, memory and pids. Subtree control creates
-child controls transactionally, respects the no-internal-process rule and refuses
+child controls transactionally, respects the domain no-internal-process rule and refuses
 disabling a controller still enabled below. Removed controls invalidate retained
 FDs even after re-enabling; replacement policies start with defaults.
+
+Threaded subtrees use the same per-task membership owner. `cgroup.threads` moves
+one thread only within its resource domain; `cgroup.procs` moves the whole process
+and enumerates it once at the domain root. Threaded descendants reject procs
+reads. Type transitions validate topology, pending births and domain controllers;
+invalid domains cannot accept tasks. CPU, cpuset and pids can be distributed
+among threads, while sampled process memory belongs to the shared domain.
+Converting a group retires its domain-only controls. Membership and child-type
+counters keep type observation independent of a task scan; topology admission
+and explicit process-list reads may inspect the retained registry. No ordinary
+file IO, scheduling or native data path acquires a new cgroup hook.
 
 `pids.max` enforces a hierarchical thread limit before native fork/clone, including
 clone3's target group. A reservation is either published with the newborn or

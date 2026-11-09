@@ -85,6 +85,25 @@ against a supervisor descriptor or the native bootstrap image.
 
 ### Native IO And Selectors
 
+Adapted socket effects use a distinct native wait gate. It restores the caller's
+signal mask only around the kernel operation and shields the adapter again at
+the syscall exit, before address translation or accepted-FD publication resumes.
+Interrupted calls unwind through the common original-syscall restart boundary;
+kernel `EINTR`, receive timeouts and `SA_RESTART` remain authoritative. Internal
+IPC does not use this gate. Unadapted payload IO keeps its original native path.
+`MSG_DONTWAIT` operations also retain the short native path: their argument
+flags prove that no socket wait is needed, without querying descriptor state.
+`accept4`'s `SOCK_NONBLOCK` does not prove that its listening socket is nonblocking.
+An already admitted socket wait remains in the kernel across TSYNC. Its owned
+exit stop holds completion until policy publication; the pending call is not
+cancelled and re-admitted against the new filter.
+
+Supervisor-owned blocking IO uses `ipc_io_job` for completion and cancellation.
+A readiness or quiescence wake only requests resampling: collection leaves an
+unfinished job pending and never joins its blocking syscall. Atomic completion
+publication precedes retirement; cancellation interrupts the operation before
+joining. Both paths retain buffers and received-FD custody until the worker exits.
+
 Data IO, common memory operations, futexes, clocks and signals pass directly to
 the kernel. `MD_DOMAIN_KERNEL_CALLS` and `MD_DOMAIN_KERNEL_ARGUMENTS` describe
 additional calls requiring no adaptation or observation in any guest domain.
@@ -109,11 +128,20 @@ Watch descriptors install bounded FD-class read selectors lazily; reads in
 unselected classes stay native until an application installs its own filter.
 Before that irreversible boundary, a single group-wide selector covers future
 typed descriptors without later seccomp calls. The application filter itself
-is replayed unchanged and retains all denials. Kernel-object identity distinguishes watch
+retains its application-site denials. Kernel-object identity distinguishes watch
 readers from ordinary descriptors sharing a class. Selected reads retain their
 original signal context while the worker waits for records; protected readers
 use task-affine copying and a native readiness wait. Filter installation ownership is separate from
 address-space and descriptor ownership; see [filesystem watches](watches.md).
+When a `vfork` child shares the file table, its kernel-suspended parent records
+bounded missing selector classes rather than blocking the child's publication.
+The parent installs those selectors at its clone-exit boundary, before returning
+to application code. Other runnable table holders retain ordinary admission.
+PID-sensitive selectors use the same task-affine filter executor and are installed
+once per group when PID namespace operations require them. Joining an unrelated
+namespace does not add a PID filter. Service waits and filter installation use
+owned task gates; a guest's direct forbidden syscall still receives its selected
+seccomp denial.
 Preflight releases its memory turn before replaying the application syscall.
 Signals may run at that boundary, including handlers that install another
 filter; the next entry reacquires ownership and captures the current arguments.
@@ -209,12 +237,19 @@ therefore cannot lose a stop to an internal syscall replay loop.
 A barrier release returns debugger-owned tasks through normal continuation
 admission: a shared kernel interrupt must publish the debugger's pending stop
 before resuming guest execution. Untraced releases retain direct continuation.
+The shared ptrace adapter records each successful owner's resume mode, including
+SYSEMU; barriers must not reuse the enclosing guest phase's older mode.
 When a native task call borrows such a stop, the checkpoint owner suspends its
 decoder until the exact boundary has been restored. SYSEMU entries retain their
 kernel skip state independently of register edits and stop-decoder ownership,
 including explicit caller-requested SYSEMU. Injection drains that skipped exit before executing the
 borrowed call, then reconstructs an emulated entry without replaying guest IO.
 Ordinary data IO retains its native path.
+Parked signal waits release scratch, memory and file-table turns and can lend
+their exact task boundary to protected proc inspection. Their existing decoder
+suspension remains owned by the wait. A service interrupt rechecks the wait with
+its original deadline; completed signal consumption and genuine application
+interruption retain their ordinary results.
 Deferred events retain their captured accounting across debugger attachment
 changes; replay neither queries it again nor inherits another event's values.
 For more than four members, kernel collection checks one round-robin TID on two
@@ -705,8 +740,11 @@ sampling are opt-in; there are no per-call logs. Engine counters cover direct,
 mapped and RPC execution; transport selection does not hide filesystem work.
 Operation times include kernel
 waiting and descheduling; nested filesystem/SQLite totals must not be added as
-independent CPU costs. Detailed `--diagnostics` is a separate mode; neither is
-enabled for ordinary launches or comparative timing runs.
+independent CPU costs. Detailed `--diagnostics` is a separate mode.
+`--diagnostics=signals` records guest faults, their instruction/stack context and
+abnormal task exits without tracing successful calls. A fault record alone is
+not a crash: an application handler may recover it. These modes are disabled
+for ordinary launches and comparative timing runs.
 
 Internal sendmsg/recvmsg at the immutable raw-syscall gate go directly to the
 kernel. These calls are already unconditional native operations in every guest
@@ -727,6 +765,9 @@ shared delivery owner admits that exception first and waits for its native
 signal-frame commit before publishing a carrier. This preserves the original
 syscall/fault context in both execution identities; ordinary syscalls and
 deliveries without that conflict acquire no additional commit stop.
+An interrupted signal-mask query retains the pre-shield application mask through
+original-site replay. Its result never exposes the temporary admission mask;
+ordinary unshielded queries keep their native broker continuation.
 
 ## Guest Kernel Interfaces
 
@@ -766,6 +807,39 @@ Later application ERRNO and higher-priority TRAP/KILL policies remain effective.
 If an inherited Android TRAP outranks that ERRNO, host-policy admission returns
 the same ENOSYS after evaluating guest policy. Executors without that trap keep
 the kernel-only path. No persistent keyring allocation is needed.
+
+`name_to_handle_at` and `open_by_handle_at` use the same ENOSYS admission.
+Guest inode identities have no exportable file-handle provider; passing these
+operations through would expose host filesystem handles outside the guest mount
+model. Callers retain their unsupported-interface fallback in both executors,
+including under inherited Android seccomp. Application filter decisions still
+take precedence.
+
+The legacy kernel-log `syslog` syscall also returns ENOSYS through this policy.
+It has no guest provider and must not read, clear or reconfigure Android's log.
+The existing guest-only `/dev/kmsg` journal remains available, with independent
+reader cursors and event-driven readiness. An application requiring the legacy
+API receives an explicit error, including when inherited Android seccomp would
+otherwise terminate it. This does not affect userspace syslog sockets.
+
+`io_uring_setup`, `io_uring_enter` and `io_uring_register` also return ENOSYS
+through that admission. Shroot has no asynchronous submission provider for guest
+paths, logical credentials or typed descriptors. Passing a native ring through
+would bypass those owners; reporting its absence lets applications select their
+ordinary syscall backend. This applies to both executors and does not intercept
+ordinary reads or writes. Guest seccomp decisions still take precedence.
+
+`quotactl` and `quotactl_fd` use the same ENOSYS admission: the guest filesystem
+has no per-user/group/project quota provider. Neither interface reads or changes
+Android backing-filesystem quotas. This is explicit absence, not successful
+quota enforcement; mount-wide tmpfs limits are independent. The shared
+`unavailable-calls` policy fixture checks every absent-provider syscall with
+plain, ALLOW, ERRNO, TRAP and KILL admission under both executors and entry modes.
+
+`statmount` and `listmount` likewise return ENOSYS until the guest mount provider
+implements their query ABI. They must not expose Android's mount namespace.
+Applications can use the existing guest `/proc/self/mountinfo` and mounts views;
+this is not an empty or partially fabricated mount list.
 
 ## Protected Metadata
 

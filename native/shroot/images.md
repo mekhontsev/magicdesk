@@ -144,9 +144,11 @@ archive UID/GID and permission bits in logical inode metadata, including set-ID
 bits, without changing host credentials or making backing files set-ID.
 `--map-current-user` explicitly maps ownership to the caller and removes set-ID
 bits. Preserved-ownership imports retain POSIX access/default ACLs and
-`security.capability` as logical inode metadata. Neither is installed on host
-backings or grants Android privileges. Identical duplicate xattr encodings are
-accepted; conflicting values are rejected. Other xattrs, NFSv4 ACLs and unsupported
+`security.capability` as logical inode metadata. Supported overlay controls and
+guest `trusted.*` xattrs also use the shared inode metadata owner. None is
+installed as a privileged host attribute or grants Android privileges. Identical
+duplicate file-capability encodings are accepted; conflicting values are rejected.
+Other xattrs, NFSv4 ACLs and unsupported
 special nodes are rejected rather than silently imported with different meaning.
 FIFO entries retain their namespace metadata and hardlinks; live streams are
 created lazily per instance, never copied from an image. Their declared archive
@@ -252,6 +254,10 @@ short namespace transaction lock. Source directories retain their own parent-roo
 leases. Exclusive offline maintenance fails with EBUSY while an owner retains the
 store. These leases protect cooperating live operations; they do not replace a
 persistent image-dependency catalog or prevent external filesystem deletion.
+`maintain STORE` collects unused projection views and untracked local backings
+through this exclusive gate. It retains shared sources, allocation reserves and
+ordinary detached logical objects; it is not a full live garbage collector.
+Ordinary store admission and guest IO do not run this scan.
 `remove STORE` and `remove-layer LAYER` are exclusive offline operations. Their
 caller must first verify persistent dependents. A successful admission renames
 the resource to a deterministic private tombstone before deleting it; repeating
@@ -270,7 +276,8 @@ snapshot before parsing; observed source mutation rejects publication.
 archive, including lower file bodies, image configuration and guest-user launch
 policy. `restore` publishes a new writable store with no lower dependencies.
 Names, hardlink relationships, symlinks, FIFO and device metadata, guest UID/GID/mode,
-access/default ACLs, file capabilities, user xattrs and file atime/mtime are
+access/default ACLs, file capabilities, user/guest-trusted xattrs, overlay controls
+and file atime/mtime are
 retained. The format carries guest mode independently of libarchive's ACL mode
 representation. Native Android SELinux labels are not exported; unsupported
 native xattrs fail rather than being silently lost.

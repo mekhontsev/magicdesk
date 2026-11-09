@@ -191,6 +191,9 @@ internal owners restore the guest boundary. `signal_delivery` chains real
 delivery stops without executing service instructions between them. The final
 stop restores the application mask; kernel admission and the original
 EINTR/SA_RESTART decision remain native. A completed syscall is never replayed.
+The common signal classifier includes asynchronous kernel notifications such as
+`SIGCHLD` and `SIGIO`; a positive `si_code` alone does not identify a synchronous
+fault. These notifications also require the original guest stack and registers.
 Job-control signals remain kernel-pending so STOP can cancel CONT without a
 later replay waking the group. The no-retained-signal path adds no delivery trip.
 Realtime signals use the same delivery owner in Base and accelerated entry,
@@ -630,7 +633,12 @@ the entry API. Before
 attempting a filter installation, the supervisor revokes the relevant task or
 TSYNC thread group's authoritative eligibility. A failed installation leaves it
 disabled conservatively. Already admitted operations complete before kernel
-filter installation. The slot claim precedes the payload's acquire read of
+filter installation. Revocation disables discovery immediately and retains
+unfinished admission/code writes if a task's stop is lost to exit or exec.
+Another stopped member of that address space completes retirement before
+debugger exposure or filter admission; an incomplete write is not a drained
+entry. This retry state is shared by debugger and filter transitions.
+The slot claim precedes the payload's acquire read of
 admission, and its release follows the final private operation. After revocation,
 observing all slots empty therefore retires pre-revocation API execution; later
 claims see revoked admission and cannot call the API. The caller leaves private
