@@ -33,7 +33,9 @@ static int walk(struct md_network_namespace *space,struct md_network_interface *
             if (peer) enqueue(queue,&count,peer,md_network_interface_find(peer,link->peer,NULL),0,hop.payload);
         } else if (link->kind==MD_LINK_BRIDGE || (!hop.outgoing && link->master)) {
             unsigned bridge=link->kind==MD_LINK_BRIDGE ? link->info.index : link->master;
-            if (link->master) enqueue(queue,&count,hop.space,md_network_interface_find(hop.space,bridge,NULL),0,hop.payload);
+            struct md_network_interface *master=md_network_interface_find(hop.space,bridge,NULL);
+            if (!master || !(master->info.flags&IFF_UP)) continue;
+            if (link->master) enqueue(queue,&count,hop.space,master,0,hop.payload);
             /* Ingress ports, not a second walk from the bridge master, own
              * flooding. This retains isolation/hairpin policy through cycles. */
             if ((link->kind!=MD_LINK_BRIDGE || hop.outgoing) && (!link_local || hop.outgoing))

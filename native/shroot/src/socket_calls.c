@@ -24,8 +24,15 @@ static long domain(int fd) {
     long r = RAW5(getsockopt, fd, SOL_SOCKET, SO_DOMAIN, &family, &size);
     return r < 0 ? r : family;
 }
-static long invoke(long nr, const unsigned long *a) {
+extern long md_socket_native(long,long,long,long,long,long,long);
+long md_socket_invoke(long nr, const unsigned long *a) {
+    if (md_socket_wait_call(nr,a[2],a[3]))
+        return md_socket_native(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
     return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+}
+static long connect_native(int fd,const void *address,unsigned length) {
+    const unsigned long args[6]={(unsigned long)fd,(uintptr_t)address,length};
+    return md_socket_invoke(SYS_connect,args);
 }
 static long resource_connect(const struct md_fs *fs,int fd,const struct sockaddr_un *address,unsigned length) {
     if (!fs->endpoint[0]) return -ENOTSUP;
@@ -39,7 +46,7 @@ static long resource_connect(const struct md_fs *fs,int fd,const struct sockaddr
     if (!r) r=response.result.error;
     if (r<0) return r;
     int channel=response.result.fd;
-    r=RAW3(connect,fd,address,length);
+    r=connect_native(fd,address,length);
     if (!r) {
         char hello=LORIE_RESOURCE_HELLO;
         do { r=md_fs_send_fds(fd,&hello,1,&channel,1); } while (r==-EINTR);
@@ -50,7 +57,7 @@ static long resource_connect(const struct md_fs *fs,int fd,const struct sockaddr
 }
 long md_socket_pair(const struct md_fs *fs, const unsigned long *a, int offline) {
     if (offline && (int)a[0]!=AF_UNIX) return -EAFNOSUPPORT;
-    long r=offline ? md_descriptor_pair(SYS_socketpair,a) : invoke(SYS_socketpair,a);
+    long r=offline ? md_descriptor_pair(SYS_socketpair,a) : md_socket_invoke(SYS_socketpair,a);
     if (r<0 || (int)a[0]!=AF_UNIX || !fs->endpoint[0]) return r;
     int pair[2]={-1,-1};
     r=md_read_memory(pair,(void *)a[3],sizeof(pair));
@@ -74,7 +81,7 @@ long md_socket_offline_error(long nr, const unsigned long *a) {
 static long connect_socket(const struct md_fs *fs, int fd, const struct sockaddr_un *name, unsigned length) {
     long tracked = md_socket_identity_call(fs, MD_IPC_CONNECT_BEGIN, fd, -1, 0, name, length);
     if (tracked < 0) return tracked;
-    long result = RAW3(connect, fd, name, length);
+    long result = connect_native(fd,name,length);
     if (tracked) {
         /* Completion is never replayed. An unconfirmed identity publication
          * cannot change successful connect into a retryable connection error. */
@@ -108,7 +115,7 @@ static int message_remaining(uintptr_t pointer, unsigned sent) {
 }
 static long send_batch(const struct md_fs *fs, const char *exe, const unsigned long *a) {
     unsigned count = (unsigned)a[2];
-    if (!count) return invoke(SYS_sendmmsg,a);
+    if (!count) return md_socket_invoke(SYS_sendmmsg,a);
     if (count > 1024) count = 1024; // Linux caps the vector at UIO_MAXIOV.
     for (unsigned i = 0; i < count; ++i) {
         uintptr_t offset = i * sizeof(struct mmsghdr), pointer = a[1] + offset;
@@ -138,32 +145,32 @@ long md_socket_address_call(const struct md_fs *fs, const char *exe, long nr, co
         accepted[3]=accepted[4]=accepted[5]=0;
         a=accepted; nr=SYS_accept4;
     }
-    if (md_socket_payload_native(nr,a[4])) return invoke(nr,a);
+    if (md_socket_payload_native(nr,a[4])) return md_socket_invoke(nr,a);
     /* recvmsg's ancillary adapter owns the complete receive/publication order,
      * including names. Its native fallback must not add a getsockopt syscall. */
-    if (nr == SYS_recvmsg) return invoke(nr,a);
+    if (nr == SYS_recvmsg) return md_socket_invoke(nr,a);
     if (nr == SYS_getsockopt) return md_socket_identity_option(fs, a);
     if (nr == SYS_socketpair) {
         return md_socket_pair(fs,a,0);
     }
     if (nr == SYS_listen) {
         long family = domain((int)a[0]);
-        if (family != AF_UNIX || !fs->endpoint[0]) return invoke(nr, a);
+        if (family != AF_UNIX || !fs->endpoint[0]) return md_socket_invoke(nr, a);
         long r = md_socket_identity_call(fs, MD_IPC_LISTEN_BEGIN, (int)a[0], -1, 0, NULL, 0);
         if (r < 0) return r;
-        r = invoke(nr, a);
+        r = md_socket_invoke(nr, a);
         long published = md_socket_identity_call(fs, MD_IPC_LISTEN_END, (int)a[0], -1, r, NULL, 0);
         return r < 0 ? r : published;
     }
     if (nr == SYS_getsockname || nr == SYS_getpeername || nr == SYS_accept || nr == SYS_accept4
             || nr == SYS_recvfrom) {
-        if ((nr == SYS_accept || nr == SYS_accept4) && !a[1]) return invoke(nr, a);
+        if ((nr == SYS_accept || nr == SYS_accept4) && !a[1]) return md_socket_invoke(nr, a);
         long family = domain((int)a[0]);
         if (family < 0) return family;
-        return fs->endpoint[0] && family == AF_UNIX ? md_namespace_socket_output(fs, nr, a) : invoke(nr, a);
+        return fs->endpoint[0] && family == AF_UNIX ? md_namespace_socket_output(fs, nr, a) : md_socket_invoke(nr, a);
     }
     if (nr == SYS_sendmmsg) {
-        return fs->endpoint[0] ? send_batch(fs, exe, a) : invoke(nr, a);
+        return fs->endpoint[0] ? send_batch(fs, exe, a) : md_socket_invoke(nr, a);
     }
     unsigned address_index = nr == SYS_sendto ? 4 : 1;
     unsigned length_index = address_index + 1;
@@ -177,11 +184,11 @@ long md_socket_address_call(const struct md_fs *fs, const char *exe, long nr, co
         length = message.msg_namelen;
     }
     if (!pointer || length < sizeof(sa_family_t) || length > sizeof(struct sockaddr_storage))
-        return invoke(nr,a);
+        return md_socket_invoke(nr,a);
     sa_family_t family;
     long r = md_read_memory(&family, pointer, sizeof(family));
     if (r < 0) return r;
-    if (family != AF_UNIX) return invoke(nr,a);
+    if (family != AF_UNIX) return md_socket_invoke(nr,a);
     if (length > sizeof(struct sockaddr_un)) return -EINVAL;
     struct sockaddr_un address;
     r = md_read_memory(&address, pointer, length);
@@ -190,16 +197,16 @@ long md_socket_address_call(const struct md_fs *fs, const char *exe, long nr, co
     if (route) {
         r = domain((int)a[0]);
         if (r < 0) return r;
-        if (r != AF_UNIX) return invoke(nr, a);
-        return route==2 ? resource_connect(fs,(int)a[0],&address,length) : RAW3(connect,a[0],&address,length);
+        if (r != AF_UNIX) return md_socket_invoke(nr, a);
+        return route==2 ? resource_connect(fs,(int)a[0],&address,length) : connect_native(a[0],&address,length);
     }
     /* Abstract addresses are binary names, including every supplied zero byte.
      * Family-only bind is the kernel's autobind request. Neither is a pathname. */
     if (length == offsetof(struct sockaddr_un, sun_path) || !address.sun_path[0])
-        return nr == SYS_connect ? connect_socket(fs, (int)a[0], &address, length) : invoke(nr,a);
+        return nr == SYS_connect ? connect_socket(fs, (int)a[0], &address, length) : md_socket_invoke(nr,a);
     r = domain((int)a[0]);
     if (r < 0) return r;
-    if (r != AF_UNIX) return invoke(nr,a);
+    if (r != AF_UNIX) return md_socket_invoke(nr,a);
     char path[sizeof(address.sun_path) + 1];
     size_t size = length - offsetof(struct sockaddr_un, sun_path);
     memcpy(path, address.sun_path, size);
@@ -231,7 +238,7 @@ long md_socket_address_call(const struct md_fs *fs, const char *exe, long nr, co
         args[address_index] = (unsigned long)&address;
         args[length_index] = length;
     }
-    r = nr == SYS_connect && fd < 0 ? connect_socket(fs, (int)a[0], &address, length) : invoke(nr,args);
+    r = nr == SYS_connect && fd < 0 ? connect_socket(fs, (int)a[0], &address, length) : md_socket_invoke(nr,args);
     if (fd >= 0) RAW1(close, fd);
     return r;
 }

@@ -85,7 +85,7 @@ void test_task_registry_exit(void) {
     struct md_cgroup_member *member=resources.cgroup;
     allocation_budget=0;
     assert(md_pid_identity_exit(pid));
-    md_task_registry_retire(registry,20003,&id);
+    md_task_registry_retire(registry,20003,0,&id);
     md_task_registry_forget(registry,20003);
     struct md_task_snapshot live;
     assert(md_task_registry_read(registry,20003,0,&live)==-ESRCH);
@@ -119,7 +119,7 @@ void test_task_registry_exit(void) {
     id=md_identity_new(2000,2000);
     assert(!md_resources_init(&resources,NULL));
     assert(!md_task_registry_publish(registry,20003,20003,&id,&resources));
-    md_task_registry_retire(registry,20003,&id);
+    md_task_registry_retire(registry,20003,0,&id);
     assert(md_task_registry_retired(registry,20003).identity);
     assert(!md_task_registry_publish(registry,20003,20003,&id,&resources));
     assert(!md_task_registry_has_retired(registry));

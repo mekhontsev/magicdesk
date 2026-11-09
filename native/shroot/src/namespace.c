@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "namespace_internal.h"
+#include "native_identity.h"
 #include "proc_paths.h"
 #include "fs_rpc.h"
 #include "fs_path_call.h"
@@ -52,7 +53,7 @@ long md_namespace_creation_mode(const struct md_fs *fs, unsigned mode) {
         if (result<0) return result;
         if (out.result.error) return out.result.error;
         mask=out.result.position;
-    } else mask=md_task_umask((int)RAW0(gettid));
+    } else mask=md_task_umask(md_native_tid());
     return mask<0 ? mask : (mode&07777)&~(unsigned)mask;
 }
 long md_namespace_open_result(struct md_fs_result *result, int flags) {
@@ -284,9 +285,11 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
     }
     if (nr == SYS_fchdir) {
         if ((int)a[0]<0) return -EBADF;
-        long native=md_namespace_native_descriptor((int)a[0]);
-        if (native<0) return native;
-        if (native) return RAW1(fchdir,a[0]);
+        if (!fs->managed_paths) {
+            long native=md_namespace_native_descriptor((int)a[0]);
+            if (native<0) return native;
+            if (native) return RAW1(fchdir,a[0]);
+        }
         struct md_fs_request q={.operation=MD_FS_TASK_PATH,.directory={(int)a[0],-1},
             .mode=MD_FS_TASK_FCHDIR};
         struct md_fs_response out;
@@ -309,7 +312,7 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
     if (nr==SYS_landlock_create_ruleset || nr==SYS_landlock_add_rule || nr==SYS_landlock_restrict_self)
         return md_namespace_landlock(fs,nr,a);
     if (nr==SYS_mount || nr==SYS_umount2 || nr==SYS_pivot_root) return md_namespace_mount(fs,nr,a);
-    if (nr==SYS_fsopen || nr==SYS_fsconfig || nr==SYS_fsmount || nr==SYS_fspick || nr==SYS_open_tree
+    if (nr==SYS_fsopen || nr==SYS_fsconfig || nr==SYS_fsmount || nr==SYS_fspick || nr==SYS_open_tree || nr==SYS_open_tree_attr
             || nr==SYS_move_mount || nr==SYS_mount_setattr)
         return md_namespace_mount_fd(fs,nr,a);
     if (nr == SYS_getcwd) {

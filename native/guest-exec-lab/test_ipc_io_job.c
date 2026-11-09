@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "ipc_io_job.h"
 #include "event_wait.h"
+#include <arpa/inet.h>
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -12,8 +13,39 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+static void pending_accept(void) {
+    struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+    int server=socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0);
+    assert(server>=0 && !bind(server,(void *)&address,sizeof(address)) && !listen(server,4));
+    socklen_t length=sizeof(address);
+    assert(!getsockname(server,(void *)&address,&length));
+    struct md_ipc_io_job job={0};
+    long args[5]={server,0,0,SOCK_CLOEXEC,0};
+    for (unsigned round=0;round<64;++round) {
+        assert(!md_ipc_io_job_start(&job,SYS_accept4,args));
+        long result=123;
+        for (unsigned wake=0;wake<32;++wake) {
+            assert(!md_ipc_io_job_collect(&job,&result));
+            assert(result==123 && job.started);
+        }
+        if (round%2) {
+            assert(md_ipc_io_job_cancel(&job)==-EINTR);
+        } else {
+            int client=socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0);
+            assert(client>=0 && !connect(client,(void *)&address,length));
+            /* EVENT_WAIT: accept completion; expiry fails the fixture. */
+            assert(!md_event_wait_fd(md_ipc_io_job_event(&job),POLLIN,md_event_now()+1000000000LL));
+            assert(md_ipc_io_job_collect(&job,&result) && result>=0);
+            assert(!close((int)result) && !close(client));
+        }
+        assert(!job.started && md_ipc_io_job_event(&job)==-1);
+    }
+    assert(!close(server));
+}
+
 int main(void) {
     alarm(30);
+    pending_accept();
     for (unsigned round=0;round<256;++round) {
         int sockets[2], pipefd[2];
         assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,sockets));
@@ -35,12 +67,23 @@ int main(void) {
         struct md_ipc_io_job job={0};
         long args[5]={sockets[1],(long)messages,round%3==1 ? 1 : 2,MSG_CMSG_CLOEXEC,0};
         assert(!md_ipc_io_job_start(&job,SYS_recvmmsg,args));
+        if (round%3==0) {
+            long pending=123;
+            for (unsigned wake=0;wake<32;++wake) {
+                assert(!md_ipc_io_job_collect(&job,&pending));
+                assert(pending==123 && job.started);
+            }
+        }
         if (round%3==1) {
             /* EVENT_WAIT: completed receive exercises cancellation after the
              * kernel has installed rights; expiry fails this fixture. */
             assert(!md_event_wait_fd(md_ipc_io_job_event(&job),POLLIN,md_event_now()+1000000000LL));
         }
-        long result=md_ipc_io_job_finish(&job,1);
+        long result;
+        if (round%3==1 && round%2) {
+            assert(md_ipc_io_job_collect(&job,&result));
+            assert(!job.started && result==1);
+        } else result=md_ipc_io_job_cancel(&job);
         assert(result==-EINTR || result==1);
         unsigned received=0;
         for (unsigned i=0;i<2;++i) if (messages[i].msg_len!=UINT_MAX) {

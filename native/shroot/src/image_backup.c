@@ -81,7 +81,7 @@ static int attributes(struct md_inode_store *s, const struct mdi_node *node, str
         if (length == (size_t)size-at) { r = -EIO; break; }
         at += length+1;
         if (!strcmp(name, "security.selinux")) continue;
-        if (strncmp(name, "user.", 5) && !mdi_overlay_attribute(name)) { r = -ENOTSUP; break; }
+        if (strncmp(name, "user.", 5) && !mdi_xattr_virtual(name)) { r = -ENOTSUP; break; }
         ssize_t count = mdi_xattr_get(s,node,name,NULL,0);
         if (count < 0 || count > 65536) { r = count < 0 ? (int)count : -E2BIG; break; }
         void *value = malloc(count ? (size_t)count : 1);

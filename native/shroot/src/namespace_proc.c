@@ -6,6 +6,7 @@
 #include "fd_metadata.h"
 #include "descriptor_calls.h"
 #include "interception.h"
+#include "native_identity.h"
 #include "fd_client.h"
 #include "fs_buffer.h"
 #include "adapter_buffer.h"
@@ -208,14 +209,13 @@ long md_namespace_native_descriptor(int base) {
 }
 long md_namespace_relative_mount(const struct md_fs *fs, int base, char *path) {
     if (!*path || *path == '/') return 0;
+    /* The namespace owner resolves retained dirfds, including after pivot or
+     * chroot. Do not issue unused native path queries under a guest filter. */
+    if (fs->managed_paths) return 0;
     char host[PATH_MAX];
     long n=descriptor_path(base,host);
     if (n<0) return n;
     if (!md_host_path(host)) return 0;
-    /* A retained directory remains usable after chroot/pivot. In a scoped
-     * root its absolute kernel name is not a guest pathname: keep the dirfd
-     * operand so the namespace owner resolves its provenance instead. */
-    if (fs->managed_paths) return 0;
     struct stat info;
     n = base == AT_FDCWD ? RAW4(newfstatat, base, ".", &info, 0) : RAW2(fstat, base, &info);
     if (n < 0) return n;
@@ -247,7 +247,7 @@ static int link_operation(long nr, const unsigned long *a) {
     }
 }
 int md_namespace_proc_borrow(const struct md_proc_path *ref, int *fd) {
-    if (ref->process!=(int)RAW0(gettid)) return 0;
+    if (ref->process!=md_native_tid()) return 0;
     if (ref->kind==MD_PROC_FD) *fd=ref->descriptor;
     else if (ref->kind==MD_PROC_CWD) *fd=AT_FDCWD;
     else return 0;
@@ -289,7 +289,7 @@ long md_namespace_paths_resolve(const struct md_fs *fs,const struct md_fs_reques
             r=md_copy(relative[index],sizeof(relative[index]),*tail ? tail : trailing ? "." : "");
             if (r<0) return r;
             q->directory[index]=fd; q->path[index]=relative[index];
-        } else if (ref.kind==MD_PROC_ROOT && ref.process==(int)RAW0(gettid)) {
+        } else if (ref.kind==MD_PROC_ROOT && ref.process==md_native_tid()) {
             r=md_copy(relative[index],sizeof(relative[index]),*ref.tail ? ref.tail : "/");
             if (r<0) return r;
             q->directory[index]=AT_FDCWD; q->path[index]=relative[index];
@@ -494,7 +494,7 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
     args[path_index] = (unsigned long)path;
     int tail = ref.kind && *ref.tail;
     int native = !ref.kind || (!tail && link_operation(nr, a));
-    if (!native && ref.kind==MD_PROC_FD && ref.process==(int)RAW0(gettid)) {
+    if (!native && ref.kind==MD_PROC_FD && ref.process==md_native_tid()) {
         long known=md_descriptor_kind(ref.descriptor);
         if (known<0) return known;
         if (known==MD_DESCRIPTOR_FILESYSTEM) known=0;
@@ -525,15 +525,15 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
         long error=tail ? md_copy(root,sizeof(root),ref.tail) : 0;
         return error<0 ? error : md_namespace_path_call(fs,nr,args,md_namespace_descriptor(AT_FDCWD),root);
     }
-    if (!tail && ref.kind==MD_PROC_FD && ref.process==(int)RAW0(gettid) && nr!=SYS_openat)
+    if (!tail && ref.kind==MD_PROC_FD && ref.process==md_native_tid() && nr!=SYS_openat)
         return target_call(fs,nr,args,md_namespace_descriptor(ref.descriptor));
     if (!tail && nr == SYS_openat) {
         if (ref.kind == MD_PROC_EXE) return md_proc_executable_open(fs, exe, (int)a[2]);
         int flags=(int)a[2];
         if ((flags&O_CREAT) && (flags&O_DIRECTORY)) return -EINVAL;
-        if (ref.kind==MD_PROC_FD && ref.process==(int)RAW0(gettid))
+        if (ref.kind==MD_PROC_FD && ref.process==md_native_tid())
             return md_namespace_proc_reopen(fs,ref.descriptor,flags&~(O_CREAT|O_EXCL));
-        if (ref.kind==MD_PROC_CWD && ref.process==(int)RAW0(gettid))
+        if (ref.kind==MD_PROC_CWD && ref.process==md_native_tid())
             return md_namespace_open(fs,AT_FDCWD,".",flags&~(O_CREAT|O_EXCL),0);
         /* The followed magic link already selected an existing object. Creation
          * and exclusive-link semantics were handled above, not by its backing. */

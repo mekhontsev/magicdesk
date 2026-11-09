@@ -138,6 +138,87 @@ static void route_metrics(void) {
     md_identity_release(&root); md_network_namespace_release(n);
     puts("PASS IPv6 route metrics: parsing, dump, active connection rollback and unsupported/duplicate rejection");
 }
+static void copied_ip_configuration(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE);
+    struct md_identity root=md_identity_new(0,0);
+    unsigned index;
+    assert(!md_network_interface_add(n,MD_LINK_TAP,"copy0",&index));
+    assert(!md_network_route_set_flags(n,&root,"copy0",IFF_UP));
+    for (unsigned family=0;family<2;++family) {
+        struct md_ip_address address,destination;
+        assert(!md_network_profile_ip(family ? "fd42:10::1" : "198.18.10.1",&address));
+        assert(!md_network_profile_ip(family ? "fd42:20::" : "198.18.20.0",&destination));
+        struct packet packet;
+        struct nlmsghdr *h=request(&packet,RTM_NEWADDR,NLM_F_CREATE|NLM_F_EXCL);
+        h->nlmsg_len=NLMSG_LENGTH(sizeof(struct ifaddrmsg));
+        *(struct ifaddrmsg *)NLMSG_DATA(h)=(struct ifaddrmsg){.ifa_family=address.family,
+            .ifa_prefixlen=family ? 64 : 24,.ifa_index=index};
+        attr(h,IFA_LOCAL,address.bytes,md_ip_size(address));
+        attr(h,IFA_UNSPEC,"old-interface",14);
+        struct ifa_cacheinfo expired={0};
+        struct rtattr *padding=attr(h,IFA_UNSPEC,&expired,sizeof(expired));
+        unsigned length=padding->rta_len;
+        padding->rta_len=2;
+        assert(ack(n,&root,h,NULL)==-EINVAL);
+        assert(!md_network_interface_has(md_network_interface_find(n,index,NULL),address));
+        padding->rta_len=length;
+        assert(!ack(n,&root,h,NULL));
+        assert(md_network_interface_has(md_network_interface_find(n,index,NULL),address));
+        assert(ack(n,&root,h,NULL)==-EEXIST);
+        h=request(&packet,RTM_NEWROUTE,NLM_F_CREATE|NLM_F_EXCL);
+        h->nlmsg_len=NLMSG_LENGTH(sizeof(struct rtmsg));
+        *(struct rtmsg *)NLMSG_DATA(h)=(struct rtmsg){.rtm_family=address.family,
+            .rtm_dst_len=family ? 64 : 24,.rtm_table=RT_TABLE_MAIN,
+            .rtm_type=RTN_UNICAST,.rtm_protocol=RTPROT_BOOT,.rtm_scope=RT_SCOPE_LINK};
+        attr(h,RTA_DST,destination.bytes,md_ip_size(destination));
+        attr(h,RTA_OIF,&index,sizeof(index));
+        attr(h,RTA_UNSPEC,address.bytes,md_ip_size(address));
+        padding=attr(h,RTA_UNSPEC,&index,sizeof(index));
+        length=padding->rta_len; padding->rta_len=2;
+        assert(ack(n,&root,h,NULL)==-EINVAL);
+        assert(!md_network_route_find(n,destination,NULL));
+        padding->rta_len=length;
+        assert(!ack(n,&root,h,NULL));
+        assert(md_network_route_find(n,destination,NULL));
+        assert(ack(n,&root,h,NULL)==-EEXIST);
+    }
+    md_identity_release(&root); md_network_namespace_release(n);
+    puts("PASS copied IP configuration: repeated UNSPEC attributes, malformed framing and address/route atomicity");
+}
+static void scoped_gateway(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE);
+    struct md_identity root=md_identity_new(0,0);
+    unsigned index; assert(!md_network_interface_add(n,MD_LINK_TAP,"scope0",&index));
+    struct md_network_interface *link=md_network_interface_find(n,index,NULL); assert(link);
+    link->ipv6.addr_gen_mode=IN6_ADDR_GEN_MODE_NONE;
+    assert(!md_network_route_set_flags(n,&root,"scope0",IFF_UP));
+    assert(!link->address_count);
+    struct md_ip_address gateway; assert(!md_network_profile_ip("fe80::42",&gateway));
+    assert(md_ip_unspecified(md_network_interface_source(link,gateway)));
+    struct packet packet;
+    struct nlmsghdr *h=request(&packet,RTM_NEWROUTE,NLM_F_CREATE|NLM_F_EXCL);
+    h->nlmsg_len=NLMSG_LENGTH(sizeof(struct rtmsg));
+    *(struct rtmsg *)NLMSG_DATA(h)=(struct rtmsg){.rtm_family=AF_INET6,.rtm_table=RT_TABLE_MAIN,
+        .rtm_type=RTN_UNICAST,.rtm_protocol=RTPROT_BOOT};
+    attr(h,RTA_GATEWAY,gateway.bytes,16); attr(h,RTA_OIF,&index,4);
+    assert(!ack(n,&root,h,NULL));
+    struct md_ip_address target; assert(!md_network_profile_ip("2001:db8::1",&target));
+    assert(n->route_count==1 && n->routes[0].interface==index
+        && md_ip_equal(n->routes[0].gateway,gateway));
+    /* Admission precedes address configuration; sending still needs a source. */
+    assert(!md_network_route_lookup(n,target,index,NULL));
+    uint32_t id=42;
+    h=request(&packet,RTM_NEWNEXTHOP,NLM_F_CREATE|NLM_F_EXCL);
+    h->nlmsg_len=NLMSG_LENGTH(sizeof(struct nhmsg));
+    *(struct nhmsg *)NLMSG_DATA(h)=(struct nhmsg){.nh_family=AF_INET6,.nh_protocol=RTPROT_BOOT};
+    attr(h,NHA_ID,&id,4); attr(h,NHA_OIF,&index,4);
+    struct rtattr *hop=attr(h,NHA_GATEWAY,target.bytes,16);
+    assert(ack(n,&root,h,NULL)==-EINVAL && !n->nexthop_count);
+    memcpy(RTA_DATA(hop),gateway.bytes,16);
+    assert(!ack(n,&root,h,NULL) && n->nexthop_count==1);
+    md_identity_release(&root); md_network_namespace_release(n);
+    puts("PASS scoped IPv6 gateway: route and nexthop before address assignment, global gateway still validated");
+}
 static void point_to_point(void) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
@@ -465,13 +546,45 @@ static void neighbor_ioctl(void) {
     md_network_namespace_release(n);
     puts("PASS static neighbors: ioctl and netlink share one catalog without requiring a packet stack");
 }
+static void link_flags(void) {
+    struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE);
+    unsigned index;
+    assert(!md_network_interface_add(n,MD_LINK_TAP,"tap-test",&index));
+    struct packet packet;
+    struct nlmsghdr *h=request(&packet,RTM_NEWLINK,0);
+    struct ifinfomsg *m=NLMSG_DATA(h);
+    m->ifi_index=index; m->ifi_flags=m->ifi_change=IFF_UP|IFF_NOARP;
+    assert(ack(n,&user,h,NULL)==-EPERM);
+    assert(!ack(n,&root,h,NULL));
+    struct md_network_interface *link=md_network_interface_find(n,index,NULL);
+    assert((link->info.flags&(IFF_UP|IFF_NOARP))==(IFF_UP|IFF_NOARP));
+    m->ifi_flags=0; m->ifi_change=IFF_NOARP;
+    assert(!ack(n,&root,h,NULL));
+    assert((link->info.flags&(IFF_UP|IFF_NOARP))==IFF_UP);
+    m->ifi_flags=IFF_PROMISC; m->ifi_change=0;
+    assert(!ack(n,&root,h,NULL));
+    assert((link->info.flags&(IFF_UP|IFF_PROMISC|IFF_BROADCAST))==(IFF_PROMISC|IFF_BROADCAST));
+    m->ifi_flags=IFF_UP;
+    assert(!ack(n,&root,h,NULL));
+    assert((link->info.flags&(IFF_UP|IFF_PROMISC))==IFF_UP);
+    m->ifi_flags=0;
+    unsigned mtu=1400;
+    attr(h,IFLA_MTU,&mtu,sizeof(mtu));
+    assert(!ack(n,&root,h,NULL) && link->info.mtu==mtu && (link->info.flags&IFF_UP));
+    md_network_namespace_release(n); md_identity_release(&root); md_identity_release(&user);
+    puts("PASS link flags: TAP UP/NOARP, permissions, masked/unmasked state and attribute-only preservation");
+}
 void test_network_route(void) {
+    link_flags();
     neighbor_ioctl();
     vxlan_neighbors();
     onlink_routes(AF_INET); onlink_routes(AF_INET6);
     policy_routes(AF_INET); policy_routes(AF_INET6);
     puts("PASS routing policy: tables, source/mark/mask/invert, priority, fallback, denial, namespace, authority and publication");
     point_to_point();
+    copied_ip_configuration();
+    scoped_gateway();
     route_metrics();
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_network_namespace *child=md_network_namespace_copy(n,NULL);
@@ -583,8 +696,8 @@ void test_network_route(void) {
     assert(!md_network_socket_call(socket,&root,SYS_ioctl,io,&mac,sizeof(mac),sizeof(mac),1,NULL,NULL,NULL));
     assert(md_network_interface_find(n,endpoint,NULL)->info.flags&IFF_PROMISC);
     mac.ifr_flags|=IFF_NOARP;
-    assert(md_network_socket_call(socket,&root,SYS_ioctl,io,&mac,sizeof(mac),sizeof(mac),1,NULL,NULL,NULL)==-EOPNOTSUPP);
-    assert(!(md_network_interface_find(n,endpoint,NULL)->info.flags&IFF_NOARP));
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,io,&mac,sizeof(mac),sizeof(mac),1,NULL,NULL,NULL));
+    assert(md_network_interface_find(n,endpoint,NULL)->info.flags&IFF_NOARP);
     mac.ifr_flags&=~IFF_NOARP;
     mac.ifr_flags&=~(IFF_PROMISC|IFF_UP);
     assert(!md_network_socket_call(socket,&root,SYS_ioctl,io,&mac,sizeof(mac),sizeof(mac),1,NULL,NULL,NULL));

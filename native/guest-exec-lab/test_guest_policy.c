@@ -4,8 +4,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/filter.h>
+#include <linux/kcmp.h>
 #include <linux/mount.h>
+#include <linux/rtnetlink.h>
 #include <linux/seccomp.h>
+#include <netinet/in.h>
 #include <pthread.h>
 #include <sched.h>
 #include <poll.h>
@@ -29,10 +32,12 @@
 #include <sys/ptrace.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <ucontext.h>
 #include <unistd.h>
+#include "syscall_catalog.h"
 
 static volatile sig_atomic_t seen, cookie;
 static unsigned char stack[65536];
@@ -109,6 +114,372 @@ static int accept_calls(void) {
     }
     alarm(0);
     puts("PASS raw accept: addresses, FD flags, EFAULT and original guest-policy admission");
+    return 0;
+}
+static int socket_service_filter(void) {
+    alarm(30);
+    for (unsigned datagram=0;datagram<2;++datagram) {
+        struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+        int type=datagram ? SOCK_DGRAM : SOCK_STREAM;
+        int server=socket(AF_INET,type|SOCK_CLOEXEC,0); assert(server>=0);
+        assert(!bind(server,(void *)&address,sizeof(address)));
+        if (!datagram) assert(!listen(server,4));
+        socklen_t size=sizeof(address); assert(!getsockname(server,(void *)&address,&size));
+        int channel[2]; assert(!pipe2(channel,O_CLOEXEC));
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            close(channel[0]);
+            filter_call(SYS_ppoll,SECCOMP_RET_KILL_PROCESS);
+            assert(write(channel[1],"r",1)==1);
+            struct sockaddr_storage peer; socklen_t length=sizeof(peer); char byte=0;
+            int result=datagram ? syscall(SYS_recvfrom,server,&byte,1,0,&peer,&length)
+                : syscall(SYS_accept4,server,&peer,&length,SOCK_CLOEXEC);
+            assert(result>=0 && peer.ss_family==AF_INET);
+            if (datagram) assert(result==1 && byte=='p'); else close(result);
+            assert(write(channel[1],"d",1)==1);
+            /* The application's own ppoll must still be killed. */
+            struct timespec zero={0};
+            syscall(SYS_ppoll,NULL,0,&zero,NULL,8);
+            _exit(99);
+        }
+        close(channel[1]); char byte;
+        assert(read(channel[0],&byte,1)==1 && byte=='r');
+        int blocked=0,status=0,exited=0;
+        for (unsigned attempt=0;attempt<2000 && !blocked && !exited;++attempt) {
+            exited=waitpid(child,&status,WNOHANG)==child;
+            if (exited) break;
+            char path[80],text[256]; snprintf(path,sizeof(path),"/proc/%d/syscall",child);
+            int fd=open(path,O_RDONLY|O_CLOEXEC);
+            if (fd>=0) {
+                ssize_t count=read(fd,text,sizeof(text)-1); close(fd);
+                if (count>0) {
+                    text[count]=0; long number; unsigned long descriptor;
+                    blocked=sscanf(text,"%ld %lx",&number,&descriptor)==2
+                        && number==(datagram ? SYS_recvfrom : SYS_accept4) && descriptor==(unsigned)server;
+                }
+            }
+            if (!blocked) usleep(1000);
+        }
+        if (exited) fprintf(stderr,"service filter premature exit: datagram=%u status=%#x\n",datagram,status);
+        assert(blocked && !exited);
+        int client=socket(AF_INET,type|SOCK_CLOEXEC,0); assert(client>=0);
+        assert(!connect(client,(void *)&address,sizeof(address)));
+        if (datagram) assert(write(client,"p",1)==1);
+        ssize_t completed=read(channel[0],&byte,1);
+        assert(waitpid(child,&status,0)==child);
+        if (completed!=1) fprintf(stderr,"service filter missing completion: datagram=%u status=%#x\n",datagram,status);
+        assert(completed==1 && byte=='d' && WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
+        close(client); close(channel[0]); close(server);
+    }
+    alarm(0);
+    puts("PASS socket service waits survive forbidden ppoll; application ppoll retains SIGSYS");
+    return 0;
+}
+static int shared_socket_child(void *argument) {
+    int *descriptor=argument;
+    *descriptor=socket(AF_NETLINK,SOCK_RAW|SOCK_CLOEXEC,NETLINK_ROUTE);
+    assert(*descriptor>=0);
+    return 0;
+}
+static int vfork_shared_socket(void) {
+    alarm(20);
+    for (unsigned filtered=0;filtered<2;++filtered) {
+        pid_t worker=fork(); assert(worker>=0);
+        if (!worker) {
+            assert(!unshare(CLONE_NEWNET));
+            /* Avoid selectors inherited for low descriptors from the launcher. */
+            int keepers[128];
+            for (unsigned i=0;i<128;++i) { keepers[i]=fcntl(STDERR_FILENO,F_DUPFD_CLOEXEC,0); assert(keepers[i]>=0); }
+            if (filtered) filter_call(SYS_getppid,SECCOMP_RET_ERRNO|EUCLEAN);
+            void *memory=mmap(NULL,65536,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+            assert(memory!=MAP_FAILED);
+            int fd=-1;
+            pid_t child=clone(shared_socket_child,(char *)memory+65536,
+                CLONE_VM|CLONE_FILES|CLONE_VFORK|SIGCHLD,&fd);
+            assert(child>0 && fd>=0);
+            int status; assert(waitpid(child,&status,0)==child && !status);
+            int domain=0; socklen_t size=sizeof(domain);
+            assert(!getsockopt(fd,SOL_SOCKET,SO_DOMAIN,&domain,&size) && domain==AF_NETLINK);
+            struct { struct nlmsghdr header; struct ifinfomsg link; } request={
+                .header={.nlmsg_len=NLMSG_LENGTH(sizeof(struct ifinfomsg)),.nlmsg_type=RTM_GETLINK,
+                    .nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP,.nlmsg_seq=41},.link={.ifi_family=AF_UNSPEC}};
+            struct sockaddr_nl address={.nl_family=AF_NETLINK};
+            ssize_t sent=sendto(fd,&request,sizeof(request),0,(void *)&address,sizeof(address));
+            if (sent!=sizeof(request)) fprintf(stderr,"shared socket send: result=%zd errno=%d\n",sent,errno);
+            assert(sent==sizeof(request));
+            char reply[8192]; ssize_t bytes=recv(fd,reply,sizeof(reply),0);
+            assert(bytes>=(ssize_t)NLMSG_LENGTH(sizeof(struct ifinfomsg)));
+            struct nlmsghdr header; memcpy(&header,reply,sizeof(header));
+            assert(header.nlmsg_type==RTM_NEWLINK && header.nlmsg_seq==41);
+            close(fd);
+            for (unsigned i=0;i<128;++i) close(keepers[i]);
+            assert(!munmap(memory,65536)); _exit(0);
+        }
+        int status; assert(waitpid(worker,&status,0)==worker && !status);
+    }
+    alarm(0);
+    puts("PASS vfork shared files: child creates typed socket, parent resumes with its provider selectors");
+    return 0;
+}
+static int namespace_service_filter(void) {
+    alarm(20);
+    assert(!unshare(CLONE_NEWNET));
+    int net=open("/proc/self/ns/net",O_RDONLY|O_CLOEXEC); assert(net>=0);
+    struct sock_filter rules[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_seccomp,3,0),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_prctl,0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,PR_SET_SECCOMP,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_KILL_PROCESS),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
+    };
+    struct sock_fprog program={sizeof(rules)/sizeof(*rules),rules};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    for (unsigned i=0;i<3;++i) assert(!setns(net,CLONE_NEWNET));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) { syscall(SYS_prctl,PR_SET_SECCOMP,SECCOMP_MODE_STRICT,0); _exit(12); }
+    int status;
+    assert(waitpid(child,&status,0)==child && WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
+    assert(!unshare(CLONE_NEWPID));
+    child=fork(); assert(child>=0);
+    if (!child) _exit(getpid()==1 ? 0 : 11);
+    assert(waitpid(child,&status,0)==child && !status);
+    close(net); alarm(0);
+    puts("PASS namespace services: network reentry and PID admission with forbidden filter installation");
+    return 0;
+}
+static int relative_path_filter(void) {
+    alarm(20);
+    char directory[]="/tmp/md-relative-filter-XXXXXX";
+    assert(mkdtemp(directory));
+    int base=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(base>=0);
+    int file=openat(base,"file",O_CREAT|O_RDWR|O_CLOEXEC,0600); assert(file>=0);
+    struct stat expected; assert(!fstat(file,&expected));
+    int proc=open("/proc/self/ns",O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(proc>=0);
+    int net=openat(proc,"net",O_RDONLY|O_CLOEXEC); assert(net>=0);
+    struct stat network; assert(!fstat(net,&network)); close(net);
+    for (unsigned scoped=0;scoped<2;++scoped) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            assert(!fchdir(base));
+            if (scoped) assert(!chroot(directory));
+            filter_call(SYS_readlinkat,SECCOMP_RET_KILL_PROCESS);
+            filter_call(SYS_getcwd,SECCOMP_RET_KILL_PROCESS);
+            filter_call(SYS_gettid,SECCOMP_RET_KILL_PROCESS);
+            filter_call(SYS_getpid,SECCOMP_RET_KILL_PROCESS);
+            filter_call(SYS_prctl,SECCOMP_RET_KILL_PROCESS);
+            const int bases[]={base,AT_FDCWD};
+            for (unsigned i=0;i<sizeof(bases)/sizeof(*bases);++i) {
+                int fd=openat(bases[i],"file",O_RDONLY|O_CLOEXEC); assert(fd>=0);
+                struct stat st; assert(!fstat(fd,&st) && st.st_ino==expected.st_ino && st.st_dev==expected.st_dev);
+                close(fd);
+                assert(!fstatat(bases[i],"file",&st,0) && st.st_ino==expected.st_ino);
+                assert(!renameat(bases[i],"file",bases[i],"renamed"));
+                assert(!renameat(bases[i],"renamed",bases[i],"file"));
+            }
+            net=openat(proc,"net",O_PATH|O_CLOEXEC); assert(net>=0);
+            struct stat st; assert(!fstat(net,&st) && st.st_ino==network.st_ino && st.st_dev==network.st_dev);
+            close(net);
+            assert(!fchdir(proc));
+            net=open("net",O_PATH|O_CLOEXEC); assert(net>=0);
+            assert(!fstat(net,&st) && st.st_ino==network.st_ino && st.st_dev==network.st_dev);
+            close(net);
+            assert(!fchdir(base));
+            errno=0; assert(openat(-1,"file",O_RDONLY)==-1 && errno==EBADF);
+            errno=0; assert(openat(file,"file",O_RDONLY)==-1 && errno==ENOTDIR);
+            /* Internal path resolution must not weaken application policy. */
+            pid_t denied=fork(); assert(denied>=0);
+            if (!denied) { char value[64]; syscall(SYS_readlinkat,proc,"net",value,sizeof(value)); _exit(99); }
+            int status; assert(waitpid(denied,&status,0)==denied && WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
+            _exit(0);
+        }
+        int status; assert(waitpid(child,&status,0)==child && !status);
+    }
+    close(file); close(proc); assert(!unlinkat(base,"file",0)); close(base);
+    assert(!rmdir(directory)); alarm(0);
+    puts("PASS relative paths: retained proc/ordinary dirfds and cwd survive filters, chroot and preserve errors");
+    return 0;
+}
+static int socket_signal_fd;
+static uintptr_t socket_signal_stack;
+static void socket_signal_handler(int number,siginfo_t *info,void *context) {
+    (void)info;
+    ucontext_t *frame=context;
+    assert(frame->uc_mcontext.sp>socket_signal_stack-65536
+        && frame->uc_mcontext.sp<socket_signal_stack+65536);
+    char value=(char)number;
+    assert(write(socket_signal_fd,&value,1)==1);
+}
+static int socket_signals(void) {
+    alarm(45);
+    for (unsigned filtered=0;filtered<2;++filtered)
+    for (unsigned inet=0;inet<2;++inet)
+    for (unsigned operation=0;operation<3;++operation)
+    for (unsigned output=0;output<2;++output)
+    for (unsigned action=0;action<4;++action) {
+        int family=inet ? AF_INET : AF_UNIX;
+        int type=operation==2 ? SOCK_DGRAM : SOCK_STREAM;
+        struct sockaddr_storage address={0}; socklen_t length;
+        if (inet) {
+            struct sockaddr_in *a=(void *)&address;
+            a->sin_family=AF_INET; a->sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+            length=sizeof(*a);
+        } else {
+            struct sockaddr_un *a=(void *)&address;
+            a->sun_family=AF_UNIX;
+            snprintf(a->sun_path+1,sizeof(a->sun_path)-1,"md-accept-signal-%d",getpid());
+            length=offsetof(struct sockaddr_un,sun_path)+1+strlen(a->sun_path+1);
+        }
+        int server=socket(family,type|SOCK_CLOEXEC,0);
+        assert(server>=0 && !bind(server,(void *)&address,length));
+        if (type==SOCK_STREAM) assert(!listen(server,4));
+        assert(!getsockname(server,(void *)&address,&length));
+        int channel[2]; assert(!pipe2(channel,O_CLOEXEC));
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            close(channel[0]); socket_signal_fd=channel[1];
+            socket_signal_stack=(uintptr_t)&server;
+            struct sigaction sa={.sa_sigaction=socket_signal_handler,
+                .sa_flags=SA_SIGINFO|(action>=2 ? SA_RESTART : 0)};
+            if (!action) sa.sa_handler=SIG_DFL;
+            assert(!sigaction(SIGTERM,&sa,NULL));
+            sigset_t mask; sigemptyset(&mask); assert(!sigprocmask(SIG_SETMASK,&mask,NULL));
+            if (filtered) filter_call(SYS_getppid,SECCOMP_RET_ERRNO|EUCLEAN);
+            if (action==3) {
+                struct timeval timeout={.tv_sec=5};
+                assert(!setsockopt(server,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)));
+            }
+            assert(write(channel[1],"r",1)==1);
+            struct sockaddr_storage peer; socklen_t size=sizeof(peer);
+            char payload;
+            errno=0;
+            int accepted=operation==2
+                ? syscall(SYS_recvfrom,server,&payload,1,0,output ? &peer : NULL,&size)
+                : syscall(operation ? SYS_accept4 : SYS_accept,server,output ? &peer : NULL,&size,0);
+            if (action==1 || action==3) assert(accepted==-1 && errno==EINTR);
+            else {
+                assert(action==2 && accepted>=0);
+                if (output && size) assert(peer.ss_family==family);
+                if (operation==2) assert(accepted==1 && payload=='p'); else close(accepted);
+            }
+            _exit(0);
+        }
+        close(channel[1]); char value;
+        assert(read(channel[0],&value,1)==1 && value=='r');
+        /* Repeated delivery also covers a signal arriving before accept enters.
+         * The pipe observes a handler or terminal close, never a settling delay. */
+        int status=0, exited=0, notified=0;
+        for (unsigned attempt=0;attempt<100 && !exited;++attempt) {
+            assert(!kill(child,SIGTERM));
+            struct pollfd event={channel[0],POLLIN|POLLHUP,0};
+            assert(poll(&event,1,20)>=0);
+            if (event.revents&POLLIN) { assert(read(channel[0],&value,1)==1 && value==SIGTERM); notified=1; }
+            pid_t waited=waitpid(child,&status,WNOHANG); assert(waited==0 || waited==child);
+            exited=waited==child;
+            if (action==2 && notified) break;
+        }
+        if (action==2 && notified) {
+            int client=socket(family,type|SOCK_CLOEXEC,0);
+            assert(client>=0 && !connect(client,(void *)&address,length));
+            if (operation==2) assert(write(client,"p",1)==1);
+            assert(waitpid(child,&status,0)==child); exited=1; close(client);
+        }
+        if (!exited) { kill(child,SIGKILL); waitpid(child,&status,0); }
+        close(channel[0]); close(server);
+        assert(exited);
+        if (!action) assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGTERM);
+        else assert(notified && WIFEXITED(status) && !WEXITSTATUS(status));
+    }
+    alarm(0);
+    puts("PASS blocking sockets: termination, EINTR, SA_RESTART, receive timeout, Unix/INET, addresses and filters");
+    return 0;
+}
+struct socket_tsync_wait { int server,datagram; atomic_int tid; };
+static void *socket_tsync_receiver(void *data) {
+    struct socket_tsync_wait *wait=data;
+    atomic_store(&wait->tid,(int)syscall(SYS_gettid));
+    struct sockaddr_storage address; socklen_t size=sizeof(address); char byte;
+    int result=wait->datagram
+        ? syscall(SYS_recvfrom,wait->server,&byte,1,0,&address,&size)
+        : syscall(SYS_accept4,wait->server,&address,&size,0);
+    if (result<0) fprintf(stderr,"socket TSYNC datagram=%d errno=%d\n",wait->datagram,errno);
+    assert(result>=0);
+    if (wait->datagram) assert(result==1 && byte=='t'); else close(result);
+    errno=0;
+    assert(syscall(wait->datagram ? SYS_recvfrom : SYS_accept4,-1,NULL,0,0,NULL,0)==-1 && errno==EUCLEAN);
+    return NULL;
+}
+static int socket_tsync(void) {
+    alarm(20);
+    for (int datagram=0;datagram<2;++datagram) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+            int type=datagram ? SOCK_DGRAM : SOCK_STREAM;
+            int server=socket(AF_INET,type|SOCK_CLOEXEC,0); assert(server>=0);
+            assert(!bind(server,(void *)&address,sizeof(address)));
+            if (!datagram) assert(!listen(server,4));
+            socklen_t size=sizeof(address); assert(!getsockname(server,(void *)&address,&size));
+            struct socket_tsync_wait wait={.server=server,.datagram=datagram}; atomic_init(&wait.tid,0);
+            pthread_t thread; assert(!pthread_create(&thread,NULL,socket_tsync_receiver,&wait));
+            int blocked=0;
+            for (unsigned attempt=0;attempt<2000 && !blocked;++attempt) {
+                int tid=atomic_load(&wait.tid);
+                if (tid) {
+                    char path[80],text[256]; snprintf(path,sizeof(path),"/proc/self/task/%d/syscall",tid);
+                    int fd=open(path,O_RDONLY|O_CLOEXEC); assert(fd>=0);
+                    ssize_t count=read(fd,text,sizeof(text)-1); assert(count>=0); close(fd); text[count]=0;
+                    long number; unsigned long descriptor;
+                    blocked=sscanf(text,"%ld %lx",&number,&descriptor)==2
+                        && number==(datagram ? SYS_recvfrom : SYS_accept4) && descriptor==(unsigned)server;
+                }
+                if (!blocked) usleep(1000);
+            }
+            assert(blocked);
+            struct sock_filter code[]={
+                BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+                BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,datagram ? SYS_recvfrom : SYS_accept4,0,1),
+                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EUCLEAN),
+                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+            struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+            assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+            assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_TSYNC,&program));
+            int client=socket(AF_INET,type|SOCK_CLOEXEC,0); assert(client>=0);
+            assert(!connect(client,(void *)&address,sizeof(address)));
+            if (datagram) assert(write(client,"t",1)==1);
+            assert(!pthread_join(thread,NULL)); close(client); close(server); _exit(0);
+        }
+        int status; assert(waitpid(child,&status,0)==child && !status);
+    }
+    alarm(0);
+    puts("PASS socket TSYNC: pending admitted accept/receive survives, next call obeys new policy");
+    return 0;
+}
+static int socket_child_signals(void) {
+    alarm(30);
+    struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+    int server=socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0); assert(server>=0);
+    assert(!bind(server,(void *)&address,sizeof(address)) && !listen(server,4));
+    socklen_t size=sizeof(address); assert(!getsockname(server,(void *)&address,&size));
+    socket_signal_stack=(uintptr_t)&server;
+    socket_signal_fd=open("/dev/null",O_WRONLY|O_CLOEXEC); assert(socket_signal_fd>=0);
+    struct sigaction action={.sa_sigaction=socket_signal_handler,.sa_flags=SA_SIGINFO|SA_RESTART};
+    assert(!sigaction(SIGCHLD,&action,NULL));
+    for (unsigned i=0;i<256;++i) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            int client=socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0); assert(client>=0);
+            assert(!connect(client,(void *)&address,size));
+            _exit(0);
+        }
+        struct sockaddr_storage peer; socklen_t length=sizeof(peer);
+        int accepted=accept4(server,(void *)&peer,&length,SOCK_CLOEXEC); assert(accepted>=0);
+        int status; assert(waitpid(child,&status,0)==child && !status); close(accepted);
+    }
+    close(socket_signal_fd); close(server); alarm(0);
+    puts("PASS kernel SIGCHLD around socket effects retains the application signal context");
     return 0;
 }
 __attribute__((noinline)) static long cold_setuid(unsigned uid) {
@@ -312,7 +683,7 @@ static int policy(const char *mode) {
 static int host(void) {
     const long numbers[] = {SYS_getpid, SYS_waitid, SYS_mount, SYS_shmget,
         SYS_pidfd_getfd, SYS_faccessat2, SYS_fchmodat2, SYS_openat2,
-        SYS_set_robust_list, SYS_get_robust_list, SYS_rseq};
+        SYS_set_robust_list, SYS_get_robust_list, SYS_rseq, SYS_kcmp};
     for (unsigned i = 0; i < sizeof(numbers) / sizeof(*numbers); ++i) {
         pid_t child = fork(); assert(child >= 0);
         if (!child) {
@@ -326,11 +697,16 @@ static int host(void) {
     }
     return 0;
 }
-static int optional_thread_calls(void) {
-    const long numbers[]={SYS_set_robust_list,SYS_get_robust_list,SYS_rseq};
+static int capability_calls(int unavailable) {
+#define NUMBER(n) SYS_##n,
+    const long optional[]={MD_HOST_OPTIONAL_CALLS(NUMBER)};
+    const long absent[]={MD_UNAVAILABLE_CALLS(NUMBER)};
+#undef NUMBER
+    const long *numbers=unavailable ? absent : optional;
+    unsigned count=unavailable ? sizeof(absent)/sizeof(*absent) : sizeof(optional)/sizeof(*optional);
     const unsigned actions[]={SECCOMP_RET_ALLOW,SECCOMP_RET_ALLOW,
         SECCOMP_RET_ERRNO|EUCLEAN,SECCOMP_RET_TRAP|73,SECCOMP_RET_KILL_PROCESS};
-    for (unsigned i=0;i<sizeof(numbers)/sizeof(*numbers);++i) {
+    for (unsigned i=0;i<count;++i) {
         for (unsigned mode=0;mode<sizeof(actions)/sizeof(*actions);++mode) {
             pid_t child=fork(); assert(child>=0);
             if (!child) {
@@ -339,22 +715,26 @@ static int optional_thread_calls(void) {
                 sigemptyset(&action.sa_mask); assert(!sigaction(SIGSYS,&action,NULL));
                 if (mode) filter_call(numbers[i],actions[mode]);
                 errno=0;
-                /* Invalid registration size/pointers cannot change thread state. */
-                long result=syscall(numbers[i],-1L,0L,0L,0L,0L,0L);
-                if (mode<2) assert(result==-1 && !seen
-                    && (errno==ENOSYS || errno==EINVAL || errno==ESRCH || errno==EFAULT));
+                /* Invalid sizes/pointers cannot change registrations, NUMA policy or clocks. */
+                long result=numbers[i]==SYS_kcmp
+                    ? syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,STDOUT_FILENO,STDOUT_FILENO)
+                    : syscall(numbers[i],-1L,0L,0L,0L,0L,0L);
+                if (mode<2) assert(!seen && ((numbers[i]==SYS_kcmp && result==0)
+                    || (result==-1 && (unavailable ? errno==ENOSYS
+                        : (errno==ENOSYS || errno==EINVAL || errno==ESRCH || errno==EFAULT || errno==EPERM)))));
                 else if (mode==2) assert(result==-1 && errno==EUCLEAN && !seen);
                 else if (mode==3) assert(result==711 && seen==1 && cookie==73);
                 else abort();
-                printf("PASS optional thread call nr=%ld mode=%u result=%ld errno=%d\n",
-                    numbers[i],mode,result,errno);
+                printf("PASS %s call nr=%ld mode=%u result=%ld errno=%d\n",
+                    unavailable ? "unavailable" : "optional native",numbers[i],mode,result,errno);
                 _exit(0);
             }
             int status; assert(waitpid(child,&status,0)==child);
             assert(mode==4 ? WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS : status==0);
         }
     }
-    puts("PASS optional thread capabilities retain native admission and guest policy");
+    puts(unavailable ? "PASS unavailable guest providers retain explicit absence and guest policy"
+        : "PASS optional native capabilities retain native admission and guest policy");
     return 0;
 }
 static int protected_proc(void) {
@@ -1085,7 +1465,7 @@ static int signal_epoll_domains(int after_exec) {
     execl("/proc/self/exe","guest_policy","signal-epoll-exec",(char *)NULL);
     assert(0); return 1;
 }
-struct waiting_signal { int descriptor,ready,filtered; };
+struct waiting_signal { int descriptor,ready,filtered,synchronized; };
 static void *signal_waiter(void *context) {
     struct waiting_signal *w=context;
     sigset_t set; sigemptyset(&set); sigaddset(&set,SIGSYS);
@@ -1124,9 +1504,10 @@ static void *signal_waiter(void *context) {
         siginfo_t info;
         assert(sigwaitinfo(&set,&info)==SIGSYS && info.si_signo==SIGSYS);
     }
+    if (w->synchronized) assert(syscall(SYS_getppid)==-1 && errno==EACCES);
     return NULL;
 }
-static int signal_wait_pressure(int filtered,int epoll) {
+static int signal_wait_pressure(int filtered,int epoll,int synchronized) {
     alarm(30);
     sigset_t set; sigemptyset(&set); sigaddset(&set,SIGSYS);
     assert(!sigprocmask(SIG_BLOCK,&set,NULL));
@@ -1134,9 +1515,21 @@ static int signal_wait_pressure(int filtered,int epoll) {
     pthread_t workers[COUNT]; struct waiting_signal waiters[COUNT];
     int ready[2]; assert(!pipe(ready));
     for (unsigned i=0;i<COUNT;++i) {
-        waiters[i]=(struct waiting_signal){.descriptor=epoll ? 2 : i%2,.ready=ready[1],.filtered=filtered};
+        waiters[i]=(struct waiting_signal){.descriptor=epoll ? 2 : i%2,.ready=ready[1],
+            .filtered=filtered,.synchronized=synchronized};
         assert(!pthread_create(workers+i,NULL,signal_waiter,waiters+i));
         char byte; assert(read(ready[0],&byte,1)==1);
+    }
+    if (synchronized) {
+        struct sock_filter rules[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getppid,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(rules)/sizeof(*rules),rules};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_TSYNC,&program));
+        assert(syscall(SYS_getppid)==-1 && errno==EACCES);
     }
     struct stat st; assert(!stat("/",&st));
     for (unsigned i=0;i<COUNT;++i) assert(!pthread_kill(workers[i],SIGSYS));
@@ -1146,6 +1539,35 @@ static int signal_wait_pressure(int filtered,int epoll) {
     return 0;
 }
 static sigjmp_buf mask_jump;
+static volatile sig_atomic_t query_signals;
+static void mask_query_handler(int signal) {
+    assert(signal==SIGALRM);
+    ++query_signals;
+}
+static int signal_mask_queries(void) {
+    struct sigaction action={.sa_handler=mask_query_handler,.sa_flags=SA_RESTART};
+    sigemptyset(&action.sa_mask); assert(!sigaction(SIGALRM,&action,NULL));
+    struct itimerval timer={.it_interval={0,100},.it_value={0,100}};
+    for (unsigned blocked=0;blocked<2;++blocked) {
+        uint64_t expected=UINT64_C(1)<<(SIGUSR1-1);
+        if (blocked) expected|=UINT64_C(1)<<(SIGSYS-1);
+        assert(!syscall(SYS_rt_sigprocmask,SIG_SETMASK,&expected,NULL,sizeof(expected)));
+        assert(!setitimer(ITIMER_REAL,&timer,NULL));
+        for (unsigned i=0;i<4096;++i) {
+            uint64_t actual=0;
+            assert(!syscall(SYS_rt_sigprocmask,SIG_SETMASK,NULL,&actual,sizeof(actual)));
+            if (actual!=expected)
+                fprintf(stderr,"signal query blocked=%u iteration=%u expected=%llx actual=%llx signals=%d\n",
+                    blocked,i,(unsigned long long)expected,(unsigned long long)actual,query_signals);
+            assert(actual==expected);
+        }
+        struct itimerval stopped={0}; assert(!setitimer(ITIMER_REAL,&stopped,NULL));
+        assert(query_signals>0);
+        query_signals=0;
+    }
+    puts("PASS interrupted signal-mask queries preserve application masks");
+    return 0;
+}
 static int mask_jumping,mask_signal;
 static volatile sig_atomic_t edge_seen;
 static void mask_edge_handler(int signal,siginfo_t *info,void *context) {
@@ -1547,8 +1969,16 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1],"dumpability")) return dumpability(argv[0]);
     if (!strcmp(argv[1],"dumpability-exec")) { assert(prctl(PR_GET_DUMPABLE)==1); return 0; }
     if (!strcmp(argv[1], "host")) return host();
-    if (!strcmp(argv[1], "optional-thread-calls")) return optional_thread_calls();
+    if (!strcmp(argv[1], "optional-native-calls")) return capability_calls(0);
+    if (!strcmp(argv[1], "unavailable-calls")) return capability_calls(1);
     if (!strcmp(argv[1], "accept-calls")) return accept_calls();
+    if (!strcmp(argv[1], "socket-service-filter")) return socket_service_filter();
+    if (!strcmp(argv[1], "vfork-shared-socket")) return vfork_shared_socket();
+    if (!strcmp(argv[1], "namespace-service-filter")) return namespace_service_filter();
+    if (!strcmp(argv[1], "relative-path-filter")) return relative_path_filter();
+    if (!strcmp(argv[1], "socket-signals")) return socket_signals();
+    if (!strcmp(argv[1], "socket-tsync")) return socket_tsync();
+    if (!strcmp(argv[1], "socket-child-signals")) return socket_child_signals();
     if (!strcmp(argv[1], "proc")) return protected_proc();
     if (!strcmp(argv[1], "proc-limits")) return protected_proc_limits();
     if (!strcmp(argv[1], "protected-creation")) return protected_creation();
@@ -1569,11 +1999,14 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "signal-epoll-fault")) return signal_epoll_fault(0);
     if (!strcmp(argv[1], "signal-epoll-fault-filtered")) return signal_epoll_fault(1);
     if (!strcmp(argv[1], "signal-epoll-exec")) return signal_epoll_domains(1);
-    if (!strcmp(argv[1], "signal-wait-pressure")) return signal_wait_pressure(0,0);
-    if (!strcmp(argv[1], "signal-wait-pressure-filtered")) return signal_wait_pressure(1,0);
-    if (!strcmp(argv[1], "signal-epoll-pressure")) return signal_wait_pressure(0,1);
-    if (!strcmp(argv[1], "signal-epoll-pressure-filtered")) return signal_wait_pressure(1,1);
+    if (!strcmp(argv[1], "signal-wait-pressure")) return signal_wait_pressure(0,0,0);
+    if (!strcmp(argv[1], "signal-wait-pressure-filtered")) return signal_wait_pressure(1,0,0);
+    if (!strcmp(argv[1], "signal-wait-tsync")) return signal_wait_pressure(0,0,1);
+    if (!strcmp(argv[1], "signal-epoll-pressure")) return signal_wait_pressure(0,1,0);
+    if (!strcmp(argv[1], "signal-epoll-pressure-filtered")) return signal_wait_pressure(1,1,0);
+    if (!strcmp(argv[1], "signal-epoll-tsync")) return signal_wait_pressure(0,1,1);
     if (!strcmp(argv[1], "signal-mask-edges")) return signal_mask_edges();
+    if (!strcmp(argv[1], "signal-mask-queries")) return signal_mask_queries();
     if (!strcmp(argv[1], "signal-descriptor-interrupt")) return signal_descriptor_interrupt(0);
     if (!strcmp(argv[1], "signal-descriptor-restart")) return signal_descriptor_interrupt(1);
     if (!strcmp(argv[1], "tsync-cold")) return policy_sync(0);

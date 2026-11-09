@@ -10,7 +10,8 @@ import sys
 import time
 import traceback
 
-from k3s_fixture import Kubectl, command, kubelet_pods
+from k3s_fixture import Kubectl, command, kubelet_pods, pid1_command, prepare_images
+from systemd_ready import wait_systemd_unit
 
 
 def ready_containers(pod, previous):
@@ -20,6 +21,15 @@ def ready_containers(pod, previous):
         return []
     current = [c['containerID'] for c in statuses]
     return current if not set(current).intersection(previous) else []
+
+
+def backup_location(name, identity, index):
+    # Keep service/runlevel backups outside init's discovery directories, on
+    # the same /etc filesystem. Data trees retain same-directory atomic moves.
+    path = Path(name)
+    if path.is_relative_to('/etc'):
+        return Path('/etc') / ('.' + identity + '-backups') / str(index)
+    return path.with_name(path.name + '.md-' + identity)
 
 
 def install(root, init):
@@ -34,13 +44,20 @@ def install(root, init):
               if not os.path.lexists(p)]
     parents = [p for p in ('/etc/rancher', '/var/lib/rancher') if not Path(p).exists()]
     backups = {}
+    backup_directories = set()
     for name in ('/var/lib/kubelet', '/var/lib/cni', '/var/log/pods', '/var/log/containers',
                  '/etc/init.d/magicdesk-session', '/etc/runlevels/default/magicdesk-session'):
-        saved = name + '.md-' + root.name
+        saved = str(backup_location(name, root.name, len(backups)))
         assert not os.path.lexists(saved)
         backups[name] = saved if os.path.lexists(name) else None
-    manifest = dict(owned=owned, parents=parents, backups=backups)
+        if backups[name] and Path(saved).parent != Path(name).parent:
+            backup_directories.add(str(Path(saved).parent))
+    assert not any(os.path.lexists(path) for path in backup_directories)
+    manifest = dict(owned=owned, parents=parents, backups=backups,
+                    backupDirectories=sorted(backup_directories))
     (root / 'installation.json').write_text(json.dumps(manifest))
+    for path in backup_directories:
+        Path(path).mkdir()
     for name, saved in backups.items():
         if saved:
             os.rename(name, saved)
@@ -48,10 +65,7 @@ def install(root, init):
         Path(parent).mkdir(parents=True)
     shutil.copyfile(root / 'k3s', '/usr/local/bin/k3s')
     os.chmod('/usr/local/bin/k3s', 0o755)
-    for archive in sorted(root.glob('images-*.tar')):
-        images = Path('/var/lib/rancher/k3s/agent/images')
-        images.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(archive, images / archive.name)
+    prepare_images(root, '/var/lib/rancher/k3s')
 
 
 def cleanup(root):
@@ -71,8 +85,42 @@ def cleanup(root):
     for name, saved in data['backups'].items():
         if saved and os.path.lexists(saved):
             os.rename(saved, name)
+    for name in data.get('backupDirectories', []):
+        try:
+            Path(name).rmdir()
+        except FileNotFoundError:
+            pass
     for name in reversed(data['parents']):
-        Path(name).rmdir()
+        try:
+            Path(name).rmdir()
+        except FileNotFoundError:
+            pass
+
+
+def poweroff(init):
+    command(*(['systemctl', 'poweroff', '--no-block'] if init == 'systemd' else
+              ['openrc-shutdown', '--poweroff', 'now']))
+
+
+def cleanup_boot(root, init):
+    passed = False
+    try:
+        if (root / 'installation.json').exists():
+            service = '/etc/systemd/system/k3s.service' if init == 'systemd' else '/etc/init.d/k3s'
+            if Path(service).exists():
+                command(*(['systemctl', 'stop', 'k3s'] if init == 'systemd' else
+                          ['rc-service', 'k3s', 'stop']))
+            killall = Path('/usr/local/bin/k3s-killall.sh')
+            if killall.exists():
+                command('/bin/sh', str(killall))
+            cleanup(root)
+        passed = True
+    except Exception:
+        traceback.print_exc()
+    finally:
+        with open('/dev/console', 'w') as console:
+            print('K3S_BOOT_CLEANUP', passed, file=console, flush=True)
+        poweroff(init)
 
 
 def observe(root, init, phase):
@@ -82,6 +130,7 @@ def observe(root, init, phase):
         assert os.isatty(0) and os.tcgetpgrp(0) == os.getpgrp(), 'console lacks foreground PTY ownership'
         report['checks'].append('foreground-console-pty')
         if phase == 0:
+            install(root, init)
             env = dict(os.environ, INSTALL_K3S_SKIP_DOWNLOAD='true')
             subprocess.run(['/bin/sh', str(root / 'install.sh'), 'server'],
                            env=env, check=True, timeout=180)
@@ -104,7 +153,10 @@ def observe(root, init, phase):
         node = nodes[0]
         if init == 'systemd':
             command('systemctl', 'is-enabled', 'k3s')
-            command('systemctl', 'is-active', 'k3s')
+            # API readiness can precede the service's READY=1 notification.
+            # Observe the stock start; never restart it to satisfy this check.
+            wait_systemd_unit(lambda timeout: subprocess.run(
+                ['systemctl', 'is-active', 'k3s'], text=True, capture_output=True, timeout=timeout))
         else:
             command('rc-service', 'k3s', 'status')
             assert Path('/etc/runlevels/default/k3s').is_symlink()
@@ -116,7 +168,7 @@ def observe(root, init, phase):
                 dict(apiVersion='v1', kind='Pod', metadata=dict(name='md-boot', labels=dict(app='md-boot')),
                 spec=dict(containers=[dict(name='http', image='docker.io/library/busybox:1.37',
                     command=['sh', '-ec', 'mkdir -p /www; echo MD_BOOT_SERVICE > /www/index.html; '
-                             'exec httpd -f -p 8080 -h /www'],
+                             + pid1_command('httpd', '-f', '-p', '8080', '-h', '/www')],
                     readinessProbe=dict(httpGet=dict(path='/', port=8080)),
                     volumeMounts=[dict(name='data', mountPath='/data')])],
                     volumes=[dict(name='data', persistentVolumeClaim=dict(claimName='md-boot'))])),
@@ -170,7 +222,10 @@ def observe(root, init, phase):
         traceback.print_exc()
         try:
             if init == 'systemd':
-                command('journalctl', '-u', 'k3s', '--no-pager', '-n', '200')
+                command('systemctl', 'show', 'k3s', '-p', 'LoadState', '-p', 'ActiveState',
+                        '-p', 'UnitFileState', '-p', 'FragmentPath', '-p', 'Result')
+                command('systemctl', 'list-jobs', '--no-pager')
+                command('journalctl', '-b', '-u', 'k3s', '--no-pager', '-n', '200')
             else:
                 print(Path('/var/log/k3s.log').read_text()[-65536:], flush=True)
             path = Path('/var/lib/rancher/k3s/agent/containerd/containerd.log')
@@ -192,17 +247,14 @@ def observe(root, init, phase):
         signal.alarm(90)
         while True:
             signal.pause()
-    command(*(['systemctl', 'poweroff', '--no-block'] if init == 'systemd' else
-              ['openrc-shutdown', '--poweroff', 'now']))
+    poweroff(init)
 
 
 if __name__ == '__main__':
     mode, directory, init, *arguments = sys.argv[1:]
     root = Path(directory)
-    if mode == 'install':
-        install(root, init)
-    elif mode == 'cleanup':
-        cleanup(root)
+    if mode == 'cleanup':
+        cleanup_boot(root, init)
     elif mode == 'observe':
         log = open(root / ('phase-' + arguments[0] + '.log'), 'w')
         os.dup2(log.fileno(), 1)

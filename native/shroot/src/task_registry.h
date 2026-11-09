@@ -41,12 +41,13 @@ int md_task_registry_publish(struct md_task_registry *, pid_t tid, pid_t tgid,
 void md_task_registry_forget(struct md_task_registry *, pid_t tid);
 /* The supervisor is the sole writer. Exit drops live resources but preserves
  * proc observations in the existing entry until wait/reaping. No exit allocation. */
-void md_task_registry_retire(struct md_task_registry *,pid_t,const struct md_identity *);
+void md_task_registry_retire(struct md_task_registry *,pid_t,pid_t parent,const struct md_identity *);
 struct md_task_retired_view {
     const struct md_identity *identity;
     struct md_pid_identity *pid;
     struct md_cgroup_member *cgroup;
     struct md_process_member *process;
+    pid_t parent;
 };
 /* Borrowed on the writer thread, only until its next registry mutation. */
 struct md_task_retired_view md_task_registry_retired(const struct md_task_registry *,pid_t);

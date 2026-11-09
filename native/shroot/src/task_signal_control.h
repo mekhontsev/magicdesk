@@ -73,6 +73,9 @@ int md_task_signal_wait_park(struct md_task_signal_control *,uintptr_t page);
 int md_task_signal_control_continue(struct md_task_signal_control *);
 int md_task_signal_control_wake(struct md_task_signal_control *);
 int md_task_signal_control_parked(const struct md_task_signal_control *);
+/* An enclosing barrier already issued its interrupt. Recheck the wait after
+ * release, retaining its deadline and any completed native signal delivery. */
+void md_task_signal_control_quiesced(struct md_task_signal_control *);
 int md_task_signal_descriptor_changed(struct md_task_signal_control *,const struct md_signal_fd *);
 void md_task_signal_control_dispose(struct md_task_signal_control *);
 int md_task_signal_descriptor_begin(struct md_task_signal_control *,

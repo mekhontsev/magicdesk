@@ -15,7 +15,7 @@ struct md_stack_interface {
     uint64_t policy;
     ip4_addr_t gateway4;
     ip6_addr_t gateway6;
-    int ethernet;
+    int ethernet, noarp;
 };
 struct md_stack_packet;
 struct md_stack_listener;

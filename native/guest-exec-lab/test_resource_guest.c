@@ -3,6 +3,7 @@
 #include <sys/mman.h>
 #include "fs_buffer.h"
 #include "posix_acl.h"
+#include "linux_abi.h"
 #include <assert.h>
 #include <asm/hwcap.h>
 #include <errno.h>
@@ -1782,6 +1783,93 @@ static void watch_slots(void) {
     assert(!close(file) && !unlink("watch-link") && !unlink("watch-slots"));
     puts("PASS watch paths without private FDs: protected callers, admitted transport, full table and symlink selection");
 }
+static void xattr_at(void) {
+    const char *name="user.magicdesk.at", *text="metadata";
+    int fd=open("xattr-at",O_CREAT|O_EXCL|O_RDWR|O_CLOEXEC,0600); assert(fd>=0);
+    int dir=open(".",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(dir>=0);
+    int pathfd=open("xattr-at",O_PATH|O_CLOEXEC); assert(pathfd>=0);
+    assert(!symlink("xattr-at","xattr-at-link"));
+    char absolute[PATH_MAX], output[256];
+    assert(getcwd(absolute,sizeof(absolute)));
+    assert(strlen(absolute)+strlen("/xattr-at")<sizeof(absolute));
+    strcat(absolute,"/xattr-at");
+    struct md_xattr_args value={.value=(uintptr_t)text,.size=8,.flags=XATTR_CREATE};
+    assert(!syscall(SYS_setxattrat,dir,"xattr-at",0,name,&value,sizeof(value)));
+    assert(syscall(SYS_setxattrat,dir,"xattr-at",0,name,&value,sizeof(value))==-1 && errno==EEXIST);
+    struct md_xattr_args get={.value=(uintptr_t)output,.size=sizeof(output)};
+    const struct { int fd; const char *path; unsigned flags; } targets[]={
+        {dir,"xattr-at",0}, {dir,"xattr-at-link",0}, {-1,absolute,0},
+        {fd,"",AT_EMPTY_PATH}, {fd,NULL,AT_EMPTY_PATH|AT_SYMLINK_NOFOLLOW}
+    };
+    for (unsigned i=0;i<sizeof(targets)/sizeof(*targets);++i) {
+        int base=targets[i].fd; const char *path=targets[i].path; unsigned flags=targets[i].flags;
+        value.flags=XATTR_REPLACE;
+        assert(!syscall(SYS_setxattrat,base,path,flags,name,&value,sizeof(value)));
+        assert(fgetxattr(fd,name,output,sizeof(output))==8 && !memcmp(output,text,8));
+        memset(output,0,sizeof(output));
+        assert(syscall(SYS_getxattrat,base,path,flags,name,&get,sizeof(get))==8 && !memcmp(output,text,8));
+        long size=syscall(SYS_listxattrat,base,path,flags,NULL,0); assert(size>0 && (size_t)size<sizeof(output));
+        assert(syscall(SYS_listxattrat,base,path,flags,output,sizeof(output))==size);
+        int found=0;
+        for (long at=0;at<size;at+=strlen(output+at)+1) found|=!strcmp(output+at,name);
+        assert(found);
+        assert(!syscall(SYS_removexattrat,base,path,flags,name));
+        assert(fgetxattr(fd,name,output,sizeof(output))==-1 && errno==ENODATA);
+        value.flags=XATTR_CREATE;
+        assert(!syscall(SYS_setxattrat,base,path,flags,name,&value,sizeof(value)));
+    }
+    assert(syscall(SYS_getxattrat,dir,"xattr-at-link",AT_SYMLINK_NOFOLLOW,name,&get,sizeof(get))==-1 && errno==ENODATA);
+    assert(syscall(SYS_getxattrat,dir,"missing",0,name,&get,sizeof(get))==-1 && errno==ENOENT);
+    assert(syscall(SYS_getxattrat,-1,"xattr-at",0,name,&get,sizeof(get))==-1 && errno==EBADF);
+    assert(syscall(SYS_getxattrat,fd,"xattr-at",0,name,&get,sizeof(get))==-1 && errno==ENOTDIR);
+    assert(syscall(SYS_getxattrat,pathfd,"",AT_EMPTY_PATH,name,&get,sizeof(get))==-1 && errno==EBADF);
+    assert(syscall(SYS_getxattrat,AT_FDCWD,NULL,AT_EMPTY_PATH,name,&get,sizeof(get))==-1 && errno==EBADF);
+    assert(syscall(SYS_getxattrat,fd,"",0,name,&get,sizeof(get))==-1 && errno==ENOENT);
+    assert(syscall(SYS_getxattrat,fd,NULL,0,name,&get,sizeof(get))==-1 && errno==EFAULT);
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",AT_SYMLINK_FOLLOW,name,&get,sizeof(get))==-1 && errno==EINVAL);
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,&get,sizeof(get)-1)==-1 && errno==EINVAL);
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,&get,sysconf(_SC_PAGESIZE)+1)==-1 && errno==E2BIG);
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,(void *)1,sizeof(get))==-1 && errno==EFAULT);
+    struct { struct md_xattr_args args; uint64_t tail; } extended={.args=get};
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,&extended,sizeof(extended))==8);
+    extended.tail=1;
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,&extended,sizeof(extended))==-1 && errno==E2BIG);
+    get.flags=1;
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,&get,sizeof(get))==-1 && errno==EINVAL);
+    get.flags=0; get.size=1;
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,&get,sizeof(get))==-1 && errno==ERANGE);
+    get.size=8; get.value=1;
+    assert(syscall(SYS_getxattrat,dir,"xattr-at",0,name,&get,sizeof(get))==-1 && errno==EFAULT);
+    value.flags=4;
+    assert(syscall(SYS_setxattrat,dir,"xattr-at",0,name,&value,sizeof(value))==-1 && errno==EINVAL);
+    value.flags=0; value.value=1;
+    assert(syscall(SYS_setxattrat,dir,"xattr-at",0,name,&value,sizeof(value))==-1 && errno==EFAULT);
+    assert(syscall(SYS_listxattrat,dir,"xattr-at",0,(void *)1,sizeof(output))==-1 && errno==EFAULT);
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        struct sock_filter filter[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_setxattrat,3,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getxattrat,2,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_listxattrat,1,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_removexattrat,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EUCLEAN),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
+        };
+        struct sock_fprog program={.len=sizeof(filter)/sizeof(*filter),.filter=filter};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,&program));
+        const long calls[]={SYS_setxattrat,SYS_getxattrat,SYS_listxattrat,SYS_removexattrat};
+        for (unsigned i=0;i<4;++i)
+            assert(syscall(calls[i],dir,"xattr-at",0,name,&value,sizeof(value))==-1 && errno==EUCLEAN);
+        assert(fgetxattr(fd,name,output,sizeof(output))==8);
+        _exit(0);
+    }
+    reap(child);
+    assert(!close(pathfd) && !close(dir) && !close(fd));
+    assert(!unlink("xattr-at-link") && !unlink("xattr-at"));
+    puts("PASS xattr-at: dirfd, legacy metadata, empty descriptor, nofollow, versioned arguments, faults and guest seccomp");
+}
 static volatile sig_atomic_t size_signals;
 static void xattr_slots(int guest) {
     int fd=open("xattr-slots",O_CREAT|O_EXCL|O_RDWR|O_CLOEXEC,0600); assert(fd>=0);
@@ -2356,6 +2444,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1],"metadata-slots-native")) { metadata_slots(0); return 0; }
     if (!strcmp(argv[1],"xattr-slots")) { xattr_slots(1); return 0; }
     if (!strcmp(argv[1],"xattr-slots-native")) { xattr_slots(0); return 0; }
+    if (!strcmp(argv[1],"xattr-at")) { xattr_at(); return 0; }
     if (!strcmp(argv[1],"watch-slots")) { watch_slots(); return 0; }
     if (!strcmp(argv[1],"proc-reopen-slots")) { proc_reopen_slots(); return 0; }
     if (!strcmp(argv[1],"buffer-cwd")) { buffer_cwd(); return 0; }

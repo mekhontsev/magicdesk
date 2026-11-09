@@ -94,6 +94,13 @@ static void isolated_bridge(void) {
     assert(md_network_socket_call(sender,&root,SYS_write,args,frame,sizeof(frame),sizeof(frame),1,NULL,NULL,NULL)==sizeof(frame));
     assert(recv(receivefd,received,sizeof(received),MSG_DONTWAIT)==sizeof(struct md_network_packet)+sizeof(frame));
     assert(!memcmp(received+sizeof(struct md_network_packet),frame,sizeof(frame)));
+    master=md_network_interface_find(host,bridge,NULL);
+    master->info.flags&=~IFF_UP;
+    assert(md_network_socket_call(sender,&root,SYS_write,args,frame,sizeof(frame),sizeof(frame),1,NULL,NULL,NULL)==sizeof(frame));
+    assert(recv(receivefd,received,sizeof(received),MSG_DONTWAIT)<0 && errno==EAGAIN);
+    master->info.flags|=IFF_UP;
+    assert(md_network_socket_call(sender,&root,SYS_write,args,frame,sizeof(frame),sizeof(frame),1,NULL,NULL,NULL)==sizeof(frame));
+    assert(recv(receivefd,received,sizeof(received),MSG_DONTWAIT)==sizeof(struct md_network_packet)+sizeof(frame));
     packet=(struct md_filter_packet){.source=md_ip_v4(htonl(0x0a070002)),.destination=md_ip_v4(address.sin_addr.s_addr),.protocol=IPPROTO_TCP};
     assert(!md_network_flow_route(a,&packet,0,0,&path) && path.mediated && path.destination==b->inode);
     assert(!md_network_flow_check(host->fabric,&path,1));

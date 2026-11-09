@@ -93,6 +93,7 @@ def pinned_links(root):
                 assert name == 'device-tree'
                 continue
             assert stat.S_ISLNK(info.st_mode), name
+            assert os.access(name, os.F_OK, dir_fd=root, follow_symlinks=False), name
             link = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=root)
             try:
                 pinned = os.fstat(link)

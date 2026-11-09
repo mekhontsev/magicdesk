@@ -19,7 +19,7 @@ enum { MD_SVC_PUBLISHED, MD_SVC_RETIRED };
 struct md_svc_registry {
     uintptr_t frames, dispatch, native_begin, native_end;
     struct md_svc_code_pool pools[MD_SVC_CODE_POOLS];
-    unsigned pool_count, count, disabled, entry_fence_drained, clients_dirty, frames_dirty;
+    unsigned pool_count, count, disabled, revoke_pending, entry_fence_drained, clients_dirty, frames_dirty;
     pid_t sole_owner;
     unsigned identity_known;
     struct md_svc_site sites[MD_SVC_SITES];
@@ -43,6 +43,8 @@ uintptr_t md_svc_registry_call_origin(const struct md_svc_registry *,uintptr_t p
  * site. Only an exact resident replacement has an owned original instruction. */
 uint32_t md_svc_registry_instruction(const struct md_svc_registry *,uintptr_t pc,uint32_t word);
 int md_svc_registry_retire(struct md_svc_registry *,struct md_svc_site *,pid_t);
+/* Disable discovery immediately; retry incomplete writes through a stopped
+ * peer of this mm before admitting debugger/filter execution. */
 int md_svc_registry_revoke(struct md_svc_registry *,pid_t);
 /* Retired source instructions can still have peers inside resident gates. */
 int md_svc_registry_resident(const struct md_svc_registry *);

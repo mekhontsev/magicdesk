@@ -7,7 +7,9 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"runtime/debug"
@@ -29,6 +31,7 @@ func grow(n int, seed uint64) uint64 {
 var foreignWork = func(string) {}
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--child" { return }
 	if len(os.Args) < 2 || len(os.Args) > 3 { panic("directory and optional sandbox mode required") }
 	runtime.GOMAXPROCS(4)
 	debug.SetGCPercent(25)
@@ -39,7 +42,7 @@ func main() {
 	var profile bytes.Buffer
 	if err := pprof.StartCPUProfile(&profile); err != nil { panic(err) }
 	ch := make(chan os.Signal, 64)
-	signal.Notify(ch, syscall.SIGUSR1)
+	signal.Notify(ch, syscall.SIGUSR1, syscall.SIGCHLD)
 	defer signal.Stop(ch)
 	var signals, operations atomic.Uint64
 	done := make(chan struct{})
@@ -47,12 +50,24 @@ func main() {
 		for { select { case <-ch: signals.Add(1); case <-done: return } }
 	}()
 	var group sync.WaitGroup
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		for i := 0; i < 128; i++ {
+			if err := exec.Command(os.Args[0], "--child").Run(); err != nil { panic(err) }
+		}
+	}()
 	for worker := 0; worker < 8; worker++ {
 		group.Add(1)
 		go func(id int) {
 			defer group.Done()
 			if id%2 == 0 { runtime.LockOSThread(); defer runtime.UnlockOSThread() }
+			conn, err := net.ListenPacket("udp4", "127.0.0.1:0"); if err != nil { panic(err) }
+			defer conn.Close()
 			for i := 0; i < 600; i++ {
+				if _, err := conn.WriteTo([]byte("probe"), conn.LocalAddr()); err != nil { panic(err) }
+				var packet [16]byte
+				if n, _, err := conn.ReadFrom(packet[:]); err != nil || string(packet[:n]) != "probe" { panic(err) }
 				if st, err := os.Stat(path); err != nil || st.Size() != int64(len(contents)) { panic(fmt.Sprint(st, err)) }
 				f, err := os.Open(path); if err != nil { panic(err) }
 				data, err := io.ReadAll(f); if err != nil || string(data) != contents { panic(err) }

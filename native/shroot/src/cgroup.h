@@ -30,9 +30,11 @@ int md_cgroup_member_clone(struct md_cgroup_member *,struct md_fs_anchor *,
     struct md_cgroup_member **);
 struct md_cgroup_member *md_cgroup_member_retain(struct md_cgroup_member *);
 void md_cgroup_member_release(struct md_cgroup_member *);
+/* Launch-wide sampled task CPU, in native clock ticks; independent of mounts. */
+int md_cgroup_cpu_usage(struct md_cgroup_member *,uint64_t *user,uint64_t *system);
 void md_cgroup_member_publish(struct md_cgroup_member *,pid_t,pid_t,struct md_pid_identity *,struct md_pid_identity *);
 void md_cgroup_member_depart(struct md_cgroup_member *,pid_t);
-/* Sample only an observed hierarchy, at the existing terminal ptrace stop. */
+/* Sample only observed accounting, at the existing terminal ptrace stop. */
 void md_cgroup_member_account_exit(struct md_cgroup_member *);
 /* Drop quota custody at native reaping, independently of retained proc FDs. */
 void md_cgroup_member_reaped(struct md_cgroup_member *);

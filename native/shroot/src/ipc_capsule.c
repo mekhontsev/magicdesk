@@ -120,7 +120,8 @@ int md_ipc_capsules_publish(struct md_ipc_capsules *s, const struct md_ipc_bindi
             /* A typed provider's placement is not its native carrier inode.
              * Keep its exact authority in local custody, never flatten it into
              * a portable path. FIFO descriptions have their own wire format. */
-            if (anchor && origins[i]!=md_fs_anchor_object(anchor) && !fifo) local=1;
+            if (anchor && origins[i]!=md_fs_anchor_object(anchor) && !fifo
+                    && !origins[i]->type->portable_origin) local=1;
             else if (anchor) {
                 error=md_fs_anchor_check_fd(anchor,fds[i]);
                 if (!md_fs_anchor_portable(anchor)) local=1;

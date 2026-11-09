@@ -58,6 +58,10 @@ int md_reopen_file(int fd, int flags, struct md_open_completion *);
 /* Already authorized regular/directory pin; the caller retains its ownership.
  * Flags and kind were validated by the provider, not inferred from a pathname. */
 int md_open_pinned(int fd, int flags);
+/* Open an admitted, pinned host path. The callback retains caller-affine
+ * capture/cancellation; NULL uses a native open. Never accepts a guest path. */
+typedef long (*md_open_path_call)(void *, const char *, int);
+int md_open_pinned_path(const char *, int, md_open_path_call, void *);
 /* Positive pid selects another process; zero names the calling process. */
 void md_descriptor_path(char path[64], unsigned pid, unsigned fd);
 /* Already admitted non-symlink pin; returns the matching reopen flags. */

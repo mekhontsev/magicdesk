@@ -17,6 +17,8 @@ import org.json.JSONObject;
 
 /** Bounded real-app launch transport. Shared native/Python fixtures own all assertions. */
 final class GuestFixtureRunner {
+    // Encloses the shared one-hour installer checks and their cleanup budget.
+    private static final int MAX_DEADLINE_SECONDS = 7200;
     private final Context context;
     private Path output;
     private JSONObject result;
@@ -30,7 +32,7 @@ final class GuestFixtureRunner {
         if (id == null || !id.matches("[A-Za-z0-9_-]{1,64}")) throw new IllegalArgumentException("Invalid runId");
         if (!"shell".equals(request.getStringExtra("operation")) || command == null)
             throw new IllegalArgumentException("Missing fixture command");
-        if (deadline < 1 || deadline > 1800) throw new IllegalArgumentException("Invalid deadline");
+        if (deadline < 1 || deadline > MAX_DEADLINE_SECONDS) throw new IllegalArgumentException("Invalid deadline");
         Path runs = context.getCacheDir().toPath().resolve("guest-fixtures/runs");
         Files.createDirectories(runs);
         output = Files.createDirectory(runs.resolve(id));

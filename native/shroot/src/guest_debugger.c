@@ -30,6 +30,7 @@ struct inferior {
     struct ptrace_syscall_info syscall;
     struct rusage usage;
     siginfo_t info, deferred_stop;
+    struct md_signal_origin origin;
 };
 struct waiting {
     struct waiting *next;
@@ -143,7 +144,7 @@ static int wait_result(struct md_debugger *d, pid_t owner, struct user_pt_regs *
             struct inferior **at=&d->inferiors;
             while (*at!=chosen) at=&(*at)->next;
             *at=chosen->next;
-            if (d->host.reaped) d->host.reaped(chosen->pid,0);
+            if (d->host.reaped) d->host.reaped(owner,chosen->pid,0);
             free(chosen);
         }
     }
@@ -172,6 +173,10 @@ int md_debugger_stop(struct md_debugger *d, pid_t pid, int status, const siginfo
     p->syscall_stop=0;
     p->info=info ? *info : (siginfo_t){.si_signo=WSTOPSIG(status),
         .si_code=(unsigned)status>>16 ? status>>8 : SI_KERNEL,.si_pid=pid};
+    struct md_signal_origin origin={0};
+    p->origin.valid=0;
+    if (d->host.signal_origin) d->host.signal_origin(pid,&p->info,&origin);
+    p->origin=origin;
     p->sequence=++d->sequence;
     wake(d,p->owner);
     return 1;
@@ -296,9 +301,9 @@ void md_debugger_exit(struct md_debugger *d, pid_t pid, int status) {
             else if (!p->terminal && (p->options & PTRACE_O_EXITKILL)) kill(p->pid,SIGKILL);
             else {
                 d->host.options(p->pid,0);
-                if (p->stopped) d->host.resume(p->pid,0);
+                if (p->stopped) d->host.resume(p->pid,0,&p->origin);
             }
-            if (p->terminal && d->host.reaped) d->host.reaped(p->pid,0);
+            if (p->terminal && d->host.reaped) d->host.reaped(pid,p->pid,0);
             free(p);
         } else at=&p->next;
     }
@@ -423,7 +428,9 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
     }
     case PTRACE_GETSIGINFO: {
         siginfo_t info=p->info;
-        if (info.si_signo==SIGCHLD || info.si_code==SI_USER || info.si_code==SI_TKILL) {
+        if (md_signal_origin_matches(&p->origin,&info) && d->host.signal_translate)
+            d->host.signal_translate(caller,&p->origin,&info);
+        else if (md_signal_native_sender(&info)) {
             info.si_uid=visible_uid(d,caller,info.si_pid,info.si_uid);
             info.si_pid=visible(d,caller,info.si_pid);
         }
@@ -431,11 +438,29 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
     }
     case PTRACE_SETSIGINFO: {
         siginfo_t info;
+        struct md_signal_origin origin={0};
         int error=transfer(caller,data,&info,sizeof(info),0);
-        if (!error && (info.si_signo==SIGCHLD || info.si_code==SI_USER || info.si_code==SI_TKILL))
+        if (!error && md_signal_child_notice(&info) && md_signal_origin_matches(&p->origin,&p->info)
+                && d->host.signal_translate) {
+            siginfo_t visible=p->info;
+            d->host.signal_translate(caller,&p->origin,&visible);
+            if (info.si_pid==visible.si_pid && info.si_uid==visible.si_uid) {
+                /* A reaped sender is no longer in the PID lookup table. */
+                origin=p->origin;
+                if (info.si_code!=visible.si_code || info.si_status!=visible.si_status)
+                    origin.reboot_signal=0;
+                info.si_pid=p->info.si_pid; info.si_uid=p->info.si_uid;
+                origin.info=info;
+            }
+        }
+        if (!error && !origin.valid && md_signal_native_sender(&info))
             info.si_pid=native(d,caller,info.si_pid);
         if (!error) error=(int)request(op,pid,0,&info);
-        if (!error) p->info=info;
+        if (!error) {
+            p->info=info;
+            if (!origin.valid && d->host.signal_origin) d->host.signal_origin(pid,&info,&origin);
+            p->origin=origin;
+        }
         return error;
     }
     case PTRACE_GETREGSET: case PTRACE_SETREGSET: return regset(caller,p,op,address,data);
@@ -474,8 +499,10 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
     }
     case PTRACE_POKETEXT: case PTRACE_POKEDATA:
         return d->host.allowed(caller,pid) ? request(op,pid,address,(void *)data) : -EIO;
-    case PTRACE_CONT: case PTRACE_SINGLESTEP: case PTRACE_SYSCALL: case PTRACE_DETACH:
+    case PTRACE_CONT: case PTRACE_SINGLESTEP: case PTRACE_SYSCALL: case PTRACE_DETACH: {
         if (data>64) return -EIO;
+        struct md_signal_origin origin=p->origin;
+        p->origin.valid=0;
         p->stopped=0; p->sequence=0; p->step=op==PTRACE_SINGLESTEP;
         p->syscall_mode=op==PTRACE_SYSCALL;
         if (op==PTRACE_DETACH) {
@@ -483,7 +510,8 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
             while (*at!=p) at=&(*at)->next;
             *at=p->next; free(p); d->host.options(pid,0);
         }
-        d->host.resume(pid,(int)data); return 0;
+        d->host.resume(pid,(int)data,&origin); return 0;
+    }
     default: return -EIO;
     }
 }
@@ -528,7 +556,7 @@ void md_debugger_wait_complete(struct md_debugger *d, pid_t pid, long value) {
                 if (error) value=error;
                 else if (!(wait_options(&w->registers)&WNOWAIT) && (info.si_code==CLD_EXITED
                         || info.si_code==CLD_KILLED || info.si_code==CLD_DUMPED)
-                        && d->host.reaped) d->host.reaped(reaped,1);
+                        && d->host.reaped) d->host.reaped(pid,reaped,1);
             }
         }
     } else result=value>0;
@@ -539,7 +567,7 @@ void md_debugger_wait_complete(struct md_debugger *d, pid_t pid, long value) {
             int status;
             if (w->registers.regs[1] && !transfer(pid,w->registers.regs[1],&status,sizeof(status),0)
                     && (WIFEXITED(status) || WIFSIGNALED(status)) && d->host.reaped)
-                d->host.reaped(reaped,1);
+                d->host.reaped(pid,reaped,1);
         }
         d->host.complete(pid,&w->registers,value);
     } else if (wait_result(d,pid,&w->registers,&children)) {

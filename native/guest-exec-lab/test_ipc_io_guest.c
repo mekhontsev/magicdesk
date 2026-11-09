@@ -173,8 +173,48 @@ static void io_pidfd(unsigned filtered) {
     }
     CHECK(!close(pair[0]) && !close(pair[1]));
 }
+static void io_ready_rights(unsigned filtered) {
+    int pair[2], sync[2];
+    CHECK(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,pair) && !pipe2(sync,O_CLOEXEC));
+    if (filtered) io_filter();
+    pid_t child=fork(); CHECK(child>=0);
+    if (!child) {
+        CHECK(!close(pair[0]) && !close(sync[1]));
+        int fd=open("/dev/null",O_RDONLY|O_CLOEXEC); CHECK(fd>=0);
+        for (unsigned i=0;i<64;++i) {
+            char byte; CHECK(read(sync[0],&byte,1)==1);
+            union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control={0};
+            control.align=(struct cmsghdr){.cmsg_level=SOL_SOCKET,.cmsg_type=SCM_RIGHTS,
+                .cmsg_len=CMSG_LEN(sizeof(int))};
+            memcpy(CMSG_DATA(&control.align),&fd,sizeof(fd));
+            struct msghdr message={.msg_control=&control,.msg_controllen=sizeof(control)};
+            CHECK(sendmsg(pair[1],&message,MSG_NOSIGNAL)==0);
+        }
+        CHECK(!close(fd) && !close(pair[1]) && !close(sync[0])); _exit(0);
+    }
+    CHECK(!close(pair[1]) && !close(sync[0]));
+    /* Readiness can race the receiver's internal park. Empty datagrams still
+     * carry custody and must not be confused with stream EOF or a skipped call. */
+    for (unsigned i=0;i<64;++i) {
+        CHECK(write(sync[1],"r",1)==1);
+        union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control={0};
+        struct msghdr message={.msg_control=&control,.msg_controllen=sizeof(control)};
+        CHECK(recvmsg(pair[0],&message,MSG_CMSG_CLOEXEC)==0
+            && !(message.msg_flags&(MSG_TRUNC|MSG_CTRUNC)));
+        struct cmsghdr *header=CMSG_FIRSTHDR(&message);
+        CHECK(header && header->cmsg_level==SOL_SOCKET && header->cmsg_type==SCM_RIGHTS
+            && header->cmsg_len==CMSG_LEN(sizeof(int)));
+        int fd; memcpy(&fd,CMSG_DATA(header),sizeof(fd));
+        CHECK(fd>=0 && (fcntl(fd,F_GETFD)&FD_CLOEXEC));
+        char byte; CHECK(read(fd,&byte,1)==0 && !close(fd));
+    }
+    done(child); CHECK(!close(pair[0]) && !close(sync[1]));
+}
 static void io_contract(unsigned mode) {
     alarm(15);
+    if (mode==32 || mode==33) {
+        io_ready_rights(mode==33); printf("PASS filtered socket IO mode=%u\n",mode); return;
+    }
     if (mode==30 || mode==31) {
         io_pidfd(mode==31); printf("PASS filtered socket IO mode=%u\n",mode); return;
     }

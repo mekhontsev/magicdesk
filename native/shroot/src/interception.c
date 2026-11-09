@@ -87,6 +87,7 @@ extern void md_guest_load_groups(void), md_guest_loaded_groups(void);
 extern void md_guest_store_groups(void), md_guest_stored_groups(void);
 extern char md_guest_copy_begin[], md_guest_copy_end[];
 extern char md_guest_watch_gate[], md_guest_watch_return[];
+extern char md_socket_native_return[];
 extern char md_guest_ipc_wait[];
 extern struct md_fd_observation md_guest_fd_control(unsigned, uint64_t, long, long);
 extern char md_guest_anchor_return[];
@@ -95,6 +96,7 @@ extern char md_guest_task_control[], md_guest_task_call[], md_guest_task_return[
 extern char md_guest_task_abort[], md_guest_task_abort_return[];
 extern char md_guest_task_collect[], md_guest_task_collected[];
 extern char md_guest_task_completed[], md_guest_watch_completed[];
+extern char md_guest_compare_exchange[], md_guest_exchanged[];
 extern char md_guest_buffer_admitted[];
 #include "epoll_calls.h"
 #include "poll_calls.h"
@@ -111,10 +113,7 @@ static long dispatch_files(const struct md_fs *fs, long nr, unsigned long a0, un
         return result ? result : md_fd_filter_prepare_sandbox();
     }
     if (nr==SYS_unshare || nr==SYS_clone) return md_pid_filter_install();
-    if (nr==SYS_setns) {
-        long result=md_pid_filter_install();
-        return result ? result : md_setns(args);
-    }
+    if (nr==SYS_setns) return md_setns(args);
     if (nr==SYS_kill && (int)a0<=0) return md_pid_signal_group((int)a0,(int)a1);
     if (nr==SYS_pidfd_send_signal) return md_pidfd_signal(args);
     if (nr==SYS_ioctl && md_pidfd_namespace_command((unsigned)a1)) return md_pidfd_namespace(args);
@@ -225,6 +224,7 @@ static struct md_interception_abi abi = {
     .task_return=(uintptr_t)md_guest_task_return, .task_abort=(uintptr_t)md_guest_task_abort,
     .task_abort_return=(uintptr_t)md_guest_task_abort_return,
     .task_completed=(uintptr_t)md_guest_task_completed,
+    .compare_exchange=(uintptr_t)md_guest_compare_exchange, .exchanged=(uintptr_t)md_guest_exchanged,
     .task_collect=(uintptr_t)md_guest_task_collect, .task_collected=(uintptr_t)md_guest_task_collected,
     .buffer_control=(uintptr_t)md_guest_buffer_control_checkpoint,
     .buffer_admit=(uintptr_t)md_guest_buffer_admitted,
@@ -245,6 +245,7 @@ static struct md_interception_abi abi = {
     .load_byte = (uintptr_t)md_guest_load_byte, .loaded_byte = (uintptr_t)md_guest_loaded_byte,
     .store_ids = (uintptr_t)md_guest_store_ids, .stored_ids = (uintptr_t)md_guest_stored_ids,
     .raw_gate = (uintptr_t)md_raw_return,
+    .socket_return=(uintptr_t)md_socket_native_return,
     .copy_begin = (uintptr_t)md_guest_copy_begin, .copy_end = (uintptr_t)md_guest_copy_end,
     .watch_gate = (uintptr_t)md_guest_watch_gate,
     .watch_return = (uintptr_t)md_guest_watch_return,

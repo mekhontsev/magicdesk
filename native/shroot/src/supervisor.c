@@ -181,6 +181,7 @@ static int64_t entry_fence_deadline;
 #define COPY_BEGIN abi.copy_begin
 #define COPY_END abi.copy_end
 static int diagnostics;
+static int signal_diagnostics;
 enum {
 #define CHECKPOINT_COUNTER(field,symbol) CHECKPOINT_COUNT_##field,
     MD_CHECKPOINT_SITES(CHECKPOINT_COUNTER)
@@ -204,10 +205,11 @@ struct interception_statistics {
 };
 static struct interception_statistics *statistics;
 #define TRACE(...) do { if (diagnostics) fprintf(stderr, __VA_ARGS__); } while (0)
+#define TRACE_SIGNAL(...) do { if (diagnostics || signal_diagnostics) fprintf(stderr, __VA_ARGS__); } while (0)
 enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
     EXPORT_CANCEL, EXPORTING, EXPORT_ENTRY, EXPORT_NOTIFY, EXPORT_RETURN, STORING,
     DELEGATE_CANCEL, LOADING_PATH, PROC_CANCEL, PROC_OPENING, STORING_IDS, DOMAIN_PATH,
-    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, IPC_WAIT_ENTRY, IPC_WAITING,
+    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, SOCKET_NATIVE, IPC_WAIT_ENTRY, IPC_WAITING,
     SOCKET_WAIT_ENTRY, SOCKET_WAITING, CALL_RESTART_ENTRY, CALL_RESTART_EXIT,
     FILE_WAIT_ENTRY, FILE_WAITING, FILE_INTERRUPTING, CONTROL_WAIT_ENTRY, CONTROL_WAITING, CLOSE_WAIT_ENTRY, CLOSE_WAITING,
     WAIT_CANCEL_EXIT, EPOLL_PROBE, EPOLL_CALL, EPOLL_WAIT,
@@ -382,6 +384,7 @@ struct task_action {
     enum md_task_call_boundary boundary;
     int selector_number;
     unsigned selector_instructions;
+    int pid_filter;
     int number;
     struct thread *requester, *actor;
     struct md_fd_selector *group;
@@ -479,6 +482,7 @@ struct thread {
     struct metadata_restart *metadata_restart;
     int metadata_signal_restored, metadata_signal_requeued;
     struct md_signal_delivery signal_delivery;
+    struct md_signal_origin signal_origin;
     int signal_shielded;
     int signal_return_pending;
     struct thread *broker_next;
@@ -530,6 +534,7 @@ struct thread {
     long control_result;
     int control_mapping_fd;
     enum phase wait_resume;
+    int wait_error;
     struct md_fd_return buffer_return;
     int buffer_return_waiting;
     int buffer_rights_delivered;
@@ -537,6 +542,7 @@ struct thread {
     int dispatch_prepared;
     struct md_fd_selector *fd_selector;
     struct md_fd_selector *fork_selector;
+    struct md_fd_selector *deferred_selector;
     struct task_action *action;
     struct readiness_owner *readiness;
     int64_t epoll_started;
@@ -753,6 +759,7 @@ static void close_detach(struct thread *t);
 static int close_begin(struct thread *,const struct user_pt_regs *,int);
 static int debug_syscall_exit(struct thread *,const struct user_pt_regs *);
 static void adapter_progress(void);
+static void buffer_reply(struct thread *,long);
 static void mapping_complete(void *, struct md_task_helper_result);
 static void mapping_discard(struct mapping_owner *);
 static void mapping_progress(void);
@@ -776,6 +783,9 @@ static int proc_allowed(pid_t, pid_t);
 static int inspect_allowed(pid_t, pid_t, int);
 static void setns_complete(struct thread *,int);
 static pid_t visible_pid(struct thread *,pid_t);
+static void signal_origin_capture(void *,const siginfo_t *,struct md_signal_origin *);
+static void signal_wait_info(void *,siginfo_t *);
+static void process_reap(struct thread *,pid_t);
 static pid_t native_pid(struct thread *,pid_t);
 static void ipc_unwatch(struct thread *);
 static void ipc_capture_step(struct thread *, unsigned, long);
@@ -922,6 +932,7 @@ static void cleanup(void) {
             free(threads->broker_completion);
         }
         md_fd_selector_release(threads->fd_selector);
+        md_fd_selector_release(threads->deferred_selector);
         md_shm_space_release(threads->shm_space);
         ipc_unwatch(threads);
         md_ipc_cancel(md_ipc_namespace_active(threads->resources.ipc),&threads->ipc_pending);
@@ -1151,8 +1162,19 @@ static int checkpoint_entry_marker(uintptr_t pc,unsigned long command) {
 }
 static struct md_task_checkpoints checkpoints={.trace=checkpoint_native_trace,
     .restricted=checkpoint_restricted,.marker=checkpoint_marker,.entry_marker=checkpoint_entry_marker};
+static int trace_continues(int request) {
+    return request==PTRACE_CONT || request==PTRACE_SYSCALL
+        || request==PTRACE_SINGLESTEP || request==PTRACE_SYSEMU;
+}
 static long native_trace(int request,pid_t pid,void *address,void *data) {
-    return md_task_checkpoint_trace(&checkpoints,request,pid,address,data);
+    long result=md_task_checkpoint_trace(&checkpoints,request,pid,address,data);
+    if (result>=0 && trace_continues(request)) {
+        /* Barriers retain the current owner's continuation, including a
+         * task-affine call's entry/exit stops, not its enclosing guest phase. */
+        struct thread *t=find_thread(pid);
+        if (t) t->kernel_resume=request;
+    }
+    return result;
 }
 static void buffer_admission_yield(struct thread *t) {
     if (!t || !t->buffer_admission_pending) return;
@@ -1174,7 +1196,7 @@ static int buffer_admission_quiescing(pid_t pid) {
         || md_task_quiesce_interrupting(task_action_barrier,pid);
 }
 static long quiesce_trace(int request,pid_t pid,void *address,void *data) {
-    if (request==PTRACE_CONT || request==PTRACE_SYSCALL || request==PTRACE_SINGLESTEP) {
+    if (trace_continues(request)) {
         struct thread *t=find_thread(pid);
         if (t) t->interrupt_pending=0;
         /* A barrier and guest debugger can share one INTERRUPT stop. Release
@@ -1200,10 +1222,11 @@ static long quiesce_trace(int request,pid_t pid,void *address,void *data) {
         if (t && (t->phase==SOCKET_WAIT_ENTRY || t->phase==SOCKET_WAITING
                 || t->phase==EPOLL_CALL || t->phase==EPOLL_WAIT)) t->socket_waking=1;
         if (t && (t->phase==DEBUG_PARK_ENTRY || t->phase==DEBUG_PARK_EXIT)) t->debug_wait_waking=1;
+        if (t && t->signal_control) md_task_signal_control_quiesced(&t->signal_control->control);
     }
     /* Only barrier release restores this unchanged guest continuation.
      * Injected helper execution must retain the broker's stopped state. */
-    if (result>=0 && (request==PTRACE_CONT || request==PTRACE_SYSCALL || request==PTRACE_SINGLESTEP))
+    if (result>=0 && trace_continues(request))
         md_broker_resumed(broker,pid);
     return result;
 }
@@ -1279,6 +1302,8 @@ static struct thread *thread(pid_t pid) {
         .buffer_open = {.fd=-1}, .proc_image_fd=-1, .control_mapping_fd=-1,
         .exec_images = {-1,-1,-1}, .exec_backings={-1,-1},
         .fd_selector = md_fd_selector_new()};
+    t->signal_delivery.capture=signal_origin_capture;
+    t->signal_delivery.capture_context=t;
     CHECK(t->memory && t->fd_selector && t->shm_space);
     unsigned bucket = (unsigned)pid % THREAD_BUCKETS;
     t->indexed = thread_index[bucket]; thread_index[bucket] = t;
@@ -1357,6 +1382,7 @@ static void release_thread(struct thread *t) {
     }
     completed_event_discard(t);
     md_fd_selector_release(t->fd_selector); t->fd_selector = NULL;
+    md_fd_selector_release(t->deferred_selector); t->deferred_selector=NULL;
     struct thread **slot = &thread_index[(unsigned)t->pid % THREAD_BUCKETS];
     while (*slot && *slot != t) slot = &(*slot)->indexed;
     CHECK(*slot == t);
@@ -2007,6 +2033,60 @@ static uid_t process_signal_uid(struct thread *observer,pid_t sender,uid_t fallb
     const struct md_identity *identity=proc_owner(sender).identity;
     return md_identity_visible_id(&observer->identity,0,identity ? identity->uid.real : fallback);
 }
+static void signal_origin_capture(void *context,const siginfo_t *info,struct md_signal_origin *out) {
+    struct thread *t=context;
+    *out=(struct md_signal_origin){0};
+    if (!md_signal_child_notice(info)) return;
+    const struct md_signal_origin *saved=&t->signal_origin;
+    if (!md_signal_origin_matches(saved,info)) saved=t->signal_delivery.child_origin;
+    if (!md_signal_origin_matches(saved,info)) saved=md_signal_pending_origin(t->signal_pending,info);
+    if (saved) { *out=*saved; return; }
+    struct proc_owner owner=proc_owner(info->si_pid);
+    if (!owner.identity) return;
+    struct md_pid_identity *pid=owner.resources ? owner.resources->pid
+        : md_task_registry_retired(tasks,info->si_pid).pid;
+    *out=(struct md_signal_origin){.info=*info,.uid=owner.identity->uid.real,.valid=1,
+        .reboot_signal=md_pid_identity_reboot_signal(pid)};
+    out->count=md_pid_identity_export(pid,out->numbers);
+}
+static void signal_origin_translate(struct thread *t,const struct md_signal_origin *origin,siginfo_t *info) {
+    info->si_pid=md_pid_numbers_visible(origin->numbers,origin->count*sizeof(*origin->numbers),
+        md_pid_identity_namespace(t->resources.pid),info->si_pid);
+    info->si_uid=md_identity_visible_id(&t->identity,0,origin->uid);
+    if (origin->reboot_signal && (info->si_code==CLD_EXITED || info->si_code==CLD_KILLED || info->si_code==CLD_DUMPED)) {
+        info->si_code=CLD_KILLED; info->si_status=origin->reboot_signal;
+    }
+}
+static void signal_origin_consumed(struct thread *t,const siginfo_t *info) {
+    md_signal_pending_consumed(t->signal_pending,info);
+    if (md_signal_origin_matches(&t->signal_origin,info)) t->signal_origin.valid=0;
+    if (md_signal_origin_matches(t->signal_delivery.child_origin,info)) {
+        free(t->signal_delivery.child_origin); t->signal_delivery.child_origin=NULL;
+    }
+}
+static int pending_child(void *context,const siginfo_t *info) {
+    if (info->si_signo!=SIGCHLD) return 0;
+    *(siginfo_t *)context=*info; return 1;
+}
+static int child_signals_capture(struct thread *t) {
+    /* wait consumes a zombie, not its pending SIGCHLD. Preserve only the
+     * kernel's actual coalesced slots before releasing registry ownership. */
+    if (t) for (int scope=MD_SIGNAL_PRIVATE;scope<=MD_SIGNAL_SHARED;++scope) {
+        siginfo_t info={0};
+        int present=md_task_pending_scan_scope(native_trace,t->pid,
+            scope==MD_SIGNAL_SHARED ? PTRACE_PEEKSIGINFO_SHARED : 0,pending_child,&info);
+        if (present==-ESRCH) return 0;
+        CHECK(present>=0);
+        struct md_signal_origin origin={0};
+        if (present) signal_origin_capture(t,&info,&origin);
+        *md_signal_pending_child(t->signal_pending,scope)=origin;
+    }
+    return 1;
+}
+static void process_reap(struct thread *t,pid_t child) {
+    if (child_signals_capture(t)) md_task_registry_reap(tasks,child);
+    else md_signal_pending_child_changed(t->signal_pending);
+}
 static int proc_node_stat(struct proc_owner target, enum md_proc_file_kind kind,
         struct md_proc_file_node *node, struct stat *value) {
     if (md_proc_file_namespace(kind)) {
@@ -2139,36 +2219,35 @@ static int proc_node_metadata(struct thread *t, const struct md_proc_metadata_re
     }
     md_proc_file_release(file); return error;
 }
-/* Returns zero after accepting asynchronous publication. The caller retains
- * its proc input independently; delivery owns the new result's annotation. */
-static int proc_file_publish(struct thread *t, const struct seccomp_notif *q,
-        struct md_proc_file *file) {
-    if (t->proc_image_fd>=0) return -EBUSY;
+/* Proc providers share ordinary file-result publication and cancellation.
+ * The input descriptor remains independent of the newly opened result. */
+static int proc_file_publish(struct thread *t,struct md_proc_file *file) {
+    if (t->proc_image_fd>=0 || t->buffer_open.fd>=0) return -EBUSY;
     int fd=md_proc_file_descriptor(file);
     if (fd<0) { TRACE("PROBE proc-carrier pid=%d error=%d\n",t->pid,fd); return fd; }
-    int native_flags=fcntl(fd,F_GETFL);
-    if (native_flags<0) { int error=-errno; close(fd); return error; }
-    if (native_flags&O_PATH) {
-        if (t->proc_file) { close(fd); return -EBUSY; }
-        t->proc_file=md_proc_file_retain(file);
-        t->proc_image_fd=fd;
-        struct seccomp_notif_resp reply={.id=q->id,.val=MD_PROC_OPEN_RIGHTS};
-        CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
-        return 0;
+    struct md_fs_buffer_open opened={.fd=fd,.flags=(unsigned)md_proc_file_flags(file),
+        .object=md_fd_object_retain(md_proc_file_object(file))};
+    if (!buffer_service) {
+        /* Direct-root launches have no filesystem worker. Use the same
+         * retained result and rights transfer as their network providers. */
+        struct md_buffer_span span;
+        int error=md_buffer_span(&t->buffer,&span);
+        if (!error && span.size<sizeof(struct md_fs_buffer_frame)) error=-EINVAL;
+        if (error) { md_fs_buffer_open_release(&opened); return error; }
+        struct md_fs_buffer_frame *frame=span.data;
+        frame->reply=(struct md_fs_response){.delivery=MD_FS_REPLIED,.result={.fd=-1,
+            .selectors=md_fd_object_selectors(opened.object)}};
+        frame->transfer=MD_FS_BUFFER_RIGHTS;
+        t->buffer_open=opened;
+        buffer_reply(t,0); return 0;
     }
-    int error=md_fd_install_begin(&t->proc_delivery,t->resources.files,listener,q->id,
-        fd,md_proc_file_object(file),(unsigned)md_proc_file_flags(file)&O_CLOEXEC,fd_wakeup);
-    if (error) {
-        TRACE("PROBE proc-publication pid=%d source=%d listener=%d flags=%x error=%d\n",
-            t->pid,fd,listener,md_proc_file_flags(file),error);
-        close(fd);
-    }
-    else {
-        t->proc_image_fd=fd;
-        /* EVENT_WAIT: exact destination table publication or task cancellation
-         * releases the retained carrier; no guest scratch descriptor exists. */
-        proc_deliver(t);
-    }
+    struct md_fs_result result={.fd=-1};
+    int error=md_fs_buffer_adopt(buffer_service,t->pid,t->resources.fs,MD_FS_OPEN,opened.flags,
+        &t->buffer,&result,&opened,&t->buffer_call);
+    md_fs_buffer_open_release(&opened);
+    /* EVENT_WAIT: the common file result owner prepares an exact transfer;
+     * task cancellation releases it without replaying the open. */
+    if (!error) adapter_progress();
     return error;
 }
 static int control_mount_path(const struct md_proc_file *file) {
@@ -2280,22 +2359,23 @@ static int proc_path_capture(pid_t actor,pid_t process,unsigned kind,struct md_t
     if (md_domain_restricted(target->resources.fs)) return -EACCES;
     return md_task_registry_read(tasks,process,0,snapshot);
 }
-static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
-    struct seccomp_notif_resp reply={.id=q->id};
-    unsigned operation=(unsigned)q->data.args[1];
-    if (q->data.instruction_pointer!=RAW_GATE || t->phase!=DISPATCHING
-            || (q->data.args[5] && operation!=MD_PROC_FILE_OPEN)) reply.error=-EPERM;
+static void proc_file_request(struct thread *t, const struct md_proc_open_request *q) {
+    struct { long val; int error; } reply={0};
+    unsigned operation=(unsigned)q->operation;
+    if (t->phase!=DISPATCHING
+            || (q->view && operation!=MD_PROC_FILE_OPEN)) reply.error=-EPERM;
     else if (operation==MD_PROC_FILE_PIDFD_NAMESPACE) {
         if (!t->proc_file || t->original.regs[8]!=SYS_ioctl
-                || t->original.regs[0]!=q->data.args[2] || t->original.regs[1]!=q->data.args[3]
-                || !md_pidfd_namespace_command((unsigned)q->data.args[3]) || q->data.args[4]) reply.error=-EPERM;
-        else reply.error=proc_file_publish(t,q,t->proc_file);
+                || (int)t->original.regs[0]!=q->process || t->original.regs[1]!=q->selector
+                || !md_pidfd_namespace_command((unsigned)q->selector) || q->flags!=O_CLOEXEC) reply.error=-EPERM;
+        else reply.error=proc_file_publish(t,t->proc_file);
         if (!reply.error) return;
     } else if (operation==MD_PROC_FILE_NAMESPACE_QUERY) {
         const struct md_namespace_reference *ref=md_proc_file_namespace_reference(t->proc_file);
-        unsigned command=(unsigned)q->data.args[3];
-        if (!ref || t->original.regs[8]!=SYS_ioctl || t->original.regs[0]!=q->data.args[2]
-                || t->original.regs[1]!=command || q->data.args[4]) reply.error=-EPERM;
+        unsigned command=(unsigned)q->selector;
+        if (!ref || t->original.regs[8]!=SYS_ioctl || (int)t->original.regs[0]!=q->process
+                || t->original.regs[1]!=command
+                || q->flags!=((command==NS_GET_PARENT || command==NS_GET_USERNS) ? O_CLOEXEC : 0U)) reply.error=-EPERM;
         else if (command==NS_GET_NSTYPE) reply.val=md_namespace_reference_type(ref);
         else if (command==NS_GET_OWNER_UID) {
             if (ref->kind!=MD_NAMESPACE_USER) reply.error=-EINVAL;
@@ -2310,42 +2390,38 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
                 if (!file) reply.error=-errno;
                 md_namespace_reference_release(&related);
             }
-            if (!reply.error) reply.error=proc_file_publish(t,q,file);
+            if (!reply.error) reply.error=proc_file_publish(t,file);
             md_proc_file_release(file);
             if (!reply.error) return;
         }
         else reply.error=-ENOTTY;
-    } else if (operation==MD_PROC_FILE_OPEN && (md_proc_network_control(q->data.args[3])
-            || q->data.args[3]==MD_PROC_MAX_USER_NAMESPACES || md_proc_static(q->data.args[3]))) {
-        int flags=(int)q->data.args[4];
+    } else if (operation==MD_PROC_FILE_OPEN && (md_proc_network_control(q->selector)
+            || q->selector==MD_PROC_MAX_USER_NAMESPACES || md_proc_static(q->selector))) {
+        int flags=(int)q->flags;
         char interface[16]={0};
-        if (md_proc_network_interface(q->data.args[3])) {
-            struct md_buffer_span span;
-            reply.error=md_buffer_span(&t->buffer,&span);
-            if (!reply.error) {
-                memcpy(interface,span.data,sizeof(interface));
-                if (!memchr(interface,0,sizeof(interface))) reply.error=-EINVAL;
-            }
+        if (md_proc_network_interface(q->selector)) {
+            memcpy(interface,q->interface,sizeof(interface));
+            if (!memchr(interface,0,sizeof(interface))) reply.error=-EINVAL;
         }
         struct md_control_file view={0};
-        if (!reply.error) view=proc_control_view(t,(enum md_proc_kind)q->data.args[3],
-            (pid_t)q->data.args[2],interface);
+        if (!reply.error) view=proc_control_view(t,(enum md_proc_kind)q->selector,
+            (pid_t)q->process,interface);
         struct md_proc_file *file=NULL;
         if (!view.ops) { if (!reply.error) reply.error=-errno; }
         else {
             file=md_proc_file_open_control(view.ops,view.context,
                 &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             if (!file) reply.error=-errno;
-            else reply.error=proc_file_publish(t,q,file);
+            else reply.error=proc_file_publish(t,file);
         }
         md_control_file_release(view); md_proc_file_release(file);
         if (!reply.error) return;
-    } else if (operation==MD_PROC_FILE_OPEN && q->data.args[3]==MD_PROC_EXE) {
-        struct thread *target=find_thread((pid_t)q->data.args[2]);
-        int flags=(int)q->data.args[4];
+    } else if (operation==MD_PROC_FILE_OPEN && q->selector==MD_PROC_EXE) {
+        struct thread *target=find_thread((pid_t)q->process);
+        int flags=(int)q->flags;
         struct md_proc_file *file=NULL;
         if (!target || (target!=t && !proc_allowed(t->pid,target->pid))) reply.error=-EACCES;
-        else if (t->proc_image_fd>=0 || q->data.args[5]) reply.error=-EINVAL;
+        else if (t->proc_image_fd>=0 || q->view) reply.error=-EINVAL;
         else if (target->executable_origin || !target->executable) reply.error=-EXDEV;
         else {
             struct md_control_file view=md_process_executable_view(target->executable);
@@ -2353,18 +2429,18 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
                 &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             if (!file) reply.error=-errno;
             else {
-                reply.error=proc_file_publish(t,q,file);
+                reply.error=proc_file_publish(t,file);
                 if (!reply.error) { md_proc_file_release(file); return; }
             }
         }
         md_proc_file_release(file);
     } else if (operation==MD_PROC_FILE_OPEN || operation==MD_PROC_FILE_REOPEN) {
-        struct thread *target=find_thread((pid_t)q->data.args[2]);
-        struct proc_owner selected=proc_owner((pid_t)q->data.args[2]);
-        enum md_proc_kind kind=(enum md_proc_kind)q->data.args[3];
-        int flags=(int)q->data.args[4];
+        struct thread *target=find_thread((pid_t)q->process);
+        struct proc_owner selected=proc_owner((pid_t)q->process);
+        enum md_proc_kind kind=(enum md_proc_kind)q->selector;
+        int flags=(int)q->flags;
         struct md_proc_file *source=operation==MD_PROC_FILE_REOPEN && target
-            ? proc_file_capture(target,(int)q->data.args[3]) : NULL;
+            ? proc_file_capture(target,(int)q->selector) : NULL;
         if (source) kind=(enum md_proc_kind)(MD_PROC_UID_MAP+md_proc_file_kind(source));
         if (!selected.identity) reply.error=operation==MD_PROC_FILE_OPEN && md_proc_native_task(kind) ? -EXDEV : -ENOENT;
         else if (operation==MD_PROC_FILE_REOPEN && !source) reply.error=-EBADF;
@@ -2376,7 +2452,7 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
             struct md_proc_file_node node={0}; struct stat st;
             struct md_proc_file_node previous=source ? md_proc_file_get_node(source) : node;
             enum md_proc_file_kind file_kind=(enum md_proc_file_kind)(kind-MD_PROC_UID_MAP);
-            struct md_pid_namespace *view=q->data.args[5] ? md_pid_namespace_by_inode(q->data.args[5]) : NULL;
+            struct md_pid_namespace *view=q->view ? md_pid_namespace_by_inode(q->view) : NULL;
             int sysctl=md_proc_file_sysctl(file_kind);
             int namespace=md_proc_file_namespace(file_kind);
             int control=source && file_kind==MD_PROC_FILE_CONTROL;
@@ -2386,7 +2462,7 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
                 : retained ? md_proc_file_retained_stat(source,tasks,1,&st) : !owner.identity ? -ESRCH
                 : proc_node_stat(owner,file_kind,&node,&st);
             if (!error && retained) node=previous;
-            if (!error && q->data.args[5] && !view && q->data.args[5]!=md_pid_namespace_inode(NULL)) error=-ENOENT;
+            if (!error && q->view && !view && q->view!=md_pid_namespace_inode(NULL)) error=-ENOENT;
             if (namespace && source) {
                 node=previous; md_namespace_reference_stat(md_proc_file_namespace_reference(source),&st);
             }
@@ -2424,7 +2500,7 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
                 t->pid,selected.pid,(unsigned)kind,flags,fd);
             if (fd<0) reply.error=fd;
             else {
-                reply.error=proc_file_publish(t,q,file);
+                reply.error=proc_file_publish(t,file);
                 if (!reply.error) {
                     md_proc_file_release(file);
                     md_proc_file_release(source);
@@ -2437,7 +2513,7 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
     } else reply.error=-EINVAL;
     TRACE("PROBE proc-control request pid=%d operation=%u result=%lld error=%d\n",
         t->pid,operation,(long long)reply.val,reply.error);
-    CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
+    buffer_reply(t,reply.error ? reply.error : reply.val);
 }
 static struct seccomp_data notification_identity(struct thread *t,const struct seccomp_data *call) {
     struct seccomp_data identity=*call;
@@ -2778,14 +2854,17 @@ static void handle_notification(const struct seccomp_notif *request) {
     if (!buffer_admission && guest_notification_begin(t,&q.data,NULL,&q,NULL)) return;
     if (q.data.nr==SYS_rt_sigprocmask) {
         CHECK(!q.data.args[1]);
-        if (!t->host_signals || (!t->host_signal_blocked && !t->signal_delivery.active) || !q.data.args[2]
+        if (!t->host_signals || (!t->metadata_restart && !t->host_signal_blocked && !t->signal_delivery.active) || !q.data.args[2]
                 || q.data.args[3]!=sizeof(uint64_t)) {
             struct seccomp_notif_resp reply={.id=q.id,.flags=SECCOMP_USER_NOTIF_FLAG_CONTINUE};
             CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
         } else {
-            uint64_t mask=t->signal_delivery.active
+            /* A replay is admitted under a temporary shield. Queries must
+             * expose the interrupted application's mask, not that shield. */
+            uint64_t mask=t->metadata_restart
+                ? md_signal_view_mask(t->metadata_restart->mask,t->host_signal_blocked) : t->signal_delivery.active
                 ? md_signal_view_mask(t->signal_delivery.mask,t->host_signal_blocked) : t->signal_handler_mask;
-            ssize_t copied=t->signal_delivery.active || t->signal_handler_mask_known
+            ssize_t copied=t->metadata_restart || t->signal_delivery.active || t->signal_handler_mask_known
                 ? md_task_copy_direct(t->pid,q.data.args[2],&mask,sizeof(mask),1) : -EACCES;
             if (copied>=0 || copied==-EFAULT) {
                 struct seccomp_notif_resp reply={.id=q.id,
@@ -2856,8 +2935,7 @@ static void handle_notification(const struct seccomp_notif *request) {
         return;
     }
     if (q.data.nr == SYS_prctl) {
-        if (q.data.args[0] == MD_GUEST_PROC_FILE) proc_file_request(t,&q);
-        else if (q.data.args[0] == MD_GUEST_PROC_IMAGE) {
+        if (q.data.args[0] == MD_GUEST_PROC_IMAGE) {
             struct seccomp_notif_resp reply={.id=q.id};
             struct thread *target=find_thread((pid_t)q.data.args[1]);
             struct proc_owner owner=proc_owner((pid_t)q.data.args[1]);
@@ -3129,7 +3207,7 @@ static int metadata_restart_event(struct thread *t,int status) {
     if (!((unsigned)status>>16) && sig!=(SIGTRAP|0x80) && sig!=SIGSTOP) {
         siginfo_t info;
         if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"metadata-deferred-signal")) return 1;
-        if (info.si_code<=0) {
+        if (!md_signal_synchronous(&info)) {
             int retained=md_signal_delivery_retain(&t->signal_delivery,t->pid,&info); CHECK(retained>=0);
             notification_interrupted(t);
             resume(t->pid,retained); return 1;
@@ -3335,8 +3413,8 @@ static int debugger_parent(pid_t pid) {
     }
     return t ? t->parent : 0;
 }
-static void debugger_reaped(pid_t pid,int native_wait) {
-    if (native_wait) md_task_registry_reap(tasks,pid);
+static void debugger_reaped(pid_t observer,pid_t pid,int native_wait) {
+    if (native_wait) process_reap(find_thread(observer),pid);
     else pid_collection_pending=1;
 }
 static int debugger_group(pid_t pid) {
@@ -3365,6 +3443,17 @@ static uid_t debugger_visible_uid(pid_t observer,pid_t sender,uid_t fallback) {
     struct thread *t=find_thread(observer);
     return t ? process_signal_uid(t,sender,fallback) : fallback;
 }
+static void debugger_signal_origin(pid_t recipient,const siginfo_t *info,struct md_signal_origin *origin) {
+    struct thread *t=find_thread(recipient);
+    if (t) {
+        signal_origin_capture(t,info,origin);
+        if (origin->valid) signal_origin_consumed(t,info);
+    }
+}
+static void debugger_signal_translate(pid_t observer,const struct md_signal_origin *origin,siginfo_t *info) {
+    struct thread *t=find_thread(observer);
+    if (t) signal_origin_translate(t,origin,info);
+}
 static pid_t debugger_visible_pid(pid_t observer,pid_t native) {
     struct thread *t=find_thread(observer);
     return t ? visible_pid(t,native) : 0;
@@ -3376,8 +3465,17 @@ static pid_t debugger_native_pid(pid_t observer,pid_t visible) {
 static int inspect_allowed(pid_t caller, pid_t pid, int filesystem) {
     struct thread *from=find_thread(caller), *to=find_thread(pid);
     if (!from || !to || md_domain_restricted(from->resources.fs)) return 0;
-    return from->tgid==to->tgid || md_process_may_inspect(&from->identity,&to->identity,filesystem,
+    int allowed=from->tgid==to->tgid || md_process_may_inspect(&from->identity,&to->identity,filesystem,
         to->resources.access);
+    if (!allowed) TRACE("PROBE inspect-denied caller=%d target=%d filesystem=%d uid=%u/%u gid=%u/%u target-uid=%u/%u/%u target-gid=%u/%u/%u caps=%#llx/%#llx target-caps=%#llx dumpable=%d same-userns=%d\n",
+        caller,pid,filesystem,from->identity.uid.real,from->identity.uid.fs,
+        from->identity.gid.real,from->identity.gid.fs,
+        to->identity.uid.real,to->identity.uid.effective,to->identity.uid.saved,
+        to->identity.gid.real,to->identity.gid.effective,to->identity.gid.saved,
+        (unsigned long long)from->identity.caps.permitted,(unsigned long long)from->identity.caps.effective,
+        (unsigned long long)to->identity.caps.permitted,md_process_dumpable(to->resources.access),
+        from->identity.user_namespace==to->identity.user_namespace);
+    return allowed;
 }
 static int debugger_allowed(pid_t caller, pid_t pid) {
     return inspect_allowed(caller,pid,0);
@@ -3496,7 +3594,7 @@ static void debugger_wait(pid_t pid, const struct user_pt_regs *original, enum m
          * or descriptor is needed, and ordinary execution never enters here. */
         t->original=*original; t->debug_wait_waking=0;
         if (!shield(t)) return;
-        regs.pc=RAW_GATE-4; regs.regs[8]=SYS_ppoll;
+        regs.pc=abi.task_call; regs.regs[8]=SYS_ppoll;
         for (unsigned i=0;i<6;i++) regs.regs[i]=0;
         if (set_registers(pid,&regs)) { t->phase=DEBUG_PARK_ENTRY; resume(pid,0); }
         return;
@@ -3974,7 +4072,9 @@ static void fd_start(struct thread *t) {
         return;
     }
     int error=0;
-    if (r->regs[8]==SYS_execve || r->regs[8]==SYS_execveat || r->regs[8]==SYS_unshare
+    if (r->regs[8]==SYS_execve || r->regs[8]==SYS_execveat)
+        error=md_resources_exec_prepare(&t->resources,t->identity.user_namespace,&t->resource_change);
+    else if (r->regs[8]==SYS_unshare
             || (r->regs[8]==SYS_close_range && (r->regs[2]&CLOSE_RANGE_UNSHARE)))
         error=resources_unshare_prepare(t,r->regs[8]==SYS_unshare ? r->regs[0] : CLONE_FILES);
     if (md_clone_call(r->regs[8]) && md_resources_namespace_flags(t->cloning))
@@ -4462,8 +4562,13 @@ static void task_action_call_complete(long result,int retry) {
             else if (result==-EBADF)
                 result=md_fd_origins_close_range(owner->loan_table,owner->number,owner->number,0);
         }
-    } else if (!owner->capture && !result && !retry) result=md_fd_selector_installed(owner->group,owner->kind,
-        owner->selector_number,owner->selector_instructions);
+    } else if (!owner->capture && !result && !retry) {
+        if (owner->pid_filter) {
+            for (struct thread *peer=threads;peer;peer=peer->next)
+                if (peer->pid && peer->tgid==actor->tgid) peer->pid_filter=1;
+        } else result=md_fd_selector_installed(owner->group,owner->kind,
+            owner->selector_number,owner->selector_instructions);
+    }
     if (owner->borrowed) CHECK(!md_task_quiesce_return(
         owner->outer_barrier ? owner->outer_barrier : task_action_barrier,actor->pid));
     if (owner->broker_borrowed) {
@@ -4489,12 +4594,12 @@ static void task_action_call_complete(long result,int retry) {
     if (owner->capture && !retry) { task_action_finish(owner,result); return; }
     if (!owner->requester || (result<0 && !retry)) task_action_finish(owner,result);
     else if (result>0) {
-        if (!owner->remote && !owner->selected_group) task_action_finish(owner,result);
+        if (!owner->remote && !owner->selected_group && !owner->pid_filter) task_action_finish(owner,result);
         else {
             owner->rejected_group=actor->tgid; owner->rejected_task=(pid_t)result;
             retry_wait(owner->requester,RETRY_TASK_ACTION);
         }
-    } else if (owner->selected_group && !retry) task_action_finish(owner,0);
+    } else if ((owner->selected_group || owner->pid_filter) && !retry) task_action_finish(owner,0);
     else retry_wait(owner->requester,RETRY_TASK_ACTION);
 }
 static void capture_borrowed_complete(void *context,struct md_task_helper_result result) {
@@ -4504,6 +4609,7 @@ static void capture_borrowed_complete(void *context,struct md_task_helper_result
     owner->capture->result=result;
     task_action_call_complete(result.value,0);
 }
+static int signal_control_parked(const struct thread *);
 static void task_action_call_start(struct task_action *owner) {
     struct thread *actor=owner->actor;
     struct user_pt_regs saved=owner->continuation;
@@ -4531,9 +4637,14 @@ static void task_action_call_start(struct task_action *owner) {
         }
         boundary=(enum md_task_call_boundary)info.op;
     }
-    int checkpoint=md_task_checkpoint_suspend(&checkpoints,actor->pid);
-    if (checkpoint<0) { task_action_call_complete(checkpoint,0); return; }
-    owner->checkpoint_suspended=1;
+    /* A parked signal wait already owns native checkpoint decoding. Its
+     * exact continuation is borrowed under the barrier, not retired here. */
+    int checkpoint=0;
+    if (!signal_control_parked(actor) || !actor->signal_control->checkpoint_suspended) {
+        checkpoint=md_task_checkpoint_suspend(&checkpoints,actor->pid);
+        if (checkpoint<0) { task_action_call_complete(checkpoint,0); return; }
+        owner->checkpoint_suspended=1;
+    }
     if (checkpoint && boundary==MD_TASK_CALL_ENTRY) boundary=MD_TASK_CALL_EMULATED_ENTRY;
     TRACE("PROBE selector-start requester=%d actor=%d remote=%d synthetic=%d kind=%u fd=%d boundary=%d pc=%llx nr=%llu value=%lld\n",
         owner->requester ? owner->requester->pid : 0,actor->pid,owner->remote,owner->synthetic,
@@ -4577,13 +4688,21 @@ static void task_action_call_start(struct task_action *owner) {
         /* seccomp reports the PC after SVC, not the address used to enter it. */
         struct md_fd_filter_gates gates={RAW_GATE,abi.watch_return,abi.task_return,abi.native_return};
         struct md_task_filter_image *image=span.data;
-        error=md_fd_filter_build(owner->kind,owner->number,&gates,&image->code);
-        if (!error) {
+        if (owner->pid_filter) {
+            struct md_pid_filter_program program;
+            md_pid_filter_build(RAW_GATE,abi.task_return,&program);
+            _Static_assert(MD_PID_FILTER_INSTRUCTIONS<=MD_FD_FILTER_INSTRUCTIONS,"task filter capacity");
+            image->code.count=program.count;
+            memcpy(image->code.code,program.code,program.count*sizeof(*program.code));
+            error=md_task_filter_begin_program(&owner->filter,native_trace,actor->pid,boundary,
+                &saved,abi.task_call,abi.task_return,image,address);
+        } else error=md_fd_filter_build(owner->kind,owner->number,&gates,&image->code);
+        if (!error && !owner->pid_filter) {
             owner->selector_instructions=image->code.count;
             owner->selector_number=md_fd_selector_target(owner->group,owner->number,image->code.count);
             if (owner->selector_number< -1) error=owner->selector_number;
         }
-        if (!error) error=md_task_filter_begin(&owner->filter,native_trace,actor->pid,boundary,
+        if (!error && !owner->pid_filter) error=md_task_filter_begin(&owner->filter,native_trace,actor->pid,boundary,
             &saved,abi.task_call,abi.task_return,span.data,address,owner->kind,owner->selector_number,&gates);
     }
     if (error && owner->filter.task.stage) {
@@ -4592,13 +4711,29 @@ static void task_action_call_start(struct task_action *owner) {
     if (error) { task_action_call_complete(error,error==-EAGAIN); return; }
     actor->kernel_stopped=0;
 }
+static int selector_peer_ready(struct thread *peer,unsigned kind,int number) {
+    int ready=md_fd_selector_has(peer->fd_selector,kind,number);
+    if (ready || !peer->vfork_child) return ready;
+    /* The kernel will not run this parent until its vfork child releases the
+     * mm. Retain only bounded selector requirements, never hold the child's
+     * publication hostage to a task-affine call in that suspended parent. */
+    if (!peer->deferred_selector) peer->deferred_selector=md_fd_selector_new();
+    if (!peer->deferred_selector) return -ENOMEM;
+    ready=md_fd_selector_has(peer->deferred_selector,kind,number);
+    if (ready<0) return ready;
+    if (!ready) {
+        int error=md_fd_selector_mark(peer->deferred_selector,kind,number);
+        if (error) return error;
+    }
+    return 1;
+}
 static int selector_has(struct thread *t,unsigned kind,int number) {
     int ready=md_fd_selector_has(t->fd_selector,kind,number);
     if (ready<=0 || number<0) return ready;
     for (struct thread *peer=threads;peer;peer=peer->next)
         if (peer->pid && peer->born && peer->resources.files==t->resources.files
                 && peer->fd_selector!=t->fd_selector) {
-            ready=md_fd_selector_has(peer->fd_selector,kind,number);
+            ready=selector_peer_ready(peer,kind,number);
             if (ready<=0) return ready;
         }
     return 1;
@@ -4617,6 +4752,11 @@ static int task_files_queued(const struct thread *p) {
         if (md_fd_order_state(turns[i])==MD_RESOURCE_ORDER_QUEUED) return 1;
     return md_fs_buffer_waiting_files(p->buffer_call)
         || md_fs_buffer_waiting_files(p->metadata.stat_call);
+}
+static int signal_control_parked(const struct thread *t) {
+    const struct signal_control *o=t->signal_control;
+    return t->phase==SIGNAL_CONTROL && o && !o->scratch.pool && !o->memory.queue
+        && !o->files.table && md_task_signal_control_parked(&o->control);
 }
 static int task_parked(const struct thread *t) {
     return t->phase==WATCH_READ || t->phase==IPC_WAITING || t->phase==SOCKET_WAITING || t->phase==FILE_WAITING
@@ -4650,7 +4790,7 @@ static int task_action_borrowable(struct thread *p,struct thread *requester) {
             /* A provider owns the pending operation, not this native wait.
              * Borrow and restore its exact boundary without cancelling it. */
             || (!p->kernel_stopped && (p->phase==IDLE || p->phase==DISPATCHING
-            || task_parked(p) || p->phase==PROCESS_OBSERVING)));
+            || task_parked(p) || signal_control_parked(p) || p->phase==PROCESS_OBSERVING)));
 }
 static int task_action_native_borrow(struct task_action *owner,struct thread *actor,int *stopped) {
     *stopped=actor->kernel_stopped;
@@ -4665,6 +4805,11 @@ static void task_action_start(struct thread *t) {
     CHECK(owner && !task_action_call(owner)->stage);
     if (owner->loan) { loan_start(owner); return; }
     if (quiescence_busy(NULL)) { retry_wait(t,RETRY_TASK_ACTION); return; }
+    if (owner->pid_filter) {
+        if (t->pid_filter) { task_action_finish(owner,0); return; }
+        owner->actor=t; task_action_execution=owner;
+        task_action_call_start(owner); return;
+    }
     if (owner->capture) {
         struct md_fs_task_subject *target=&owner->capture->subject;
         struct thread *actor=find_thread(target->task);
@@ -4743,7 +4888,7 @@ static void task_action_start(struct thread *t) {
     for (struct thread *peer=threads;!candidate && owner->number>=0 && peer;peer=peer->next)
         if (peer->pid && peer->born && (owner->selected_group
                 ? peer->fd_selector==owner->selected_group : peer->resources.files==t->resources.files)) {
-            ready=md_fd_selector_has(peer->fd_selector,owner->kind,owner->number);
+            ready=selector_peer_ready(peer,owner->kind,owner->number);
             if (ready<0) { task_action_finish(owner,ready); return; }
             if (ready) continue;
             pending=1;
@@ -4769,6 +4914,40 @@ static void task_action_start(struct thread *t) {
         CHECK(!md_task_quiesce_stop(task_action_barrier));
     }
     task_action_call_start(owner);
+}
+static void pid_filter_begin(struct thread *t,const struct user_pt_regs *continuation,
+        void (*complete)(struct thread *,long)) {
+    struct task_action *owner=task_action_new(t);
+    if (!owner) {
+        if (complete) complete(t,-ENOMEM);
+        else { struct user_pt_regs returned=*continuation; return_value(t,&returned,-ENOMEM); }
+        return;
+    }
+    owner->pid_filter=1; owner->number=-1;
+    owner->continuation=*continuation; owner->complete=complete;
+    task_action_start(t);
+}
+static void selector_deferred_complete(struct thread *t,long result) {
+    if (result<0) {
+        fprintf(stderr,"Shroot: cannot admit resumed shared file table: %s\n",strerror((int)-result));
+        cancel_tree(125); return;
+    }
+    enum md_fd_selector_kind kind; int number;
+    int missing=md_fd_selector_missing(t->deferred_selector,t->fd_selector,&kind,&number);
+    if (missing<0) { selector_deferred_complete(t,missing); return; }
+    if (!missing) {
+        md_fd_selector_release(t->deferred_selector); t->deferred_selector=NULL;
+        t->phase=IDLE; resume(t->pid,0); return;
+    }
+    struct user_pt_regs saved;
+    if (!registers(t->pid,&saved)) return;
+    struct task_action *owner=task_action_new(t);
+    if (!owner) { selector_deferred_complete(t,-ENOMEM); return; }
+    owner->continuation=saved; owner->boundary=MD_TASK_CALL_EXIT;
+    owner->kind=kind; owner->number=number;
+    owner->selected_group=md_fd_selector_fork(t->fd_selector,1);
+    owner->complete=selector_deferred_complete;
+    task_action_start(t);
 }
 static void task_action_progress(struct md_pending_node *node,void *context) {
     (void)context;
@@ -4897,7 +5076,7 @@ static int task_call_signal(struct thread *t,struct md_task_call *call,int statu
     if (!WIFSTOPPED(status) || (unsigned)status>>16 || WSTOPSIG(status)==(SIGTRAP|0x80)) return 0;
     siginfo_t info;
     if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"task-call-signal")) return 1;
-    if (info.si_code>0) return 0;
+    if (md_signal_synchronous(&info)) return 0;
     int retained=md_signal_delivery_retain(&t->signal_delivery,t->pid,&info); CHECK(retained>=0);
     task_call_resume(t,call,retained);
     return 1;
@@ -5685,7 +5864,7 @@ static struct user_pt_regs wait_poll_registers(const struct thread *t,enum phase
     CHECK(phase==FILE_WAIT_ENTRY || phase==CONTROL_WAIT_ENTRY || phase==CLOSE_WAIT_ENTRY);
     struct user_pt_regs regs=phase==CONTROL_WAIT_ENTRY ? t->buffer_registers
         : phase==CLOSE_WAIT_ENTRY ? t->close_registers : t->original;
-    regs.pc=RAW_GATE-4; regs.regs[8]=SYS_ppoll;
+    regs.pc=abi.task_call; regs.regs[8]=SYS_ppoll;
     for (unsigned i=0;i<5;++i) regs.regs[i]=0;
     return regs;
 }
@@ -5697,7 +5876,7 @@ static int wait_poll_entry(struct thread *t) {
     struct ptrace_syscall_info info={0};
     if (!tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"provider-wait-entry")) return -1;
     if (info.op==PTRACE_SYSCALL_INFO_ENTRY) {
-        CHECK(info.entry.nr==SYS_ppoll && info.instruction_pointer==RAW_GATE);
+        CHECK(info.entry.nr==SYS_ppoll && info.instruction_pointer==abi.task_return);
         return 1;
     }
     /* Starting at seccomp first drains the skipped application's exit. That
@@ -5731,7 +5910,8 @@ static void close_wait_complete(struct thread *t) {
     close_return(t);
 }
 static void wait_cancel_entry(struct thread *t,enum phase next) {
-    CHECK(next==FILE_WAITING || next==CONTROL_WAITING || next==CLOSE_WAITING || next==EPOLL_CALL);
+    CHECK(next==FILE_WAITING || next==CONTROL_WAITING || next==CLOSE_WAITING || next==EPOLL_CALL
+        || next==SOCKET_WAITING || next==IPC_WAITING);
     if (t->host_signals) {
         int error=md_task_call_cancel_entry(native_trace,t->pid,abi.task_return);
         if (error) { CHECK(error==-ESRCH); t->resume_lost=1; return; }
@@ -7183,9 +7363,10 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
             && r->regs[0]!=MD_BUFFER_RELEASE && r->regs[0]!=MD_BUFFER_PROBE && r->regs[0]!=MD_BUFFER_UTS
             && r->regs[0]!=MD_BUFFER_PROC_IO && r->regs[0]!=MD_BUFFER_PROC_ACK
             && r->regs[0]!=MD_BUFFER_FINISH && r->regs[0]!=MD_BUFFER_PROC_START
-            && r->regs[0]!=MD_BUFFER_PROC_RIGHTS && r->regs[0]!=MD_BUFFER_PROC_META && r->regs[0]!=MD_FS_BUFFER_RIGHTS_READY
+            && r->regs[0]!=MD_BUFFER_PROC_OPEN && r->regs[0]!=MD_BUFFER_PROC_META && r->regs[0]!=MD_FS_BUFFER_RIGHTS_READY
             && r->regs[0]!=MD_FS_BUFFER_RIGHTS_DONE && r->regs[0]!=MD_FS_BUFFER_CHANNEL_OBSERVED
-            && r->regs[0]!=MD_BUFFER_PID_NUMBER && r->regs[0]!=MD_BUFFER_DESCRIPTOR_META && r->regs[0]!=MD_BUFFER_PIDFD_NAMESPACE
+            && r->regs[0]!=MD_BUFFER_PID_NUMBER && r->regs[0]!=MD_BUFFER_NATIVE_IDENTITY
+            && r->regs[0]!=MD_BUFFER_DESCRIPTOR_META && r->regs[0]!=MD_BUFFER_PIDFD_NAMESPACE
             && r->regs[0]!=MD_BUFFER_PIDFD_SIGNAL
             && r->regs[0]!=MD_BUFFER_PIDFD_READY && r->regs[0]!=MD_BUFFER_PIDFD_SENT && r->regs[0]!=MD_BUFFER_PIDFD_OBSERVED
             && r->regs[0]!=MD_BUFFER_CONTROL_IOCTL_SPEC && r->regs[0]!=MD_BUFFER_CONTROL_IOCTL
@@ -7459,6 +7640,7 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         if (result) break;
         struct md_fs_buffer_frame *frame=span.data;
         result=md_process_image_link(target->pid,target->process_image,process_image_memory(t,target),frame->reply.data,PATH_MAX);
+        if (result<0) TRACE("PROBE proc-image-link caller=%d target=%d error=%ld\n",t->pid,target->pid,result);
         break;
     }
     case MD_FS_BUFFER_EXEC_PREPARE:
@@ -7572,6 +7754,16 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
     case MD_BUFFER_PIDFD_READY: case MD_BUFFER_PIDFD_SENT: case MD_BUFFER_PIDFD_OBSERVED:
         if (t->phase!=DISPATCHING || !t->pidfd_capture.count || r->regs[2]) break;
         pidfd_capture_step(t,(unsigned)r->regs[0],(long)r->regs[1]); return;
+    case MD_BUFFER_PROC_OPEN: {
+        if (t->phase!=DISPATCHING || r->regs[1] || r->regs[2] || !t->buffer.pool) break;
+        struct md_buffer_span span;
+        result=md_buffer_span(&t->buffer,&span);
+        if (result) break;
+        struct md_proc_open_request query;
+        if (span.size<sizeof(query)) { result=-EOVERFLOW; break; }
+        memcpy(&query,span.data,sizeof(query));
+        proc_file_request(t,&query); return;
+    }
     case MD_BUFFER_PROC_META: {
         if (t->phase!=DISPATCHING || r->regs[1] || r->regs[2] || !t->buffer.pool) break;
         struct md_buffer_span span;
@@ -7586,6 +7778,9 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         if (!result) memcpy(span.data,&metadata,sizeof(metadata));
         break;
     }
+    case MD_BUFFER_NATIVE_IDENTITY:
+        if (r->regs[1] || r->regs[2]) break;
+        result=(long)(((uint64_t)(unsigned)t->tgid<<32)|(unsigned)t->pid); break;
     case MD_BUFFER_PID_NUMBER:
         if (t->phase!=DISPATCHING || r->regs[2]>1) break;
         result=r->regs[2] ? native_pid(t,(pid_t)r->regs[1]) : visible_pid(t,(pid_t)r->regs[1]); break;
@@ -7754,21 +7949,18 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
             if (!result) { t->buffer_return_waiting=1; buffer_return_progress(t); return; }
         }
         break;
-    case MD_BUFFER_PROC_RIGHTS:
     case MD_FS_BUFFER_RIGHTS_BEGIN: {
-        int proc=r->regs[0]==MD_BUFFER_PROC_RIGHTS;
         if (!t->buffer.pool || r->regs[1] || r->regs[2] || t->buffer_rights_delivered) break;
-        if (proc ? !t->proc_file || t->proc_image_fd<0
-                : t->buffer_open.fd<0) break;
+        if (t->buffer_open.fd<0) break;
         struct md_buffer_span span;
         result=md_buffer_span(&t->buffer,&span);
         if (result) break;
         struct md_fs_buffer_frame *frame=span.data;
-        if (!proc && frame->transfer!=MD_FS_BUFFER_RIGHTS) { result=-EINVAL; break; }
-        int flags=(proc ? md_proc_file_flags(t->proc_file) : t->buffer_open.flags)&O_CLOEXEC ? FD_CLOEXEC : 0;
-        struct md_fd_object *object=proc ? md_proc_file_object(t->proc_file) : md_fs_buffer_open_object(&t->buffer_open);
+        if (frame->transfer!=MD_FS_BUFFER_RIGHTS) { result=-EINVAL; break; }
+        int flags=t->buffer_open.flags&O_CLOEXEC ? FD_CLOEXEC : 0;
+        struct md_fd_object *object=md_fs_buffer_open_object(&t->buffer_open);
         frame->reply.result.selectors=md_fd_object_selectors(object);
-        result=md_fd_return_begin(&t->buffer_return,t->resources.files,proc ? t->proc_image_fd : t->buffer_open.fd,
+        result=md_fd_return_begin(&t->buffer_return,t->resources.files,t->buffer_open.fd,
             object,flags,(void *)frame->receipt,fd_wakeup);
         if (result) break;
         t->buffer_return_waiting=1;
@@ -7856,12 +8048,12 @@ static void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_
          * until every internal owner has restored the application context. */
         if (!signal_observe(t,stop,0)) return;
         siginfo_t info=stop->info;
-        if (info.si_code<=0 && info.si_signo<32) {
+        if (!md_signal_synchronous(&info) && info.si_signo<32) {
             int retained=md_signal_delivery_retain(&t->signal_delivery,pid,&info); CHECK(retained>=0);
             resume(pid,retained); return;
         }
     }
-    if (sig && (t->resources.pid || (t->pid_filter && sig==SIGCHLD))) {
+    if (sig && (t->resources.pid || sig==SIGCHLD)) {
         if (!signal_observe(t,stop,0)) return;
         siginfo_t info=stop->info;
         int fault=md_signal_synchronous(&info);
@@ -7878,11 +8070,8 @@ static void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_
             }
             if (!(caught&(UINT64_C(1)<<(sig-1)))) { resume(pid,0); return; }
         }
-        if (info.si_signo==SIGCHLD || info.si_code==SI_USER || info.si_code==SI_TKILL) {
-            if (info.si_signo==SIGCHLD)
-                process_reboot_info(info.si_pid,&info.si_code,&info.si_status);
-            info.si_uid=process_signal_uid(t,info.si_pid,info.si_uid);
-            info.si_pid=visible_pid(t,info.si_pid);
+        if (md_signal_native_sender(&info)) {
+            signal_wait_info(t,&info);
             if (!signal_replace_info(t,stop,&info)) return;
         }
     }
@@ -7895,9 +8084,12 @@ static void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_
     if (signal_control_delivery(t,sig,stop)) return;
     resume(pid,sig);
 }
-static void resume_signal(pid_t pid,int sig) {
+static void resume_signal(pid_t pid,int sig,const struct md_signal_origin *origin) {
     /* Debugger release has already passed ordinary signal admission. */
+    struct thread *t=thread(pid);
+    if (origin && origin->valid) t->signal_origin=*origin;
     deliver_signal(pid,sig,1,NULL);
+    t->signal_origin.valid=0;
 }
 static int init_signal_suppressed(const struct thread *from,const struct thread *to,int signal) {
     if ((signal!=SIGKILL && signal!=SIGSTOP) || !namespace_init(to)) return 0;
@@ -7911,7 +8103,12 @@ static void setns_complete(struct thread *t,int error) {
     ((struct md_pidfd_frame *)span.data)->result=error;
     buffer_reply(t,MD_PIDFD_DONE);
 }
-static void setns_prepared(struct thread *t,int error) {
+static void setns_prepared(struct thread *t,long error) {
+    if (!error && t->resource_change.pid_children_pending && !t->pid_filter) {
+        struct user_pt_regs continuation;
+        if (registers(t->pid,&continuation)) pid_filter_begin(t,&continuation,setns_prepared);
+        return;
+    }
     if (!error && t->resource_change.join_mounts) {
         error=md_mount_join_submit(mount_copy_service,t->pid,t->resource_change.join_mounts,&t->mount_copy);
         /* EVENT_WAIT: selected namespace root/cwd resolution. Cancellation
@@ -8115,7 +8312,8 @@ static int process_call(struct thread *t,struct user_pt_regs *r,unsigned long *c
      * UID. The baseline already observes these calls; PID views only add ID
      * translation. Internal delivery uses its validated, positive native PID. */
     if (*cookie!=MD_INTERCEPT_PROCESS && !terminal
-            && !((signaling || inspecting || nr==SYS_rt_sigtimedwait) && t->phase==IDLE && r->pc!=RAW_GATE)) return 0;
+            && !((signaling || inspecting || nr==SYS_rt_sigtimedwait || nr==SYS_waitid)
+                && t->phase==IDLE && r->pc!=RAW_GATE)) return 0;
     *cookie=MD_INTERCEPT_NATIVE;
     if (t->phase!=IDLE) return 0;
     if (nr==SYS_pidfd_open) {
@@ -8131,8 +8329,16 @@ static int process_call(struct thread *t,struct user_pt_regs *r,unsigned long *c
                 && shield(t) && skip(t->pid)) dispatch_with_stack(t);
         return 1;
     }
+    if (nr==SYS_rt_sigtimedwait) {
+        /* Observed waits need PID translation and must survive service
+         * quiescence without publishing its EINTR. Unselected host waits
+         * remain native; both translated paths share one deadline owner. */
+        int error=signal_control_begin(t,r,0,NULL,0,NULL);
+        if (error) return_value(t,r,error);
+        return 1;
+    }
     if (!t->resources.pid && !signaling && !inspecting
-            && nr!=SYS_wait4 && nr!=SYS_waitid && nr!=SYS_rt_sigtimedwait) return 0;
+            && nr!=SYS_wait4 && nr!=SYS_waitid) return 0;
     if (nr==SYS_futex) {
         /* The PID selector intercepts only PI operations. Passing a logical
          * owner TID to the native PI state can deadlock even after unlock.
@@ -8351,7 +8557,15 @@ static void signal_entries_progress(void) {
 }
 static void signal_wait_info(void *context,siginfo_t *info) {
     struct thread *t=context;
-    if (info->si_signo==SIGCHLD || info->si_code==SI_USER || info->si_code==SI_TKILL) {
+    if (md_signal_child_notice(info)) {
+        struct md_signal_origin origin;
+        signal_origin_capture(t,info,&origin);
+        if (origin.valid) {
+            signal_origin_consumed(t,info);
+            signal_origin_translate(t,&origin,info); return;
+        }
+    }
+    if (md_signal_native_sender(info)) {
         if (info->si_signo==SIGCHLD)
             process_reboot_info(info->si_pid,&info->si_code,&info->si_status);
         info->si_uid=process_signal_uid(t,info->si_pid,info->si_uid);
@@ -8925,12 +9139,16 @@ static int host_policy_deliver(struct thread *t,struct user_pt_regs *regs,const 
 }
 static uint32_t host_policy_interception(const struct seccomp_data *call) {
     if (call->arch!=AUDIT_ARCH_AARCH64) return SECCOMP_RET_ALLOW;
-    /* These optional thread registrations have no userspace implementation.
+    /* These optional native facilities have no userspace implementation.
      * Report absence only after a host denial, never fake successful robust
-     * cleanup or rseq registration. Guest policy has already taken precedence;
-     * executors which admit the native calls do not enter this path. */
-    if (call->nr==SYS_set_robust_list || call->nr==SYS_get_robust_list || call->nr==SYS_rseq)
-        return SECCOMP_RET_ERRNO|ENOSYS;
+     * cleanup, registrations, NUMA placement or clock discipline. Guest policy
+     * takes precedence; permitted native calls do not enter this path. */
+    switch (call->nr) {
+#define OPTIONAL(n) case SYS_##n:
+        MD_HOST_OPTIONAL_CALLS(OPTIONAL)
+#undef OPTIONAL
+            return SECCOMP_RET_ERRNO|ENOSYS;
+    }
     /* Inherited TRAP outranks our ERRNO/TRACE/USER_NOTIF. Reuse the original
      * interception policy, not a second list of adapter-supported syscalls.
      * Native calls remain denied; guest policy was evaluated before entry. */
@@ -9011,14 +9229,21 @@ static int host_policy_signal(struct thread *t,struct md_task_signal_stop *stop)
     if (action!=SECCOMP_RET_ALLOW && action!=SECCOMP_RET_LOG) return 0;
     return host_policy_dispatch(t,&regs,&call);
 }
-static void filter_revoke_entry(struct thread *t,const struct user_pt_regs *r) {
+static int svc_revoke_entry(struct thread *t) {
+    int error=md_svc_registry_revoke(md_memory_svc(t->memory),t->pid);
+    if (error==-ESRCH) { t->resume_lost=1; return 0; }
+    CHECK(!error);
+    return 1;
+}
+static int filter_revoke_entry(struct thread *t,const struct user_pt_regs *r) {
     int group=md_seccomp_filter_flags(r->regs[8],r->regs[1])&SECCOMP_FILTER_FLAG_TSYNC;
-    CHECK(!md_svc_registry_revoke(md_memory_svc(t->memory),t->pid));
+    if (!svc_revoke_entry(t)) return 0;
     for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid
             && (peer==t || (group && peer->tgid==t->tgid))) {
         peer->cooperative_blocked=1;
         md_broker_cooperative_revoke(broker,peer->pid);
     }
+    return 1;
 }
 static void filter_install_discard(struct thread *t) {
     retry_clear(t,RETRY_FILTER);
@@ -9148,11 +9373,6 @@ static void policy_admission_retain(struct thread *t,int pending) {
     }
     t->admission_policy_pending|=pending;
 }
-static int signal_control_parked(const struct thread *t) {
-    const struct signal_control *o=t->signal_control;
-    return t->phase==SIGNAL_CONTROL && o && !o->scratch.pool && !o->memory.queue
-        && !o->files.table && md_task_signal_control_parked(&o->control);
-}
 static int policy_sync_begin(struct thread *t) {
     if (!(md_seccomp_filter_flags(t->original.regs[8],t->original.regs[1])
             &SECCOMP_FILTER_FLAG_TSYNC)) return 0;
@@ -9162,12 +9382,12 @@ static int policy_sync_begin(struct thread *t) {
     if (!policy_barrier) return -ENOMEM;
     policy_installer=t; policy_barrier_ready=0;
     for (struct thread *p=threads;p;p=p->next) if (p->pid && p!=t && p->tgid==t->tgid) {
-        /* A borrowed notification cannot return to application code without
-         * its owned syscall/checkpoint stop. Interrupting that kernel wait
-         * would invalidate the listener's public ID. Hold its next event,
-         * rather than cancelling an already admitted application request. */
+        /* These admitted waits cannot return to application code without an
+         * owned syscall/checkpoint stop. Interrupting them would invalidate a
+         * notification ID or replay a socket effect against the new policy.
+         * Hold their next event instead of cancelling the native request. */
         if ((p->notification && !p->notification->promoting)
-                || signal_control_parked(p)) continue;
+                || signal_control_parked(p) || p->phase==SOCKET_NATIVE) continue;
         CHECK(!md_task_quiesce_add(policy_barrier,p->pid,p->kernel_stopped || p->listening || p->vfork_child,
             p->interrupt_pending || birth_stop_pending(p) ? 0 : p->kernel_resume));
     }
@@ -9259,10 +9479,10 @@ static void filter_install_progress(struct thread *t) {
             SYS_ppoll,SYS_pselect6,SYS_epoll_pwait,SYS_epoll_pwait2,SYS_signalfd4,SYS_fcntl,SYS_mmap};
         const struct md_seccomp_route route={.delegation_pc=abi.task_return,.notify_cookie=MD_INTERCEPT_NOTIFY,
             .owned_admission=1,.admission_pc=abi.buffer_admit,
-            .substitution_pc=RAW_GATE,.substitution_number=SYS_accept4};
+            .substitution_pc=abi.socket_return,.substitution_number=SYS_accept4};
         int error=md_seccomp_capture_prepare(&install->capture,md_memory_readonly_buffers(t->memory),
             md_memory_readonly_base(t->memory),t->policy,&program,
-            delegated,t->host_signals ? sizeof(delegated)/sizeof(*delegated) : 1,
+            delegated,t->host_signals ? sizeof(delegated)/sizeof(*delegated) : 3,
             MD_INTERCEPT_TASK,&route);
         if (error==-EAGAIN) { retry_wait(t,RETRY_FILTER); return; }
         if (error) { filter_install_fail(t,error); return; }
@@ -9396,7 +9616,7 @@ static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long c
         /* Revoke existing entries before filter commit, including TSYNC. The
          * guest preflight revokes new registration in its own address space;
          * a protected fork need not grant the supervisor memory-write access. */
-        filter_revoke_entry(t,r);
+        if (!filter_revoke_entry(t,r)) return 1;
         filter_install_begin(t,r); return 1;
     }
     if (t->phase==PROCESS_INIT_EXIT && nr==SYS_prctl && r->pc==RAW_GATE
@@ -9604,7 +9824,7 @@ static int debugger_boundary(struct thread *t) {
         /* An interrupt can land inside a resident entry, outside the syscall
          * adapter. Retire that frame before exposing registers to the debugger;
          * a running payload finishes through its existing return checkpoint. */
-        CHECK(!md_svc_registry_revoke(machine,t->pid));
+        if (!svc_revoke_entry(t)) return 1;
         int deferred=md_svc_machine_flush(machine,&t->machine,t->pid);
         if (deferred==-ESRCH) { t->resume_lost=1; return 1; }
         CHECK(deferred>=0);
@@ -9771,9 +9991,9 @@ static void resume(pid_t pid, int sig) {
     }
     struct md_svc_registry *machine=md_memory_svc(t->memory);
     if (!svc_clients_prepare(t)) return;
-    if (machine && !machine->disabled && (md_memory_exposed(t->memory)
-            || t->debug_options || md_debugger_traced(debugger,pid)))
-        CHECK(!md_svc_registry_revoke(machine,pid));
+    if (machine && (machine->revoke_pending || (!machine->disabled && (md_memory_exposed(t->memory)
+            || t->debug_options || md_debugger_traced(debugger,pid)))))
+        if (!svc_revoke_entry(t)) return;
     if (t->trace_options_dirty && debugger_options(pid,t->debug_options)) return;
     if (phase!=IDLE && t->debug_call_active) t->debug_adapter=1;
     if (debugger_at_boundary(t) && t->entered && t->process_image) {
@@ -9831,7 +10051,7 @@ static void resume(pid_t pid, int sig) {
             || t->direct==DIRECT_ADMIT || t->fd_running || phase == OBSERVING || phase==PROCESS_OBSERVING
             || phase==PROCESS_INIT_ENTRY || phase==PROCESS_INIT_EXIT || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
             || phase == EXPORT_RETURN || phase == EXECUTING || phase == WATCH_CANCEL
-            || phase == WATCH_ENTRY || phase == WATCH_READ || phase==DEBUG_WAIT_ENTRY || phase==DEBUG_WAIT_EXIT
+            || phase == WATCH_ENTRY || phase == WATCH_READ || phase==SOCKET_NATIVE || phase==DEBUG_WAIT_ENTRY || phase==DEBUG_WAIT_EXIT
             || phase==DEBUG_PARK_ENTRY || phase==DEBUG_PARK_EXIT
             || phase==IPC_WAIT_ENTRY || phase==IPC_WAITING || phase==SOCKET_WAIT_ENTRY || phase==SOCKET_WAITING
             || phase==CALL_RESTART_ENTRY || phase==CALL_RESTART_EXIT || phase==EPOLL_PROBE || phase==EPOLL_CALL || phase==EPOLL_WAIT
@@ -10867,6 +11087,20 @@ static void socket_wait_complete(struct thread *t) {
     else if (!value) value=-EAGAIN;
     socket_complete(t,value);
 }
+static void socket_wait_cancelled(struct thread *t) {
+    int error=t->wait_error; t->wait_error=0; t->socket_waking=0;
+    if (!error) { socket_io_progress(t); return; }
+    socket_unwatch(t);
+    if (t->readiness) {
+        md_epoll_wait_cancel(&t->readiness->wait); readiness_reply(t,error); return;
+    }
+    struct md_ipc_io *op=socket_operation(t);
+    if (op->job.started) {
+        md_ipc_io_interrupt(op);
+        if (op->native_result==-EINTR) op->native_result=error;
+        socket_io_progress(t);
+    } else socket_complete(t,error);
+}
 static int readiness_native_event(struct thread *t,int status) {
     unsigned event=(unsigned)status>>16;
     int signal=WSTOPSIG(status);
@@ -11237,6 +11471,28 @@ static int pid_gone(pid_t pid) {
     /* Proc invisibility is not process death. EPERM still proves existence. */
     return kill(pid,0)<0 && errno==ESRCH;
 }
+static struct thread *process_thread(pid_t group) {
+    struct thread *t=find_thread(group);
+    if (t) return t;
+    for (t=threads;t;t=t->next) if (t->pid && t->tgid==group) return t;
+    return NULL;
+}
+static int pid_collectible(pid_t pid) {
+    struct thread *parent=process_thread(md_task_registry_retired(tasks,pid).parent);
+    return (!parent || !md_signal_pending_child_dirty(parent->signal_pending)) && pid_gone(pid);
+}
+static void child_signals_observe(struct thread *t,int status) {
+    if (!t || !WIFSTOPPED(status) || !md_signal_pending_child_dirty(t->signal_pending)) return;
+    if (!((unsigned)status>>16) && WSTOPSIG(status)==SIGCHLD) {
+        siginfo_t info;
+        if (native_trace(PTRACE_GETSIGINFO,t->pid,NULL,&info)<0) { CHECK(errno==ESRCH); return; }
+        struct md_signal_origin origin;
+        signal_origin_capture(t,&info,&origin); t->signal_origin=origin;
+    }
+    if (!child_signals_capture(t)) return;
+    md_signal_pending_child_observed(t->signal_pending);
+    pid_collection_pending=1;
+}
 static int pid_collection_waiting(const struct thread *t) {
     return t && t->pid && (t->phase==PROCESS_OBSERVING || t->phase==PROCESS_INFO_LOAD
         || t->phase==PROCESS_INFO_STORE || t->phase==DEBUG_WAIT_ENTRY || t->phase==DEBUG_WAIT_EXIT);
@@ -11255,7 +11511,7 @@ static void pid_collect(void) {
     }
     /* Exit may precede translation of a completed kernel wait. Only quiescent
      * wait ownership permits collecting automatically reaped identities. */
-    md_task_registry_collect(tasks,pid_gone); pid_collection_pending=0;
+    md_task_registry_collect(tasks,pid_collectible); pid_collection_pending=0;
 }
 static void progress_events(const struct pollfd *events) {
     if (events[0].revents) drain();
@@ -11291,13 +11547,12 @@ static int entry_fence_drained(const struct thread *t) {
      * across TSYNC instead of waiting for the application event. */
     if (!entry_fence_adapter_drained(t)) return 0;
     if (signal_control_parked(t)) return 1;
-    if (t->phase==PROCESS_OBSERVING && (t->original.regs[8]==SYS_rt_sigtimedwait
-            || t->original.regs[8]==SYS_wait4 || t->original.regs[8]==SYS_waitid)) return 1;
+    if (t->phase==PROCESS_OBSERVING && (t->original.regs[8]==SYS_wait4 || t->original.regs[8]==SYS_waitid)) return 1;
     /* Native fallback and broker-owned reads have already admitted the original
      * call and released task-affine preparation. A blocking inotify read may
      * itself await the installer. MSG_PEEK is only a preparatory wait and must
      * still drain before its task-affine operation can cross the transition. */
-    if (t->phase==WATCH_READ && t->watch_wait!=1) return 1;
+    if ((t->phase==WATCH_READ && t->watch_wait!=1) || t->phase==SOCKET_NATIVE) return 1;
     return t->phase==EPOLL_WAIT && t->readiness
         && t->readiness->native_caller && !t->readiness->evicting && !t->readiness->finishing;
 }
@@ -11322,7 +11577,7 @@ static int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,i
     if ((!registry || registry->entry_fence_drained) && !unrestricted) return 0;
     /* Revoked entries drain before the new filter commits. No thread-stop
      * barrier is needed for the logical dumpability policy. */
-    filter_revoke_entry(t,r);
+    if (!filter_revoke_entry(t,r)) return 1;
     if (!md_svc_registry_resident(registry) && !unrestricted) {
         if (registry) registry->entry_fence_drained=1;
         return 0;
@@ -11445,6 +11700,7 @@ static int publish_birth(struct thread *t,pid_t child,unsigned event) {
     md_seccomp_policy_replace(&c->policy,prior ? t->admission_policy : t->policy);
     c->host_signals=t->host_signals; c->host_signal_blocked=t->host_signal_blocked;
     if (t->signal_pending) {
+        md_signal_pending_release(c->signal_pending);
         c->signal_pending=md_signal_pending_fork(t->signal_pending,!!(t->cloning&CLONE_THREAD),
             !!(t->cloning&CLONE_SIGHAND));
         CHECK(c->signal_pending);
@@ -11582,6 +11838,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
         if (!pid) pid=kernel_event(status,usage);
         if (pid > 0) {
             struct thread *returning=find_thread(pid);
+            child_signals_observe(returning,*status);
             if (returning) md_signal_delivery_checkpoint(&returning->signal_delivery,*status);
             if (returning && returning->signal_control && returning->signal_control->returning)
                 signal_control_discard(returning);
@@ -12032,6 +12289,7 @@ int main(int argc, char **argv) {
     long seconds = 0;
     while (argument < argc) {
         if (!strcmp(argv[argument], "--diagnostics")) diagnostics = 1;
+        else if (!strcmp(argv[argument], "--diagnostics=signals")) signal_diagnostics = 1;
         else if (!strcmp(argv[argument], "--magicdesk") && !command_access) command_access = 1;
         else if (!strcmp(argv[argument], "--statistics")) {
             CHECK(!statistics);
@@ -12055,6 +12313,7 @@ int main(int argc, char **argv) {
     setvbuf(stderr, NULL, _IONBF, 0);
     struct md_debugger_host debug_host={.parent=debugger_parent,.group=debugger_group,.uid=debugger_uid,.allowed=debugger_allowed,.traceme=debugger_traceme,
         .visible_pid=debugger_visible_pid,.native_pid=debugger_native_pid,.visible_uid=debugger_visible_uid,.reaped=debugger_reaped,
+        .signal_origin=debugger_signal_origin,.signal_translate=debugger_signal_translate,
         .attachable=debugger_attachable,.observe=debugger_observe,.interrupt=debugger_interrupt,.options=debugger_options,
         .listen=debugger_listen,.usage=debugger_usage,.wait=debugger_wait,.wait_wake=debugger_wait_wake,
         .complete=debugger_complete,.resume=resume_signal,.signal_mask=debugger_signal_mask};
@@ -12189,6 +12448,7 @@ int main(int argc, char **argv) {
     CHECK(!md_test_kernel_profile_install(kernel_profile));
 #endif
     thread(leader)->born = 1;
+    thread(leader)->signal_pending=md_signal_pending_new(); CHECK(thread(leader)->signal_pending);
     /* A caller can install filters before starting Shroot. Treat inherited
      * no_new_privs conservatively: its ERRNO rules can outrank service TRACE
      * markers, so use the same pre-filter protocol as guest-installed filters. */
@@ -12346,7 +12606,7 @@ int main(int argc, char **argv) {
                 && WSTOPSIG(status)<32 && WSTOPSIG(status)!=SIGSTOP) {
             siginfo_t info;
             if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"shielded-signal")) continue;
-            if (info.si_code<=0) {
+            if (!md_signal_synchronous(&info)) {
                 int retained=md_signal_delivery_retain(&t->signal_delivery,pid,&info); CHECK(retained>=0);
                 notification_interrupted(t);
                 resume(pid,retained); continue;
@@ -12369,7 +12629,9 @@ int main(int argc, char **argv) {
             if (code) TRACE("PROBE exit pid=%d status=%d ready=%d calls=%u\n", pid, code, t->ready, t->calls);
             int traced=md_debugger_traced(debugger,pid);
             if (t->born && (t->pid==t->tgid || traced)) {
-                md_task_registry_retire(tasks,pid,&t->identity);
+                md_task_registry_retire(tasks,pid,t->parent,&t->identity);
+                struct thread *parent=process_thread(t->parent);
+                if (parent) md_signal_pending_child_changed(parent->signal_pending);
                 pid_collection_pending=1;
             }
             if (t->resources.pid) {
@@ -12418,6 +12680,10 @@ int main(int argc, char **argv) {
         }
         if (!event && sig!=(SIGTRAP|0x80)) notification_interrupted(t);
         if (event==PTRACE_EVENT_EXIT) {
+            if (t->born && !process_thread(t->parent)) {
+                long parent=md_task_parent(pid);
+                if (parent>=0) t->parent=(pid_t)parent;
+            }
             if (!t->born) {
                 /* EVENT_WAIT: group death can overtake the newborn's initial
                  * stop. Retain its terminal stop until parent birth publishes
@@ -12486,6 +12752,8 @@ int main(int argc, char **argv) {
             if (!tracee_request(t,PTRACE_GETEVENTMSG,NULL,&message,"debug-exit")) continue;
             message=(unsigned)process_reboot_status(pid,(int)message);
             TRACE("PROBE terminal-stop pid=%d lost=%d status=%#lx\n",pid,resume_lost,message);
+            if (signal_diagnostics && !diagnostics && (message&0x7f))
+                TRACE_SIGNAL("PROBE terminal-stop pid=%d lost=%d status=%#lx\n",pid,resume_lost,message);
             if (diagnostics && (message&0x7f)==SIGSYS) {
                 struct user_pt_regs terminal;
                 if (registers(pid,&terminal))
@@ -12525,7 +12793,10 @@ int main(int argc, char **argv) {
                 if (former) {
                     md_signal_delivery_clear(&t->signal_delivery);
                     t->signal_delivery=former->signal_delivery;
+                    t->signal_delivery.capture_context=t;
                     former->signal_delivery=(struct md_signal_delivery){0};
+                    t->signal_origin=former->signal_origin;
+                    former->signal_origin.valid=0;
                     t->terminal_observation=former->terminal_observation;
                     t->debug_options=former->debug_options;
                     t->debug_call_active=former->debug_call_active;
@@ -12714,12 +12985,19 @@ int main(int argc, char **argv) {
                         observed->seccomp.args[1],observed->seccomp.args[2],observed->seccomp.args[3])) continue;
             if (!captured && !registers(pid, &regs)) continue;
             if (cookie==MD_INTERCEPT_SIGNAL && !t->entered) { resume(pid,0); continue; }
-            if (t->host_signals && t->entered && t->phase==IDLE
+            int signal_descriptor=regs.regs[8]==SYS_signalfd4;
+            if (t->entered && t->phase==IDLE
                     && (regs.regs[8]==SYS_read || regs.regs[8]==SYS_readv)) {
                 struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)regs.regs[0],NULL);
                 int selected=md_signal_fd_from_object(object)!=NULL;
                 md_fd_object_release(object);
-                if (selected) cookie=MD_INTERCEPT_SIGNAL;
+                if (selected) signal_descriptor=1;
+            }
+            if (signal_descriptor && t->entered && t->phase==IDLE
+                    && regs.pc!=RAW_GATE && regs.pc!=abi.task_return) {
+                int error=signal_control_begin(t,&regs,0,NULL,0,NULL);
+                if (error) return_value(t,&regs,error);
+                continue;
             }
             if (t->host_signals && t->entered && t->phase==IDLE
                     && (cookie==MD_INTERCEPT_SIGNAL || regs.regs[8]==SYS_rt_sigtimedwait)) {
@@ -12749,12 +13027,26 @@ int main(int argc, char **argv) {
                 return_value(t,&regs,result); continue;
             }
             if (cookie==MD_INTERCEPT_TASK) {
-                /* Original accept admission owns its native accept4(...,0).
-                 * A direct application call retains the installed policy. */
-                if (t->phase==DISPATCHING && t->original.regs[8]==SYS_accept
-                        && regs.pc==RAW_GATE && regs.regs[8]==SYS_accept4
-                        && regs.regs[0]==t->original.regs[0] && !regs.regs[3]
-                        && !!regs.regs[1]==!!t->original.regs[1]) resume(pid,0);
+                /* Only an already-owned wait may use the service gate when
+                 * the application's filter denies ppoll. The original call
+                 * has passed admission; a direct application ppoll has not. */
+                if (regs.pc==abi.task_return && regs.regs[8]==SYS_ppoll
+                        && !regs.regs[0] && !regs.regs[1]
+                        && (task_parked(t) || t->phase==DEBUG_PARK_EXIT)) {
+                    resume(pid,0); continue;
+                }
+                /* Wait with the application mask; retire the native exit before
+                 * allowing a handler to observe the adapter's stack or pointers.
+                 * Original accept admission owns accept4(...,0), while direct
+                 * accept4 calls retain their own application filter policy. */
+                int substituted=t->original.regs[8]==SYS_accept && regs.regs[8]==SYS_accept4;
+                if (t->phase==DISPATCHING && regs.pc==abi.socket_return
+                        && md_socket_wait_call(regs.regs[8],regs.regs[2],regs.regs[3])
+                        && (!substituted || (regs.regs[0]==t->original.regs[0]
+                            && !regs.regs[3] && !!regs.regs[1]==!!t->original.regs[1]))) {
+                    if (!restore_mask(t)) continue;
+                    t->phase=SOCKET_NATIVE; resume(pid,0);
+                }
                 else return_value(t,&regs,-EPERM);
                 continue;
             }
@@ -12773,13 +13065,6 @@ int main(int argc, char **argv) {
             if (statistics) {
                 if (regs.regs[8] < 512) statistics->calls[regs.regs[8]].trace++;
                 else statistics->unknown++;
-            }
-            if (regs.regs[8]==SYS_prctl && regs.regs[0]==MD_GUEST_PID_FILTER
-                    && regs.pc==RAW_GATE && t->phase==DISPATCHING) {
-                long value=regs.regs[1]==1 ? 0 : -EINVAL;
-                if (!value) for (struct thread *member=threads;member;member=member->next)
-                    if (member->pid && member->tgid==t->tgid) member->pid_filter=1;
-                return_value(t,&regs,value); continue;
             }
             if (regs.regs[8]==SYS_prctl && regs.regs[0]==MD_GUEST_PID_SIGNAL_GROUP
                     && regs.pc==RAW_GATE && t->phase==DISPATCHING) {
@@ -12802,10 +13087,14 @@ int main(int argc, char **argv) {
                     memory_begin(t,&regs,MEMORY_FORK,0); continue;
                 }
                 int delivery=cookie==MD_INTERCEPT_CAPTURE && (int)regs.regs[4]==MD_FS_BUFFER_SOURCE;
+                /* A caller-owned terminal open can retry append admission.
+                 * The path/access mode remain the exact pinned offer. */
+                int caller_flags=regs.regs[2]==(unsigned long)t->buffer_open.flags
+                    || ((t->buffer_open.flags&O_APPEND)
+                        && regs.regs[2]==(unsigned long)(t->buffer_open.flags&~O_APPEND));
                 int capture_flags=delivery ? t->buffer_open.fd>=0
-                    && regs.regs[2]==(unsigned long)(t->buffer_open.completion.kind==MD_OPEN_CALLER
-                        ? t->buffer_open.flags
-                        : O_PATH|(t->buffer_open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW)))
+                    && (t->buffer_open.completion.kind==MD_OPEN_CALLER ? caller_flags
+                        : regs.regs[2]==(unsigned long)(O_PATH|(t->buffer_open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW))))
                     && regs.regs[1]==md_memory_buffer_address(t->memory,&t->buffer)+offsetof(struct md_fs_buffer_frame,source)
                     : (regs.regs[2]==(O_PATH|O_CLOEXEC) || regs.regs[2]==(O_PATH|O_DIRECTORY|O_CLOEXEC))
                         && ((int)regs.regs[4]>=0 || (int)regs.regs[4]==AT_FDCWD);
@@ -12874,6 +13163,15 @@ int main(int argc, char **argv) {
                     || !shield(t) || !skip(pid)) continue;
             dispatch_with_stack(t);
         } else if (!event && sig == (SIGTRAP | 0x80)) {
+            if (t->phase==SOCKET_NATIVE) {
+                struct user_pt_regs regs;
+                if (!registers(pid,&regs) || !shield(t)) continue;
+                if (md_syscall_restarting((long)regs.regs[0])) {
+                    regs.regs[0]=(uint64_t)RESTART_SIGNAL;
+                    if (!set_registers(pid,&regs)) continue;
+                }
+                t->phase=DISPATCHING; resume(pid,0); continue;
+            }
             if (t->phase==SIGNAL_NATIVE_EXIT) {
                 signal_native_complete(t);
                 continue;
@@ -12937,6 +13235,8 @@ int main(int argc, char **argv) {
             }
             if (t->phase==WAIT_CANCEL_EXIT) {
                 t->phase=t->wait_resume; t->wait_resume=IDLE;
+                if (t->phase==SOCKET_WAITING) { socket_wait_cancelled(t); continue; }
+                if (t->phase==IPC_WAITING) { dispatch_with_stack(t); continue; }
             }
             if (t->phase==RESULT_REPLAY_ENTRY) {
                 /* The gate supplies SVC, never an instruction from a patched
@@ -13016,7 +13316,6 @@ int main(int argc, char **argv) {
                 /* Kernel restart retains orig_x0; restore every other argument
                  * before signal delivery can save the interrupted context. */
                 memcpy(regs.regs+1,t->original.regs+1,7*sizeof(regs.regs[0]));
-                unsigned info_argument=nr==SYS_waitid ? 2 : 1;
                 if (value>0 && nr==SYS_wait4 && t->original.regs[1] && process_reboot_signal((pid_t)value)) {
                     t->process_return=regs; t->process_return.regs[0]=visible_pid(t,(pid_t)value);
                     t->process_info_native=(pid_t)value;
@@ -13026,11 +13325,10 @@ int main(int argc, char **argv) {
                     if (set_registers(pid,&regs)) resume(pid,0);
                     continue;
                 }
-                if (((!value && nr==SYS_waitid) || (value>0 && nr==SYS_rt_sigtimedwait))
-                        && t->original.regs[info_argument]) {
+                if (!value && nr==SYS_waitid && t->original.regs[2]) {
                     t->process_return=regs;
                     if (!save_signal_mask(t,&t->mask,"pid-info-mask") || !shield(t)) continue;
-                    regs.pc=abi.load_groups; regs.regs[0]=t->original.regs[info_argument]; regs.regs[1]=8;
+                    regs.pc=abi.load_groups; regs.regs[0]=t->original.regs[2]; regs.regs[1]=8;
                     t->phase=PROCESS_INFO_LOAD;
                     if (set_registers(pid,&regs)) resume(pid,0);
                     continue;
@@ -13041,7 +13339,7 @@ int main(int argc, char **argv) {
                 if (value>0 && (nr==SYS_getppid || nr==SYS_wait4 || nr==SYS_getpgid || nr==SYS_getsid
                         || nr==SYS_setsid || nr==SYS_set_tid_address)) {
                     regs.regs[0]=visible_pid(t,(pid_t)value);
-                    if (nr==SYS_wait4) md_task_registry_reap(tasks,(pid_t)value);
+                    if (nr==SYS_wait4) process_reap(t,(pid_t)value);
                 }
                 if (!set_registers(pid,&regs)) continue;
                 if (t->debug_call_active) t->debug_adapter=1;
@@ -13171,22 +13469,14 @@ int main(int argc, char **argv) {
             if (t->phase==CONTROL_WAITING) { control_wait_complete(t); continue; }
             if (t->phase==SOCKET_WAIT_ENTRY) {
                 if (t->socket_waking) {
-                    t->socket_waking=0;
-                    if (skip(pid)) socket_io_progress(t);
+                    t->wait_error=0;
+                    wait_cancel_entry(t,SOCKET_WAITING);
                     continue;
                 }
                 int error=socket_watch(t);
                 if (error) {
-                    if (!skip(pid)) continue;
-                    if (t->readiness) {
-                        md_epoll_wait_cancel(&t->readiness->wait); readiness_reply(t,error); continue;
-                    }
-                    struct md_ipc_io *op=socket_operation(t);
-                    if (op->job.started) {
-                        md_ipc_io_interrupt(op);
-                        if (op->native_result==-EINTR) op->native_result=error;
-                        socket_io_progress(t);
-                    } else socket_complete(t,error);
+                    t->wait_error=error;
+                    wait_cancel_entry(t,SOCKET_WAITING);
                     continue;
                 }
                 if (t->readiness) {
@@ -13208,7 +13498,7 @@ int main(int argc, char **argv) {
                 int error=ipc_watch(t);
                 if (error) {
                     t->ipc_cancel=error;
-                    if (skip(pid)) dispatch_with_stack(t);
+                    wait_cancel_entry(t,IPC_WAITING);
                     continue;
                 }
                 if (!restore_mask(t)) continue;
@@ -13296,6 +13586,7 @@ int main(int argc, char **argv) {
                     CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
                 }
                 t->memory_arguments_only=0;
+                if (t->deferred_selector) { selector_deferred_complete(t,0); continue; }
                 t->phase = IDLE; resume(pid, 0); continue;
             }
             if (t->phase!=EXECUTING) {
@@ -13325,6 +13616,10 @@ int main(int argc, char **argv) {
                 buffer_control(t,&regs); continue;
             }
             if (abi.task_control && checkpoint==abi.task_control && t->ready) {
+                if (t->phase==DISPATCHING && (t->original.regs[8]==SYS_clone
+                        || t->original.regs[8]==SYS_clone3 || t->original.regs[8]==SYS_unshare)) {
+                    pid_filter_begin(t,&regs,NULL); continue;
+                }
                 mapping_begin(t,&regs); continue;
             }
             if (checkpoint==abi.enter && t->phase==IDLE && t->ready) {
@@ -13389,8 +13684,7 @@ int main(int argc, char **argv) {
                 uid_t uid=translate ? process_signal_uid(t,t->process_info_native,(uid_t)regs.regs[8]) : regs.regs[8];
                 regs.regs[3]=(unsigned)t->process_info_code; regs.regs[4]=padding;
                 regs.regs[5]=(unsigned)sender; regs.regs[6]=uid; regs.regs[7]=(unsigned)status;
-                unsigned info_argument=t->original.regs[8]==SYS_waitid ? 2 : 1;
-                regs.regs[0]=t->original.regs[info_argument]+offsetof(siginfo_t,si_code);
+                regs.regs[0]=t->original.regs[2]+offsetof(siginfo_t,si_code);
                 regs.regs[1]=5; regs.pc=abi.store_groups; t->phase=PROCESS_INFO_STORE;
                 if (set_registers(pid,&regs)) resume(pid,0);
                 continue;
@@ -13398,7 +13692,7 @@ int main(int argc, char **argv) {
             if (checkpoint==abi.stored_groups && t->phase==PROCESS_INFO_STORE) {
                 if ((t->original.regs[8]==SYS_wait4 || (t->original.regs[8]==SYS_waitid && !(t->original.regs[3]&WNOWAIT))) && (t->process_info_code==CLD_EXITED
                         || t->process_info_code==CLD_KILLED || t->process_info_code==CLD_DUMPED))
-                    md_task_registry_reap(tasks,t->process_info_native);
+                    process_reap(t,t->process_info_native);
                 if (!set_registers(pid,&t->process_return) || !restore_mask(t)) continue;
                 t->phase=IDLE; resume(pid,0); continue;
             }
@@ -13484,7 +13778,7 @@ int main(int argc, char **argv) {
                     && md_debugger_stop(debugger,pid,status,&signal_stop.info,0)) continue;
             struct user_pt_regs regs={0};
             if (sig == SIGSYS || sig == SIGSEGV || sig == SIGBUS || sig == SIGABRT || sig == SIGILL
-                        || (diagnostics && sig == SIGTRAP)) {
+                        || ((diagnostics || signal_diagnostics) && sig == SIGTRAP)) {
                 if (!signal_observe(t,&signal_stop,1)) continue;
                 regs=signal_stop.regs;
             }
@@ -13536,8 +13830,8 @@ int main(int argc, char **argv) {
                     continue;
                 }
             }
-            if (sig == SIGSYS || sig == SIGSEGV || sig == SIGABRT || sig == SIGILL
-                    || (diagnostics && sig == SIGTRAP)) {
+            if (sig == SIGSYS || sig == SIGSEGV || sig == SIGBUS || sig == SIGABRT || sig == SIGILL
+                    || ((diagnostics || signal_diagnostics) && sig == SIGTRAP)) {
                 if (!signal_observe(t,&signal_stop,0)) continue;
                 siginfo_t info=signal_stop.info;
                 signals++;
@@ -13556,15 +13850,17 @@ int main(int argc, char **argv) {
                         deliver_signal(pid,sig,restored_signal,&signal_stop); continue;
                     }
                 }
-                TRACE("PROBE signal pid=%d signal=%d code=%d pc=%#llx nr=%llu phase=%d adapted=%llu address=%p\n",
+                TRACE_SIGNAL("PROBE signal pid=%d signal=%d code=%d pc=%#llx nr=%llu phase=%d adapted=%llu address=%p\n",
                     pid, sig, info.si_code, regs.pc, regs.regs[8], t->phase, t->original.regs[8], info.si_addr);
-                if (diagnostics && t->process_image) {
+                TRACE_SIGNAL("PROBE signal-context pid=%d group=%d sp=%#llx lr=%#llx x0=%#llx shielded=%d logicalSigsys=%d\n",
+                    pid,t->tgid,regs.sp,regs.regs[30],regs.regs[0],t->signal_shielded,t->host_signal_blocked);
+                if ((diagnostics || signal_diagnostics) && t->process_image) {
                     char image[PATH_MAX];
                     ssize_t length=md_process_image_link(pid,t->process_image,-1,image,sizeof(image));
-                    if (length>0) TRACE("PROBE signal-image pid=%d path=%.*s\n",pid,(int)length,image);
+                    if (length>0) TRACE_SIGNAL("PROBE signal-image pid=%d path=%.*s\n",pid,(int)length,image);
                 }
                 if (sig == SIGSYS)
-                    TRACE("PROBE application SIGSYS syscall=%d cookie=%d call=%p\n", info.si_syscall, info.si_errno, info.si_call_addr);
+                    TRACE_SIGNAL("PROBE application SIGSYS syscall=%d cookie=%d call=%p\n", info.si_syscall, info.si_errno, info.si_call_addr);
             }
             deliver_signal(pid,sig,restored_signal,&signal_stop);
         }

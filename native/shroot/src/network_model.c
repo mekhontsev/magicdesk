@@ -14,6 +14,7 @@
 #include <limits.h>
 #include <linux/if_arp.h>
 #include <linux/if_addr.h>
+#include <linux/if_bridge.h>
 #include <linux/rtnetlink.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -420,23 +421,22 @@ void md_network_namespace_release(struct md_network_namespace *n) {
 uint64_t md_network_namespace_inode(const struct md_network_namespace *n) { return n->inode; }
 const struct md_user_namespace *md_network_namespace_owner(const struct md_network_namespace *n) { return n->owner; }
 int md_network_namespace_managed(const struct md_network_namespace *n) { return n && n->mode!=MD_NETWORK_NATIVE; }
-static int veth_carrier(struct md_network_namespace *n,const struct md_network_interface *link) {
+static int link_carrier(struct md_network_namespace *n,const struct md_network_interface *link) {
+    if (!(link->info.flags&IFF_UP)) return 0;
+    if (link->kind==MD_LINK_TUN || link->kind==MD_LINK_TAP) return md_network_tun_carrier(n,link->info.index);
+    if (link->kind!=MD_LINK_VETH) return 1;
     struct md_network_namespace *owner=md_network_interface_owner(n->fabric,link->peer);
     struct md_network_interface *peer=owner ? md_network_interface_find(owner,link->peer,NULL) : NULL;
-    return (link->info.flags&IFF_UP) && peer && (peer->info.flags&IFF_UP);
+    return peer && (peer->info.flags&IFF_UP);
 }
 struct md_network_link md_network_interface_snapshot(struct md_network_namespace *n,const struct md_network_interface *link) {
     struct md_network_link out=link->info;
     out.kind=link->kind;
-    int carrier=!!(out.flags&IFF_UP);
-    if (link->kind==MD_LINK_TUN || link->kind==MD_LINK_TAP) carrier=carrier && md_network_tun_carrier(n,out.index);
-    else if (link->kind==MD_LINK_VETH) carrier=veth_carrier(n,link);
-    else if (link->kind==MD_LINK_BRIDGE) {
+    int carrier=link_carrier(n,link);
+    if (link->kind==MD_LINK_BRIDGE) {
         carrier=0;
         if (out.flags&IFF_UP) for (unsigned i=0;i<n->count;++i)
-            if (n->links[i].master==out.index && (n->links[i].kind==MD_LINK_TAP
-                    ? md_network_tun_carrier(n,n->links[i].info.index) && (n->links[i].info.flags&IFF_UP)
-                    : veth_carrier(n,&n->links[i]))) { carrier=1; break; }
+            if (n->links[i].master==out.index && link_carrier(n,&n->links[i])) { carrier=1; break; }
     }
     out.state=!(out.flags&IFF_UP) ? IF_OPER_DOWN
         : carrier ? (link->kind==MD_LINK_LOOPBACK ? IF_OPER_UNKNOWN : IF_OPER_UP)
@@ -445,6 +445,11 @@ struct md_network_link md_network_interface_snapshot(struct md_network_namespace
     if (carrier) out.flags|=IFF_RUNNING|IFF_LOWER_UP;
     out.peer=link->peer;
     out.lifetime=link->policy_id;
+    out.master=link->master;
+    out.bridge_lifetime=link->bridge_lifetime;
+    struct md_network_interface *bridge=link->master ? md_network_interface_find(n,link->master,NULL) : NULL;
+    out.bridge_state=carrier && bridge && (bridge->info.flags&IFF_UP)
+        ? BR_STATE_FORWARDING : BR_STATE_DISABLED;
     return out;
 }
 int md_network_link_info(const struct md_network_namespace *n,unsigned index,struct md_network_link *out) {

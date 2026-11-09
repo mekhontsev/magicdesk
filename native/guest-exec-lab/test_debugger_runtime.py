@@ -370,6 +370,7 @@ def main():
     assert cases
     if args.proot:
         env = os.environ.copy()
+        env['LC_ALL'] = 'C'
         report = {'uid': os.getuid(), 'kernel': os.uname().release, 'cases': []}
         with tempfile.TemporaryDirectory(prefix='md-debugger-') as temporary:
             Path(temporary, 'md-debugger-step.c').write_text(step)
@@ -407,7 +408,9 @@ def main():
             for name, argv in cases:
                 case = {'name': name, 'passed': False}; suite.report['cases'].append(case)
                 try:
-                    options = ['--diagnostics'] if args.diagnostics else []
+                    options = ['--env', 'LC_ALL=C']
+                    if args.diagnostics:
+                        options.append('--diagnostics')
                     child = (['unshare', '--mount', '--pid', '--fork', '--mount-proc']
                              if args.pid_namespace else []) + argv
                     if args.diagnostics or args.pid_namespace:
@@ -415,7 +418,7 @@ def main():
                                    '--user', '0:0', '--', '/bin/sh', '-c', 'exec "$@"',
                                    'debugger-test', *child]
                     else:
-                        command = suite.run(args.instance, *(['--user', '0:0']
+                        command = suite.run(args.instance, *options, *(['--user', '0:0']
                             if name == 'credential-transition' else []), '--', *argv)
                     output = suite.command(command, timeout=35)
                     case.update(outcome(name, output))

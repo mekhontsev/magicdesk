@@ -8,7 +8,16 @@ import subprocess
 import sys
 import threading
 import uuid
-from fixture_app import PRIVATE_DIRECTORY
+from fixture_app import PRIVATE_DIRECTORY, deadline_seconds
+
+
+def add_diagnostics_argument(parser):
+    parser.add_argument('--diagnostics', nargs='?', const='all', choices=('all', 'signals'),
+                        help='Record Shroot transitions or only guest faults/abnormal exits; not for timing')
+
+
+def diagnostic_options(mode):
+    return ['--diagnostics' if mode == 'all' else '--diagnostics=signals'] if mode else []
 
 
 def probe_native_capability(observe, report, fixture, name):
@@ -71,6 +80,7 @@ class FixtureExecutor:
                     receipts=self.receipts, closed=self.closed)
 
     def _app_command(self, command, timeout):
+        timeout = deadline_seconds(timeout)
         identity = uuid.uuid4().hex
         directory = self.output / ('app-command-' + identity)
         driver = Path(__file__).with_name('fixture_app.py')

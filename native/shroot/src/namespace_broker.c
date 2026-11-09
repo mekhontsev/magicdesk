@@ -19,6 +19,7 @@
 #include "spin_policy.h"
 #include "profile.h"
 #include "mount_policy.h"
+#include "pty_events.h"
 #include <errno.h>
 #include <fcntl.h>
 #include "linux_abi.h"
@@ -444,6 +445,10 @@ static void execute(struct operation *op,
         if (!op->result.error && op->result.fd>=0 && op->control_descriptor>=0) {
             close(op->result.fd); op->result.fd=op->control_descriptor; op->control_descriptor=-1;
         }
+        if (!op->result.error && op->result.fd>=0 && op->output_origin && !op->output_object)
+            op->result.error=md_pty_events_open(&op->context.filesystem->pty_events,op->result.fd,
+                op->output_origin,op->request.flags,op->result.open_completion.kind==MD_OPEN_CALLER,
+                &op->output_object);
     }
 }
 struct md_namespace_broker *md_broker_create(struct md_fs_worker *worker, int statistics,
@@ -803,7 +808,8 @@ static int reply(struct operation *op, const void *data) {
     }
     if (op->result.open_completion.kind!=MD_OPEN_READY) return 0;
     if (!response.error && op->notification.data.nr == SYS_openat) {
-        int error=md_fd_origins_prepare(op->context.task.files,op->output_origin,
+        int error=md_fd_origins_prepare_object(op->context.task.files,
+            op->output_object ? op->output_object : md_fs_anchor_object(op->output_origin),
             op->notification.data.args[2]&O_CLOEXEC ? FD_CLOEXEC : 0,&op->update);
         if (error) {
             response.error=error;

@@ -128,6 +128,11 @@ def add_machine_entry_argument(parser):
 
 class Suite:
     def __init__(self, output, build=None, machine_entry=None, kernel_profile=None, session=None, executor=None):
+        if session is not None:
+            selected = session.get('executor', {}).get('mode', 'shell')
+            if executor is not None and executor != selected:
+                raise ValueError('Retained session executor cannot be changed')
+            executor = selected
         if session is not None and kernel_profile is None:
             kernel_profile = os.environ.get('SHROOT_TEST_KERNEL_PROFILE',
                 session.get('kernelProfile', {}).get('profile', 'native'))
@@ -161,11 +166,10 @@ class Suite:
         self.image = None
         try:
             if session is not None:
-                assert self.executor.mode == 'shell', 'Retained graphics sessions currently use the shell executor'
                 assert build is None, 'Use the retained session build, not a second runtime'
                 self.runner = session['runner']
-                self.image = (session['directory'] + '/libmagicdesk_guest_image.so'
-                              if session.get('nativeBuild') else None)
+                self.image = session.get('image') or (session['directory'] + '/libmagicdesk_guest_image.so'
+                                                     if session.get('nativeBuild') else None)
                 self.report.update(session=session['id'], nativeBuild=session.get('nativeBuild'),
                     nativeHashes=session.get('nativeHashes'), entryMode=session.get('entryMode', 'default'))
                 self.kernel_profile.bind_session(
@@ -206,8 +210,9 @@ class Suite:
             args = (*args[:2], *self.kernel_profile.options, *args[2:])
         return [self.image, *args] if self.image else [self.runner, 'image', *args]
 
-    def installed_environment(self, name):
-        store = self.command(['shroot', 'path', name], quiet=True).strip()
+    def installed_environment(self, name, store=None):
+        if store is None:
+            store = self.command(['shroot', 'path', name], quiet=True).strip()
         # Cold admission belongs to the runtime under test, not to read-only
         # inspection by an APK which may carry an older schema revision.
         self.command(self.image_command('prepare', store), quiet=True)

@@ -11,10 +11,13 @@ POLICY = ('plain', 'blocked', 'ignored', 'allow', 'errno', 'trap', 'blocked-trap
           'ignored-trap', 'kill', 'protected-creation', 'modern-mount',
           'modern-mount-filtered', 'modern-mount-denied', 'cold-identity',
           'cold-identity-denied', 'oom-sharing', 'pid-init-signals',
-          'optional-thread-calls', 'accept-calls', 'proc', 'proc-limits', 'dumpability')
+          'optional-native-calls', 'unavailable-calls', 'accept-calls', 'socket-service-filter',
+          'vfork-shared-socket', 'namespace-service-filter', 'relative-path-filter',
+          'proc', 'proc-limits', 'dumpability')
 SYNC = ('tsync-cold', 'tsync-cold-fork', 'tsync-notification', 'tsync-notification-native',
         'tsync-continue', 'tsync-continue-native', 'tsync-continue-identity',
-        'tsync-continue-fcntl', 'tsync-continue-open', 'tsync-continue-stat', 'tsync-continue-pid')
+        'tsync-continue-fcntl', 'tsync-continue-open', 'tsync-continue-stat', 'tsync-continue-pid', 'socket-tsync',
+        'signal-wait-tsync', 'signal-epoll-tsync')
 NOTIFICATIONS = ('listener', 'listener-continue', 'listener-error', 'listener-close',
                  'listener-stat', 'listener-reject', 'listener-cold', 'listener-cold-continue',
                  'listener-interrupt', 'listener-restart', 'listener-cold-interrupt',
@@ -26,10 +29,11 @@ SIGNALS = ('signal-entry', 'signal-entry-filtered', 'signal-views', 'signal-wait
            'signal-wait-filtered', 'signal-wait-threads', 'signal-wait-masks',
            'signal-wait-masks-filtered', 'trace-cookie-0', 'trace-cookie-55',
            'trace-cookie-65535', 'signal-descriptors', 'signal-descriptors-filtered',
-           'signal-mask-edges', 'signal-descriptor-interrupt', 'signal-descriptor-restart',
+           'signal-mask-edges', 'signal-mask-queries', 'signal-descriptor-interrupt', 'signal-descriptor-restart',
            'signal-wait-pressure', 'signal-wait-pressure-filtered', 'signal-epoll',
            'signal-epoll-filtered', 'signal-epoll-pressure', 'signal-epoll-pressure-filtered',
-           'signal-epoll-domains', 'signal-epoll-fault', 'signal-epoll-fault-filtered')
+           'signal-epoll-domains', 'signal-epoll-fault', 'signal-epoll-fault-filtered',
+           'socket-signals', 'socket-child-signals')
 GROUPS = dict(policy=POLICY, sync=SYNC, notifications=NOTIFICATIONS, signals=SIGNALS)
 
 

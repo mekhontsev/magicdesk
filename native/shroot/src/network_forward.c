@@ -413,7 +413,11 @@ static int incoming_path(struct md_network_forward *f,struct listener *l,const s
     int host_local=md_ip_is_loopback(client->ip) && md_ip_is_loopback(local->ip);
     int error=md_network_flow_route(n,&p,!host_local,0,path);
     if (!error && !p.dnat && !l->endpoint) error=-ECONNREFUSED;
-    if (!error) error=md_network_endpoint_resolve(f->fabric,path,l->type,target,NULL);
+    const void *receiver=NULL;
+    if (!error) error=md_network_endpoint_resolve(f->fabric,path,l->type,target,&receiver);
+    /* A shared wildcard publication can outlive its wildcard endpoint. Do not
+     * turn an unmatched local address back into this native listener. */
+    if (!error && !p.dnat && path->destination==n->inode && !receiver) error=-ECONNREFUSED;
     return error;
 }
 static void tcp_accept(struct md_network_forward *f,struct listener *l) {
@@ -918,7 +922,10 @@ int md_network_forward_bind(struct md_network_namespace *n,const void *endpoint,
     if (!r) return -ENOMEM;
     r->owner=n->fabric->forward;
     struct listener *l=r->owner->ports;
-    while (l && !(l->external && l->space==n->inode && l->type==type && same(&l->address,address))) l=l->next;
+    while (l && !(l->external && l->space==n->inode && l->type==type
+            && (same(&l->address,address) || (type==SOCK_DGRAM
+                && l->address.port==address->port && l->address.ip.family==address->ip.family
+                && md_ip_unspecified(l->address.ip))))) l=l->next;
     if (l && (l->endpoint==endpoint || (l->endpoint && type==SOCK_DGRAM))) { free(r); return 0; }
     if (l && l->endpoint) { free(r); return -EADDRINUSE; }
     if (!l) {

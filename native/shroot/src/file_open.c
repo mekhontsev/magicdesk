@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
+#include <linux/magic.h>
 #include <poll.h>
 #include <stdint.h>
 #include <sys/file.h>
@@ -11,6 +12,7 @@
 #include <sys/syscall.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/vfs.h>
 #include <unistd.h>
 #if __STDC_HOSTED__
 static long call(long nr, long a, long b, long c, long d, long e, long f) {
@@ -84,6 +86,34 @@ unsigned md_open_plan_path(char path[64],unsigned pid,unsigned fd,unsigned flags
     }
     return md_open_endpoint_flags(flags);
 }
+static long native_open(void *context,const char *path,int flags) {
+    (void)context;
+    return C(openat,AT_FDCWD,path,flags,0,0,0);
+}
+static int native_terminal(int fd,const struct stat *st) {
+    struct statfs fs;
+    return S_ISCHR(st->st_mode) && !C(fstatfs,fd,&fs,0,0,0,0) && fs.f_type==DEVPTS_SUPER_MAGIC;
+}
+int md_open_pinned_path(const char *path,int flags,md_open_path_call opener,void *context) {
+    if (!opener) opener=native_open;
+    long result=opener(context,path,flags);
+    if ((result!=-EACCES && result!=-EPERM) || !(flags&O_APPEND) || (flags&O_PATH)) return (int)result;
+    /* Android may admit PTY write but not append at open time. Appending has
+     * no offset semantics on a terminal. Restore the real OFD flag before
+     * publication; ordinary files and successful native opens stay untouched. */
+    long pin=C(openat,AT_FDCWD,path,O_PATH|O_CLOEXEC,0,0,0);
+    if (pin<0) return (int)result;
+    struct stat st;
+    int terminal=!C(fstat,pin,&st,0,0,0,0) && native_terminal((int)pin,&st);
+    C(close,pin,0,0,0,0,0);
+    if (!terminal) return (int)result;
+    result=opener(context,path,flags&~O_APPEND);
+    if (result<0) return (int)result;
+    long status=C(fcntl,result,F_GETFL,0,0,0,0);
+    long error=status<0 ? status : C(fcntl,result,F_SETFL,status|O_APPEND,0,0,0);
+    if (error<0) { C(close,result,0,0,0,0,0); return (int)error; }
+    return (int)result;
+}
 static int open_pinned(int fd,int flags,unsigned mode) {
     char path[64]; md_descriptor_path(path,0,(unsigned)fd);
     if ((flags&(O_PATH|O_NOFOLLOW))==(O_PATH|O_NOFOLLOW)) {
@@ -106,7 +136,7 @@ static int open_pinned(int fd,int flags,unsigned mode) {
             return (int)C(openat,AT_FDCWD,path,flags|O_CLOEXEC,0,0,0);
         }
     }
-    return (int)C(openat,AT_FDCWD,path,md_open_endpoint_flags(flags)|O_CLOEXEC,0,0,0);
+    return md_open_pinned_path(path,md_open_endpoint_flags(flags)|O_CLOEXEC,NULL,NULL);
 }
 int md_open_pinned(int fd,int flags) { return open_pinned(fd,flags,0); }
 int md_reopen_file(int fd, int flags, struct md_open_completion *completion) {
@@ -119,9 +149,18 @@ int md_reopen_file(int fd, int flags, struct md_open_completion *completion) {
     long error=C(fstat,fd,&st,0,0,0,0);
     if (error) return (int)error;
     if ((flags&O_DIRECTORY) && !S_ISDIR(st.st_mode)) return -ENOTDIR;
-    if (!(flags&O_PATH) && S_ISCHR(st.st_mode) && major(st.st_rdev)==5 && minor(st.st_rdev)==0) {
+    int caller=!(flags&O_PATH) && S_ISCHR(st.st_mode) && major(st.st_rdev)==5 && minor(st.st_rdev)==0;
+    if (!caller && !(flags&O_PATH) && (flags&O_APPEND) && native_terminal(fd,&st)) {
+        char path[64]; md_descriptor_path(path,0,(unsigned)fd);
+        long opened=native_open(NULL,path,md_open_endpoint_flags(flags)|O_CLOEXEC);
+        if (opened!=-EACCES && opened!=-EPERM) return (int)opened;
+        caller=1;
+    }
+    if (caller) {
         /* /dev/tty resolves the opener's controlling terminal, even with
          * O_NOCTTY. Provider/bind aliases must not open it in the worker. */
+        /* PTY append also belongs to the receiver: Android can reject the
+         * transfer of an append OFD even when its own open/fcntl are allowed. */
         long pin=C(fcntl,fd,F_DUPFD_CLOEXEC,3,0,0,0);
         if (pin>=0) completion->kind=MD_OPEN_CALLER;
         return (int)pin;
@@ -136,6 +175,10 @@ int md_reopen_file(int fd, int flags, struct md_open_completion *completion) {
         return (int)C(fcntl,fd,F_DUPFD_CLOEXEC,3,0,0,0);
     }
     return open_pinned(fd,flags,st.st_mode);
+}
+static long interruptible_open(void *context,const char *path,int flags) {
+    const atomic_int *cancelled=context;
+    return WAIT(openat,AT_FDCWD,path,flags,0,0);
 }
 int md_complete_open_interruptible(int pin, int flags, struct md_open_completion completion,
         struct md_open_observation *observation,const atomic_int *cancelled) {
@@ -152,7 +195,7 @@ int md_complete_open_interruptible(int pin, int flags, struct md_open_completion
     if (completion.kind == MD_OPEN_FIFO || completion.kind==MD_OPEN_CALLER) {
         /* EVENT_WAIT: native FIFO peer rendezvous or terminal open; a caller
          * signal cancels it. No namespace worker transaction is retained. */
-        long r = WAIT(openat, AT_FDCWD, path, flags, 0, 0);
+        long r = md_open_pinned_path(path,flags,interruptible_open,(void *)cancelled);
         C(close, pin, 0, 0, 0, 0, 0);
         return (int)r;
     }

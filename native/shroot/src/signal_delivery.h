@@ -1,5 +1,6 @@
 #ifndef MD_SIGNAL_DELIVERY_H
 #define MD_SIGNAL_DELIVERY_H
+#include "signal_origin.h"
 #include <signal.h>
 #include <sys/types.h>
 #include <stdint.h>
@@ -12,6 +13,9 @@ struct md_signal_delivery {
     uintptr_t carrier_cookie;
     uint64_t mask, kernel_mask;
     int active, committing;
+    md_signal_origin_capture capture;
+    void *capture_context;
+    struct md_signal_origin *child_origin;
 };
 /* Standard signals coalesce without losing the first siginfo. Realtime
  * instances retain FIFO order per signal, ahead of subsequent kernel arrivals. */

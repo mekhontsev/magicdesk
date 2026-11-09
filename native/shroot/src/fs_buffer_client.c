@@ -12,6 +12,10 @@
 
 extern long md_guest_buffer_control(unsigned, unsigned long, unsigned long);
 extern long md_guest_open_anchor(int, const char *, int, unsigned, int);
+static long open_anchor(void *context,const char *path,int flags) {
+    (void)context;
+    return md_guest_open_anchor(AT_FDCWD,path,flags,0,MD_FS_BUFFER_SOURCE);
+}
 int md_fs_buffer_accepts(const struct md_fs_request *q) {
     return md_adapter_buffer_ready() && q && md_fs_operation_valid(q->operation);
 }
@@ -86,7 +90,7 @@ static long receive_result(struct md_fs_buffer_frame *frame, const struct md_fs_
                 && (!(frame->source_flags&O_PATH)
                     || (frame->source_flags&~(O_PATH|O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW)))) result=-EPROTO;
         else {
-            long fd=md_guest_open_anchor(AT_FDCWD,frame->source,frame->source_flags,0,MD_FS_BUFFER_SOURCE);
+            long fd=md_open_pinned_path(frame->source,frame->source_flags,open_anchor,NULL);
             if (fd>=0 && frame->source_verify) {
                 struct stat st;
                 long checked=RAW2(fstat,fd,&st);

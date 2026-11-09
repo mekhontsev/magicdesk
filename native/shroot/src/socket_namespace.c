@@ -3,6 +3,7 @@
 #include "namespace_internal.h"
 #include "raw.h"
 #include "socket_identity.h"
+#include "socket_calls.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -61,7 +62,7 @@ long md_namespace_socket_output(const struct md_fs *fs, long nr, const unsigned 
         long r = md_read_memory(&capacity, (void *)a[index + 1], sizeof(capacity));
         if (r < 0) return r;
     }
-    if (!target) return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+    if (!target) return md_socket_invoke(nr,a);
     // Linux may append a NUL to a pathname occupying all 108 sun_path bytes.
     union { struct sockaddr_un address; unsigned char bytes[sizeof(struct sockaddr_un) + 1]; } buffer = {0};
     struct sockaddr_un *address = &buffer.address;
@@ -70,7 +71,7 @@ long md_namespace_socket_output(const struct md_fs *fs, long nr, const unsigned 
     memcpy(args, a, sizeof(args));
     args[index] = (unsigned long)address;
     args[index + 1] = (unsigned long)&length;
-    long result = md_raw(nr, args[0], args[1], args[2], args[3], args[4], args[5]);
+    long result = md_socket_invoke(nr,args);
     if (result < 0) return result;
     long r = length > sizeof(buffer.bytes) ? -EPROTO : 0;
     if (!r) {

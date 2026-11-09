@@ -259,10 +259,10 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
     int sysctl=md_proc_file_sysctl(kind);
     int user_control=ref.kind==MD_PROC_MAX_USER_NAMESPACES;
     int catalogue=md_proc_static(ref.kind);
-    if (!strcmp(path,"/proc/uptime") && mount->provider) {
+    if (mount->provider && (!strcmp(path,"/proc/uptime") || !strcmp(path,"/proc/stat"))) {
         int fallback=md_provider_tree_private(mount->provider,fd);
         if (fallback<0) { out->error=fallback; return 1; }
-        if (fallback) { catalogue=1; ref.kind=MD_PROC_UPTIME; }
+        if (fallback) { catalogue=1; ref.kind=!strcmp(path,"/proc/uptime") ? MD_PROC_UPTIME : MD_PROC_SYSTEM_STAT; }
     }
     int kernel_policy=ref.kind==MD_PROC_KERNEL_POLICY;
     if (q->operation==MD_FS_STATFS) {
@@ -458,7 +458,8 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
         if (!r && !file.ops) r=-errno;
     } else if (!r) {
         file=sysctl ? md_proc_sysctl_new(kind,origin,fs->actor->uts)
-            : ref.kind==MD_PROC_UPTIME ? md_proc_uptime_new(fs->store->identity->user_namespace,origin,fd)
+            : md_proc_host_sample(ref.kind) ? md_proc_host_sample_new(ref.kind,fs->store->identity->user_namespace,origin,fd,
+                fs->actor ? fs->actor->cgroup : NULL)
             : catalogue ? md_proc_static_new(ref.kind,fs->store->identity->user_namespace,origin,fs->actor->network)
             : user_control ? md_user_sysctl_new(fs->store->identity->user_namespace,origin)
             : md_network_sysctl_new(fs->actor->network,

@@ -6,6 +6,7 @@
 #include "descriptor_calls.h"
 #include "fd_client.h"
 #include "adapter_buffer.h"
+#include "native_identity.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -55,6 +56,46 @@ static long path_at(const struct md_fs *fs, const char *exe, int fd,
     return md_fs_resolve(fs, fd, path, follow, out);
 }
 
+static long xattr_extended(const struct md_fs *fs, const char *exe, long nr, const unsigned long *a) {
+    unsigned flags=(unsigned)a[2];
+    struct md_xattr_args value={0};
+    if (nr==SYS_setxattrat || nr==SYS_getxattrat) {
+        long error=md_read_struct(&value,sizeof(value),(void *)a[4],a[5]);
+        if (error<0) return error;
+        if (nr==SYS_getxattrat && value.flags) return -EINVAL;
+    }
+    if (flags&~(AT_EMPTY_PATH|AT_SYMLINK_NOFOLLOW)) return -EINVAL;
+    char path[PATH_MAX]="";
+    if (a[1] || !(flags&AT_EMPTY_PATH)) {
+        long error=md_read_string(path,sizeof(path),(const char *)a[1]);
+        if (error<0) return error;
+    }
+    int descriptor=!*path;
+    if (descriptor && !(flags&AT_EMPTY_PATH)) return -ENOENT;
+    int nofollow=flags&AT_SYMLINK_NOFOLLOW;
+    long legacy;
+    switch (nr) {
+    case SYS_setxattrat: legacy=descriptor ? SYS_fsetxattr : nofollow ? SYS_lsetxattr : SYS_setxattr; break;
+    case SYS_getxattrat: legacy=descriptor ? SYS_fgetxattr : nofollow ? SYS_lgetxattr : SYS_getxattr; break;
+    case SYS_listxattrat: legacy=descriptor ? SYS_flistxattr : nofollow ? SYS_llistxattr : SYS_listxattr; break;
+    default: legacy=descriptor ? SYS_fremovexattr : nofollow ? SYS_lremovexattr : SYS_removexattr; break;
+    }
+    unsigned long args[6]={descriptor ? a[0] : (uintptr_t)path, a[3], value.value, value.size, value.flags};
+    if (nr==SYS_listxattrat) args[2]=a[4];
+    if (descriptor) return md_file_call(fs,exe,legacy,args);
+    /* Preserve the caller's dirfd; the existing provider owns permission,
+     * symlink, mount and metadata semantics for both syscall generations. */
+    if (fs->endpoint[0]) {
+        long error=md_namespace_relative_mount(fs,(int)a[0],path);
+        if (error<0) return error;
+        if (md_fs_host_path(fs,path)) return md_namespace_host_call(fs,exe,legacy,args,0,path,0);
+        return md_namespace_xattr(fs,legacy,md_namespace_descriptor((int)a[0]),path,args);
+    }
+    char resolved[PATH_MAX];
+    long error=path_at(fs,exe,(int)a[0],(uintptr_t)path,!nofollow,0,resolved);
+    return error<0 ? error : md_raw(legacy,(uintptr_t)resolved,args[1],args[2],args[3],args[4],0);
+}
+
 static long native_metadata_fallback(const struct md_fs *fs,long nr,const unsigned long *a,long error) {
     if ((error!=-EMFILE && error!=-EACCES && error!=-EPERM)
             || (nr!=SYS_fstat && nr!=SYS_newfstatat && nr!=SYS_statx)) return error;
@@ -79,6 +120,8 @@ long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsign
     if (nr==SYS_fsync || nr==SYS_fdatasync || nr==SYS_syncfs)
         return fs->endpoint[0] ? md_namespace_call(fs,exe,nr,a) : md_raw(nr,a[0],0,0,0,0,0);
     if (nr == SYS_openat2) return open_extended(fs, exe, a);
+    if (nr==SYS_setxattrat || nr==SYS_getxattrat || nr==SYS_listxattrat || nr==SYS_removexattrat)
+        return xattr_extended(fs,exe,nr,a);
     int descriptor=nr==SYS_fstat || nr==SYS_fstatfs || nr==SYS_fchown || nr==SYS_fchmod
         || nr==SYS_getdents64 || nr==SYS_fchdir || (nr==SYS_utimensat && !a[1]);
     if (nr==SYS_readlinkat || nr==SYS_newfstatat || nr==SYS_statx || nr==SYS_faccessat2 || nr==SYS_fchownat || nr==SYS_fchmodat2) {
@@ -96,7 +139,7 @@ long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsign
         if (known==MD_DESCRIPTOR_ANONYMOUS)
             return nr==SYS_readlinkat ? -ENOENT : md_descriptor_metadata(fs,(int)a[0],nr,a);
         if (known && (known!=MD_DESCRIPTOR_FILESYSTEM || nr==SYS_getdents64)) {
-            long result=md_proc_control_metadata(&(struct md_proc_path){.process=(int)RAW0(gettid),.descriptor=(int)a[0]},nr,a);
+            long result=md_proc_control_metadata(&(struct md_proc_path){.process=md_native_tid(),.descriptor=(int)a[0]},nr,a);
             if (result!=-EXDEV) return result;
         }
     }

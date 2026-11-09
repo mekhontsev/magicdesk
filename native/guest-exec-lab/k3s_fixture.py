@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import platform
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -15,15 +16,37 @@ import time
 import uuid
 
 
+NODE_STATE_DIRECTORIES = ('/etc/rancher', '/var/lib/kubelet', '/var/lib/rancher', '/var/lib/cni', '/var/log')
+
 STATE = '''
 mount -t sysfs sysfs /sys
 mount -t cgroup2 none /sys/fs/cgroup
 mount -t tmpfs tmpfs /run
 mount -t tmpfs tmpfs /tmp
-mount -t tmpfs tmpfs /var
-mkdir -p /var/lib/kubelet /var/lib/rancher /var/lib/cni /var/log
-mount -t tmpfs tmpfs /etc/rancher
+# Retain distribution inputs, including certificate stores reached through /etc.
+for state in ''' + shlex.join(NODE_STATE_DIRECTORIES) + '''; do
+    mount -t tmpfs tmpfs "$state"
+done
 '''
+
+
+def prepare_node_state(suite, store, created):
+    from init_fixture import GUEST_PATH
+    # Prepare only missing mountpoints before an agent's read-only store bind.
+    # Track partial success too; cleanup removes only our own empty directories.
+    result = suite.observe(suite.guest(store, '--user', '0:0', '--env', 'PATH=' + GUEST_PATH) + ['--', '/bin/sh', '-ec',
+        'for path do\n'
+        '  if [ ! -d "$path" ]; then\n'
+        '    mkdir -- "$path"\n'
+        '    printf "K3S_STATE_DIR %s\\n" "$path"\n'
+        '  fi\n'
+        'done', 'prepare-state', *NODE_STATE_DIRECTORIES])
+    for line in result['output'].splitlines():
+        if line.startswith('K3S_STATE_DIR '):
+            path = line.removeprefix('K3S_STATE_DIR ')
+            assert path in NODE_STATE_DIRECTORIES, line
+            created.append((store, path))
+    assert result['exitCode'] == 0, result
 
 
 def command(*args):
@@ -31,6 +54,29 @@ def command(*args):
     print('NODE_COMMAND', args, result.returncode, result.stdout, result.stderr, flush=True)
     assert result.returncode == 0, result
     return result.stdout
+
+
+def pid1_command(*argv):
+    """Keep a signal-handling PID 1 for workloads without their own init logic."""
+    return shlex.join(argv) + ''' &
+child=$!
+stop() {
+    trap '' TERM INT
+    kill -TERM "$child" 2>/dev/null || :
+    wait "$child" || :
+    exit 0
+}
+trap stop TERM INT
+wait "$child"
+'''
+
+
+def prepare_images(inputs, data):
+    """Populate stock k3s's image inbox without changing its import policy."""
+    for archive in sorted(Path(inputs).glob('images-*.tar')):
+        images = Path(data) / 'agent/images'
+        images.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(archive, images / archive.name)
 
 
 class Kubectl:
@@ -66,13 +112,31 @@ def network_diagnostics():
             print('NETWORK_DIAGNOSTICS', repr(error), flush=True)
 
 
+def snapshot_diagnostics():
+    """Bounded metadata only; do not collect container files or credentials."""
+    root = Path('/tmp/k3s-data/agent/containerd')
+    for snapshotter in sorted(root.glob('io.containerd.snapshotter.v1.*')):
+        for directory in sorted(snapshotter.glob('snapshots/*/fs'))[:64]:
+            try:
+                paths = [directory, *sorted(directory.iterdir())[:20]]
+                metadata = []
+                for path in paths:
+                    info = path.lstat()
+                    metadata.append(dict(path=str(path), mode=oct(info.st_mode),
+                                         uid=info.st_uid, gid=info.st_gid))
+                print('SNAPSHOT_METADATA', json.dumps(metadata), flush=True)
+            except OSError as error:
+                print('SNAPSHOT_METADATA_ERROR', str(directory), repr(error), flush=True)
+
+
 def enter_agent_root(root, k3s, control_fd):
     # Retain the installed root read-only; only node configuration and service
     # state are private. Device/proc providers belong to this launch, not the store.
     configuration = tempfile.mkdtemp(prefix='k3s-agent-etc-')
     command('cp', '-a', root + '/etc/.', configuration)
     command('mount', '--bind', configuration, root + '/etc')
-    command('mount', '--bind', str(Path(k3s).parent), root + '/mnt')
+    fixtures = str(Path(k3s).parent)
+    command('mount', '--bind', fixtures, root + fixtures)
     command('mount', '--rbind', '/dev', root + '/dev')
     command('mount', '--bind', '/proc', root + '/proc')
     # A node needs a namespace root, not only a process chroot: container exec
@@ -82,15 +146,15 @@ def enter_agent_root(root, k3s, control_fd):
     command('umount', '-l', '/run')
     Path('/etc/rancher').mkdir(exist_ok=True)
     os.set_inheritable(control_fd, True)
-    os.execv('/usr/bin/python3', ['/usr/bin/python3', '/mnt/test.py', '--agent',
-                               '/mnt/k3s', str(control_fd), ''])
+    os.execvp('python3', ['python3', fixtures + '/test.py', '--agent',
+                               k3s, str(control_fd), ''])
 
 
 def agent(k3s, control_fd, root):
     if root:
         enter_agent_root(root, k3s, control_fd)
     distribution = platform.freedesktop_os_release()
-    reentered = command('nsenter', '--mount=/proc/self/ns/mnt', '--', '/usr/bin/python3', '-c',
+    reentered = command('nsenter', '--mount=/proc/self/ns/mnt', '--', sys.executable, '-c',
         'import json, platform; print(json.dumps(platform.freedesktop_os_release()))')
     assert json.loads(reentered) == distribution, 'node mount-namespace root differs from process root'
     channel = socket.socket(fileno=control_fd)
@@ -103,6 +167,7 @@ def agent(k3s, control_fd, root):
     # Each node owns its runtime, mounts and cgroup subtree, while installed
     # executables remain shared read-only inputs to this topology fixture.
     subprocess.run(['/bin/sh', '-ec', STATE], check=True)
+    prepare_images(Path(k3s).parent, '/tmp/k3s-data')
     Path('/sys/fs/cgroup/init/cgroup.procs').write_text(str(os.getpid()))
     controllers = Path('/sys/fs/cgroup/cgroup.controllers').read_text().split()
     Path('/sys/fs/cgroup/cgroup.subtree_control').write_text(' '.join('+' + c for c in controllers))
@@ -155,7 +220,7 @@ class Agent:
         Path('/sys/fs/cgroup/md-agent/init').mkdir()
         self.process = subprocess.Popen(['/bin/sh', '-ec',
             'echo $$ > /sys/fs/cgroup/md-agent/cgroup.procs; exec "$@"', 'agent',
-            '/usr/bin/unshare', '-mpunCf', '--mount-proc', '/usr/bin/python3',
+            'unshare', '-mpunCf', '--mount-proc', sys.executable,
             __file__, '--agent', k3s, str(child.fileno()), root], env=env,
             pass_fds=(child.fileno(),), stdout=self.log, stderr=subprocess.STDOUT)
         child.close()
@@ -197,6 +262,7 @@ class Agent:
 
 
 def guest(k3s, backend, nodes, agent_root):
+    prepare_images(Path(k3s).parent, '/tmp/k3s-data')
     env = dict(os.environ, KUBECONFIG='/tmp/kubeconfig', K3S_DATA_DIR='/tmp/k3s-data', K3S_TOKEN=uuid.uuid4().hex)
     server = None
     remote = None
@@ -326,7 +392,7 @@ def guest(k3s, backend, nodes, agent_root):
                                'template': {'metadata': {'labels': {'app': 'md-web'}}, 'spec': {
                                    'containers': [{'name': 'http', 'image': 'docker.io/library/busybox:1.37',
                                        'command': ['sh', '-ec', 'mkdir -p /www; echo "$VERSION" > /www/index.html; '
-                                                   'exec httpd -f -p 8080 -h /www'],
+                                                   + pid1_command('httpd', '-f', '-p', '8080', '-h', '/www')],
                                        'env': [{'name': 'VERSION', 'value': 'MD_VERSION_1'}],
                                        'readinessProbe': {'httpGet': {'path': '/', 'port': 8080}},
                                        'volumeMounts': [{'name': 'data', 'mountPath': '/data'}]}],
@@ -389,10 +455,11 @@ def guest(k3s, backend, nodes, agent_root):
             kubectl('run', 'md-http', '--image=docker.io/library/busybox:1.37',
                 '--overrides=' + json.dumps({'spec': {'nodeName': 'md-k3s-agent' if remote else 'md-k3s-lab'}}),
                 '--restart=Never', '--port=8080', '--command', '--', 'sh', '-ec',
-                'mkdir /www; echo SHROOT_K3S_SERVICE > /www/index.html; exec httpd -f -p 8080 -h /www')
+                'mkdir /www; echo SHROOT_K3S_SERVICE > /www/index.html; '
+                + pid1_command('httpd', '-f', '-p', '8080', '-h', '/www'))
             kubectl('run', 'md-client', '--image=docker.io/library/busybox:1.37',
                 '--overrides=' + json.dumps({'spec': {'nodeName': 'md-k3s-lab'}}),
-                '--restart=Never', '--command', '--', 'sleep', '1800')
+                '--restart=Never', '--command', '--', 'sh', '-ec', pid1_command('sleep', '1800'))
             for name in ('md-http', 'md-client'):
                 kubectl('wait', 'pod/' + name, '--for=condition=Ready', '--timeout=120s', timeout=135)
             kubectl('expose', 'pod/md-http', '--port=80', '--target-port=8080')
@@ -427,6 +494,7 @@ def guest(k3s, backend, nodes, agent_root):
         finally:
             if not report['passed']:
                 network_diagnostics()
+                snapshot_diagnostics()
                 for pod in ('md-client', 'md-http'):
                     try:
                         kubectl('--request-timeout=5s', 'exec', pod, '--', '/bin/sh', '-c',
@@ -479,59 +547,93 @@ def guest(k3s, backend, nodes, agent_root):
 def add_runtime_arguments(parser):
     from test_oci_services import add_machine_entry_argument
     from kernel_profile import KernelProfile
+    from fixture_executor import FixtureExecutor, add_diagnostics_argument
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--store', help='Existing server store accessible to the selected executor; no copy')
     parser.add_argument('--backend', choices=('vxlan', 'host-gw'), default='vxlan')
+    parser.add_argument('--images', type=Path, action='append', default=[],
+                        help='Verified uncompressed airgap image tar; repeat for workload images')
+    add_diagnostics_argument(parser)
     add_machine_entry_argument(parser)
     KernelProfile.add_argument(parser)
+    FixtureExecutor.add_argument(parser)
 
 
 def guest_command(fixture, binary, backend='vxlan', nodes=1, agent_root=''):
-    script = STATE + '\nexec /usr/bin/python3 "$1" --guest "$2" "$3" "$4" "$5"\n'
-    return ['/usr/bin/unshare', '-mpf', '--mount-proc', '/bin/sh', '-ec', script,
+    # Model the init service's creation policy, not Android's private app umask.
+    script = 'umask 022\n' + STATE + '\nexec python3 "$1" --guest "$2" "$3" "$4" "$5"\n'
+    return ['unshare', '-mpf', '--mount-proc', '/bin/sh', '-ec', script,
             'k3s', str(fixture), str(binary), backend, str(nodes), agent_root]
 
 
 def run(args):
+    from fixture_executor import diagnostic_options
+    from init_fixture import GUEST_PATH
     from test_oci_services import Suite
-    suite = Suite(args.output or args.build, args.build, machine_entry=args.machine_entry,
-                  kernel_profile=args.kernel_profile)
-    target = '/mnt/md-k3s-' + suite.report['id']
+    suite = Suite(args.output or args.build or Path('build/k3s-results'), args.build,
+                  machine_entry=args.machine_entry, kernel_profile=args.kernel_profile,
+                  executor=args.executor)
+    # Retain the fixture identity across distribution mounts and an agent pivot.
+    target = '/md-k3s-' + suite.report['id']
     agent_target = target + '-agent'
     store = None
     created = False
     agent_created = False
-    rancher_created = False
+    agent_fixture_created = False
+    created_directories = []
     log = suite.output.with_suffix('.log')
     try:
-        store = suite.installed_environment(args.environment)['store']
-        agent_store = suite.installed_environment(args.agent_environment)['store'] if args.agent_environment else None
+        environment = suite.installed_environment(args.environment, args.store)
+        suite.report['environment'] = environment
+        store = environment['store']
+        agent_environment = (suite.installed_environment(args.agent_environment, args.agent_store)
+                             if args.agent_environment else None)
+        suite.report['agentEnvironment'] = agent_environment
+        agent_store = agent_environment['store'] if agent_environment else None
         with args.k3s.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         suite.report['k3s'] = {'sha256': digest, 'profile': str(args.nodes) + '-node-' + args.backend,
+            'serviceUmask': '0022',
             'serverEnvironment': args.environment, 'agentEnvironment': args.agent_environment or args.environment}
         suite.upload(args.k3s, suite.base + '/k3s')
         assert suite.command(['sha256sum', suite.base + '/k3s'], quiet=True).split()[0] == digest
+        suite.report['images'] = {}
+        for index, archive in enumerate(args.images):
+            name = 'images-' + str(index) + '.tar'
+            with archive.open('rb') as stream:
+                digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+            suite.upload(archive, suite.base + '/' + name)
+            assert suite.command(['sha256sum', suite.base + '/' + name], quiet=True).split()[0] == digest
+            suite.report['images'][name] = digest
         suite.upload(Path(__file__), suite.base + '/test.py')
         suite.chmod('700', suite.base + '/k3s')
-        prefix = suite.guest(store, '--user', '0:0')
-        suite.command(prefix + ['--', '/bin/mkdir', target])
+        def node_prefix(node_store):
+            return suite.guest(node_store, '--user', '0:0', '--env', 'PATH=' + GUEST_PATH)
+
+        def node_command(node_store, *arguments):
+            return node_prefix(node_store) + ['--', '/bin/sh', '-ec', 'exec "$@"', 'k3s', *arguments]
+
+        prefix = node_prefix(store)
+        suite.command(node_command(store, 'mkdir', target))
         created = True
         attachments = ['--bind-ro', suite.base, target]
         if agent_store:
-            suite.command(prefix + ['--', '/bin/mkdir', agent_target])
+            if agent_store != store:
+                suite.command(node_command(agent_store, 'mkdir', target))
+                agent_fixture_created = True
+            suite.command(node_command(store, 'mkdir', agent_target))
             agent_created = True
             attachments += ['--bind-store-ro', agent_store, agent_target]
-        output = suite.command(prefix + ['--', '/bin/sh', '-ec',
-            'if [ ! -d /etc/rancher ]; then mkdir /etc/rancher; echo CREATED_RANCHER; fi'])
-        rancher_created = 'CREATED_RANCHER' in output.splitlines()
+        for node_store in dict.fromkeys([store, *([agent_store] if agent_store else [])]):
+            prepare_node_state(suite, node_store, created_directories)
         # All service state is private. The outer PID namespace retires shims and
         # workload descendants even if stock k3s deliberately leaves them running.
-        command = prefix + ['--statistics', '--network', 'routed',
-            '--env', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-            *attachments, '--deadline-seconds', '1200', '--',
+        command = prefix + diagnostic_options(args.diagnostics) + ['--statistics', '--network', 'routed',
+            *attachments, '--deadline-seconds', '1200', '--', '/bin/sh', '-ec', 'exec "$@"', 'k3s',
             *guest_command(target + '/test.py', target + '/k3s', args.backend,
                            args.nodes, agent_target if agent_store else '')]
         try:
+            print('K3s log: ' + suite.base + '/full.log', flush=True)
             suite.command(['sh', '-c', shlex.join(command) + ' > ' +
                            shlex.quote(suite.base + '/full.log') + ' 2>&1'], timeout=1230)
         finally:
@@ -549,12 +651,14 @@ def run(args):
         raise
     finally:
         try:
-            if rancher_created:
-                suite.command(suite.guest(store, '--user', '0:0') + ['--', '/bin/rmdir', '/etc/rancher'])
+            for node_store, directory in reversed(created_directories):
+                suite.command(node_command(node_store, 'rmdir', directory))
             if created:
-                suite.command(suite.guest(store, '--user', '0:0') + ['--', '/bin/rmdir', target])
+                suite.command(node_command(store, 'rmdir', target))
             if agent_created:
-                suite.command(suite.guest(store, '--user', '0:0') + ['--', '/bin/rmdir', agent_target])
+                suite.command(node_command(store, 'rmdir', agent_target))
+            if agent_fixture_created:
+                suite.command(node_command(agent_store, 'rmdir', target))
             suite.command(['rm', '-rf', suite.base])
         except Exception as error:
             suite.report.update(passed=False, cleanupFailure=repr(error))

@@ -1,4 +1,5 @@
 """External port observer and a tiny container service for Docker networking tests."""
+from contextlib import ExitStack
 import http.client
 import errno
 import ipaddress
@@ -7,6 +8,7 @@ import json
 import os
 import queue
 import secrets
+import select
 import socket
 import socketserver
 import ssl
@@ -236,10 +238,7 @@ class Observer:
                         connection.listen()
                         owner.reservations.append(connection)
                     elif item['operation'] == 'released':
-                        for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
-                            with socket.socket(family, kind) as connection:
-                                connection.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                                connection.bind((host, port))
+                        owner.wait_released(family, host, port)
                     elif item['operation'] == 'denied':
                         for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
                             with socket.socket(family, kind) as connection:
@@ -274,13 +273,15 @@ class Observer:
 
     def allocate_port(self, family=socket.AF_INET):
         # Reserve both protocols outside Shroot; release just before publication.
+        # Service ports stay below Linux's default ephemeral range: automatic
+        # forwarding deliberately excludes ephemeral client ports.
         # Only allocation races are retried, never a failed container publication.
         for _ in range(32):
             tcp = socket.socket(family, socket.SOCK_STREAM)
             udp = socket.socket(family, socket.SOCK_DGRAM)
             try:
                 host = self.ipv6_host if family == socket.AF_INET6 else '127.0.0.1'
-                tcp.bind((host, 0))
+                tcp.bind((host, 1024 + secrets.randbelow(32768 - 1024)))
                 port = tcp.getsockname()[1]
                 udp.bind((host, port))
                 tcp.listen()
@@ -293,6 +294,26 @@ class Observer:
                 self.reservations.extend((tcp, udp))
                 return port
         raise OSError(errno.EADDRINUSE, 'No free paired TCP/UDP port')
+
+    @staticmethod
+    def wait_released(family, host, port, timeout=5):
+        # Bounded state wait: automatic forwarders observe container teardown
+        # asynchronously. Require both real host ports to become available.
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                with ExitStack() as sockets:
+                    for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+                        connection = socket.socket(family, kind)
+                        sockets.callback(connection.close)
+                        connection.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        connection.bind((host, port))
+                return
+            except OSError as error:
+                remaining = deadline - time.monotonic()
+                if error.errno != errno.EADDRINUSE or remaining <= 0:
+                    raise
+                select.select([], [], [], min(.05, remaining))
 
     def close(self):
         self.server.shutdown()

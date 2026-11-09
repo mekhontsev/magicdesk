@@ -2,7 +2,9 @@
 #include "user_namespace.h"
 #include "network_namespace.h"
 #include "fs_mounts.h"
+#include "cgroup.h"
 #include <errno.h>
+#include <inttypes.h>
 #include <linux/magic.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -52,7 +54,8 @@ static const struct static_entry {
     {MD_PROC_DISKSTATS,"diskstats","",0},
     {MD_PROC_MODULES,"modules","",0},
     /* Optional provider selected only when the native proc file is denied. */
-    {MD_PROC_UPTIME,"uptime","",0}
+    {MD_PROC_UPTIME,"uptime","",0},
+    {MD_PROC_SYSTEM_STAT,"stat","",0}
 };
 ino_t md_proc_static_inode(const char *name) {
     for (size_t i=0;i<sizeof(entries)/sizeof(*entries);++i)
@@ -66,8 +69,10 @@ struct static_file {
     const struct static_entry *entry;
     const char *text;
     size_t size;
-    char sample[64];
+    char sample[192];
     struct stat node;
+    struct md_cgroup_member *cgroup;
+    long ticks,cpus;
 };
 static void *retain(void *context) {
     struct static_file *c=context;
@@ -76,7 +81,8 @@ static void *retain(void *context) {
 static void release(void *context) {
     struct static_file *c=context;
     if (atomic_fetch_sub_explicit(&c->references,1,memory_order_acq_rel)!=1) return;
-    md_fs_anchor_release(c->origin); md_user_namespace_release(c->owner); free(c);
+    md_fs_anchor_release(c->origin); md_user_namespace_release(c->owner);
+    md_cgroup_member_release(c->cgroup); free(c);
 }
 static struct md_fs_anchor *origin(void *context) { return ((struct static_file *)context)->origin; }
 static int metadata(void *context,struct stat *st) {
@@ -84,7 +90,7 @@ static int metadata(void *context,struct stat *st) {
     *st=(struct stat){.st_dev=UINT32_C(0xfffa0000),.st_ino=(ino_t)(c->entry-entries)+1,.st_mode=S_IFREG|0444,
         .st_nlink=1,.st_blksize=4096,.st_uid=md_user_namespace_into(c->owner,0,0),
         .st_gid=md_user_namespace_into(c->owner,1,0)};
-    if (c->entry->kind==MD_PROC_UPTIME) {
+    if (md_proc_host_sample(c->entry->kind)) {
         st->st_dev=c->node.st_dev; st->st_ino=c->node.st_ino;
     }
     return 0;
@@ -97,13 +103,32 @@ static long read_value(void *context,const struct md_control_actor *actor,void *
     struct static_file *file=context;
     (void)actor;
     if (offset<0) return -EINVAL;
-    if (file->entry->kind==MD_PROC_UPTIME && size && (!offset || !file->size)) {
+    if (md_proc_host_sample(file->entry->kind) && size && (!offset || !file->size)) {
         struct timespec boot;
         if (clock_gettime(CLOCK_BOOTTIME,&boot)) return -errno;
         /* Host-wide CPU idle accounting is not exposed by an app's clock.
          * Keep that field zero, not an invented load or elapsed-time estimate. */
-        int n=snprintf(file->sample,sizeof(file->sample),"%lld.%02ld 0.00\n",
-            (long long)boot.tv_sec,boot.tv_nsec/10000000);
+        int n;
+        if (file->entry->kind==MD_PROC_UPTIME)
+            n=snprintf(file->sample,sizeof(file->sample),"%lld.%02ld 0.00\n",
+                (long long)boot.tv_sec,boot.tv_nsec/10000000);
+        else {
+            uint64_t user,system;
+            int error=md_cgroup_cpu_usage(file->cgroup,&user,&system);
+            if (error) return error;
+            /* Sampling may take time; use clocks after the task snapshot. */
+            if (clock_gettime(CLOCK_BOOTTIME,&boot)) return -errno;
+            struct timespec wall;
+            if (clock_gettime(CLOCK_REALTIME,&wall)) return -errno;
+            /* Capacity unused by this launch, not Android's physical idle time.
+             * Other host workloads are outside this accounting domain. */
+            uint64_t capacity=((uint64_t)boot.tv_sec*file->ticks
+                +(uint64_t)boot.tv_nsec*file->ticks/1000000000)*file->cpus;
+            uint64_t idle=capacity>user+system ? capacity-user-system : 0;
+            long long epoch=(long long)wall.tv_sec-boot.tv_sec-(wall.tv_nsec<boot.tv_nsec);
+            n=snprintf(file->sample,sizeof(file->sample),"cpu %" PRIu64 " 0 %" PRIu64 " %" PRIu64
+                " 0 0 0 0 0 0\nbtime %lld\n",user,system,idle,epoch);
+        }
         if (n<0 || (size_t)n>=sizeof(file->sample)) return -EOVERFLOW;
         file->text=file->sample; file->size=(size_t)n;
     }
@@ -131,8 +156,17 @@ struct md_control_file md_proc_static_new(enum md_proc_kind kind,struct md_user_
     }
     return (struct md_control_file){&ops,c};
 }
-struct md_control_file md_proc_uptime_new(struct md_user_namespace *owner,struct md_fs_anchor *anchor,int fd) {
-    struct md_control_file file=md_proc_static_new(MD_PROC_UPTIME,owner,anchor,NULL);
+struct md_control_file md_proc_host_sample_new(enum md_proc_kind kind,struct md_user_namespace *owner,struct md_fs_anchor *anchor,int fd,
+        struct md_cgroup_member *member) {
+    if (!md_proc_host_sample(kind)) { errno=EINVAL; return (struct md_control_file){0}; }
+    if (kind==MD_PROC_SYSTEM_STAT && !member) { errno=EINVAL; return (struct md_control_file){0}; }
+    struct md_control_file file=md_proc_static_new(kind,owner,anchor,NULL);
+    if (file.ops && kind==MD_PROC_SYSTEM_STAT) {
+        struct static_file *c=file.context;
+        c->cgroup=md_cgroup_member_retain(member);
+        c->ticks=sysconf(_SC_CLK_TCK); c->cpus=sysconf(_SC_NPROCESSORS_CONF);
+        if (c->ticks<=0 || c->cpus<=0) { md_control_file_release(file); errno=EIO; return (struct md_control_file){0}; }
+    }
     if (file.ops && fstat(fd,&((struct static_file *)file.context)->node)) {
         int error=errno;
         md_control_file_release(file); errno=error; return (struct md_control_file){0};

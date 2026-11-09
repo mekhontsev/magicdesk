@@ -19,7 +19,7 @@ struct md_task_snapshot_state {
 struct entry {
     struct entry *next;
     struct entry *retired_next, **retired_previous;
-    pid_t tid, tgid;
+    pid_t tid, tgid, parent;
     uint64_t generation;
     int retired;
     struct task_group *group;
@@ -225,7 +225,7 @@ void md_task_registry_forget(struct md_task_registry *r, pid_t tid) {
     pthread_mutex_unlock(&r->lock);
     if (e) { md_cgroup_member_reaped(e->cgroup); release_entry(e); }
 }
-void md_task_registry_retire(struct md_task_registry *r,pid_t tid,const struct md_identity *identity) {
+void md_task_registry_retire(struct md_task_registry *r,pid_t tid,pid_t parent,const struct md_identity *identity) {
     if (!r || tid<=0) return;
     pthread_mutex_lock(&r->lock);
     struct entry *e=r->entries[(unsigned)tid%BUCKETS];
@@ -235,6 +235,7 @@ void md_task_registry_retire(struct md_task_registry *r,pid_t tid,const struct m
         live=*e;
         group_leave(r,e->group); e->group=NULL;
         e->value=md_identity_copy(identity);
+        e->parent=parent;
         e->retired=1; e->retired_next=r->retired; e->retired_previous=&r->retired;
         if (r->retired) r->retired->retired_previous=&e->retired_next;
         r->retired=e;
@@ -253,7 +254,7 @@ struct md_task_retired_view md_task_registry_retired(const struct md_task_regist
     if (!r || tid<=0) return (struct md_task_retired_view){0};
     struct entry *e=r->entries[(unsigned)tid%BUCKETS];
     while (e && e->tid!=tid) e=e->next;
-    return e && e->retired ? (struct md_task_retired_view){&e->value,e->pid,e->cgroup,e->process}
+    return e && e->retired ? (struct md_task_retired_view){&e->value,e->pid,e->cgroup,e->process,e->parent}
         : (struct md_task_retired_view){0};
 }
 int md_task_registry_has_retired(const struct md_task_registry *r) { return r && r->retired!=NULL; }
@@ -261,7 +262,7 @@ void md_task_registry_retired_processes(const struct md_task_registry *r,
         void (*visit)(void *,pid_t,struct md_task_retired_view),void *context) {
     if (!r) return;
     for (const struct entry *e=r->retired;e;e=e->retired_next) if (e->tid==e->tgid)
-        visit(context,e->tid,(struct md_task_retired_view){&e->value,e->pid,e->cgroup,e->process});
+        visit(context,e->tid,(struct md_task_retired_view){&e->value,e->pid,e->cgroup,e->process,e->parent});
 }
 void md_task_registry_reap(struct md_task_registry *r,pid_t tid) {
     if (!r || tid<=0) return;

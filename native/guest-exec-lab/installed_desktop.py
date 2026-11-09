@@ -23,6 +23,7 @@ import uuid
 
 from graphical_recipe import compile_recipe
 from init_fixture import installed_boot
+from fixture_executor import FixtureExecutor
 from test_oci_services import Suite, port
 
 
@@ -59,6 +60,11 @@ def attach_window(client, state, statefile):
         assert value['matched'], value
         return value
 
+    if state.get('offscreen'):
+        ready = wait('graphics_output_ready')
+        state['windowId'] = ready['session']['offscreen']['outputs'][0]['windowId']
+        statefile.write_text(json.dumps(state, indent=2))
+        return
     ready = wait('graphics_window_present')
     window = next(w['windowId'] for w in ready['session']['windows'] if w['mapped'] and not w['parentWindowId'])
     display = state['display']
@@ -74,7 +80,7 @@ def attach_window(client, state, statefile):
 
 
 def keep_display_awake(client, state, statefile, display=None):
-    if state.get('headless'):
+    if state.get('headless') or state.get('offscreen'):
         return
     previous = state.get('awakeDisplayId', state['display']['id'])
     selected = previous if display is None else display
@@ -99,9 +105,21 @@ def keep_display_awake(client, state, statefile, display=None):
     statefile.write_text(json.dumps(state, indent=2))
 
 
+def recipe_launch(shell, tools, recipe, log):
+    # The nested non-interactive script does not inherit console-local variables.
+    assert shell.startswith('/') and '\n' not in shell, 'Missing executor shell'
+    # Android APK paths contain '='; env can mistake the executable for another
+    # assignment. Shell assignment words have an unambiguous command boundary.
+    return ('MAGICDESK_TOOLS=' + shlex.quote(tools)
+            + ' MAGICDESK_ANDROID_SHELL=' + shlex.quote(shell) + ' '
+            + shlex.join([shell, '-c', recipe])
+            + ' >' + shlex.quote(log) + ' 2>&1')
+
+
 def stop_owned_resources(client, shell, state, timeout=30):
     store = state['environment']['store']
-    image = ([state['directory'] + '/libmagicdesk_guest_image.so'] if state.get('nativeBuild')
+    image = ([state['image']] if state.get('image') else
+             [state['directory'] + '/libmagicdesk_guest_image.so'] if state.get('nativeBuild')
              else [state['runner'], 'image'])
 
     def launches():
@@ -142,29 +160,36 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('start', 'attach', 'run', 'shell', 'capture', 'status', 'stop', 'upload', 'download'))
     parser.add_argument('--name', required=True)
+    parser.add_argument('--store', help='Existing store accessible to the selected executor; no import or copy')
+    parser.add_argument('--output', type=Path, help='Retained fixture artifacts and session identity')
+    FixtureExecutor.add_argument(parser)
     parser.add_argument('--user', default='mdtester')
     parser.add_argument('--root', action='store_true')
     parser.add_argument('--wait', action='store_true', help='Wait for run completion and retain its log')
     parser.add_argument('--timeout', type=int, default=300, help='Shell command failure bound in seconds')
     parser.add_argument('--init', choices=('systemd', 'openrc', 'runit'), default='systemd')
     parser.add_argument('--headless', action='store_true', help='Boot control/init only, without user session, display or GPU')
+    parser.add_argument('--offscreen', action='store_true', help='Retain GUI output without an Android display; caller owns the awake lease')
     parser.add_argument('--network-profile', choices=('routed', 'bridge'), default='routed',
                         help='Headless network profile; bridge publishes only the control port')
     parser.add_argument('--desktop', choices=('weston', 'plasma-wayland'), default='weston')
     parser.add_argument('--build', type=Path, help='Stage a native build; otherwise use the installed APK')
     parser.add_argument('--entry', choices=('lazy', 'base'), default='lazy')
     parser.add_argument('--diagnostics', action='store_true', help='Trace the staged runtime; not for performance measurements')
+    parser.add_argument('--statistics', action='store_true', help='Record native operation costs and entry counters at shutdown')
     parser.add_argument('--awake-display', choices=('phone', 'target'),
                         help='Start/attach: retain the unlocked phone or only the virtual target (default)')
     parser.add_argument('value', nargs='?')
     args = parser.parse_args()
+    if args.headless and args.offscreen:
+        parser.error('--offscreen requires a graphical session')
     if args.awake_display and args.action not in ('start', 'attach'):
         parser.error('--awake-display requires start or attach')
     if args.network_profile != 'routed' and not (args.action == 'start' and args.headless):
         parser.error('--network-profile requires headless start')
     if not re.fullmatch(r'[a-zA-Z0-9_-]+', args.name) or not re.fullmatch(r'[a-z_][a-z0-9_-]*', args.user):
         parser.error('Use a simple environment and guest account name')
-    out = Path('build/installed-' + args.name)
+    out = args.output or Path('build/installed-' + args.name)
     out.mkdir(parents=True, exist_ok=True)
     statefile = out / 'session.json'
     target = '/opt/md-installed-fixture'
@@ -172,7 +197,7 @@ def main():
     if args.action == 'start':
         if statefile.exists() and not json.loads(statefile.read_text()).get('closed'):
             parser.error('Stop the previous exact fixture before starting another')
-        suite = Suite(out,args.build)
+        suite = Suite(out, args.build, executor=args.executor)
         client = suite.client
         before = client.call('get_state')
         if not args.headless and before['workspaces']:
@@ -181,11 +206,17 @@ def main():
         state = suite.report
         state.update(name=args.name, user=args.user, init=args.init, desktop=args.desktop,
                      networkProfile=args.network_profile,
-                     headless=args.headless, entryMode=args.entry, diagnostics=args.diagnostics, token=uuid.uuid4().hex,
+                     headless=args.headless, offscreen=args.offscreen, entryMode=args.entry,
+                     diagnostics=args.diagnostics, statistics=args.statistics, token=uuid.uuid4().hex,
                      rootPort=port(), userPort=port(), target=target)
+        state['executor'] = suite.executor.evidence
+        state['image'] = suite.image
+        selected_shell = suite.executor.execute('printf "%s" "$MAGICDESK_ANDROID_SHELL"')
+        assert selected_shell['exitCode'] == 0, selected_shell
+        state['shell'] = selected_shell['output'].strip()
         state['homeLeaseBefore'] = before['homeLease']
         try:
-            info = suite.installed_environment(args.name)
+            info = suite.installed_environment(args.name, args.store)
             assert not info['launches'], 'Environment must be idle before boot'
             store = info['store']
             entry = 'SHROOT_MACHINE_ENTRY=' + ('0' if args.entry == 'base' else '1')
@@ -207,6 +238,9 @@ def main():
         state['prefix'] = prefix
         # Retain the exact owner even if preparation fails before guest launch.
         statefile.write_text(json.dumps(state, indent=2))
+        state['commandConsoleId'] = (client.call('console.open', dict(backend='app'))['sessionId']
+                                     if suite.executor.mode == 'app' else suite.console)
+        statefile.write_text(json.dumps(state, indent=2))
         suite.command(prefix + ['--', binary + '/mkdir' if system else '/bin/mkdir', '-p', target])
         boot, driver = installed_boot(target, state['rootPort'], state['token'], args.init,
                                       None if args.headless else args.user, system or None,
@@ -226,12 +260,15 @@ def main():
             if args.network_profile == 'bridge':
                 network += ['--publish', '127.0.0.1:%d:%d/tcp' % (state['rootPort'], state['rootPort'])]
             launch = shlex.join([*prefix, *(['--diagnostics'] if args.diagnostics else []),
+                                *(['--statistics'] if args.statistics else []),
                                 *network, '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'],
                                 '--bind', suite.base, target, '--', binary + '/script', '-q', '-e', '-c', command, '/dev/null'])
             state['launch'] = launch
             statefile.write_text(json.dumps(state, indent=2))
-            state['supervisorPid'] = int(suite.command(['/system/bin/sh', '-c',
-                launch + ' >' + shlex.quote(suite.base + '/boot.log') + ' 2>&1 </dev/null & echo $!'], quiet=True))
+            result = client.call('console.execute', dict(sessionId=state['commandConsoleId'], command=
+                launch + ' >' + shlex.quote(suite.base + '/boot.log') + ' 2>&1 </dev/null & echo $!'))
+            assert result['exitCode'] == 0, result
+            state['supervisorPid'] = int(result['output'].strip())
             statefile.write_text(json.dumps(state, indent=2))
             wait_controller(state)
             state['ready'] = True
@@ -295,14 +332,14 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         command = shlex.join([binary + '/script', '-q', '-e', '-c', boot_command, '/dev/null'])
         recipe = subprocess.check_output(['java', '-cp', str(classes),
             'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'routed', 'wayland', store, '/root', command, '0:0'], text=True)
-        # The installed shroot wrapper owns connection forwarding; a staged
-        # native runner needs these arguments supplied by the fixture.
-        connections = (subprocess.check_output(['java', '-cp', str(classes),
+        # The fixture calls the exact native runner. Reuse production connection
+        # forwarding for both installed APK and staged runtime helpers.
+        connections = subprocess.check_output(['java', '-cp', str(classes),
             'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'connections'], text=True)
-            if args.build else '')
         wrapper = out / 'shroot'
         wrapper.write_text('#!/system/bin/sh\nmd_run() {\n' + connections + 'exec '
             + shlex.join([suite.runner, *(['--diagnostics'] if args.diagnostics else []),
+                *(['--statistics'] if args.statistics else []),
                 '--network', 'routed', '--env', entry, '--env', 'PATH=' + guest_path,
                 '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'], '--bind', suite.base, target])
             + ' "$@"\n}\nmd_run "$@"\n')
@@ -313,11 +350,13 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         # its exact session and display; managed Desktop must remain absent.
         assert not before['workspaces']
         state['homeLeaseBefore'] = before['homeLease']
-        state['display'] = client.call('create_display', dict(type='virtual', width=1200, height=800, densityDpi=160))
+        if not args.offscreen:
+            state['display'] = client.call('create_display', dict(type='virtual', width=1200, height=800, densityDpi=160))
         statefile.write_text(json.dumps(state, indent=2))
         keep_display_awake(client, state, statefile, 0 if args.awake_display == 'phone' else None)
-        state['sessionId'] = client.call('graphics.start', dict(protocol='wayland', backend='shell',
-            connection='routed', wholeDesktop=True, name=args.name + ' ' + args.init, keyboardDirectory='guest:' + store))['sessionId']
+        state['sessionId'] = client.call('graphics.start', dict(protocol='wayland', backend=suite.executor.mode,
+            connection='routed', wholeDesktop=True, name=args.name + ' ' + args.init, keyboardDirectory='guest:' + store,
+            **({'offscreen': dict(width=1280, height=800)} if args.offscreen else {})))['sessionId']
         statefile.write_text(json.dumps(state, indent=2))
 
         def wait(condition, **kwargs):
@@ -327,8 +366,7 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
             return value
 
         wait('graphics_ready', sessionId=state['sessionId'])
-        launch = ('env PATH=' + shlex.quote(suite.base + ':/system/bin') + ' /system/bin/sh -c ' +
-                  shlex.quote(recipe) + ' >' + shlex.quote(suite.base + '/boot.log') + ' 2>&1')
+        launch = recipe_launch(state['shell'], suite.base, recipe, suite.base + '/boot.log')
         # The fixture carries the exact production session payload, not a
         # desktop Exec entry. Keep that payload in a file, outside Exec's limit.
         launcher = out / 'launch.sh'
@@ -356,9 +394,18 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
                               timeout=args.timeout+30, request_timeout=args.timeout)
 
     def shell(command):
-        result = client.call('console.execute', dict(sessionId=state['consoleId'], command=command))
+        result = client.call('console.execute', dict(sessionId=state.get('commandConsoleId', state['consoleId']), command=command))
         assert result['exitCode'] == 0, result
         return result['output']
+
+    def transfer(direction, source, destination, **options):
+        if state.get('executor', {}).get('mode', 'shell') == 'shell':
+            return getattr(transport, direction)(client, source, destination, **options)
+        owner = FixtureExecutor(client, transport, out, 'app', 'transfer')
+        try:
+            return getattr(owner, direction)(source, destination, **options)
+        finally:
+            owner.close()
 
     if args.action == 'attach':
         assert not state.get('closed') and not state.get('headless'), 'No retained graphical fixture'
@@ -378,7 +425,7 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         print(json.dumps(response))
         if args.wait:
             log=out / (ident + '.log')
-            transport.download(client,state['directory'] + '/' + ident + '.log',log)
+            transfer('download', state['directory'] + '/' + ident + '.log', log)
             print(log.read_text(errors='replace'))
             raise SystemExit(response['exitCode'])
     elif args.action == 'shell':
@@ -386,17 +433,19 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
     elif args.action in ('upload', 'download'):
         path = Path(args.value)
         if args.action == 'upload':
-            transport.upload(client, path, state['directory'] + '/' + path.name, overwrite=True)
+            transfer('upload', path, state['directory'] + '/' + path.name, overwrite=True)
             shell(shlex.join(['chmod', '644', state['directory'] + '/' + path.name]))
         else:
             assert not path.is_absolute() and '..' not in path.parts
             destination = out / path
             destination.parent.mkdir(parents=True, exist_ok=True)
-            transport.download(client, state['directory'] + '/' + path.as_posix(), destination, overwrite=True)
+            transfer('download', state['directory'] + '/' + path.as_posix(), destination, overwrite=True)
     elif args.action == 'capture':
         assert not state.get('headless'), 'Headless fixture has no display'
         keep_display_awake(client, state, statefile)
-        result = client.call_result('capture_screenshot', dict(displayId=state['display']['id']))
+        selection = (dict(graphicsSessionId=state['sessionId']) if state.get('offscreen')
+                     else dict(displayId=state['display']['id']))
+        result = client.call_result('capture_screenshot', selection)
         path = out / (args.value or 'desktop.png')
         path.write_bytes(base64.b64decode(next(i['data'] for i in result['content'] if i['type'] == 'image')))
         print(path)
@@ -407,9 +456,11 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         stop_owned_resources(client, shell, state)
         for name in ('boot.log', 'control.log', 'desktop.log', 'driver.log', 'desktop.env'):
             if shell('test ! -f ' + shlex.quote(state['directory'] + '/' + name) + ' || echo present').strip():
-                transport.download(client, state['directory'] + '/' + name, out / name, overwrite=True)
+                transfer('download', state['directory'] + '/' + name, out / name, overwrite=True)
         after = client.call('get_state')
         client.call('console.close', dict(sessionId=state['consoleId']))
+        if state.get('commandConsoleId') not in (None, state['consoleId']):
+            client.call('console.close', dict(sessionId=state['commandConsoleId']))
         state['closed'] = True
         state['homeLeaseAfter'] = after['homeLease']
         statefile.write_text(json.dumps(state, indent=2))

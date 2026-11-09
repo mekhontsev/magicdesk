@@ -7,6 +7,7 @@ import shlex
 import subprocess
 
 from benchmark_cpu import observe_suite_cpu
+from fixture_executor import FixtureExecutor
 from init_fixture import prepare_init
 from test_oci_services import Suite, add_machine_entry_argument
 
@@ -90,12 +91,13 @@ def main():
     parser.add_argument('--app-launches', type=int, choices=range(1, 11), default=1,
                         help='Run Firefox repeatedly with a fresh profile and verify every rendered image')
     add_machine_entry_argument(parser)
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
     if args.snap == 'chromium' and not args.namespace_only:
         parser.error('--snap chromium requires --namespace-only; GUI coverage uses the desktop fixture')
     if args.namespace_only:
         args.cold_launch_checks = max(1, args.cold_launch_checks)
-    suite = Suite(args.output, args.build, machine_entry=args.machine_entry)
+    suite = Suite(args.output, args.build, machine_entry=args.machine_entry, executor=args.executor)
     suite.report['store'] = args.store
     suite.report['snap'] = args.snap
     suite.report['diagnostics'] = dict(debug=args.debug, statistics=args.statistics,

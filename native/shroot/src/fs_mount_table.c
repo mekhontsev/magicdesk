@@ -74,7 +74,9 @@ static int paths_capture(struct md_filesystem *fs,const struct md_view_mount *se
         const struct md_view_mount *m=i ? &tree->mounts[i-1] : &fs->mounts->base;
         if (m->detached || m==selected || !m->parent) continue;
         char path[PATH_MAX]; r=md_view_path(fs,m->target,m->parent,path,sizeof(path));
-        if (r==-ENOENT && (fs->store->root_id || fs->native_root)) { r=0; continue; }
+        /* A retained mount may no longer have a reachable target, including
+         * proc task dentries after exit, not just paths outside a chroot. */
+        if (r==-ENOENT) { r=0; continue; }
         if (r) break;
         paths[*count]=(struct table_path){.mount=m,.path=strdup(path)};
         if (!paths[*count].path) r=-ENOMEM;
@@ -185,9 +187,7 @@ static int super_readonly(struct md_filesystem *fs,const struct md_view_mount *m
     if (mount && mount->devpts) return !!(md_mount_policy_flags(md_devpts_super_policy(mount->devpts))&MD_MOUNT_READONLY);
     if (mount && mount->provider) return !!(md_provider_tree_super_flags(mount->provider)&MD_MOUNT_READONLY);
     if (!md_view_inode(mount)) return 0;
-    struct md_inode_store *store;
-    int r=md_fs_storage_get(fs,mount,&store);
-    return r ? r : md_inode_store_readonly(store);
+    return md_fs_storage_readonly(fs,mount);
 }
 static const char *filesystem_type(struct md_filesystem *fs,const struct md_view_mount *mount,dev_t device) {
     if (mount && mount->file.ops) {
@@ -306,10 +306,13 @@ struct md_mount_table_file {
     struct md_mount_namespace *view;
     struct md_fs_location root;
     struct md_fs_anchor *root_anchor;
+    struct md_identity identity;
+    int has_identity;
     pthread_mutex_t lock;
     struct stat metadata;
     unsigned info;
-    int latest, reading, error, linked;
+    uint64_t generation;
+    int latest, reading, error, linked, dirty;
     int reader, writer;
 };
 static void *table_retain(void *context) {
@@ -332,7 +335,8 @@ static void table_release(void *context) {
     if (f->reading>=0) close(f->reading);
     if (f->reader>=0) close(f->reader);
     if (f->writer>=0) close(f->writer);
-    md_fs_anchor_release(f->root_anchor); pthread_mutex_destroy(&f->lock);
+    md_fs_anchor_release(f->root_anchor); md_identity_release(&f->identity);
+    pthread_mutex_destroy(&f->lock);
     md_mount_namespace_release(view); free(f);
 }
 static int table_stat(void *context,struct stat *out) {
@@ -348,24 +352,104 @@ static int table_descriptor(void *context,int flags) {
     int fd=fcntl(f->reader>=0 ? f->reader : f->latest,F_DUPFD_CLOEXEC,3);
     return fd<0 ? -errno : fd;
 }
-static long table_read(void *context,const struct md_control_actor *actor,void *out,size_t size,int64_t offset) {
-    (void)actor;
-    struct md_mount_table_file *f=context;
-    if (offset<0) return -EINVAL;
+static int table_snapshot(struct md_mount_table_file *f) {
+    int fd=fcntl(f->latest,F_DUPFD_CLOEXEC,3);
+    if (fd<0) return -errno;
+    if (f->reading>=0) close(f->reading);
+    f->reading=fd;
+    if (f->reader>=0) { char byte; recv(f->reader,&byte,1,MSG_DONTWAIT|MSG_OOB); }
+    return 0;
+}
+static long table_read_snapshot(struct md_mount_table_file *f,void *out,size_t size,int64_t offset) {
+    long result=pread(f->reading,out,size,offset);
+    return result<0 ? -errno : result;
+}
+struct table_refresh {
+    struct md_control_pending pending;
+    struct md_control_pending *work;
+    struct md_mount_table_file *file;
+    atomic_uint references;
+    uint64_t generation;
+    int64_t offset;
+    int snapshot;
+};
+static void table_refresh_release(void *data) {
+    struct table_refresh *p=data;
+    if (atomic_fetch_sub_explicit(&p->references,1,memory_order_acq_rel)!=1) return;
+    if (p->snapshot>=0) close(p->snapshot);
+    table_release(p->file); free(p);
+}
+static long table_refresh_run(void *data,struct md_fs_context *context,struct md_fs_continuation **pending) {
+    (void)pending;
+    struct table_refresh *p=data;
+    struct md_mount_table_file *f=p->file;
+    struct md_filesystem *fs=context->filesystem,selected=*fs;
+    selected.mounts=f->view;
+    const char *old_root=fs->store->root_id;
+    const struct md_identity *old_identity=fs->store->identity;
+    fs->store->identity=f->has_identity ? &f->identity : NULL;
+    int error=md_mount_graph_sync(selected.mounts);
+    if (!error) error=md_fs_root_select(&selected,&f->root);
+    int fd=error ? error : md_fs_mount_table(&selected,f->info,0);
+    fs->store->root_id=old_root;
+    fs->store->identity=old_identity;
+    if (fd<0) return fd;
+    p->snapshot=fd;
     pthread_mutex_lock(&f->lock);
-    int error=f->error;
-    if (!error && (!offset || f->reading<0)) {
-        int fd=fcntl(f->latest,F_DUPFD_CLOEXEC,3);
-        if (fd<0) error=-errno;
-        else { if (f->reading>=0) close(f->reading); f->reading=fd; }
-        if (!error && f->reader>=0) { char byte; recv(f->reader,&byte,1,MSG_DONTWAIT|MSG_OOB); }
-    }
-    long result=error ? error : pread(f->reading,out,size,offset);
-    if (!error && result<0) result=-errno;
+    p->generation=f->generation;
+    pthread_mutex_unlock(&f->lock); return 0;
+}
+static long table_refresh_resume(struct md_control_pending *base,void *out,size_t size) {
+    struct table_refresh *p=(void *)base;
+    long result=p->work->resume(p->work,NULL,0);
+    if (result) return result;
+    struct md_mount_table_file *f=p->file;
+    int fd=fcntl(p->snapshot,F_DUPFD_CLOEXEC,3);
+    if (fd<0) return -errno;
+    pthread_mutex_lock(&f->lock);
+    close(f->latest); f->latest=p->snapshot; p->snapshot=-1;
+    if (f->reading>=0) close(f->reading);
+    f->reading=fd; f->error=0; f->dirty=f->generation!=p->generation;
+    if (!f->dirty && f->reader>=0) { char byte; recv(f->reader,&byte,1,MSG_DONTWAIT|MSG_OOB); }
+    result=table_read_snapshot(f,out,size,p->offset);
     pthread_mutex_unlock(&f->lock); return result;
 }
+static void table_refresh_dispose(struct md_control_pending *base) {
+    struct table_refresh *p=(void *)base;
+    if (p->work) p->work->dispose(p->work);
+    table_refresh_release(p);
+}
+static long table_io(void *data,const struct md_control_actor *actor,unsigned operation,void *out,
+        size_t size,int64_t offset,struct md_control_pending **pending) {
+    if (operation!=MD_CONTROL_READ) return -EBADF;
+    if (offset<0) return -EINVAL;
+    if (!size) return 0;
+    struct md_mount_table_file *f=data;
+    pthread_mutex_lock(&f->lock);
+    int start=!offset || f->reading<0;
+    int refresh=start && f->dirty;
+    int error=start && !refresh ? f->error : 0;
+    if (start && !refresh && !error) error=table_snapshot(f);
+    long result=error;
+    if (!refresh && !error) result=table_read_snapshot(f,out,size,offset);
+    pthread_mutex_unlock(&f->lock);
+    if (!refresh) return result;
+    if (!actor || !actor->submit) return -EOPNOTSUPP;
+    struct table_refresh *p=calloc(1,sizeof(*p));
+    if (!p) return -ENOMEM;
+    atomic_init(&p->references,2);
+    p->file=table_retain(f); p->offset=offset; p->snapshot=-1;
+    p->pending=(struct md_control_pending){.resume=table_refresh_resume,.dispose=table_refresh_dispose,
+        .deadline=INT64_MAX,.retry_preparation=1};
+    struct md_control_fs_operation work={.run=table_refresh_run,.destroy=table_refresh_release,.context=p};
+    result=actor->submit(actor->filesystem,actor,work,&p->work);
+    if (result==-EINPROGRESS) { *pending=&p->pending; return result; }
+    table_refresh_release(p);
+    table_refresh_dispose(&p->pending);
+    return result ? result : -EPROTO;
+}
 static const struct md_control_file_ops table_ops={.retain=table_retain,.release=table_release,
-    .stat=table_stat,.access=table_access,.read=table_read,.filesystem=PROC_SUPER_MAGIC,.descriptor=table_descriptor};
+    .stat=table_stat,.access=table_access,.io=table_io,.filesystem=PROC_SUPER_MAGIC,.descriptor=table_descriptor};
 
 static int table_socket(struct md_mount_table_file *f) {
     int pair[2];
@@ -405,6 +489,7 @@ static void table_open(struct md_filesystem *fs,const struct md_fs_request *q,
     int error=-pthread_mutex_init(&f->lock,NULL);
     if (error) { close(fd); free(f); out->error=error; return; }
     atomic_init(&f->references,1); f->view=md_mount_namespace_retain(fs->mounts);
+    if (fs->store->identity) { f->identity=md_identity_copy(fs->store->identity); f->has_identity=1; }
     f->latest=fd; f->reading=f->reader=f->writer=-1; f->info=q->mode;
     int root=md_view_root_fd(fs);
     error=root<0 ? root : md_view_anchor_duplicate(fs,fs->mounts,md_view_root_mount(fs),root,&f->root_anchor);
@@ -463,16 +548,11 @@ void md_fs_mount_table_changed(struct md_filesystem *fs) {
     if (f) table_retain(f);
     pthread_mutex_unlock(&view->tables_lock);
     while (f) {
-        /* Only the filesystem worker renders. Publication/release locks cover
-         * pointer and descriptor swaps, never namespace or database work. */
-        struct md_filesystem selected=*fs;
-        const char *old_root=fs->store->root_id;
-        int error=md_fs_root_select(&selected,&f->root);
-        int fd=error ? error : md_fs_mount_table(&selected,f->info,0);
-        fs->store->root_id=old_root;
+        /* Notify immediately, but render only when a reader starts a snapshot.
+         * Mount churn must not rebuild unopened/unread consumers' tables. The
+         * same filesystem worker serializes rendering against mount changes. */
         pthread_mutex_lock(&f->lock);
-        if (fd>=0) { close(f->latest); f->latest=fd; }
-        f->error=fd<0 ? fd : 0;
+        f->dirty=1; ++f->generation;
         int changed=table_signal(f);
         if (changed && !f->error) f->error=changed;
         pthread_mutex_unlock(&f->lock);

@@ -90,7 +90,7 @@ def main():
             assert run('domstate', name).stdout.strip() == 'paused'
             # EVENT_WAIT: exact QEMU serial connection; failure bound is 90 s.
             stream, _ = listener.accept()
-        with stream:
+        with stream, args.report.with_suffix('.serial.log').open('wb') as serial_log:
             stream.settimeout(180)
             run('resume', name)
             deadline = time.monotonic() + 180
@@ -102,12 +102,13 @@ def main():
                 data = stream.recv(65536)
                 if not data:
                     break
+                serial_log.write(data)
+                serial_log.flush()
                 chunks.append(data)
                 if args.network and not checked_peer and b'READY VM reverse traffic' in b''.join(chunks):
                     verify_peer(run, name)
                     checked_peer = True
             output = b''.join(chunks).decode(errors='replace')
-            args.report.with_suffix('.serial.log').write_text(output)
             marker = 'PASS packet VM completed' if args.network else 'PASS kernel contract in VM status=0'
             assert marker in output, output[-4000:]
             if args.network:

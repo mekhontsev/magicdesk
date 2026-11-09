@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Descriptor mount API and stock util-linux consumers, through actual shell."""
+"""Descriptor mount API and stock util-linux consumers in the selected executor."""
 import argparse
 import array
 import ctypes
@@ -981,6 +981,56 @@ if sys.argv[-1] == '0':
         assert len(os.listdir('/proc/self/fd')) == before
         print('PASS open_tree: retained roots, recursive clones, native files, policy and cleanup', flush=True)
 
+        # The combined API must publish the same object with its policy already
+        # applied, without exposing a temporary unconfigured guest descriptor.
+        combined = (ctypes.c_uint64 * 5)(1 | 2, 0, 0, 0, 0)
+        address = ctypes.addressof(combined)
+        call(467, -100, str(source), 1, 0, 32, error=errno.EINVAL)
+        call(467, -100, str(source), 1, address, 31, error=errno.EINVAL)
+        call(467, -100, str(source), 1, 1, 32, error=errno.EFAULT)
+        combined[4] = 1
+        call(467, -100, str(source), 1, address, 40, error=errno.E2BIG)
+        combined[4] = 0
+        context = create()
+        child_mount = call(432, context, 1, 0)
+        os.close(context)
+        call(429, child_mount, '', -100, str(source / 'child'), 4)
+        os.close(child_mount)
+        (source / 'child' / 'value').write_text('child')
+        clone = call(467, -100, str(source), 1 | os.O_CLOEXEC | 0x8000, address, 40)
+        assert fcntl.fcntl(clone, fcntl.F_GETFD) & fcntl.FD_CLOEXEC
+        assert os.fstatvfs(clone).f_flag & 3 == 3
+        call(429, clone, '', -100, str(destination), 4)
+        os.close(clone)
+        for relative in ('value', 'child/value'):
+            write_denied(destination / relative)
+            (source / relative).write_text('source writable')
+            assert (destination / relative).read_text() == 'source writable'
+        combined[0] = 8
+        opened = call(467, -100, str(destination), os.O_CLOEXEC, address, 32)
+        assert os.statvfs(destination).f_flag & 11 == 11
+        assert os.fstatvfs(opened).f_flag & 11 == 11
+        combined[0], combined[1] = 0, 11
+        duplicate = call(467, opened, '', 0x1000, address, 32)
+        assert not os.fstatvfs(duplicate).f_flag & 11
+        os.close(duplicate)
+        os.close(opened)
+        combined[1] = 0
+        opened = call(467, -100, str(source / 'value'), 0, address, 32)
+        assert os.fstat(opened).st_ino == (source / 'value').stat().st_ino
+        os.close(opened)
+        opened = call(467, -100, str(source), 0, 0, 0)
+        os.close(opened)
+        before = len(os.listdir('/proc/self/fd'))
+        combined[0] = 1 << 63
+        for _ in range(16):
+            call(467, -100, str(source), 1 | os.O_CLOEXEC, address, 32, error=errno.EINVAL)
+        assert len(os.listdir('/proc/self/fd')) == before
+        assert not os.statvfs(source).f_flag & (os.ST_RDONLY | os.ST_NOSUID)
+        call(39, str(destination), 2)
+        call(39, str(source / 'child'), 2)
+        print('PASS open_tree_attr: atomic policy, recursive clone, attached FD, ABI validation and cleanup', flush=True)
+
         # openat2 shares the versioned-structure reader, not mount semantics.
         how = (ctypes.c_uint64 * 4)(os.O_PATH, 0, 0, 0)
         opened = call(437, -100, str(root), ctypes.addressof(how), ctypes.sizeof(how))
@@ -1065,13 +1115,16 @@ if sys.argv[-1] == '0':
 
 
 def main():
+    from fixture_executor import FixtureExecutor
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
     parser.add_argument('--base', action='store_true')
+    parser.add_argument('--output', type=Path)
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
     from test_oci_services import Suite
-    suite = Suite(args.build, args.build)
+    suite = Suite(args.output or args.build, args.build, executor=args.executor)
     target = '/tmp/md-mount-api-' + suite.report['id']
     prefix = [suite.runner, '--store', args.store, '--user', '0:0', '--network', 'routed']
     if args.base:

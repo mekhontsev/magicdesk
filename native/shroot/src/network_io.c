@@ -207,7 +207,8 @@ int md_network_io_progress(struct md_network_io *n,struct md_ipc_io *io,struct m
         n->started=1; return 1;
     }
     if (!io->native_ready) {
-        io->native_result=md_ipc_io_job_finish(&io->job,0); io->native_ready=1;
+        if (!md_ipc_io_job_collect(&io->job,&io->native_result)) return 1;
+        io->native_ready=1;
     }
     *result=io->native_result;
     if (n->number==SYS_connect) {

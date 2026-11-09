@@ -103,7 +103,7 @@ static inline void md_interception_program_build(const struct md_interception_ab
 #define COUNT_MARKER(field,symbol) +2
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(abi->ready>>32),0,
-                25+native_instructions MD_CHECKPOINT_SITES(COUNT_MARKER)),
+                27+native_instructions MD_CHECKPOINT_SITES(COUNT_MARKER)),
 #undef COUNT_MARKER
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
 #define MARKER(field,symbol) \
@@ -111,6 +111,8 @@ static inline void md_interception_program_build(const struct md_interception_ab
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_CHECKPOINT),
             MD_CHECKPOINT_SITES(MARKER)
 #undef MARKER
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abi->socket_return,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK),
             /* An admitted native effect retains its table turn and journal.
              * Application filters are still evaluated by the kernel. */
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)native,0,1+native_instructions),
@@ -148,18 +150,17 @@ static inline void md_interception_program_build(const struct md_interception_ab
             /* Descriptor metadata must remain serviceable after an application
              * installs a higher-precedence filter or becomes nondumpable. */
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 10),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 9),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_FD_CHANNEL, 6, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_BUFFER, 5, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_PROC_IMAGE, 4, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_PROC_FILE, 3, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_FD_CHANNEL, 5, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_BUFFER, 4, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_PROC_IMAGE, 3, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_SHM, 2, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_IPC, 1, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_MAP_IMAGE, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-            DESCRIPTOR(clone) DESCRIPTOR(clone3) OBSERVE(chroot)
+            DESCRIPTOR(clone) DESCRIPTOR(clone3) OBSERVE(chroot) OBSERVE(waitid) DESCRIPTOR(signalfd4)
             MD_FD_CLOSE_FILTER,
             MD_DOMAIN_FD_CALLS(DESCRIPTOR)
             /* Descriptor commands use the kernel's unsigned-int argument. */
@@ -227,9 +228,8 @@ static inline void md_interception_program_build(const struct md_interception_ab
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             MD_DOMAIN_KERNEL_ARGUMENTS(NATIVE_ARGUMENT)
 #undef NATIVE_ARGUMENT
-            /* No guest key service is installed. Report absence consistently,
-             * without entering Android's keyrings or fabricating successful
-             * isolation. Application ERRNO/TRAP/KILL filters still apply. */
+            /* Report missing guest providers without exposing host resources.
+             * Application ERRNO/TRAP/KILL filters still apply. */
 #define UNAVAILABLE(n) BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_##n,0,1), \
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|ENOSYS),
             MD_UNAVAILABLE_CALLS(UNAVAILABLE)

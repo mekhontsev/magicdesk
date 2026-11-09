@@ -91,6 +91,8 @@ for thread in threads:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--machine', required=True)
+    parser.add_argument('--diagnostics', action='store_true')
+    parser.add_argument('--trace', action='store_true')
     parser.add_argument('report', type=Path)
     args = parser.parse_args()
     assert re.fullmatch(r'[A-Za-z0-9_-]+', args.machine)
@@ -142,11 +144,18 @@ def main():
                         '--bind-ro=' + str(work / 'readonly') + ':/readonly',
                         '/usr/bin/python3', '-u', '-c', GUEST]
                 record['command'] = argv
+                if args.trace:
+                    trace = args.report.with_suffix('.' + str(repeat) + '.trace')
+                    record['trace'] = str(trace)
+                    argv = ['strace', '-D', '-f', '-s', '256', '-o', str(trace), *argv]
                 received = queue.Queue()
                 stderr = args.report.with_suffix('.' + str(repeat) + '.stderr')
                 with stderr.open('w') as log:
+                    environment = dict(os.environ)
+                    if args.diagnostics:
+                        environment['SYSTEMD_LOG_LEVEL'] = 'debug'
                     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                               stderr=log, text=True, start_new_session=True)
+                                               stderr=log, text=True, start_new_session=True, env=environment)
 
                     def collect(stream):
                         for line in stream:

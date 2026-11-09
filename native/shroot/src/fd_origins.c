@@ -431,6 +431,8 @@ static struct md_fd_origin_entry *install(struct md_fd_origins *t,
     if (entry) entry_link(t,entry);
     if (entry) {
         entry->fd=fd; entry->next=retired ? retired->next : NULL; *p=entry;
+        if (entry->object && entry->object->type->published)
+            entry->object->type->published(entry->object);
     } else if (retired) *p=retired->next;
     if (retired) retired->next=NULL;
     return retired;

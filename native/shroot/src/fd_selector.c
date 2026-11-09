@@ -55,6 +55,23 @@ int md_fd_selector_mark(struct md_fd_selector *a, unsigned kind, int fd) {
     if (!a->bits[kind]) return -EINVAL;
     a->bits[kind][fd / 8] |= (1U << (fd % 8)); return 0;
 }
+int md_fd_selector_missing(const struct md_fd_selector *required,struct md_fd_selector *installed,
+        enum md_fd_selector_kind *kind,int *fd) {
+    if (!required || !installed || !kind || !fd) return -EINVAL;
+    for (unsigned k=0;k<MD_FD_SELECTOR_KINDS;++k) {
+        if (installed->all&(1U<<k)) continue;
+        if (required->all&(1U<<k)) { *kind=k; *fd=-1; return 1; }
+        if (!required->bits[k]) continue;
+        for (unsigned i=0;i<BYTES;++i) {
+            unsigned missing=required->bits[k][i]&~(installed->bits[k] ? installed->bits[k][i] : 0);
+            if (!missing) continue;
+            *kind=k; *fd=(int)(8*i+__builtin_ctz(missing));
+            int ready=md_fd_selector_has(installed,k,*fd);
+            return ready<0 ? ready : 1;
+        }
+    }
+    return 0;
+}
 int md_fd_selector_target(const struct md_fd_selector *a,int fd,unsigned instructions) {
     if (!a || fd< -1 || !instructions || instructions>4096) return -EINVAL;
     return a->instructions+instructions+4>MD_FD_SELECTOR_BUDGET ? -1 : fd;

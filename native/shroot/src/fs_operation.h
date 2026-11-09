@@ -42,7 +42,8 @@ enum md_fs_xattr { MD_FS_XATTR_GET=1, MD_FS_XATTR_SET, MD_FS_XATTR_LIST, MD_FS_X
 static inline int md_fs_operation_value(unsigned operation) {
     return operation==MD_FS_XATTR || operation==MD_FS_FXATTR || operation==MD_FS_XATTR_OBJECT
         || operation==MD_FS_GETACL || operation==MD_FS_SETACL || operation==MD_FS_IPC_PEER
-        || operation==MD_FS_MOUNT || operation==MD_FS_FSCONFIG || operation==MD_FS_BPF || operation==MD_FS_LANDLOCK;
+        || operation==MD_FS_MOUNT || operation==MD_FS_OPEN_TREE || operation==MD_FS_FSCONFIG
+        || operation==MD_FS_BPF || operation==MD_FS_LANDLOCK;
 }
 enum { MD_FS_STAT_MOUNT = 1, MD_FS_STAT_CANONICAL = 2 };
 /* A proc magic-link description may name another mount tree. It is display

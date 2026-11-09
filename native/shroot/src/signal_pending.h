@@ -1,5 +1,6 @@
 #ifndef MD_SIGNAL_PENDING_H
 #define MD_SIGNAL_PENDING_H
+#include "signal_origin.h"
 #include <signal.h>
 #include <stdint.h>
 
@@ -22,6 +23,14 @@ int md_signal_pending_peek(const struct md_signal_pending *,struct md_signal_pen
 int md_signal_pending_take(struct md_signal_pending *,const struct md_signal_pending_value *);
 int md_signal_pending_has(const struct md_signal_pending *,enum md_signal_scope);
 void md_signal_pending_clear(struct md_signal_pending *,int shared);
+/* Metadata for the kernel's coalesced SIGCHLD slots. These do not enqueue,
+ * suppress or make a signal ready; the kernel still owns pending state. */
+struct md_signal_origin *md_signal_pending_child(struct md_signal_pending *,enum md_signal_scope);
+const struct md_signal_origin *md_signal_pending_origin(struct md_signal_pending *,const siginfo_t *);
+void md_signal_pending_consumed(struct md_signal_pending *,const siginfo_t *);
+void md_signal_pending_child_changed(struct md_signal_pending *);
+int md_signal_pending_child_dirty(const struct md_signal_pending *);
+void md_signal_pending_child_observed(struct md_signal_pending *);
 uint64_t md_signal_pending_domain(const struct md_signal_pending *);
 uint64_t md_signal_pending_revision(const struct md_signal_pending *);
 #endif

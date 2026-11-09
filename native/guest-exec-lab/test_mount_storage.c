@@ -5,6 +5,7 @@
 #include "mount_graph.h"
 #include "inode_watch.h"
 #include "inode_view.h"
+#include "inode_overlay.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -428,6 +429,67 @@ static void deferred_storage(struct md_inode_store *main,const char *base) {
     assert(descriptors()==before);
     puts("PASS deferred storage: births and nested scopes exceed idle-cache capacity, publish/cancel/forget and release all connections");
 }
+static void projection_policy(struct md_inode_store *main,const char *base) {
+    enum { COUNT=MD_FS_STORAGE_CACHE_LIMIT*2+1 };
+    unsigned before=descriptors();
+    char path[PATH_MAX]; snprintf(path,sizeof(path),"%s/policy-catalogue",base);
+    struct md_inode_store *catalogue=NULL;
+    assert(!md_inode_store_open(path,1,&catalogue));
+    struct md_inode_lifetime *leases[COUNT];
+    for (unsigned i=0;i<COUNT;++i) {
+        struct md_inode_store *view=NULL;
+        assert(!md_inode_view_create(catalogue,MD_FILESYSTEM_OVERLAY,&view));
+        assert(!md_inode_store_reconfigure(view,i%2));
+        leases[i]=md_inode_lifetime_retain(view->lifetime);
+        md_inode_store_close(view);
+    }
+    struct md_fs_storage_cache cache={0};
+    struct md_filesystem fs={.store=catalogue,.storage=&cache};
+    for (unsigned foreign=0;foreign<2;++foreign) {
+        fs.store=foreign ? main : catalogue;
+        for (unsigned pass=0;pass<2;++pass) {
+            assert(!md_inode_operation_window_begin(fs.store));
+            for (unsigned i=0;i<COUNT;++i) {
+                struct md_view_mount mount={.backing=MD_MOUNT_INODE,.storage=leases[i]};
+                assert(md_fs_storage_readonly(&fs,&mount)==(int)(i%2));
+                assert(cache.count==foreign);
+            }
+            assert(!md_inode_operation_window_end(fs.store));
+        }
+    }
+    /* A separate connection changes policy between reads; no stale per-mount
+     * flags or generation from a different SQLite connection may be reused. */
+    struct md_inode_store *peer=NULL;
+    assert(!md_inode_store_reconnect(leases[0],&peer));
+    struct md_view_mount mount={.backing=MD_MOUNT_INODE,.storage=leases[0]};
+    assert(!md_inode_mkdir(catalogue,-1,"/upper",0700));
+    assert(!md_inode_mkdir(catalogue,-1,"/work",0700));
+    int upper=md_inode_open(catalogue,-1,"/upper",O_PATH,0);
+    int work=md_inode_open(catalogue,-1,"/work",O_PATH,0);
+    assert(upper>=0 && work>=0);
+    assert(!md_inode_overlay_prepare_upper(peer,catalogue,upper,work,1));
+    close(upper); close(work);
+    for (unsigned ro=0;ro<2;++ro) {
+        assert(!md_inode_store_reconfigure(peer,ro));
+        assert(md_fs_storage_readonly(&fs,&mount)==(int)ro);
+        assert(!md_inode_store_readonly(catalogue));
+    }
+    assert(!md_inode_store_reconfigure(peer,0));
+    assert(!md_inode_store_reconfigure(catalogue,1));
+    assert(md_fs_storage_readonly(&fs,&mount)==1);
+    assert(!md_inode_store_reconfigure(catalogue,0));
+    assert(!md_fs_storage_readonly(&fs,&mount));
+    catalogue->mount_readonly=1;
+    assert(!md_inode_store_scope_readonly(catalogue,leases[0]));
+    catalogue->mount_readonly=0;
+    assert(md_inode_store_scope_readonly(main,leases[0])==-EXDEV);
+    md_inode_store_close(peer);
+    md_fs_storage_close(&cache);
+    for (unsigned i=0;i<COUNT;++i) md_inode_lifetime_release(leases[i]);
+    md_inode_store_close(catalogue);
+    assert(descriptors()==before);
+    puts("PASS projection policy: one connection per catalogue, fresh peer/upper remounts, no mount-flag leakage or FD retention");
+}
 void test_mount_storage(const char *base) {
     file_binds(base);
     socket_binds(base);
@@ -609,6 +671,7 @@ void test_mount_storage(const char *base) {
     storage_cache(main,base);
     projected_root_window(base);
     deferred_storage(main,base);
+    projection_policy(main,base);
     main->identity=NULL; md_identity_release(&root); md_inode_store_close(main);
     assert(descriptors()==before);
     puts("PASS mounted inode storage: identity, symlinks, bind/copy, policy, portable custody and old dirfd");

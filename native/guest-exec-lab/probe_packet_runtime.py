@@ -313,6 +313,10 @@ def vm_archive(directory, initramfs, test):
     with subprocess.Popen(['gzip', '-dc', str(initramfs)], stdout=subprocess.PIPE) as source:
         subprocess.run(['cpio', '-id', '--no-absolute-filenames'], cwd=root, stdin=source.stdout, check=True)
         assert source.wait() == 0
+    for name in ('bin/sh', 'usr/bin/busybox', 'usr/sbin/modprobe'):
+        path = root / name
+        if not (path.is_file() or path.is_symlink()):
+            raise ValueError('Packet VM requires the official Alpine initramfs; missing ' + name)
     shutil.copyfile(Path(__file__).with_name('fixtures') / 'packet-vm-init.sh', root / 'init')
     shutil.copyfile(Path(__file__).with_name('fixtures') / 'packet-vm-dhcp.sh', root / 'dhcp.sh')
     shutil.copyfile(test, root / 'packet-test')

@@ -74,7 +74,7 @@ int md_fs_request_validate(const struct md_fs_request *q) {
     if (q->resolve && q->operation != MD_FS_OPEN) return -EINVAL;
     if (q->value_size>MD_FS_VALUE_MAX || (q->value_size && !q->value)
             || (q->value_size && q->operation!=MD_FS_XATTR && q->operation!=MD_FS_FXATTR && q->operation!=MD_FS_XATTR_OBJECT
-                && q->operation!=MD_FS_SETACL && q->operation!=MD_FS_MOUNT
+                && q->operation!=MD_FS_SETACL && q->operation!=MD_FS_MOUNT && q->operation!=MD_FS_OPEN_TREE
                 && q->operation!=MD_FS_FSCONFIG && q->operation!=MD_FS_BPF && q->operation!=MD_FS_LANDLOCK)) return -EINVAL;
     if (q->operation==MD_FS_LANDLOCK) {
         unsigned expected=q->mode==MD_LL_CREATE ? 0 : q->mode==MD_LL_ADD ? 3 : 1;
@@ -143,7 +143,10 @@ int md_fs_request_validate(const struct md_fs_request *q) {
     if (q->operation==MD_FS_OPEN_TREE)
         return (!*a && !(descriptors&1)) || *b || (descriptors&2)
             || q->flags&~(O_PATH|O_CLOEXEC) || !(q->flags&O_PATH)
-            || q->mode&~(AT_RECURSIVE|AT_SYMLINK_NOFOLLOW) || q->capacity || q->offset ? -EINVAL : 0;
+            || q->mode&~(OPEN_TREE_CLONE|AT_RECURSIVE|AT_SYMLINK_NOFOLLOW)
+            || ((q->mode&AT_RECURSIVE) && !(q->mode&OPEN_TREE_CLONE))
+            || (q->value_size && q->value_size!=sizeof(struct mount_attr))
+            || q->capacity || q->offset ? -EINVAL : 0;
     if (q->operation==MD_FS_FDINFO)
         return descriptors!=3 || (q->directory[0]<0 && !q->capture[0].path) || q->directory[1]<0 || *a || *b || q->mode || q->capacity
             || q->offset<0 || (q->flags&~(O_PATH|O_CLOEXEC)) ? -EINVAL : 0;

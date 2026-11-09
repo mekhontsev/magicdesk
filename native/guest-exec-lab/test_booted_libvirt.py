@@ -47,7 +47,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--session', type=Path, required=True)
     parser.add_argument('--kernel', type=Path, required=True)
-    parser.add_argument('--initrd', type=Path, required=True)
+    parser.add_argument('--initrd', type=Path,
+                        help='Prepared contract CPIO, or official Alpine initramfs with --network')
     parser.add_argument('--direct', action='store_true', help='Run QEMU without libvirt')
     parser.add_argument('--network', action='store_true', help='Libvirt bridge, DHCP, DNS and bidirectional VM packets')
     parser.add_argument('--network-forward', choices=('nat', 'open'), default='nat',
@@ -57,6 +58,8 @@ def main():
     if args.network:
         if args.direct:
             parser.error('--network requires managed libvirt')
+        if args.initrd is None:
+            parser.error('--network requires the official Alpine --initrd')
         from probe_packet_runtime import vm_archive
         with tempfile.TemporaryDirectory(prefix='md-libvirt-packet-') as temporary:
             archive = vm_archive(Path(temporary), args.initrd, args.build / 'libmagicdesk_guest_packet_vm.so')
@@ -66,9 +69,16 @@ def main():
                          Path(__file__).with_name('fixtures') / 'libvirt_network.py'],
                         prepare=lambda state: prepare_libvirt(state, network=True))
         return
-    run_fixture(args.session, 'qemu' if args.direct else 'libvirt',
-                [args.kernel, args.initrd], [args.kernel, args.initrd],
-                prepare=None if args.direct else prepare_libvirt)
+    with tempfile.TemporaryDirectory(prefix='md-libvirt-contract-') as temporary:
+        initrd = args.initrd
+        if initrd is None:
+            from test_kernel_vm import contract_archive
+            initrd = contract_archive(Path(temporary),
+                args.build / 'libmagicdesk_guest_vm_init.so',
+                args.build / 'libmagicdesk_guest_landlock_guest.so')
+        run_fixture(args.session, 'qemu' if args.direct else 'libvirt',
+                    [args.kernel, initrd], [args.kernel, initrd],
+                    prepare=None if args.direct else prepare_libvirt)
 
 
 if __name__ == '__main__':

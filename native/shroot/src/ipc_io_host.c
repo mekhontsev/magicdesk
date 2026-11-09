@@ -51,7 +51,7 @@ int md_ipc_io_event(const struct md_ipc_io *op, int socket) {
     return op->job.started ? md_ipc_io_job_event(&op->job) : socket;
 }
 void md_ipc_io_interrupt(struct md_ipc_io *op) {
-    op->native_result=md_ipc_io_job_finish(&op->job,1); op->native_ready=1;
+    op->native_result=md_ipc_io_job_cancel(&op->job); op->native_ready=1;
 }
 static void select_entry(struct md_ipc_io *op, unsigned index) {
     struct md_ipc_io_entry *entry=&op->batch->entries[index];
@@ -226,7 +226,8 @@ static int receive_batch(struct md_ipc_io *op, struct md_received_fds **custody,
             return 1;
         }
     }
-    *result=op->native_ready ? op->native_result : md_ipc_io_job_finish(&op->job,0);
+    if (!op->native_ready && !md_ipc_io_job_collect(&op->job,&op->native_result)) return 1;
+    *result=op->native_result;
     op->native_ready=0;
     int error=0;
     while (batch->completed<batch->count && batch->messages[batch->completed].msg_len!=UINT_MAX) {
@@ -263,7 +264,8 @@ int md_ipc_io_receive(struct md_ipc_io *op, struct md_received_fds **custody,
             if (error) { *result=error; return 0; }
             return 1;
         }
-        long returned=op->native_ready ? op->native_result : md_ipc_io_job_finish(&op->job,0);
+        if (!op->native_ready && !md_ipc_io_job_collect(&op->job,&op->native_result)) return 1;
+        long returned=op->native_result;
         op->native_ready=0; message=op->message;
         if (returned<0) { *result=returned; return 0; }
         n=returned;

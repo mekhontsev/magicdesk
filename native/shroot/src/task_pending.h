@@ -8,14 +8,14 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
-/* Read-only private-queue inspection of a stopped task. A positive visitor
+/* Read-only inspection of a stopped task's explicitly selected pending queue. A positive visitor
  * result stops the scan; zero continues. Linux walks the queue from its head
  * for each PEEKSIGINFO offset, so grow batches geometrically, not quadratically
  * many fixed-size walks. Ordinary short queues need no allocation. */
-static inline int md_task_pending_scan(long (*trace)(int,pid_t,void *,void *),pid_t pid,
-        int (*visit)(void *,const siginfo_t *),void *context) {
+static inline int md_task_pending_scan_scope(long (*trace)(int,pid_t,void *,void *),pid_t pid,
+        unsigned flags,int (*visit)(void *,const siginfo_t *),void *context) {
     siginfo_t local[16],*heap=NULL,*items=local;
-    struct ptrace_peeksiginfo_args args={.nr=sizeof(local)/sizeof(*local)};
+    struct ptrace_peeksiginfo_args args={.nr=sizeof(local)/sizeof(*local),.flags=flags};
     int result=0;
     for (;;) {
         long count=trace(PTRACE_PEEKSIGINFO,pid,&args,items);
@@ -32,5 +32,9 @@ static inline int md_task_pending_scan(long (*trace)(int,pid_t,void *,void *),pi
     }
     free(heap);
     return result;
+}
+static inline int md_task_pending_scan(long (*trace)(int,pid_t,void *,void *),pid_t pid,
+        int (*visit)(void *,const siginfo_t *),void *context) {
+    return md_task_pending_scan_scope(trace,pid,0,visit,context);
 }
 #endif

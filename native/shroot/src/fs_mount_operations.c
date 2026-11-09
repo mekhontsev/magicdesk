@@ -92,6 +92,31 @@ static int record(struct md_filesystem *fs, int fd, struct md_view_mount *mount,
     if (r) close(fd); else out->fd = fd;
     return r;
 }
+static int terminal_peer_open(struct md_filesystem *fs,struct md_mount_namespace *view,
+        struct md_view_mount *mount,int fd,const struct md_fs_request *q,
+        struct md_fs_result *out,const struct md_fs_output *output) {
+    if (q->operation!=MD_FS_IOCTL || !md_filesystem_ioctl_opens(q->mode)
+            || !mount) return 0;
+    if (!mount->devpts && mount->backing!=MD_MOUNT_NATIVE) {
+        if (!mount->provider) return 0;
+        struct stat native;
+        if (fstat(fd,&native)) { out->error=-errno; return 1; }
+        /* A provider can expose an actual host PTY alongside synthetic
+         * carriers. Only the real master has a kernel-selected peer. */
+        if (!S_ISCHR(native.st_mode) || major(native.st_rdev)!=5 || minor(native.st_rdev)!=2) return 0;
+    }
+    /* Kernel-selected peer, with provenance independent of the path used to
+     * obtain the master. Native mounts and private devpts share publication. */
+    int opened=ioctl(fd,TIOCGPTPEER,q->flags|O_NOCTTY|O_CLOEXEC);
+    if (opened<0) { out->error=-errno; return 1; }
+    struct stat st;
+    int error=mount->devpts ? md_devpts_stat(mount->devpts,opened,&st) : 0;
+    if (error) { close(opened); out->error=error; return 1; }
+    out->fd=opened;
+    if (!(q->flags&(O_PATH|O_NOCTTY))) out->open_completion.kind=MD_OPEN_CALLER;
+    md_view_capture(fs,view,mount,out,output);
+    return 1;
+}
 static int devpts_operation(struct md_filesystem *fs,struct md_mount_namespace *view,
         struct md_view_mount *mount,int fd,const struct md_fs_request *q,
         struct md_fs_result *out,const struct md_fs_output *output) {
@@ -99,20 +124,6 @@ static int devpts_operation(struct md_filesystem *fs,struct md_mount_namespace *
     const struct md_identity *id=fs->store->identity;
     int r=0;
     switch (q->operation) {
-    case MD_FS_IOCTL: {
-        if (!md_filesystem_ioctl_opens(q->mode)) return 0;
-        /* The kernel selects the actual peer without a path lookup, even when
-         * the master arrived from another mount namespace through SCM_RIGHTS. */
-        r=ioctl(fd,TIOCGPTPEER,q->flags|O_NOCTTY|O_CLOEXEC);
-        if (r<0) { r=-errno; break; }
-        struct stat st;
-        int error=md_devpts_stat(mount->devpts,r,&st);
-        if (error) { close(r); r=error; break; }
-        out->fd=r; r=0;
-        if (!(q->flags&(O_PATH|O_NOCTTY))) out->open_completion.kind=MD_OPEN_CALLER;
-        md_view_capture(fs,view,mount,out,output);
-        break;
-    }
     case MD_FS_STATFS:
         md_fs_statfs_result(fd,md_mount_policy_flags(&mount->policy),NULL,out,output);
         if (!out->error) ((struct md_fs_statfs *)output->data)->type=DEVPTS_SUPER_MAGIC;
@@ -151,7 +162,19 @@ static int devpts_operation(struct md_filesystem *fs,struct md_mount_namespace *
                 if (r<0) r=-errno;
                 else out->open_completion.kind=MD_OPEN_CALLER;
             }
-        } else r=md_devpts_open(mount->devpts,fd,q->flags,id);
+        } else {
+            r=md_devpts_open(mount->devpts,fd,q->flags,id);
+            if ((r==-EACCES || r==-EPERM) && (q->flags&O_APPEND) && !(q->flags&O_PATH)
+                    && S_ISCHR(st.st_mode) && !(major(st.st_rdev)==5 && minor(st.st_rdev)==2)
+                    && !md_devpts_access(mount->devpts,fd,(q->flags&O_ACCMODE)==O_RDWR ? R_OK|W_OK
+                        : (q->flags&O_ACCMODE)==O_WRONLY ? W_OK : R_OK,id)) {
+                /* Retry in the receiver, never transfer a restricted append
+                 * OFD. Native admission, including UID 2000, stays native. */
+                r=fcntl(fd,F_DUPFD_CLOEXEC,3);
+                if (r<0) r=-errno;
+                else out->open_completion.kind=MD_OPEN_CALLER;
+            }
+        }
         if (r>=0) { out->fd=r; r=0; md_view_capture(fs,view,mount,out,output); }
         break;
     }
@@ -250,6 +273,7 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
     if (!md_view_inode(p->mount) && (r=md_fs_landlock_native(fs,q,p->mount,q->directory[0]))) {
         out->error=r; return 1;
     }
+    if (terminal_peer_open(fs,owner.mounts,p->mount,q->directory[0],q,out,output)) return 1;
     if (q->operation==MD_FS_IOCTL && p->mount->backing!=MD_MOUNT_NATIVE
             && !(p->mount->devpts && md_filesystem_ioctl_opens(q->mode))) {
         out->error=-ENOTTY; return 1;

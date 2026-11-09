@@ -15,7 +15,7 @@ void md_epoll_wait_initialize(struct md_epoll_wait *w,const struct md_epoll_fram
     }
 }
 void md_epoll_wait_cancel(struct md_epoll_wait *w) {
-    if (w->job.started) md_ipc_io_job_finish(&w->job,1);
+    if (w->job.started) md_ipc_io_job_cancel(&w->job);
 }
 int md_epoll_wait_observe(struct md_epoll_wait *w,struct md_control_epoll *q) {
     int descriptor=md_control_epoll_descriptor(q);

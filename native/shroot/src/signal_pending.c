@@ -3,10 +3,11 @@
 #include <stdlib.h>
 
 struct slot { siginfo_t info; uint64_t token; int occupied; };
-struct group { unsigned references; struct slot pending; };
+struct group { unsigned references; struct slot pending; struct md_signal_origin child; int child_dirty; };
 struct wait_queue { unsigned references; uint64_t domain,revision; };
 static uint64_t next_domain;
-struct md_signal_pending { struct slot private; struct group *group; struct wait_queue *wait; };
+struct md_signal_pending { struct slot private; struct group *group; struct wait_queue *wait;
+    struct md_signal_origin child; };
 static struct wait_queue *wait_new(void) {
     struct wait_queue *q=calloc(1,sizeof(*q));
     if (q) { q->references=1; q->domain=++next_domain; }
@@ -82,3 +83,20 @@ void md_signal_pending_clear(struct md_signal_pending *p,int shared) {
 }
 uint64_t md_signal_pending_domain(const struct md_signal_pending *p) { return p ? p->wait->domain : 0; }
 uint64_t md_signal_pending_revision(const struct md_signal_pending *p) { return p ? p->wait->revision : 0; }
+struct md_signal_origin *md_signal_pending_child(struct md_signal_pending *p,enum md_signal_scope scope) {
+    return !p ? NULL : scope==MD_SIGNAL_PRIVATE ? &p->child
+        : scope==MD_SIGNAL_SHARED ? &p->group->child : NULL;
+}
+const struct md_signal_origin *md_signal_pending_origin(struct md_signal_pending *p,const siginfo_t *info) {
+    if (!p) return NULL;
+    if (md_signal_origin_matches(&p->child,info)) return &p->child;
+    return md_signal_origin_matches(&p->group->child,info) ? &p->group->child : NULL;
+}
+void md_signal_pending_consumed(struct md_signal_pending *p,const siginfo_t *info) {
+    if (!p) return;
+    if (md_signal_origin_matches(&p->child,info)) p->child.valid=0;
+    else if (md_signal_origin_matches(&p->group->child,info)) p->group->child.valid=0;
+}
+void md_signal_pending_child_changed(struct md_signal_pending *p) { if (p) p->group->child_dirty=1; }
+int md_signal_pending_child_dirty(const struct md_signal_pending *p) { return p && p->group->child_dirty; }
+void md_signal_pending_child_observed(struct md_signal_pending *p) { if (p) p->group->child_dirty=0; }

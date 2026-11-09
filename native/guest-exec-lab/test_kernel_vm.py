@@ -18,6 +18,21 @@ def sha256(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def contract_archive(work, init, fixture):
+    root = work / 'root'
+    root.mkdir(parents=True)
+    for name in ('proc', 'work', 'dev'):
+        (root / name).mkdir()
+    for source, name in ((init, 'init'), (fixture, 'contract')):
+        shutil.copyfile(source, root / name)
+        (root / name).chmod(0o755)
+    archive = work / 'initramfs.cpio'
+    with archive.open('wb') as output:
+        subprocess.run(['cpio', '-o', '--format=newc', '--null', '--owner=0:0'],
+                       cwd=root, input=b'proc\0work\0dev\0init\0contract\0', stdout=output, check=True)
+    return archive
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
@@ -28,18 +43,8 @@ def main():
     work = (args.build / ('kernel-vm-' + uuid.uuid4().hex)).resolve()
     report = {'passed': False, 'kernelOracleOnly': True}
     try:
-        root = work / 'root'
-        root.mkdir(parents=True)
-        for name in ('proc', 'work', 'dev'):
-            (root / name).mkdir()
         init = args.build / 'libmagicdesk_guest_vm_init.so'
-        for source, name in ((init, 'init'), (args.fixture, 'contract')):
-            shutil.copyfile(source, root / name)
-            (root / name).chmod(0o755)
-        archive = work / 'initramfs.cpio'
-        with archive.open('wb') as output:
-            subprocess.run(['cpio', '-o', '--format=newc', '--null', '--owner=0:0'],
-                           cwd=root, input=b'proc\0work\0dev\0init\0contract\0', stdout=output, check=True)
+        archive = contract_archive(work, init, args.fixture)
         report.update({'kernelSha256': sha256(args.kernel), 'fixtureSha256': sha256(args.fixture),
                        'initSha256': sha256(init)})
         command = [args.qemu, '-machine', 'virt', '-cpu', 'cortex-a72',

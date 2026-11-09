@@ -120,7 +120,9 @@ int md_network_addresses(struct md_network_namespace *n,const struct nlmsghdr *h
     struct md_netlink_attribute a; uint64_t seen=0; int error;
     uint32_t preferred=UINT32_MAX,valid=UINT32_MAX;
     while ((error=md_netlink_attribute_next(&cursor,&a))>0) {
-        if (!a.type || a.type>IFA_MAX) return -EOPNOTSUPP;
+        /* Copied rtnetlink records can replace removed attributes with UNSPEC. */
+        if (a.type==IFA_UNSPEC) continue;
+        if (a.type>IFA_MAX) return -EOPNOTSUPP;
         if (seen&(UINT64_C(1)<<a.type)) return -EINVAL;
         seen|=UINT64_C(1)<<a.type;
         const struct rtattr *wire=a.wire;
@@ -240,6 +242,7 @@ int md_network_routes(struct md_network_namespace *n,const struct nlmsghdr *h,ui
         struct md_netlink_cursor cursor={RTM_RTA(m),h->nlmsg_len-NLMSG_LENGTH(sizeof(*m))};
         struct md_netlink_attribute a; int error;
         while ((error=md_netlink_attribute_next(&cursor,&a))>0) {
+            if (a.type==RTA_UNSPEC && !(query && strict)) continue;
             if (!a.type || a.type>RTA_MAX) return -EOPNOTSUPP;
             if (seen&(UINT64_C(1)<<a.type)) return -EINVAL;
             seen|=UINT64_C(1)<<a.type;
@@ -344,7 +347,10 @@ int md_network_routes(struct md_network_namespace *n,const struct nlmsghdr *h,ui
         for (unsigned i=0;i<n->count;++i) local|=md_network_interface_has(&n->links[i],value.source);
         if (!local) return -EINVAL;
     }
-    if (!md_ip_unspecified(value.gateway) && md_ip_unspecified(md_network_interface_source(link,value.gateway))) return -ENETUNREACH;
+    /* A scoped IPv6 router is reachable on its explicit interface even before
+     * address configuration/DAD. Source selection belongs to packet routing. */
+    if (!md_ip_unspecified(value.gateway) && !(value.gateway.family==AF_INET6 && md_ip_linklocal(value.gateway))
+            && md_ip_unspecified(md_network_interface_source(link,value.gateway))) return -ENETUNREACH;
     if (value.valid_until) {
         int error=md_network_forward_timer(n->fabric);
         if (error) return error;

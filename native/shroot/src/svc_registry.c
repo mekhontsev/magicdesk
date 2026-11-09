@@ -227,18 +227,20 @@ static int frame_slots(const struct md_svc_registry *r,pid_t pid,uint64_t *out) 
     return 0;
 }
 int md_svc_registry_occupied(const struct md_svc_registry *r,pid_t pid,uint64_t *out) {
-    if (!out || (r && !r->disabled)) return -EINVAL;
+    if (!out || (r && (!r->disabled || r->revoke_pending))) return -EINVAL;
     *out=0;
     if (!r || !md_svc_registry_resident(r) || r->entry_fence_drained) return 0;
     return frame_slots(r,pid,out);
 }
 int md_svc_registry_revoke(struct md_svc_registry *r,pid_t pid) {
-    if (!r || r->disabled) return 0;
+    if (!r || (r->disabled && !r->revoke_pending)) return 0;
     r->disabled=1;
+    r->revoke_pending=1;
     uint64_t zero=0;
     int error=md_svc_registry_write(pid,r->frames+MD_SVC_POOL_SIZE+
         offsetof(struct md_svc_payload_state,admitted),&zero,8);
     for (unsigned i=0;!error && i<r->count;++i) error=md_svc_registry_retire(r,&r->sites[i],pid);
+    if (!error) r->revoke_pending=0;
     return error;
 }
 int md_svc_registry_unpatch(struct md_svc_registry *r,pid_t pid,uintptr_t start,size_t size) {

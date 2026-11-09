@@ -259,6 +259,30 @@ static void selectors(void) {
     assert(md_fd_selector_target(a,3,0)==-EINVAL);
     assert(md_fd_selector_target(a,3,4097)==-EINVAL);
     md_fd_selector_release(a); md_fd_selector_release(copy); md_fd_selector_release(shared);
+
+    struct md_fd_selector *required=md_fd_selector_new(),*installed=md_fd_selector_new();
+    assert(required && installed);
+    enum md_fd_selector_kind kind; int number;
+    assert(!md_fd_selector_missing(required,installed,&kind,&number));
+    const int descriptors[]={0,7,511,519};
+    for (unsigned k=0;k<MD_FD_SELECTOR_KINDS;++k)
+    for (unsigned i=0;i<sizeof(descriptors)/sizeof(*descriptors);++i) {
+        assert(md_fd_selector_has(required,k,descriptors[i])>=0);
+        assert(!md_fd_selector_mark(required,k,descriptors[i]));
+    }
+    unsigned count=0;
+    while (md_fd_selector_missing(required,installed,&kind,&number)==1) {
+        assert(!md_fd_selector_has(installed,kind,number));
+        assert(!md_fd_selector_installed(installed,kind,number,40));
+        assert(++count<=MD_FD_SELECTOR_KINDS*3);
+    }
+    assert(count==13); /* Four numbered kinds, one all-descriptor poll kind. */
+    assert(!md_fd_selector_mark(required,MD_FD_SELECTOR_PROC,-1));
+    assert(md_fd_selector_missing(required,installed,&kind,&number)==1);
+    assert(kind==MD_FD_SELECTOR_WATCH && number==-1);
+    assert(!md_fd_selector_installed(installed,MD_FD_SELECTOR_PROC,-1,40));
+    assert(!md_fd_selector_missing(required,installed,&kind,&number));
+    md_fd_selector_release(required); md_fd_selector_release(installed);
 }
 static void ordered_io(void) {
     struct md_identity id=md_identity_new(2000,2000);

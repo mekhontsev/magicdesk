@@ -196,16 +196,57 @@ def guest():
         assert sorted(os.listdir(bridge / 'bridge')) == ['stp_state']
         assert (bridge / 'bridge/stp_state').read_text() == '0\n'
         assert not (lo / 'bridge').exists()
+        assert (bridge / 'brif').is_dir() and not list((bridge / 'brif').iterdir())
+        ip('link', 'add', 'port', 'type', 'veth', 'peer', 'name', 'peer')
+        port = net / 'port'
+        assert not (port / 'brport').exists()
+        ip('link', 'set', 'port', 'master', 'br-test')
+        assert (bridge / 'brif/port').is_symlink()
+        assert (bridge / 'brif/port').resolve() == (port / 'brport').resolve()
+        assert (port / 'master').resolve() == bridge.resolve()
+        assert (port / 'brport/bridge').resolve() == bridge.resolve()
+        state = os.open(bridge / 'brif/port/state', os.O_RDONLY)
+        state_inode = os.fstat(state).st_ino
+        assert os.pread(state, 64, 0) == b'0\n'
+        for device in ('br-test', 'port', 'peer'):
+            ip('link', 'set', device, 'up')
+        assert os.pread(state, 64, 0) == b'3\n'
+        ip('link', 'set', 'peer', 'down')
+        assert os.pread(state, 64, 0) == b'0\n'
+        ip('link', 'set', 'peer', 'up')
+        ip('link', 'set', 'br-test', 'down')
+        assert os.pread(state, 64, 0) == b'0\n'
+        ip('link', 'set', 'br-test', 'up')
+        assert os.pread(state, 64, 0) == b'3\n'
         stp = os.open(bridge / 'bridge/stp_state', os.O_RDONLY)
         inode = os.fstat(stp).st_ino
         ip('link', 'set', 'br-test', 'name', 'br-renamed')
         assert (net / 'br-renamed/bridge/stp_state').stat().st_ino == inode
         assert os.pread(stp, 64, 0) == b'0\n'
+        ip('link', 'set', 'port', 'name', 'port-renamed')
+        bridge = net / 'br-renamed'
+        port = net / 'port-renamed'
+        assert sorted(os.listdir(bridge / 'brif')) == ['port-renamed']
+        assert (bridge / 'brif/port-renamed/state').stat().st_ino == state_inode
+        assert (port / 'brport/bridge').resolve() == bridge.resolve()
+        assert (port / 'master').resolve() == bridge.resolve()
+        ip('link', 'set', 'port-renamed', 'nomaster')
+        ip('link', 'set', 'port-renamed', 'master', 'br-renamed')
+        # A detach/reattach between observations creates a new port object.
+        denied(lambda: os.pread(state, 64, 0), errno.ENODEV)
+        assert (bridge / 'brif/port-renamed/state').stat().st_ino != state_inode
+        os.close(state)
+        state = os.open(bridge / 'brif/port-renamed/state', os.O_RDONLY)
         denied(lambda: os.open(net / 'br-renamed/bridge/stp_state', os.O_WRONLY), errno.EROFS)
         ip('link', 'delete', 'br-renamed')
+        assert not (port / 'brport').exists() and not (port / 'master').exists()
+        denied(lambda: os.pread(state, 64, 0), errno.ENODEV)
+        os.close(state)
+        ip('link', 'delete', 'port-renamed')
         assert sorted(os.listdir(net)) == ['lo']
         denied(lambda: os.pread(stp, 64, 0), errno.ENODEV)
         ip('link', 'add', 'br-test', 'type', 'bridge')
+        bridge = net / 'br-test'
         assert (bridge / 'bridge/stp_state').read_text() == '0\n'
         denied(lambda: os.pread(stp, 64, 0), errno.ENODEV)
         os.close(stp)
@@ -320,11 +361,19 @@ def guest():
         call(39, b, 2)
         print('PASS cgroup over sysfs and network namespace mount authority', flush=True)
 
-        result = subprocess.run(['strace', '-e', 'trace=fsopen,fsconfig,fsmount,move_mount',
+        result = subprocess.run(['strace', '-e', 'trace=mount,fsopen,fsconfig,fsmount,move_mount',
                                  'mount', '-t', 'sysfs', '-o', 'ro', 'sysfs', str(a)],
                                 capture_output=True, text=True)
         print(result.stderr, end='', flush=True)
-        assert result.returncode == 0 and 'move_mount(' in result.stderr, result
+        assert result.returncode == 0 and any(
+            line.startswith(('mount(', 'move_mount(')) and line.endswith('= 0')
+            for line in result.stderr.splitlines()), result
+        call(43, a, ctypes.addressof(fsstat))
+        assert fsstat[0] == 0x62656572
+        entry = next(line for line in Path('/proc/self/mountinfo').read_text().splitlines()
+                     if line.split()[4] == str(a))
+        assert ' - sysfs ' in entry and 'ro' in entry.split()[5].split(','), entry
+        denied(lambda: (a / 'class/net/lo/mtu').write_text('1500'), errno.EROFS)
         call(39, a, 2)
         before = len(os.listdir('/proc/self/fd'))
         for _ in range(40):

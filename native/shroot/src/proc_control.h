@@ -53,8 +53,10 @@ static inline int md_proc_io_decode(long nr, const unsigned long *a, struct md_p
     return out->positional && out->offset<0 ? -EINVAL : 0;
 }
 enum { MD_PROC_FILE_OPEN=1, MD_PROC_FILE_REOPEN, MD_PROC_FILE_NAMESPACE_QUERY, MD_PROC_FILE_PIDFD_NAMESPACE };
-/* A prepared carrier needs SCM_RIGHTS instead of SECCOMP_ADDFD. Not an FD. */
-#define MD_PROC_OPEN_RIGHTS (INT64_C(1)<<32)
+struct md_proc_open_request {
+    uint32_t operation; int32_t process; uint32_t selector, flags;
+    uint64_t view; char interface[16];
+};
 struct md_proc_metadata_request { int32_t process, descriptor; uint32_t kind, access, effective, nofollow; char interface[16]; };
 struct md_proc_metadata_result { struct md_fs_info value; uint32_t kind; unsigned long filesystem; };
 static inline int md_proc_control_kind(enum md_proc_kind kind) {
@@ -64,6 +66,7 @@ static inline int md_proc_control_kind(enum md_proc_kind kind) {
 long md_proc_control_open(const struct md_proc_path *, int flags, uint64_t view);
 long md_proc_control_known(int fd);
 long md_proc_control_reopen(int process, int fd, int flags);
+long md_proc_control_pidfd(void *buffer,int fd,unsigned command);
 long md_proc_control_metadata(const struct md_proc_path *, long nr, const unsigned long *);
 long md_proc_control_link_metadata(const struct md_proc_path *, long nr, const unsigned long *,uint64_t mount);
 long md_proc_control_call(long nr, const unsigned long *, int kind);

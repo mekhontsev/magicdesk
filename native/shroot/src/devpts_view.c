@@ -2,6 +2,7 @@
 #include "devpts_view.h"
 #include "directory_record.h"
 #include "file_permissions.h"
+#include "file_open.h"
 #include "temporary_directory.h"
 #include <stdatomic.h>
 #include <dirent.h>
@@ -169,7 +170,8 @@ int md_devpts_open(struct md_devpts *p,int fd,int flags,const struct md_identity
         if (r) return r;
     }
     char path[64]; snprintf(path,sizeof(path),"/proc/self/fd/%d",fd);
-    int opened=open(path,(flags&~O_NOFOLLOW)|O_CLOEXEC); if (opened<0) return -errno;
+    int opened=open(path,md_open_endpoint_flags(flags)|O_CLOEXEC);
+    if (opened<0) return -errno;
     if (!(flags&O_PATH) && ptmx(&st)) {
         unsigned number;
         if (ioctl(opened,TIOCGPTN,&number)) { r=-errno; goto failed; }

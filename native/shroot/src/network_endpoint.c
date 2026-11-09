@@ -395,7 +395,10 @@ int md_network_endpoint_listen(struct md_fd_object *o,int fd,int backlog) {
 const void *md_network_endpoint_publication(struct md_network_namespace *n,const void *except,int type,
         const struct md_inet_address *address) {
     for (const struct md_network_endpoint *e=n->fabric->endpoints;e;e=e->next)
-        if (e!=except && e->space==n && e->type==type && e->bound && e->published && md_inet_equal(&e->local,address)) return e;
+        if (e!=except && e->space==n && e->type==type && e->bound && e->published
+                && (md_inet_equal(&e->local,address) || (type==SOCK_DGRAM
+                    && e->local.port==address->port && e->local.ip.family==address->ip.family
+                    && md_ip_unspecified(address->ip)))) return e;
     return NULL;
 }
 static uint64_t reuse_score(const struct md_network_endpoint *e,const struct md_filter_packet *p) {

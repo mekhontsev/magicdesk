@@ -147,12 +147,13 @@ struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct 
     struct md_provider_tree *tree=md_procfs_tree_new(parent,lower,&p);
     error=tree ? 0 : errno;
     if (tree) error=-md_procfs_kernel_snapshot(md_provider_tree_root(tree),lower);
-    if (!error) {
-        int uptime=openat(lower,"uptime",O_RDONLY|O_CLOEXEC);
-        if (uptime>=0) close(uptime);
+    const char *sampled[]={"uptime","stat"};
+    for (size_t i=0;!error && i<sizeof(sampled)/sizeof(*sampled);++i) {
+        int sample=openat(lower,sampled[i],O_RDONLY|O_CLOEXEC);
+        if (sample>=0) close(sample);
         else if (errno==EACCES || errno==EPERM || errno==ENOENT) {
-            uptime=openat(md_provider_tree_root(tree),"uptime",O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0444);
-            if (uptime<0) error=errno; else close(uptime);
+            sample=openat(md_provider_tree_root(tree),sampled[i],O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0444);
+            if (sample<0) error=errno; else close(sample);
         } else error=errno;
     }
     close(lower);

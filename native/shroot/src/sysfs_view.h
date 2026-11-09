@@ -17,7 +17,7 @@ struct md_provider_tree *md_sysfs_provider(const struct md_sysfs *);
 struct md_sysfs_node {
     struct stat stat;
     unsigned attribute,interface;
-    uint64_t lifetime;
+    uint64_t lifetime, bridge_lifetime;
 };
 int md_sysfs_refresh(struct md_sysfs *);
 /* -EXDEV selects native lower-tree handling. */

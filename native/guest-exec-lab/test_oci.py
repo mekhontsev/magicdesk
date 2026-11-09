@@ -486,6 +486,14 @@ sys.stdin.read()
         self.run_import(self.layout([[('bad', 'file', b'x', 0o755, 0, 0,
                                        {'security.unknown': b'value'})]]), success=False)
 
+    def test_trusted_attributes_use_guest_metadata_in_shared_layers(self):
+        self.pool_import(self.layout([[('file', 'file', b'body', 0o600, 0, 0,
+                                       {'trusted.fixture': b'\x00value\xff', 'trusted.empty': b''})]]))
+        with database(self.destination / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT name,value FROM inode_xattrs ORDER BY name').fetchall(),
+                             [('trusted.empty', b''), ('trusted.fixture', b'\x00value\xff')])
+        self.assertEqual(self.body('file').read_bytes(), b'body')
+
     def test_tar(self):
         self.run_import(self.layout(compression=''))
         self.assertEqual(self.object('hello').read_bytes(), b'world')
@@ -799,7 +807,7 @@ sys.stdin.read()
                                          (object_id,)).fetchone()
             directory = store / pathlib.Path(db.execute('SELECT path FROM sources WHERE scope=? AND id=?', (ROOT, source)).fetchone()[0]) \
                 if source else store / 'objects'
-            return directory / backing
+            return directory.resolve() / backing
 
     def pool_import(self, layout, destination=None):
         pool = self.root / 'layers'
@@ -1009,6 +1017,50 @@ sys.stdin.read()
         self.assertFalse(self.destination.exists())
         self.assertFalse(layer.exists())
         self.assertFalse(list(self.root.rglob('.md-remove-*')))
+
+    def test_maintenance_is_explicit_and_preserves_referenced_bodies(self):
+        self.run_import(self.layout([[('file', 'file', b'keep'), ('alias', 'hard', 'file')]]))
+        objects = self.destination / 'objects'
+        orphan = objects / ('a' * 32)
+        orphan.write_bytes(b'uncommitted')
+        directory = objects / ('b' * 32)
+        directory.mkdir()
+        (directory / 'leaf').write_bytes(b'uncommitted leaf')
+        outside = self.root / 'outside'
+        outside.write_bytes(b'outside')
+        link = objects / ('c' * 32)
+        link.symlink_to(outside)
+        self.command('prepare', self.destination)
+        self.assertTrue(orphan.exists())
+        self.command('maintain', self.destination)
+        self.assertFalse(orphan.exists())
+        self.assertFalse(directory.exists())
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(outside.read_bytes(), b'outside')
+        self.assertEqual(self.body('file').read_bytes(), b'keep')
+        self.assertEqual(self.body('file'), self.body('alias'))
+        self.command('maintain', self.destination)
+
+    def test_maintenance_rejects_live_owner_and_preserves_shared_sources(self):
+        pool = self.pool_import(self.layout())
+        instance = self.root / 'instance'
+        self.command('create', self.destination, instance)
+        orphan = instance / 'objects' / ('a' * 32)
+        orphan.write_bytes(b'uncommitted')
+        body = self.body('hello', instance)
+        self.assertEqual(body, self.body('hello'))
+        fd = os.open(instance, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+            result = self.command('maintain', instance, success=False)
+            self.assertIn('errno=16', result.stderr)
+            self.assertEqual(orphan.read_bytes(), b'uncommitted')
+        finally:
+            os.close(fd)
+        self.command('maintain', instance)
+        self.assertFalse(orphan.exists())
+        self.assertEqual(body.read_bytes(), b'world')
+        self.assertTrue(pool.exists())
 
     def test_interrupted_removal_can_finish_without_a_valid_database(self):
         self.run_import(self.layout())

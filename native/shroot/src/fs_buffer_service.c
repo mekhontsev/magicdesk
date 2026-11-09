@@ -12,6 +12,7 @@
 #include "ofd_order.h"
 #include "file_open_job.h"
 #include "fifo_description.h"
+#include "pty_events.h"
 #include "exec_prepare.h"
 #include "file_snapshot.h"
 #include "ipc_credentials.h"
@@ -756,6 +757,11 @@ static void prepare_open(struct md_fs_buffer_request *r,struct md_filesystem *fs
     struct md_fs_response *reply=&r->output->reply;
     r->output->source_verify=0;
     if (r->opened.fd>=0) {
+        if (!r->error && !reply->result.error && r->opened.origin && !r->opened.object) {
+            r->error=md_pty_events_open(&fs->pty_events,r->opened.fd,r->opened.origin,r->request.flags,
+                r->opened.completion.kind==MD_OPEN_CALLER,&r->opened.object);
+            if (r->error) return;
+        }
         if (r->reopened) {
             md_fs_anchor_release(r->opened.origin); r->opened.origin=NULL;
             md_fd_object_release(r->opened.object);

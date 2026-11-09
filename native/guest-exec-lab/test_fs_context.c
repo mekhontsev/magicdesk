@@ -5,6 +5,7 @@
 #include "mount_graph.h"
 #include "procfs_view.h"
 #include "proc_static.h"
+#include "cgroup.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -141,33 +142,57 @@ static void kernel_snapshot(const char *base) {
     close(root);
     puts("PASS proc kernel identity: native admission, denied/missing fallback and unchanged errors");
 }
-static void uptime_sample(const char *base) {
+static void host_sample(const char *base,enum md_proc_kind kind) {
     int fd=open(base,O_PATH|O_CLOEXEC); assert(fd>=0);
     struct stat node,st;
     assert(!fstat(fd,&node));
-    struct md_control_file file=md_proc_uptime_new(NULL,NULL,fd); assert(file.ops);
+    struct md_cgroup_member *member=md_cgroup_member_new(); assert(member);
+    md_cgroup_member_publish(member,gettid(),getpid(),NULL,NULL);
+    struct md_control_file file=md_proc_host_sample_new(kind,NULL,NULL,fd,member); assert(file.ops);
     assert(!file.ops->stat(file.context,&st) && st.st_dev==node.st_dev && st.st_ino==node.st_ino
         && st.st_mode==(S_IFREG|0444));
-    char text[64]={0},tail[64]={0};
+    char text[192]={0},tail[192]={0};
     struct timespec before,after;
     assert(!clock_gettime(CLOCK_BOOTTIME,&before));
     long n=file.ops->read(file.context,NULL,text,sizeof(text)-1,0); assert(n>0);
     assert(!clock_gettime(CLOCK_BOOTTIME,&after));
-    long long seconds; unsigned hundredths; int length=0;
-    assert(sscanf(text,"%lld.%u 0.00\n%n",&seconds,&hundredths,&length)==2 && length==n
-        && seconds>=before.tv_sec && seconds<=after.tv_sec && hundredths<100);
+    long long seconds; int length=0;
+    if (kind==MD_PROC_UPTIME) {
+        unsigned hundredths;
+        assert(sscanf(text,"%lld.%u 0.00\n%n",&seconds,&hundredths,&length)==2 && length==n
+            && seconds>=before.tv_sec && seconds<=after.tv_sec && hundredths<100);
+    } else {
+        struct timespec wall; assert(!clock_gettime(CLOCK_REALTIME,&wall));
+        unsigned long long user,system,idle;
+        assert(sscanf(text,"cpu %llu 0 %llu %llu 0 0 0 0 0 0\nbtime %lld\n%n",
+            &user,&system,&idle,&seconds,&length)==4 && length==n && idle>0
+            && seconds>=wall.tv_sec-after.tv_sec-1 && seconds<=wall.tv_sec-before.tv_sec+1);
+    }
     assert(file.ops->read(file.context,NULL,tail,sizeof(tail),1)==n-1 && !memcmp(text+1,tail,n-1));
     assert(!file.ops->read(file.context,NULL,tail,sizeof(tail),n));
     assert(file.ops->read(file.context,NULL,tail,sizeof(tail),-1)==-EINVAL);
     assert(file.ops->access(file.context,NULL,W_OK)==-EACCES);
-    md_control_file_release(file); close(fd);
-    puts("PASS proc uptime fallback: boot clock, stable partial reads, inode identity and read-only policy");
+    if (kind==MD_PROC_SYSTEM_STAT) {
+        uint64_t user,system,next_user,next_system;
+        assert(!md_cgroup_cpu_usage(member,&user,&system));
+        struct timespec start,now;
+        assert(!clock_gettime(CLOCK_THREAD_CPUTIME_ID,&start));
+        do {
+            for (volatile unsigned i=0;i<10000;++i) {}
+            assert(!clock_gettime(CLOCK_THREAD_CPUTIME_ID,&now));
+        } while ((now.tv_sec-start.tv_sec)*1000000000LL+now.tv_nsec-start.tv_nsec<150000000);
+        assert(!md_cgroup_cpu_usage(member,&next_user,&next_system));
+        assert(next_user+next_system>=user+system+(uint64_t)sysconf(_SC_CLK_TCK)/10);
+    }
+    md_control_file_release(file); md_cgroup_member_release(member); close(fd);
+    puts("PASS proc host sample: boot clock, stable partial reads, inode identity and read-only policy");
 }
 void test_fs_context(const char *base) {
     unsigned baseline=descriptors();
     pressure_probe(base);
     kernel_snapshot(base);
-    uptime_sample(base);
+    host_sample(base,MD_PROC_UPTIME);
+    host_sample(base,MD_PROC_SYSTEM_STAT);
     char path[PATH_MAX]; snprintf(path,sizeof(path),"%s/fs-context",base);
     struct md_inode_store *store=NULL; assert(!md_inode_store_open(path,1,&store));
     struct md_identity root=md_identity_new(0,0); store->identity=&root;

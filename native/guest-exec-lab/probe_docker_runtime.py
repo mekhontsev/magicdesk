@@ -48,10 +48,17 @@ def wait_daemon_api(endpoint, report, timeout=45):
         threading.Event().wait(min(0.1, max(0, deadline - time.monotonic())))
 
 
+def ensure_image(client, image, archive=''):
+    if client('image', 'inspect', image):
+        return True
+    operation = ('load', '--input', archive) if archive else ('pull', image)
+    return client(*operation) and client('image', 'inspect', image)
+
+
 def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_runtime=False,
           no_new_keyring=False, trace_filesystem=False, create_count=0, trace_network=False, observer='',
           storage_driver='vfs', data_root='', userland_proxy=True, internet=False, endpoint='', ipv6=False,
-          internet_ipv6=False, ipv6_host='::1', rootless_user=''):
+          internet_ipv6=False, ipv6_host='::1', rootless_user='', image_archive=''):
     if rootless_user and os.getuid() == 0:
         import pwd
         assert pwd.getpwnam(rootless_user).pw_uid != 0, 'Select an ordinary guest user'
@@ -279,7 +286,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
                 info = json.loads(report['commands'][-1]['output'])
                 assert 'name=rootless' in info['SecurityOptions'], info['SecurityOptions']
                 assert any('seccomp' in option for option in info['SecurityOptions']), info['SecurityOptions']
-            if report['apiReady'] and (client('image', 'inspect', image) or client('pull', image)):
+            if report['apiReady'] and ensure_image(client, image, image_archive):
                 for number in range(create_count):
                     name = 'md-copy-' + str(number)
                     if not client('create', '--name', name, '--network', 'none', '--cgroupns',

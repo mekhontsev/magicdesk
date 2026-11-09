@@ -40,10 +40,27 @@ def main():
     parser.add_argument('--engine', choices=('docker', 'podman'), required=True)
     parser.add_argument('--docker-profile', choices=('service', 'routed', 'iptables', 'nftables'), default='service')
     parser.add_argument('--internet', action='store_true')
+    parser.add_argument('--rootless', action='store_true', help='Use the retained ordinary-user session and stock rootless launcher')
+    parser.add_argument('--trace', action='store_true', help='Trace Podman exec and its DNS service for diagnosis')
+    parser.add_argument('--trace-runtime', action='store_true',
+                        help='Trace runc in the fixture-owned rootless Docker daemon')
+    parser.add_argument('--image-archive', default='',
+                        help='Guest Docker image archive to load instead of pulling from a registry')
     parser.add_argument('--path-prefix', default='', help='Installed vendor command directory; no runtime option changes')
     args = parser.parse_args()
+    if args.trace and args.engine != 'podman':
+        parser.error('--trace requires --engine podman')
+    if args.image_archive and args.engine != 'docker':
+        parser.error('--image-archive requires --engine docker')
+    if args.trace_runtime and (args.engine != 'docker' or not args.rootless):
+        parser.error('--trace-runtime requires --engine docker --rootless')
+    if args.rootless and (args.trace or args.docker_profile != 'service'):
+        parser.error('--rootless retains stock set-ID helpers and daemon policy')
     state = json.loads(args.session.read_text())
     assert not state.get('closed')
+    if args.rootless:
+        assert state.get('userPort') and state.get('user') and not state.get('headless'), (
+            'Rootless checks need a retained ordinary-user session; use an offscreen desktop, not root-only headless boot')
     assert state.get('networkProfile') in ('routed', 'host'), (
         'The external port observer requires Android loopback access; start the '
         'fixture with --network-profile routed (containers still use private bridges)')
@@ -52,45 +69,56 @@ def main():
     tag = uuid.uuid4().hex
     suite.report.update(engine=args.engine, session=state['id'], environment=state['environment'],
                         nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'),
-                        pathPrefix=args.path_prefix)
+                        pathPrefix=args.path_prefix, rootless=args.rootless,
+                        imageArchive=args.image_archive,
+                        diagnostics=dict(podman=args.trace, runtime=args.trace_runtime))
     try:
         for name in ('probe_docker_runtime.py', 'probe_podman_runtime.py', 'docker_network_fixture.py'):
             remote = state['directory'] + '/' + name
             suite.upload(Path(__file__).with_name(name), remote, overwrite=True)
             suite.chmod('644', remote)
         if args.engine == 'docker':
-            argv = ['python3', state['target'] + '/probe_docker_runtime.py', '--guest',
-                    args.docker_profile, 'python:3.14-alpine', '0', 'none', 'private',
-                    '0', '0', '0', '0', '0', observer.address, 'overlay2',
-                    '/var/lib/md-fixture-docker', str(int(args.docker_profile == 'routed')),
-                    str(int(args.internet))]
+            options = dict(profile=args.docker_profile, image='python:3.14-alpine',
+                           observer=observer.address, internet=args.internet,
+                           image_archive=args.image_archive)
             if args.docker_profile == 'service':
-                argv = ['python3', '-c',
-                    'from probe_docker_runtime import guest; guest("service", "python:3.14-alpine", '
-                    'observer=' + repr(observer.address) + ', internet=' + repr(args.internet) + ', '
-                    'endpoint="unix:///var/run/docker.sock")']
-                command = '(' + start_service(state['init'], 'docker') + ') && cd ' + shlex.quote(state['target']) + ' && ' + shlex.join(argv)
+                if args.rootless:
+                    options.update(profile='rootless', cgroup='v2', storage_driver='overlay2',
+                                   rootless_user=state['user'], trace_runtime=args.trace_runtime)
+                else:
+                    options['endpoint'] = 'unix:///var/run/docker.sock'
             else:
-                command = shlex.join(argv)
+                options.update(storage_driver='overlay2', data_root='/var/lib/md-fixture-docker',
+                               userland_proxy=args.docker_profile == 'routed')
+            argv = ['python3', '-c', 'import json,sys; from probe_docker_runtime import guest; '
+                    'guest(**json.loads(sys.argv[1]))', json.dumps(options)]
+            command = ('(' + start_service(state['init'], 'docker') + ') && '
+                       if args.docker_profile == 'service' and not args.rootless else '')
+            command += 'cd ' + shlex.quote(state['target']) + ' && ' + shlex.join(argv)
         else:
             options = dict(directory='/tmp/md-podman-' + tag, cache='/var/lib/md-fixture-podman',
                 storage='overlay', network='bridge', image='docker.io/library/alpine:3.23',
                 cgroups='enabled', internet=args.internet, portsImage='docker.io/library/python:3.14-alpine',
                 ipv6=False, ipv6Host='::1', ipv6PublishHost='::1', internetIpv6=False,
-                trace=False, hostLimits=False, unlimitedPids=False, execRepeats=3, observer=observer.address,
+                trace=args.trace, hostLimits=False, unlimitedPids=False, execRepeats=3, observer=observer.address,
                 prepared=True)
+            if args.rootless:
+                options.update(rootlessUser=state['user'], network='default',
+                               cache='/tmp/md-rootless-podman-' + state['user'])
             argv = ['python3', state['target'] + '/probe_podman_runtime.py', '--guest', json.dumps(options)]
             command = shlex.join(argv)
         if args.path_prefix:
             assert args.path_prefix.startswith('/') and ':' not in args.path_prefix
             command = 'PATH=' + shlex.quote(args.path_prefix) + ':"$PATH"; export PATH; ' + command
         command = shlex.join(['python3', '-c', PRESERVE_SYSTEM_MOUNTS, command])
-        request = urllib.request.Request('http://127.0.0.1:' + str(state['rootPort']),
+        request = urllib.request.Request('http://127.0.0.1:' + str(state['userPort' if args.rootless else 'rootPort']),
             data=json.dumps(dict(id=tag, command=command, wait=True)).encode(),
             headers={'Authorization': 'Bearer ' + state['token']})
         print('Container log: ' + state['directory'] + '/' + tag + '.log', flush=True)
         # EVENT_WAIT: probe completion through the exact booted session; no replay on timeout.
         response = json.loads(urllib.request.urlopen(request, timeout=1900).read())
+        assert (response['uid'] != 0) == args.rootless, 'Controller identity does not match the selected probe'
+        suite.report['guestUid'] = response['uid']
         local = args.session.parent / (args.engine + '-' + tag + '.log')
         suite.download(state['directory'] + '/' + tag + '.log', local)
         output = local.read_text()
@@ -110,7 +138,7 @@ def main():
             assert report['passed'], report.get('failure')
         else:
             assert report.get('portPublicationPassed') and report.get('containerPeerExchangePassed'), report
-            if args.docker_profile == 'service':
+            if args.docker_profile == 'service' and not args.rootless:
                 assert report['externalDaemon'] and report['daemonRetained'], report
             else:
                 assert report['daemonExitCode'] == 0 and report['readerDrained'], report

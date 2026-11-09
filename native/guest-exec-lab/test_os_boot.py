@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Boot an installed distribution's default userspace under actual shell UID.
+"""Boot an installed distribution's default userspace with the selected executor.
 
 The observer supplements, but does not replace, the distribution's boot units.
-Uses a disposable store. Does not request a host reboot or shutdown.
+Reuses the selected store with private API mounts. Never reboots the host.
 """
 import argparse
 import ctypes
@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 
-from init_fixture import OPENRC_PREPARE, RUNIT_PREPARE
+from init_fixture import OPENRC_PREPARE, RUNIT_PREPARE, stop_init_launch
 
 SYSTEMD = r'''
 mkdir -p /run/systemd/system/default.target.wants
@@ -209,6 +209,9 @@ def observe_openrc(target):
 def check_runit_boot(log):
     plain = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', log)
     assert not re.search(r'\[\s*fail\s*\]', plain), plain
+    assert not re.search(r'\b(?:Bad system call|Segmentation fault|Bus error|'
+                         r'Illegal instruction|Aborted)(?:\s*\(core dumped\))?\s*$',
+                         plain, re.MULTILINE | re.IGNORECASE), plain
 
 
 def check_systemd_boot(log):
@@ -220,6 +223,7 @@ def check_systemd_boot(log):
 
 
 def main():
+    from fixture_executor import FixtureExecutor, add_diagnostics_argument, diagnostic_options
     from test_oci_services import Server, Suite
     from init_fixture import prepare_init, TRACE_SYSCALLS
 
@@ -242,6 +246,8 @@ def main():
     parser.add_argument('--drop-capability', action='append', default=[],
                         help='Explicit container capability policy, applied by stock setpriv before PID1')
     parser.add_argument('--output', type=Path, default=Path('build/os-boot-results'))
+    FixtureExecutor.add_argument(parser)
+    add_diagnostics_argument(parser)
     args = parser.parse_args()
     if any(not re.fullmatch('[a-z][a-z0-9_]*', cap) for cap in args.drop_capability):
         parser.error('capability names must use setpriv lowercase spelling without CAP_')
@@ -257,13 +263,14 @@ def main():
         parser.error('--binfmt requires systemd')
     if args.networkd_ipv6 and args.init != 'systemd':
         parser.error('--networkd-ipv6 requires systemd')
-    suite = Suite(args.output, args.build)
+    suite = Suite(args.output, args.build, executor=args.executor)
     suite.report['store'] = args.store
     suite.report['bootPolicy'] = {'init': args.init, 'dropCapabilities': args.drop_capability,
                                 'rtkit': args.rtkit, 'network': args.network, 'dns': args.dns,
                                 'entryMode': args.entry, 'restartServices': args.restart_service, 'serviceIO': args.service_io}
     target = '/md-boot-' + suite.report['id']
     prefix = [suite.runner, '--store', args.store, '--user', '0:0', '--network', args.network,
+              '--env', 'LC_ALL=C',
               '--env', 'SHROOT_MACHINE_ENTRY=' + ('0' if args.entry == 'base' else '1')]
     for address in args.dns:
         prefix += ['--dns', address]
@@ -354,7 +361,7 @@ printf ':md-boot:E::mdboot::/bin/true:P\\n' > /run/binfmt.d/md-boot.conf
                     'trace=' + TRACE_SYSCALLS,
                     '-o', target + '/boot.trace'] + boot
         # EVENT_WAIT: PTY and PID1 completion, never an elapsed-time boot verdict.
-        command = prefix + ['--env', 'MAGICDESK_GUEST_LABEL=' + label,
+        command = prefix + diagnostic_options(args.diagnostics) + ['--env', 'MAGICDESK_GUEST_LABEL=' + label,
                             '--bind', suite.base, target, '--deadline-seconds', '180', '--',
                             '/usr/bin/script', '-q', '-e', '-c', shlex.join(boot), '/dev/null']
         if args.init == 'systemd':
@@ -375,11 +382,7 @@ printf ':md-boot:E::mdboot::/bin/true:P\\n' > /run/binfmt.d/md-boot.conf
                         records = suite.command(suite.image_command('launches', args.store))
                         return [json.loads(line) for line in records.splitlines() if line.strip()]
 
-                    active = launches()
-                    owned = [item for item in active if item['label'] == label]
-                    assert len(owned) <= 1, owned
-                    for launch in owned:
-                        suite.command(suite.image_command('stop', args.store, launch['launchId']))
+                    stop_init_launch(suite, args.store, label)
                     # EVENT_WAIT: the cancelled launch returns and closes its
                     # inherited output. The bound is failure, not readiness.
                     server.process.join(30)

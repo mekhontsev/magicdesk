@@ -418,6 +418,9 @@ int md_task_signal_control_parked(const struct md_task_signal_control *c) {
     return c && c->waiting && c->stage==WAIT_NATIVE && c->invoking && !c->copying
         && c->native.boundary==MD_TASK_CALL_EXIT;
 }
+void md_task_signal_control_quiesced(struct md_task_signal_control *c) {
+    if (md_task_signal_control_parked(c)) c->wait_woken=1;
+}
 int md_task_signal_descriptor_changed(struct md_task_signal_control *c,const struct md_signal_fd *file) {
     if (!c || c->signal_file!=file || !c->waiting || c->stage!=WAIT_NATIVE || !c->invoking) return 0;
     c->wait_woken=1;

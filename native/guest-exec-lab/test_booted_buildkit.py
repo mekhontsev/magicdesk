@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the BuildKit OCI/CNI fixture in an existing installed Linux session.
 
-Requires an idle dedicated BuildKit daemon and the prepared Alpine Podman image.
+Requires an idle dedicated BuildKit daemon and a prepared container base image.
 The caller owns daemon startup and teardown; no daemon options are weakened.
 """
 import argparse
@@ -20,6 +20,9 @@ def main():
     parser.add_argument('--session', type=Path, required=True)
     parser.add_argument('--prepare', action='store_true', help='Prepare a dedicated worker with the packaged BuildKit')
     parser.add_argument('--archive', type=Path, help='Prepare with an official BuildKit archive when the OS omits it')
+    parser.add_argument('--engine', choices=('podman', 'docker'), default='podman',
+                        help='Installed engine for base export and result execution; BuildKit remains OCI/CNI')
+    parser.add_argument('--image', default='docker.io/library/alpine:3.23')
     args = parser.parse_args()
     state = json.loads(args.session.read_text())
     assert not state.get('closed')
@@ -29,14 +32,16 @@ def main():
     suite = Suite(args.session.parent, session=state)
     tag = uuid.uuid4().hex
     suite.report.update(session=state['id'], environment=state['environment'],
-                        nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'))
+                        nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'),
+                        engine=args.engine)
     try:
         fixture = Path(__file__).with_name('fixtures') / 'buildkit-build.py'
         suite.upload(fixture, state['directory'] + '/buildkit-build.py', overwrite=True)
         suite.chmod('644', state['directory'] + '/buildkit-build.py')
         result_name = 'buildkit-' + tag + '.json'
         command = shlex.join(['python3', state['target'] + '/buildkit-build.py',
-                             state['target'] + '/' + result_name])
+                             state['target'] + '/' + result_name,
+                             '--engine', args.engine, '--image', args.image])
         request = urllib.request.Request('http://127.0.0.1:' + str(state['rootPort']),
             data=json.dumps(dict(id=tag, command=command, wait=True)).encode(),
             headers={'Authorization': 'Bearer ' + state['token']})

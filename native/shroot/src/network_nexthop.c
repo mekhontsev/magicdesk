@@ -68,7 +68,8 @@ int md_network_nexthops(struct md_network_namespace *n,const struct nlmsghdr *h,
     if (!(link->info.flags&IFF_UP)) return -ENETDOWN;
     if (m->nh_family==AF_INET6 && link->ipv6.disabled) return -EACCES;
     if (md_ip_multicast(value.gateway)) return -EINVAL;
-    if (!md_ip_unspecified(value.gateway) && !(value.flags&RTNH_F_ONLINK)) {
+    if (!md_ip_unspecified(value.gateway) && !(value.flags&RTNH_F_ONLINK)
+            && !(value.gateway.family==AF_INET6 && md_ip_linklocal(value.gateway))) {
         struct md_network_route_entry route;
         if (!md_network_route_lookup(n,value.gateway,value.interface,&route) || !md_ip_unspecified(route.gateway)) return -EINVAL;
     }

@@ -5,6 +5,7 @@
 #include <linux/stat.h>
 #include <linux/openat2.h>
 #include <sched.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +19,37 @@
 #include <unistd.h>
 
 extern char **environ;
+static int exec_shared_child(void *context) {
+    execve("/proc/self/exe",context,environ);
+    _exit(99);
+}
+static void exec_access(void) {
+    for (int dumpable=0;dumpable<2;++dumpable) {
+        int ready[2],finish[2]; assert(!pipe(ready) && !pipe(finish));
+        char output[32],input[32];
+        snprintf(output,sizeof(output),"%d",ready[1]);
+        snprintf(input,sizeof(input),"%d",finish[0]);
+        char *args[]={"test","proc-exec","access-child",output,input,NULL};
+        size_t size=65536;
+        void *stack=malloc(size); assert(stack);
+        assert(!prctl(PR_SET_DUMPABLE,dumpable));
+        pid_t child=clone(exec_shared_child,(char *)stack+size,CLONE_VM|CLONE_VFORK|SIGCHLD,args);
+        assert(child>0);
+        close(ready[1]); close(finish[0]);
+        char byte;
+        /* EVENT_WAIT: the exec child acknowledges its new mm, then changes
+         * its own access state; neither operation may alter the parent's mm. */
+        for (unsigned step=0;step<2;++step) {
+            assert(read(ready[0],&byte,1)==1);
+            assert(prctl(PR_GET_DUMPABLE)==dumpable);
+            assert(write(finish[1],"!",1)==1);
+        }
+        int status; assert(waitpid(child,&status,0)==child && !status);
+        close(ready[0]); close(finish[1]); free(stack);
+    }
+    assert(!prctl(PR_SET_DUMPABLE,1));
+    puts("PASS vfork exec: independent mm access state and unchanged parent");
+}
 static void image_metadata(const char *proc) {
     pid_t parent=getpid(), child=fork(); assert(child>=0);
     if (!child) {
@@ -51,6 +83,60 @@ static void image_metadata(const char *proc) {
     /* EVENT_WAIT: child checks a live foreign process in this proc mount. */
     int status=0; assert(waitpid(child,&status,0)==child && !status);
     puts("PASS foreign process image metadata and native access checks");
+}
+static volatile sig_atomic_t wait_signals;
+static void wait_signal(int signal) { assert(signal==SIGUSR2); ++wait_signals; }
+static void signal_wait_metadata(const char *proc) {
+    for (unsigned mode=0;mode<4;++mode) {
+        int ready[2]; assert(!pipe(ready));
+        pid_t parent=getpid(),child=fork(); assert(child>=0);
+        if (!child) {
+            close(ready[0]);
+            sigset_t set,before,after; sigemptyset(&set); sigaddset(&set,SIGUSR1);
+            assert(!sigprocmask(SIG_BLOCK,&set,NULL));
+            struct sigaction action={.sa_handler=wait_signal,.sa_flags=SA_RESTART};
+            sigemptyset(&action.sa_mask); assert(!sigaction(SIGUSR2,&action,NULL));
+            assert(!sigprocmask(SIG_SETMASK,NULL,&before));
+            assert(write(ready[1],"!",1)==1);
+            siginfo_t info;
+            struct timespec bound={mode==3 ? 0 : 20,mode==3 ? 250000000 : 0};
+            errno=0;
+            int result=mode ? sigtimedwait(&set,&info,&bound) : sigwaitinfo(&set,&info);
+            if (mode==2) assert(result==-1 && errno==EINTR && wait_signals==1);
+            else if (mode==3) assert(result==-1 && errno==EAGAIN && !wait_signals);
+            else assert(result==SIGUSR1 && info.si_pid==parent && info.si_code==SI_USER);
+            assert(!sigprocmask(SIG_SETMASK,NULL,&after));
+            for (int signal=1;signal<NSIG;++signal)
+                assert(sigismember(&before,signal)==sigismember(&after,signal));
+            assert(write(ready[1],"!",1)==1); close(ready[1]);
+            _exit(0);
+        }
+        close(ready[1]);
+        char byte; assert(read(ready[0],&byte,1)==1);
+        if (mode==3) assert(!fcntl(ready[0],F_SETFL,O_NONBLOCK));
+        /* EVENT_WAIT: the child cannot finish until all metadata requests
+         * complete and the parent sends the exact signal it is awaiting. */
+        for (unsigned round=0;mode==3 || round<64;++round) {
+            if (mode==3) {
+                ssize_t count=read(ready[0],&byte,1);
+                if (count==1) break;
+                assert(count==-1 && errno==EAGAIN);
+            }
+            char path[256]; struct stat st;
+            snprintf(path,sizeof(path),"%s/%d/ctty",proc,child);
+            errno=0; assert(lstat(path,&st)==-1 && errno==ENOENT);
+            snprintf(path,sizeof(path),"%s/%d/cmdline",proc,child);
+            int found=lstat(path,&st);
+            assert((!found && S_ISREG(st.st_mode)) || (mode==3 && errno==ENOENT));
+        }
+        if (mode!=3) {
+            assert(!kill(child,mode==2 ? SIGUSR2 : SIGUSR1));
+            assert(read(ready[0],&byte,1)==1);
+        }
+        close(ready[0]);
+        int status; assert(waitpid(child,&status,0)==child && !status);
+    }
+    puts("PASS foreign proc metadata: signal consumption, EINTR, timeout and unchanged masks");
 }
 static void execute(const char *path,int base,int protected) {
     pid_t child=fork(); assert(child>=0);
@@ -88,8 +174,9 @@ static void exercise(const char *proc,const char *directory,int native) {
     close(root);
     puts("PASS scoped proc root opens retain mount-crossing policy");
     image_metadata(proc);
+    signal_wait_metadata(proc);
     char path[256],alias[256];
-    const char *nonlinks[]={"", "/sys", "/uptime", "/filesystems", "/sys/kernel/hostname"};
+    const char *nonlinks[]={"", "/sys", "/uptime", "/stat", "/filesystems", "/sys/kernel/hostname"};
     for (unsigned i=0;i<sizeof(nonlinks)/sizeof(nonlinks[0]);++i) {
         snprintf(path,sizeof(path),"%s%s",proc,nonlinks[i]);
         struct stat st; int inspected=lstat(path,&st);
@@ -125,6 +212,28 @@ static void exercise(const char *proc,const char *directory,int native) {
     double refreshed;
     assert(sscanf(sample,"%lf %lf",&refreshed,&idle)==2 && refreshed>=elapsed);
     close(uptime);
+    snprintf(path,sizeof(path),"%s/stat",proc);
+    FILE *statistics=fopen(path,"r");
+    if (!statistics && native && (errno==EACCES || errno==EPERM))
+        puts("UNAVAILABLE native proc boot epoch");
+    else {
+        assert(statistics);
+        for (unsigned pass=0;pass<2;++pass) {
+            assert(fgets(sample,sizeof(sample),statistics));
+            unsigned long long user,nice,system,idle;
+            assert(sscanf(sample,"cpu %llu %llu %llu %llu",&user,&nice,&system,&idle)==4
+                && user+nice+system+idle>0);
+            long long epoch=-1;
+            while (fgets(sample,sizeof(sample),statistics))
+                if (sscanf(sample,"btime %lld",&epoch)==1) break;
+            struct timespec wall,boot;
+            assert(!clock_gettime(CLOCK_REALTIME,&wall));
+            assert(!clock_gettime(CLOCK_BOOTTIME,&boot));
+            assert(epoch>0 && llabs(epoch-((long long)wall.tv_sec-boot.tv_sec))<=2);
+            rewind(statistics);
+        }
+        fclose(statistics);
+    }
     snprintf(path,sizeof(path),"%s/no-such-proc-entry",proc);
     errno=0;
     assert(readlink(path,alias,sizeof(alias))==-1 && errno==ENOENT);
@@ -143,8 +252,19 @@ static void exercise(const char *proc,const char *directory,int native) {
 }
 int test_proc_exec_guest(int argc, char **argv) {
     if (argc==3 && !strcmp(argv[2],"target")) return 37;
+    if (argc==5 && !strcmp(argv[2],"access-child")) {
+        assert(prctl(PR_GET_DUMPABLE)==1);
+        int output=atoi(argv[3]),input=atoi(argv[4]);
+        for (unsigned step=0;step<2;++step) {
+            if (step) assert(!prctl(PR_SET_DUMPABLE,0));
+            assert(write(output,"!",1)==1);
+            char byte; assert(read(input,&byte,1)==1);
+        }
+        return 0;
+    }
     setbuf(stdout,NULL); alarm(40);
     assert(argc==4);
+    exec_access();
     if (!strcmp(argv[2],"memfd")) {
         int source=open("/proc/self/exe",O_RDONLY|O_CLOEXEC); assert(source>=0);
         int fd=memfd_create("proc-exec",MFD_CLOEXEC|MFD_ALLOW_SEALING); assert(fd>=0);

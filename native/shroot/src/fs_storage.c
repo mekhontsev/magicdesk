@@ -67,6 +67,24 @@ void md_fs_storage_close(struct md_fs_storage_cache *cache) {
     if (!cache) return;
     while (cache->connections) release(cache,&cache->connections);
 }
+int md_fs_storage_readonly(struct md_filesystem *fs,const struct md_view_mount *mount) {
+    if (!fs || !fs->store || !md_view_inode(mount)) return -EINVAL;
+    const struct md_inode_lifetime *scope=mount ? mount->storage : NULL;
+    if (!scope) return md_inode_store_readonly(fs->store);
+    int r=md_inode_store_scope_readonly(fs->store,scope);
+    if (r!=-EXDEV) return r;
+    r=md_inode_operation_window_pause(fs->store);
+    if (r) return r;
+    /* Mount tables need only policy, not a connection per overlay projection.
+     * Reuse a catalogue's gate and prepared query without evicting IO owners. */
+    if (fs->storage) for (struct md_fs_storage_connections *p=fs->storage->connections;p;p=p->next) {
+        r=md_inode_store_scope_readonly(p->store,scope);
+        if (r!=-EXDEV) return r;
+    }
+    struct md_inode_store *store;
+    r=md_fs_storage_get(fs,mount,&store);
+    return r ? r : md_inode_store_readonly(store);
+}
 int md_fs_storage_enter(struct md_filesystem *fs, const struct md_view_mount *mount,
         struct md_fs_storage_scope *scope) {
     *scope=(struct md_fs_storage_scope){0};

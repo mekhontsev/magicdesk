@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -38,6 +39,34 @@ static int fds(void) {
     DIR *d=opendir("/proc/self/fd"); assert(d);
     int n=0; while (readdir(d)) ++n;
     assert(!closedir(d)); return n;
+}
+static long deny_append(void *context,const char *path,int flags) {
+    ++*(unsigned *)context;
+    if (flags&O_APPEND) return -EACCES;
+    int fd=open(path,flags);
+    return fd<0 ? -errno : fd;
+}
+static void terminal_append(void) {
+    int master=open("/dev/ptmx",O_RDWR|O_NOCTTY|O_CLOEXEC); assert(master>=0);
+    int unlock=0; assert(!ioctl(master,TIOCSPTLCK,&unlock));
+    unsigned index; assert(!ioctl(master,TIOCGPTN,&index));
+    char name[64]; snprintf(name,sizeof(name),"/dev/pts/%u",index);
+    int pin=open(name,O_PATH|O_CLOEXEC); assert(pin>=0);
+    char path[64]; md_descriptor_path(path,0,(unsigned)pin);
+    unsigned attempts=0;
+    int fd=md_open_pinned_path(path,O_WRONLY|O_APPEND|O_NOCTTY|O_CLOEXEC,deny_append,&attempts);
+    assert(fd>=0 && attempts==2 && (fcntl(fd,F_GETFL)&O_APPEND) && (fcntl(fd,F_GETFD)&FD_CLOEXEC));
+    char byte;
+    assert(write(fd,"a",1)==1);
+    assert(md_event_wait_fd(master,POLLIN,md_event_now()+3000000000LL)>=0);
+    assert(read(master,&byte,1)==1 && byte=='a');
+    assert(!close(fd) && !close(pin) && !close(master));
+    char temporary[]="md-open-append-XXXXXX";
+    pin=mkostemp(temporary,O_CLOEXEC); assert(pin>=0 && !unlink(temporary));
+    md_descriptor_path(path,0,(unsigned)pin); attempts=0;
+    assert(md_open_pinned_path(path,O_WRONLY|O_APPEND,deny_append,&attempts)==-EACCES && attempts==1);
+    assert(!close(pin));
+    puts("PASS terminal append admission: real OFD flags and IO, regular-file denial retained");
 }
 static int wait_child(pid_t child) {
     int pidfd=(int)syscall(SYS_pidfd_open,child,0); assert(pidfd>=0);
@@ -173,6 +202,7 @@ static void interrupted_open(void) {
 int main(void) {
     setbuf(stdout,NULL); alarm(60);
     int before=fds();
+    terminal_append(); assert(fds()==before);
     initial_readiness(); assert(fds()==before);
     interrupted_open(); assert(fds()==before);
     owner_death(0); owner_death(1); assert(fds()==before);

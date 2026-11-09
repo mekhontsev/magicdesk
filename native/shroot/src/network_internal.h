@@ -45,7 +45,7 @@ struct md_network_interface {
     uint32_t bridge_forward_delay;
     unsigned address_count;
     struct md_network_ip_assignment addresses[MD_NETWORK_MAX_ADDRESSES];
-    uint64_t policy_id;
+    uint64_t policy_id, bridge_lifetime;
     struct md_network_ipv4_policy policy;
     struct md_network_ipv6_policy ipv6;
 };

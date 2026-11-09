@@ -28,6 +28,22 @@ md_raw_return:
     ret
 .size md_raw, .-md_raw
 
+.global md_socket_native
+.type md_socket_native, %function
+md_socket_native:
+    mov x8, x0
+    mov x0, x1
+    mov x1, x2
+    mov x2, x3
+    mov x3, x4
+    mov x4, x5
+    mov x5, x6
+    svc #0
+.global md_socket_native_return
+md_socket_native_return:
+    ret
+.size md_socket_native, .-md_socket_native
+
 .global md_enter
 .type md_enter, %function
 md_enter:

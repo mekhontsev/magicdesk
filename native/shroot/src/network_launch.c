@@ -60,7 +60,7 @@ static int publications(struct md_network_namespace *gateway,const struct md_net
     if (!filter) return -ENOMEM;
     int error=md_network_filter_add(filter,NFPROTO_INET,"shroot",NULL,0);
     if (!error) error=md_filter_reserve((void **)&filter->chains,&filter->chain_capacity,4,sizeof(*filter->chains),256);
-    if (!error) error=md_filter_reserve((void **)&filter->rules,&filter->rule_capacity,profile->count+3,sizeof(*filter->rules),1024);
+    if (!error) error=md_filter_reserve((void **)&filter->rules,&filter->rule_capacity,profile->count+4,sizeof(*filter->rules),1024);
     if (!error) {
         struct md_filter_chain chain={.table=filter->tables[0].handle,.handle=filter->next_handle++,
             .name="publish",.hook=-1,.policy=NF_ACCEPT};
@@ -105,22 +105,25 @@ static int publications(struct md_network_namespace *gateway,const struct md_net
             jump->expressions[0]=(struct md_filter_expression){.code=MD_FILTER_VERDICT,
                 .operation=NFT_JUMP,.target=chain.handle};
         }
-        /* IPv6 loopback never crosses a link. Translate local publications
-         * to the bridge address; conntrack restores ::1 on the return path. */
+        /* Loopback sources are not reachable through the guest's uplink.
+         * Translate both families once; conntrack retains the native peer. */
         struct md_filter_chain *post=&filter->chains[filter->chain_count++];
         *post=(struct md_filter_chain){.table=chain.table,.handle=filter->next_handle++,
             .hook=NF_INET_POST_ROUTING,.priority=100,.nat=1,.policy=NF_ACCEPT};
         strcpy(post->name,"postrouting");
-        struct md_filter_rule *snat=&filter->rules[filter->rule_count++];
-        *snat=(struct md_filter_rule){.chain=post->handle,.handle=filter->next_handle++};
-        snat->expressions[snat->count++]=(struct md_filter_expression){.code=MD_FILTER_META,.key=NFT_META_NFPROTO,.size=1};
-        unsigned char family=NFPROTO_IPV6;
-        compare(snat,1,&family);
-        snat->expressions[snat->count++]=(struct md_filter_expression){.code=MD_FILTER_PAYLOAD,
-            .key=NFT_PAYLOAD_NETWORK_HEADER,.aux=8,.size=16};
-        struct md_ip_address loopback=md_ip_loopback(AF_INET6);
-        compare(snat,16,loopback.bytes);
-        snat->expressions[snat->count++]=(struct md_filter_expression){.code=MD_FILTER_MASQUERADE};
+        for (unsigned ipv6=0;ipv6<2;++ipv6) {
+            struct md_filter_rule *snat=&filter->rules[filter->rule_count++];
+            *snat=(struct md_filter_rule){.chain=post->handle,.handle=filter->next_handle++};
+            snat->expressions[snat->count++]=(struct md_filter_expression){.code=MD_FILTER_META,.key=NFT_META_NFPROTO,.size=1};
+            unsigned char family=ipv6 ? NFPROTO_IPV6 : NFPROTO_IPV4;
+            compare(snat,1,&family);
+            unsigned bytes=ipv6 ? 16 : 1; /* ::1/128 or 127.0.0.0/8. */
+            snat->expressions[snat->count++]=(struct md_filter_expression){.code=MD_FILTER_PAYLOAD,
+                .key=NFT_PAYLOAD_NETWORK_HEADER,.aux=ipv6 ? 8 : 12,.size=bytes};
+            struct md_ip_address loopback=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET);
+            compare(snat,bytes,loopback.bytes);
+            snat->expressions[snat->count++]=(struct md_filter_expression){.code=MD_FILTER_MASQUERADE};
+        }
     }
     struct md_network_forward_update *update=NULL;
     if (!error) error=md_network_filter_prepare(gateway,filter,&update);

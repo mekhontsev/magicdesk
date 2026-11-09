@@ -68,6 +68,15 @@ static void process_access(void) {
     struct md_identity next=user; ++next.uid.fs;
     assert(!md_task_registry_publish(registry,123,123,&next,&parent));
     assert(!md_process_dumpable(snapshot.access));
+    struct md_resource_change change;
+    assert(!md_resources_exec_prepare(&parent,NULL,&change));
+    assert(change.next.access!=parent.access && md_process_dumpable(change.next.access)==1);
+    assert(!md_resources_unshare_finish(&parent,NULL,&change,-ENOEXEC));
+    assert(parent.access==peer.access && !md_process_dumpable(parent.access));
+    assert(!md_resources_exec_prepare(&parent,NULL,&change));
+    assert(!md_resources_unshare_finish(&parent,NULL,&change,0));
+    assert(parent.access!=peer.access && md_process_dumpable(parent.access)==1);
+    assert(!md_process_dumpable(snapshot.access));
     assert(!md_resources_exec(&parent,NULL) && md_process_dumpable(parent.access)==1);
     assert(!md_process_dumpable(peer.access) && !md_process_dumpable(snapshot.access));
     md_task_snapshot_release(&snapshot); md_task_registry_destroy(registry);
@@ -310,7 +319,7 @@ static void file_table_snapshot(void) {
     assert(md_task_registry_files(registry,tid,tid+1,&files)==-EPERM && !files);
     assert(md_task_registry_files(registry,tid+1,0,&files)==-ESRCH && !files);
     assert(!md_task_registry_files(registry,tid,tid,&files) && files==task.files);
-    md_task_registry_retire(registry,tid,&id);
+    md_task_registry_retire(registry,tid,0,&id);
     assert(!md_task_registry_thread_count(registry,tid));
     assert(!md_task_registry_proc(registry,tid,&proc));
     assert(proc.tid==tid && !proc.fs && !proc.files);
@@ -389,7 +398,7 @@ static void live_umask_snapshot(void) {
     long exited_mask=md_task_snapshot_umask(&second);
     if (exited_mask!=-ESRCH) fprintf(stderr,"exited task umask: %ld\n",exited_mask);
     assert(exited_mask==-ESRCH);
-    md_task_registry_retire(registry,state.tid,&id);
+    md_task_registry_retire(registry,state.tid,0,&id);
     md_task_registry_destroy(registry);
     assert(descriptors()==before+1);
     md_task_snapshot_release(&second);
@@ -447,7 +456,7 @@ static void resource_generations(void) {
         assert(!md_task_registry_publish(registry,tid,tid,&id[i%2],&task[i%2]));
     /* EVENT_WAIT: reader completes before retiring its registry identity. */
     assert(!pthread_join(thread,NULL));
-    md_task_registry_retire(registry,tid,&id[1]);
+    md_task_registry_retire(registry,tid,0,&id[1]);
     assert(md_task_registry_probe(registry,tid,0,&denied)==-ESTALE && !denied.owner);
     md_task_registry_reap(registry,tid);
     assert(!md_task_registry_publish(registry,tid,tid,&id[1],&task[1]));

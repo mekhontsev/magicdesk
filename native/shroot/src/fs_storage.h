@@ -13,6 +13,7 @@ struct md_fs_storage_cache {
 };
 /* Unscoped results are borrowed until the next cache miss. */
 int md_fs_storage_get(struct md_filesystem *, const struct md_view_mount *, struct md_inode_store **);
+int md_fs_storage_readonly(struct md_filesystem *, const struct md_view_mount *);
 void md_fs_storage_prune(struct md_fs_storage_cache *);
 void md_fs_storage_close(struct md_fs_storage_cache *);
 /* Scoped request policy on a selected connection. No store state travels with

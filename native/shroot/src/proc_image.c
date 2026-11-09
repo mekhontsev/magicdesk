@@ -6,6 +6,7 @@
 #include "namespace.h"
 #include "interception.h"
 #include "proc_control.h"
+#include "native_identity.h"
 #include "raw.h"
 #include "arguments.h"
 #include "process_arguments.h"
@@ -29,7 +30,7 @@ long md_proc_executable_capture(const struct md_fs *fs,int process,int flags) {
 }
 long md_proc_executable_open(const struct md_fs *fs, const char *path, int flags) {
     if (fs->image && fs->endpoint[0])
-        return md_proc_executable_capture(fs,(int)RAW0(gettid),flags);
+        return md_proc_executable_capture(fs,md_native_tid(),flags);
     if (!fs->image || !fs->image->executable_object[0])
         return md_namespace_open(fs, AT_FDCWD, path, flags, 0);
     if (!(flags & O_PATH) && ((flags & O_ACCMODE) != O_RDONLY || (flags & O_TRUNC))) return -ETXTBSY;

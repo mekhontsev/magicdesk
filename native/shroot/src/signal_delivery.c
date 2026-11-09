@@ -13,6 +13,7 @@
 struct md_signal_delivery_node {
     struct md_signal_delivery_node *next;
     siginfo_t info;
+    struct md_signal_origin *origin;
 };
 static struct md_signal_delivery_node **realtime_first(struct md_signal_delivery *q,int signal) {
     struct md_signal_delivery_node **at=&q->realtime;
@@ -65,6 +66,11 @@ static int standard_hold(struct md_signal_delivery *q,const siginfo_t *info) {
     struct md_signal_delivery_node *n=malloc(sizeof(*n));
     if (!n) return -ENOMEM;
     *n=(struct md_signal_delivery_node){.info=*info};
+    if (md_signal_child_notice(info) && q->capture) {
+        n->origin=calloc(1,sizeof(*n->origin));
+        if (!n->origin) { free(n); return -ENOMEM; }
+        q->capture(q->capture_context,info,n->origin);
+    }
     if (q->last) q->last->next=n; else q->first=n;
     q->last=n; return 0;
 }
@@ -166,6 +172,7 @@ int md_signal_delivery_event(struct md_signal_delivery *q,pid_t tid,int signal,i
     if (ptrace(PTRACE_SETSIGINFO,tid,NULL,&n->info)<0) return -errno;
     *deliver=signal;
     q->first=n->next; if (!q->first) q->last=NULL;
+    if (n->origin) { free(q->child_origin); q->child_origin=n->origin; }
     free(n);
     if (q->first) {
         /* Requeue this blocked signal and select the next inside the same
@@ -181,10 +188,11 @@ int md_signal_delivery_event(struct md_signal_delivery *q,pid_t tid,int signal,i
 }
 void md_signal_delivery_clear(struct md_signal_delivery *q) {
     while (q->first) {
-        struct md_signal_delivery_node *n=q->first; q->first=n->next; free(n);
+        struct md_signal_delivery_node *n=q->first; q->first=n->next; free(n->origin); free(n);
     }
     while (q->realtime) {
         struct md_signal_delivery_node *n=q->realtime; q->realtime=n->next; free(n);
     }
+    free(q->child_origin);
     *q=(struct md_signal_delivery){0};
 }

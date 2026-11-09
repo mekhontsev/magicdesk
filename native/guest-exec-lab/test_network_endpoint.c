@@ -268,6 +268,61 @@ static void datagram_handoff(unsigned family) {
     md_identity_release(&identity); md_network_namespace_release(n); md_network_namespace_release(root);
     printf("PASS IPv%u UDP listener handoff: connected peer, reverse tuple and listener fallback\n",family==AF_INET ? 4 : 6);
 }
+static void published_datagram_reuse(unsigned family) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity identity=md_identity_new(0,0);
+    struct md_fd_object *objects[3]; int fds[3],one=1;
+    assert(n);
+    for (unsigned i=0;i<3;++i) {
+        assert(!md_network_endpoint_open(n,0,family,SOCK_DGRAM,0,&objects[i],&fds[i]));
+        if (i<2) endpoint_option(objects[i],fds[i],SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
+    }
+    struct md_inet_address local={.ip=md_ip_any(family)};
+    struct sockaddr_storage wire,peer; socklen_t length,peer_size;
+    assert(!md_inet_encode(&local,0,&wire,&length));
+    assert(!md_network_endpoint_bind(objects[0],fds[0],&identity,(void *)&wire,length));
+    assert(!md_network_endpoint_name(objects[0],fds[0],0,&wire,&length));
+    assert(!md_inet_decode((void *)&wire,length,&local));
+    local.ip=md_ip_loopback(family);
+    assert(!md_inet_encode(&local,0,&wire,&length));
+    assert(md_network_endpoint_bind(objects[2],fds[2],&identity,(void *)&wire,length)==-EADDRINUSE);
+    assert(!md_network_endpoint_bind(objects[1],fds[1],&identity,(void *)&wire,length));
+    int client=socket(family,SOCK_DGRAM|SOCK_CLOEXEC,0);
+    assert(client>=0);
+    for (unsigned round=0;round<3;++round) {
+        assert(sendto(client,"u",1,0,(void *)&wire,length)==1);
+        struct pollfd ready={.fd=fds[1],.events=POLLIN};
+        /* EVENT_WAIT: host publication reaches the surviving exact-address
+         * endpoint; expiry fails rather than extending network timeouts. */
+        assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+        char byte; peer_size=sizeof(peer);
+        assert(recvfrom(fds[1],&byte,1,0,(void *)&peer,&peer_size)==1 && byte=='u');
+        assert(sendto(fds[1],"r",1,0,(void *)&peer,peer_size)==1);
+        ready=(struct pollfd){.fd=client,.events=POLLIN};
+        assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+        assert(read(client,&byte,1)==1 && byte=='r');
+        if (!round) {
+            close(fds[0]); md_fd_object_release(objects[0]);
+            if (family==AF_INET) {
+                struct md_inet_address absent=local;
+                absent.ip=md_ip_v4(htonl(0x7f000002));
+                struct sockaddr_storage absent_wire; socklen_t absent_length;
+                assert(!md_inet_encode(&absent,0,&absent_wire,&absent_length));
+                assert(sendto(client,"x",1,0,(void *)&absent_wire,absent_length)==1);
+                ready=(struct pollfd){.fd=fds[1],.events=POLLIN};
+                /* EVENT_WAIT: an unmatched destination must not deliver to the
+                 * remaining exact-address endpoint during the rejection bound. */
+                assert(poll(&ready,1,100)==0);
+            }
+        }
+    }
+    close(client);
+    for (unsigned i=1;i<3;++i) { close(fds[i]); md_fd_object_release(objects[i]); }
+    client=socket(family,SOCK_DGRAM|SOCK_CLOEXEC,0);
+    assert(client>=0 && !bind(client,(void *)&wire,length)); close(client);
+    md_identity_release(&identity); md_network_namespace_release(n);
+    printf("PASS IPv%u published UDP reuse: wildcard/exact selection, conflict checks and surviving owner\n",family==AF_INET ? 4 : 6);
+}
 static void multicast(unsigned family) {
     struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_network_namespace *n=md_network_namespace_copy(root,NULL),*other=md_network_namespace_copy(root,NULL);
@@ -577,6 +632,7 @@ void test_network_endpoint(void) {
     tcp_defaults();
     tcp_reuse(AF_INET); tcp_reuse(AF_INET6);
     datagram_handoff(AF_INET); datagram_handoff(AF_INET6);
+    published_datagram_reuse(AF_INET); published_datagram_reuse(AF_INET6);
     device_binding();
     socket_priority(AF_INET);
     socket_priority(AF_INET6);

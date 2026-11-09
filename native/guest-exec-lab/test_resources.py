@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--server", default="magicdesk")
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--diagnostics", action="store_true")
-    parser.add_argument("--case", choices=("all", "process-resources", "roots", "cgroup", "namespaces", "mount-flags", "supervisor-state", "control-event", "launch-cancel", "event-fairness", "kernel-baseline", "mapping-task", "private-memory", "pidfd-table", "fd-observation", "proc-custody", "exec-custody", "open-job", "ofd-order", "fd-handoff", "fd-parcel", "fd-messages", "ipc-peer", "ipc-origins", "ipc-origin-guest", "ipc-paths", "ipc-ancillary", "ipc-custody", "mount-policy", "mount-graph", "mount-namespace", "inode-custody", "origin-transfer", "transient-store", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fd-lifecycle", "restricted-descriptors", "fs-dispatch", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture", "fs-provider", "input-session", "rpc", "stores", "durability"), default="all",
+    parser.add_argument("--case", choices=("all", "process-resources", "roots", "cgroup", "namespaces", "devpts", "mount-flags", "supervisor-state", "robust-futex", "control-event", "launch-cancel", "event-fairness", "kernel-baseline", "mapping-task", "private-memory", "pidfd-table", "fd-observation", "proc-custody", "exec-custody", "open-job", "ofd-order", "fd-handoff", "fd-parcel", "fd-messages", "ipc-peer", "ipc-origins", "ipc-origin-guest", "ipc-paths", "ipc-ancillary", "ipc-custody", "mount-policy", "mount-graph", "mount-namespace", "inode-custody", "origin-transfer", "transient-store", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fd-lifecycle", "restricted-descriptors", "fs-dispatch", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture", "fs-provider", "xattr", "input-session", "rpc", "stores", "durability"), default="all",
                         help="Run resource regressions, FD handoff/parcel, terminal RPC custody, native FD lifecycle, or worker transport")
     parser.add_argument("--compare-installed", action="store_true",
                         help="Compare identical metadata/spawn fixtures with the installed runtime")
@@ -99,6 +99,14 @@ def main():
                       + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
                       + root + "/store --deadline-seconds 90 -- /bin/test " + case, message)
 
+    def check_devpts():
+        for entry in (0, 1):
+            for case, message in (("devpts", "PASS guest devpts:"),
+                                  ("devpts-pid", "PASS guest devpts: PID namespace")):
+                check(f"guest {case} entry={entry}", guest_run + " --user 0:0 --diagnostics"
+                      + f" --env SHROOT_MACHINE_ENTRY={entry} --store "
+                      + root + "/store --deadline-seconds 90 -- /bin/test " + case, message)
+
     def check_namespaces():
         for entry in (0, 1):
             check(f"guest device nodes entry={entry}", guest_run + " --user 0:0"
@@ -110,11 +118,12 @@ def main():
         check("guest memfd metadata", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test native-metadata", "PASS native metadata:")
         check_cgroups()
-        check("guest private devpts", guest_run + " --user 0:0 --diagnostics --store "
-              + root + "/store --deadline-seconds 90 -- /bin/test devpts", "PASS guest devpts:")
-        check("guest PID-scoped devpts", guest_run + " --user 0:0 --diagnostics --store "
-              + root + "/store --deadline-seconds 90 -- /bin/test devpts-pid", "PASS guest devpts: PID namespace")
+        check_devpts()
         for entry in (0, 1):
+            check(f"reaped child notifications entry={entry}", guest_run + " --user 0:0"
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --store "
+                  + root + "/store --deadline-seconds 90 -- /bin/test pid-namespace reaped-signal",
+                  "PASS debugger and recipient retain reaped SIGCHLD identity")
             check(f"clean PID fixture mountpoint entry={entry}", guest_run + " --user 0:0 --store "
                   + root + "/store -- /bin/test pid-namespace cleanup")
             check(f"guest PID namespace lifecycle entry={entry}", guest_run + " --user 0:0"
@@ -180,6 +189,18 @@ def main():
                                       ("buffer-import", "PASS buffered imported dirfd")):
                     check(f'guest {case} {name} entry={entry}', runner + case + ' /tmp', message, kernel=selected)
 
+    def check_xattrs():
+        for entry in (0, 1):
+            for location in ("/tmp", "/attached"):
+                check(f"guest xattr-at entry={entry} location={location}", guest_run
+                      + f" --env SHROOT_MACHINE_ENTRY={entry} --store " + root
+                      + "/store --bind " + root + "/native /attached"
+                      + " --deadline-seconds 90 -- /bin/test xattr-at " + location,
+                      "PASS xattr-at:")
+        check("direct xattr-at", supervisor_run + " --user 0:0 "
+              + executable("bootstrap") + " " + root + "/source /bin/test xattr-at /tmp",
+              "PASS xattr-at:")
+
     def check_buffer_descriptors():
         check("native parallel reads", executable("resource_guest") + " parallel-read "
               + root + "/native", "PASS parallel read: threads=32 completed=128000")
@@ -205,6 +226,7 @@ def main():
               + root + "/native", "PASS xattr without private FDs")
         check("guest xattr with full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test xattr-slots /tmp", "PASS xattr without private FDs")
+        check_xattrs()
         check("native watches with full table", executable("resource_guest") + " watch-slots "
               + root + "/native", "PASS watch paths without private FDs")
         check("guest watches with full table", guest_run + " --diagnostics --store " + root
@@ -490,7 +512,7 @@ def main():
             claimed = run[:1] + ["--env", f"SHROOT_MACHINE_ENTRY={entry}"] + run[1:]
             check(f"guest claimed PID entry={entry}", shlex.join(claimed + ["--claimed-process"]),
                   "PASS claimed process:")
-        for mode in range(32):
+        for mode in range(34):
             for guest in (False, True):
                 check(f"filtered socket IO {mode} guest={guest}",
                       shlex.join((run if guest else [fixture]) + ["--io", str(mode)]),
@@ -510,7 +532,7 @@ def main():
         names = ("fd_handoff",) if args.case in ("fd-handoff", "fd-parcel", "fd-messages") else (
             "bootstrap", "supervisor", "run", "service", "resource_guest", "root_guest",
             "test_task_resources", "test_inodes", "test_mounts", "test_credentials", "test_rpc", "test_snapshot", "fd_handoff", "test_ipc_peer")
-        if args.case in ("launch-cancel", "mount-namespace", "proc-custody", "exec-custody", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture"):
+        if args.case in ("launch-cancel", "mount-namespace", "proc-custody", "exec-custody", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture", "xattr"):
             names = ("bootstrap", "supervisor", "run", "service", "resource_guest")
         if args.case == "restricted-descriptors":
             names = ("bootstrap", "supervisor", "run", "service", "resource_guest")
@@ -573,6 +595,10 @@ def main():
             names = ()
         if args.case in ("all", "supervisor-state", "private-memory"):
             names += ("supervisor_state", "test_seccomp_policy", "test_host_open", "test_host_policy", "test_signal_delivery")
+        if args.case == "robust-futex":
+            names = ("test_robust_futex",)
+        elif args.case == "all":
+            names += ("test_robust_futex",)
         for name in names:
             file = "libmagicdesk_guest_" + name + ".so"
             executor.upload(args.build / file, root + "/" + file)
@@ -583,8 +609,17 @@ def main():
                 raise ValueError('This component-only suite has no supervised launches; use kernel-baseline for host components')
             profile.prepare(lambda argv: check('kernel profile admission', shlex.join(argv))['output'],
                             executable("supervisor"))
+        if args.case in ("all", "robust-futex"):
+            check("robust futex cursor", executable("test_robust_futex"), "PASS robust futex cursor:")
+            for case in ("exit", "kill", "exec", "exec-fault", "exec-real-first", "exec-private-first", "exec-directed",
+                         "subreaper-exit", "subreaper-kill", "subreaper-ignore", "subreaper-nochildwait",
+                         "subreaper-readers", "subreaper-readers-kill", "subreaper-reader-reap"):
+                check("robust executor " + case, executable("test_robust_futex") + " --native " + case,
+                      "PASS robust executor: " + case + ",")
+            if args.case == "robust-futex":
+                return
         if args.case in ("all", "supervisor-state", "private-memory"):
-            check("host policy admission", executable("test_host_policy"),
+            check("host policy admission", executable("test_host_policy") + ' ' + shlex.quote(root),
                   "PASS app-UID admission and scoped host access")
             check("host path resolution", executable("test_host_open"),
                   "PASS host open resolution:")
@@ -879,13 +914,15 @@ def main():
                   "PASS exact task kernel baseline")
             check("resource model with 5.15 host profile", executable("kernel_baseline") + " --host "
                   + executable("test_task_resources"), "PASS resource ownership")
-        if args.case in ("kernel-baseline", "namespaces", "mount-flags"):
+        if args.case in ("kernel-baseline", "namespaces", "devpts", "mount-flags"):
             check("fixture directories", "mkdir -p " + root + "/native " + root + "/source/tmp "
                   + root + "/source/bin " + root + "/source/attached")
             check("stage guest image", "cp " + executable("resource_guest") + " " + root + "/source/bin/test")
             check("import fixture", executable("service") + " --import " + root + "/source " + root + "/store")
             if args.case == "namespaces":
                 check_namespaces()
+            elif args.case == "devpts":
+                check_devpts()
             elif args.case == "mount-flags":
                 check_mount_flags()
             else:
@@ -952,11 +989,14 @@ def main():
                 "unobserved": [line.removeprefix("UNOBSERVED ") for line in value["output"].splitlines()
                                if line.startswith("UNOBSERVED ")]})
             return
-        if args.case in ("launch-cancel", "proc-custody", "exec-custody", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture"):
+        if args.case in ("launch-cancel", "proc-custody", "exec-custody", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture", "xattr"):
             check("fixture directories", "mkdir -p " + root + "/native " + root + "/source/tmp "
                   + root + "/source/bin " + root + "/source/attached")
             check("stage guest image", "cp " + executable("resource_guest") + " " + root + "/source/bin/test")
             check("import fixture", executable("service") + " --import " + root + "/source " + root + "/store")
+            if args.case == "xattr":
+                check_xattrs()
+                return
             if args.case == "launch-cancel":
                 check_cancellation()
                 return

@@ -17,12 +17,14 @@ def main():
     parser.add_argument('report', type=Path)
     parser.add_argument('--address', default='unix:///run/md-fixture-buildkit.sock')
     parser.add_argument('--image', default='docker.io/library/alpine:3.23')
+    parser.add_argument('--engine', choices=('podman', 'docker'), default='podman')
     parser.add_argument('--podman-root', default='/var/lib/md-fixture-podman')
     parser.add_argument('--podman-runroot', default='/var/lib/md-fixture-podman-run')
     args = parser.parse_args()
-    report = dict(passed=False, commands=[])
-    podman = ['podman', '--root', args.podman_root, '--runroot', args.podman_runroot,
-              '--storage-driver', 'overlay']
+    report = dict(passed=False, commands=[], engine=args.engine)
+    engine = (['podman', '--root', args.podman_root, '--runroot', args.podman_runroot,
+               '--storage-driver', 'overlay'] if args.engine == 'podman'
+              else ['docker', '--host', 'unix:///var/run/docker.sock'])
     name = 'md-buildkit-' + uuid.uuid4().hex
     image = 'localhost/' + name + ':test'
     created = False
@@ -47,15 +49,15 @@ def main():
         assert any(worker['labels'].get('org.mobyproject.buildkit.worker.network') == 'cni'
                    and worker['labels'].get('org.mobyproject.buildkit.worker.oci.process-mode') == 'sandbox'
                    for worker in report['workers']), report['workers']
-        report['base'] = json.loads(run(*podman, 'image', 'inspect', args.image).stdout)
+        report['base'] = json.loads(run(*engine, 'image', 'inspect', args.image).stdout)
         with tempfile.TemporaryDirectory(prefix=name + '-', dir='/var/tmp') as temporary:
             root = Path(temporary)
             context = root / 'context'
             context.mkdir()
-            run(*podman, 'create', '--pull=never', '--name', name, args.image, '/bin/true')
+            run(*engine, 'create', '--pull=never', '--name', name, args.image, '/bin/true')
             created = True
-            run(*podman, 'export', '-o', str(context / 'rootfs.tar'), name)
-            run(*podman, 'rm', name)
+            run(*engine, 'export', '-o', str(context / 'rootfs.tar'), name)
+            run(*engine, 'rm', name)
             created = False
             secret = root / 'secret'
             secret.write_text('private-build-input\n')
@@ -83,11 +85,11 @@ CMD ["/bin/sh", "-ec", "cat /left /right"]
             assert 'CACHED' in repeated.stderr, 'No cached vertex on identical rebuild'
             (context / 'seed').write_text('two\n')
             run(*command)
-            run(*podman, 'load', '-i', str(root / 'image.tar'))
+            run(*engine, 'load', '-i', str(root / 'image.tar'))
             loaded = True
-            result = run(*podman, 'run', '--rm', '--pull=never', image)
+            result = run(*engine, 'run', '--rm', '--pull=never', image)
             assert result.stdout == 'two\nright-ok', result.stdout
-            run(*podman, 'rmi', image)
+            run(*engine, 'rmi', image)
             loaded = False
 
             marker = name + '-cancel'
@@ -139,14 +141,14 @@ CMD ["/bin/sh", "-ec", "cat /left /right"]
             usage = json.loads(run('buildctl', '--addr', args.address, 'du', '--format', '{{json .}}').stdout)
             assert not any(item['inUse'] for item in usage), usage
             report['releasedCacheRecords'] = len(usage)
-            containers = run(*podman, 'ps', '-a', '--format', '{{.Names}}').stdout.splitlines()
+            containers = run(*engine, 'ps', '-a', '--format', '{{.Names}}').stdout.splitlines()
             assert name not in containers, containers
         report['passed'] = True
     finally:
         if created:
-            run(*podman, 'rm', '-f', name, required=False)
+            run(*engine, 'rm', '-f', name, required=False)
         if loaded:
-            run(*podman, 'rmi', image, required=False)
+            run(*engine, 'rmi', image, required=False)
         args.report.write_text(json.dumps(report, indent=2) + '\n')
         print('BUILDKIT_REPORT', args.report, 'passed=' + str(report['passed']), flush=True)
 

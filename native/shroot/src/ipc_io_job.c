@@ -15,6 +15,7 @@ static void *run(void *opaque) {
     int error=pthread_sigmask(SIG_SETMASK,&mask,NULL);
     job->result=error ? -error : md_interruptible_syscall(job->number,
         job->args[0],job->args[1],job->args[2],job->args[3],job->args[4],&job->cancelled);
+    atomic_store_explicit(&job->completed,1,memory_order_release);
     if (md_event_signal(job->event)) abort();
     return NULL;
 }
@@ -26,23 +27,32 @@ int md_ipc_io_job_start(struct md_ipc_io_job *job, long number, const long args[
     if (job->event<0) return -errno;
     job->number=number; memcpy(job->args,args,sizeof(job->args));
     atomic_init(&job->cancelled,0);
+    atomic_init(&job->completed,0);
     int error=pthread_create(&job->thread,NULL,run,job);
     if (error) { close(job->event); job->event=-1; return -error; }
     job->started=1; return 0;
 }
-long md_ipc_io_job_finish(struct md_ipc_io_job *job, int interrupt) {
+static long finish(struct md_ipc_io_job *job) {
     if (!job->started) return -EINVAL;
-    if (interrupt) {
-        atomic_store_explicit(&job->cancelled,1,memory_order_release);
-        int error=pthread_kill(job->thread,SIGUSR2);
-        if (error && error!=ESRCH) abort();
-    }
     /* EVENT_WAIT: native syscall completion, or cancellation acknowledged by
      * its signal/entry gate. Join precedes releasing buffers and FD custody. */
     int error=pthread_join(job->thread,NULL);
     if (error) abort();
     close(job->event); job->event=-1; job->started=0;
     return job->result;
+}
+int md_ipc_io_job_collect(struct md_ipc_io_job *job,long *result) {
+    if (!job->started) { *result=-EINVAL; return 1; }
+    if (!atomic_load_explicit(&job->completed,memory_order_acquire)) return 0;
+    *result=finish(job);
+    return 1;
+}
+long md_ipc_io_job_cancel(struct md_ipc_io_job *job) {
+    if (!job->started) return -EINVAL;
+    atomic_store_explicit(&job->cancelled,1,memory_order_release);
+    int error=pthread_kill(job->thread,SIGUSR2);
+    if (error && error!=ESRCH) abort();
+    return finish(job);
 }
 int md_ipc_io_job_event(const struct md_ipc_io_job *job) {
     return job->started ? job->event : -1;

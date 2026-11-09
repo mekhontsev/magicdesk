@@ -1,7 +1,10 @@
 """Private API filesystems and a real console for userspace init tests."""
 import shlex
+import json
 from pathlib import Path
 import subprocess
+
+GUEST_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/nix/var/nix/profiles/system/sw/bin'
 
 TRACE_SYSCALLS = ('%file,%process,%network,ioctl,mount_setattr,open_tree,move_mount,fsopen,fsconfig,fsmount,'
                   'prctl,seccomp,epoll_create1,epoll_ctl,epoll_pwait,epoll_pwait2')
@@ -81,6 +84,16 @@ def prepare_init():
         'scripts/install_linux.sh'), '--print-init-prepare'], text=True)
 
 
+def stop_init_launch(suite, store, label):
+    """Cancel only this fixture's registered tree, including detached services."""
+    records = suite.command(suite.image_command('launches', store), quiet=True)
+    owned = [item for line in records.splitlines() if line.strip()
+             for item in [json.loads(line)] if item['label'] == label]
+    assert len(owned) <= 1, owned
+    for launch in owned:
+        suite.command(suite.image_command('stop', store, launch['launchId']))
+
+
 def installed_boot(target, port, token, init, desktop_user=None, system=None, control_address='127.0.0.1'):
     """One init/control owner; a desktop driver is an optional dependent service."""
     control_args = f'{target}/session-controller.py {target} {port} {token} {control_address}'
@@ -104,23 +117,16 @@ unset XDG_DATA_DIRS XDG_CONFIG_DIRS XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
                             'export PATH=' + shlex.quote(binary + ':/usr/local/bin:/bin'))
         boot = boot.replace('test "$$" = 1', 'test "$$" = 1\nmkdir -p /run /tmp /var/tmp')
         boot += shlex.quote(system + '/activate') + '\n'
+    if control_address == '0.0.0.0':
+        # A published test controller needs an input exception, not a disabled
+        # distribution firewall. The launch owns this private network namespace.
+        boot += f'''if command -v iptables >/dev/null 2>&1; then
+    iptables -w 5 -I INPUT -i eth0 -p tcp --dport {port} -m comment --comment magicdesk-test-control -j ACCEPT
+fi
+'''
     user = shlex.quote(desktop_user) if desktop_user is not None else None
     driver = None
     if init == 'systemd':
-        # This retained fixture uses the launch's prepared uplink, not DHCP.
-        # Keep service-triggered networkd startup from replacing that owner;
-        # nested container links and default-target boot checks stay unchanged.
-        boot += '''mkdir -p /run/systemd/network
-cat > /run/systemd/network/00-md-fixture-uplink.network <<'EOF'
-[Match]
-Name=eth0
-[Network]
-DHCP=no
-IPv6AcceptRA=no
-LinkLocalAddressing=no
-KeepConfiguration=static
-EOF
-'''
         units = ' '.join('md-installed-' + name + '.service' for name, _, _ in services)
         boot += f'''mkdir -p /run/systemd/system
 cat > /run/systemd/system/md-installed.target <<EOF

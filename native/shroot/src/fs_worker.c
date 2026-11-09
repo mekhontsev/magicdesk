@@ -11,6 +11,7 @@
 #include "ofd_order.h"
 #include "input_session.h"
 #include "device_events.h"
+#include "pty_events.h"
 #include "device_tree.h"
 #include "network_resolver.h"
 #include "fs_continuation.h"
@@ -221,6 +222,7 @@ static void runtime_close(struct worker_runtime *runtime) {
     md_provider_tree_release(runtime->devices);
     md_control_file_release(fs->render_device);
     md_device_events_stop(fs->device_events);
+    md_pty_events_release(fs->pty_events);
     md_fs_mounts_close(fs);
     md_fs_storage_close(&runtime->storage);
     md_ipc_credentials_close(fs->ipc);

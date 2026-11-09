@@ -26,7 +26,8 @@ void md_boot(uintptr_t *stack) {
     if (argc < 5)
         md_die("usage: guest-run --store HOST_PATH [--cwd GUEST_PATH] -- PROGRAM [ARGS]", -EINVAL);
     const char *store = NULL, *cwd = "/", *home = "/tmp", *admit = NULL, *run_deadline = NULL;
-    int diagnostics = 0, statistics = 0, commands = 0;
+    const char *diagnostics = NULL;
+    int statistics = 0, commands = 0;
     const char *user = NULL;
     const char *groups = NULL;
     const char *hostname = NULL;
@@ -36,7 +37,9 @@ void md_boot(uintptr_t *stack) {
     struct md_fs_attachment attachments[MD_FS_MOUNTS_MAX]; unsigned attachment_count = 0;
     size_t program = 1;
     while (program < argc && !md_equal(argv[program], "--")) {
-        if (md_equal(argv[program], "--diagnostics")) { diagnostics = 1; program++; continue; }
+        if (md_equal(argv[program], "--diagnostics") || md_equal(argv[program], "--diagnostics=signals")) {
+            diagnostics = argv[program++]; continue;
+        }
         if (md_equal(argv[program], "--statistics")) { statistics = 1; program++; continue; }
         if (md_equal(argv[program], "--magicdesk") && !commands) { commands = 1; program++; continue; }
         if (program + 1 >= argc) md_die("missing launch option value", -EINVAL);
@@ -137,7 +140,7 @@ void md_boot(uintptr_t *stack) {
         char **args=arguments.values;
         args[0]=supervisor;
         unsigned n = 1;
-        if (diagnostics) args[n++] = "--diagnostics";
+        if (diagnostics) args[n++] = (char *)diagnostics;
         if (statistics) args[n++] = "--statistics";
         if (commands) args[n++] = "--magicdesk";
         if (run_deadline) { args[n++] = "--deadline-seconds"; args[n++] = (char *)run_deadline; }

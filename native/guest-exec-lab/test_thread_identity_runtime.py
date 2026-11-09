@@ -2,6 +2,7 @@
 """Check libc thread identity during PID-namespace birth publication."""
 import argparse
 from pathlib import Path
+from fixture_executor import FixtureExecutor
 from test_oci_services import Suite
 
 
@@ -12,9 +13,11 @@ def main():
     parser.add_argument('fixture', type=Path, nargs='?',
                         help='Prebuilt fixture; otherwise compile with the guest compiler and libc')
     parser.add_argument('--debuggers', action='store_true', help='Also exercise installed strace and GDB')
-    parser.add_argument('--case', choices=('all', 'identity', 'pi'), default='all')
+    parser.add_argument('--case', choices=('all', 'identity', 'pi', 'robust'), default='all')
+    parser.add_argument('--output', type=Path, default=Path('build/thread-identity'))
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.build, args.build)
+    suite = Suite(args.output, args.build, executor=args.executor)
     target = '/tmp/md-thread-' + suite.report['id']
     base = [suite.runner, '--store', args.store, '--user', '0:0']
     try:
@@ -36,6 +39,20 @@ def main():
                 output = suite.command(base + ['--bind-ro', suite.base, target, '--deadline-seconds', '20', '--']
                                        + wrapper + [target + '/thread', '--pid-futex'], timeout=30)
                 assert 'PASS PI futex admission' in output, output
+            if args.case in ('all', 'robust'):
+                for case in ('query', 'thread', 'exit', 'kill', 'exec'):
+                    record = dict(name='robust-' + case, pidNamespace=bool(wrapper), passed=False)
+                    suite.report['cases'].append(record)
+                    try:
+                        output = suite.command(base + ['--bind-ro', suite.base, target,
+                            '--deadline-seconds', '20', '--'] + wrapper
+                            + [target + '/thread', '--robust-' + case], timeout=30, quiet=True)
+                        assert 'PASS robust' in output, output
+                        record['passed'] = True
+                    except Exception as error:
+                        record['error'] = str(error)
+                    print(('PASS' if record['passed'] else 'FAIL')
+                          + f' robust-{case} pidNamespace={bool(wrapper)}', flush=True)
         if args.debuggers:
             namespace = ['/usr/bin/unshare', '--pid', '--fork', '--mount-proc']
             trace = ['/usr/bin/strace', '-f', '-qq', '-o', '/dev/null']
@@ -52,12 +69,14 @@ def main():
                 output = suite.command(base + ['--bind-ro', suite.base, target, '--deadline-seconds', '60', '--']
                                        + namespace + debugger + [target + '/thread'], timeout=70)
                 assert 'PASS thread identity:' in output, output
-        suite.report['passed'] = True
+        suite.report['passed'] = all(case['passed'] for case in suite.report['cases'])
     finally:
         try:
             suite.command(base + ['--', '/bin/rmdir', target])
+            suite.command(['rm', '-rf', suite.base], quiet=True)
         finally:
             suite.finish()
+    assert suite.report['passed'], 'Thread identity failures: ' + str(suite.output)
 
 
 if __name__ == '__main__':

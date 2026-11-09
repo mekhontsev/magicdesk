@@ -39,8 +39,8 @@ enum md_network_link_kind { MD_LINK_LOOPBACK, MD_LINK_UPLINK, MD_LINK_BRIDGE, MD
 struct md_network_link {
     enum md_network_link_kind kind;
     unsigned index, flags, mtu, type, state, tx_queue_length;
-    unsigned peer;
-    uint64_t lifetime;
+    unsigned peer, master, bridge_state;
+    uint64_t lifetime, bridge_lifetime;
     char name[16];
     unsigned char address[6];
 };

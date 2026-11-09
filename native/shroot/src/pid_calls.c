@@ -79,12 +79,8 @@ long md_pidfd_namespace(const unsigned long *a) {
     long released=md_fd_control(MD_FD_RELEASE,0,0,0);
     if (!result && released) result=released;
     if (result || native) { md_adapter_buffer_release(); return result; }
-    result=RAW5(prctl,MD_GUEST_PROC_FILE,MD_PROC_FILE_PIDFD_NAMESPACE,a[0],a[1],0);
+    result=md_proc_control_pidfd(frame,(int)a[0],(unsigned)a[1]);
     md_adapter_buffer_release();
-    if (result>=0) {
-        long armed=md_fd_filter_arm(MD_FD_SELECTOR_PROC,(int)result);
-        if (armed<0) { RAW1(close,result); return armed; }
-    }
     return result;
 }
 long md_setns(const unsigned long *a) {

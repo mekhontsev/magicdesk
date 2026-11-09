@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,6 +29,89 @@ static unsigned entries(const char *path) {
         ++count;
     }
     closedir(dir); return count;
+}
+static void watch_event(int fd,int wd,unsigned mask) {
+    struct pollfd pollfd={.fd=fd,.events=POLLIN};
+    /* EVENT_WAIT: the exact terminal operation must produce its event;
+     * timeout fails instead of assuming observation caught up. */
+    assert(poll(&pollfd,1,3000)==1 && (pollfd.revents&POLLIN));
+    struct inotify_event event;
+    assert(read(fd,&event,sizeof(event))==sizeof(event));
+    if (event.wd!=wd || event.mask!=mask)
+        fprintf(stderr,"PTY event wd=%d mask=%x expected wd=%d mask=%x\n",event.wd,event.mask,wd,mask);
+    assert(event.wd==wd && event.mask==mask && !event.len);
+}
+static void watch_empty(int fd) {
+    struct inotify_event event;
+    assert(read(fd,&event,sizeof(event))==-1 && errno==EAGAIN);
+}
+static void watches(const char *root,int private) {
+    char path[96]; snprintf(path,sizeof(path),"%s/ptmx",root);
+    int master=open(private ? path : "/dev/ptmx",O_RDWR|O_NOCTTY|O_CLOEXEC); assert(master>=0);
+    int unlocked=0; assert(!ioctl(master,TIOCSPTLCK,&unlocked));
+    unsigned index; assert(!ioctl(master,TIOCGPTN,&index));
+    snprintf(path,sizeof(path),"%s/%u",root,index);
+    int watch=inotify_init1(IN_CLOEXEC|IN_NONBLOCK); assert(watch>=0);
+    int wd=inotify_add_watch(watch,path,IN_OPEN|IN_CLOSE|IN_DELETE_SELF);
+    if (wd<0) perror("PTY inotify_add_watch");
+    assert(wd>=0);
+    if (private) {
+        pid_t denied=fork(); assert(denied>=0);
+        if (!denied) {
+            assert(!setresgid(1234,1234,1234) && !setresuid(1234,1234,1234));
+            assert(inotify_add_watch(watch,path,IN_CLOSE)==-1 && errno==EACCES);
+            assert(open(path,O_WRONLY|O_APPEND|O_NOCTTY)==-1 && errno==EACCES);
+            _exit(0);
+        }
+        int status;
+        assert(waitpid(denied,&status,0)==denied && WIFEXITED(status) && !WEXITSTATUS(status));
+    }
+    int pin=open(path,O_PATH|O_CLOEXEC); assert(pin>=0); close(pin); watch_empty(watch);
+    const char *alias="/tmp/pts-append-alias";
+    int node=open(alias,O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600); assert(node>=0); close(node);
+    assert(!mount(path,alias,NULL,MS_BIND,NULL));
+    for (int variant=0;variant<8;++variant) {
+        int caller=variant&1,append=variant&2;
+        int slave=open(variant&4 ? alias : path,O_RDWR|O_CLOEXEC|(caller ? 0 : O_NOCTTY)|(append ? O_APPEND : 0));
+        if (slave<0) fprintf(stderr,"PTY open %s caller=%d: %s\n",path,caller,strerror(errno));
+        assert(slave>=0);
+        assert(!!(fcntl(slave,F_GETFL)&O_APPEND)==!!append);
+        if (append) {
+            char byte;
+            assert(write(slave,"a",1)==1);
+            struct pollfd input={.fd=master,.events=POLLIN};
+            /* EVENT_WAIT: terminal output must reach its master; timeout fails. */
+            assert(poll(&input,1,3000)==1 && read(master,&byte,1)==1 && byte=='a');
+        }
+        watch_event(watch,wd,IN_OPEN);
+        int duplicate=dup(slave); assert(duplicate>=0); close(slave); watch_empty(watch);
+        close(duplicate); watch_event(watch,wd,IN_CLOSE_WRITE); watch_empty(watch);
+    }
+    assert(!umount(alias) && !unlink(alias));
+    int slave=ioctl(master,TIOCGPTPEER,O_RDONLY|O_CLOEXEC|O_NOCTTY);
+    if (slave<0) fprintf(stderr,"PTY peer %s: %s\n",path,strerror(errno));
+    assert(slave>=0);
+    watch_event(watch,wd,IN_OPEN);
+    int pipefd[2]; assert(!pipe2(pipefd,O_CLOEXEC));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        close(pipefd[1]); close(watch); close(master);
+        char byte; assert(read(pipefd[0],&byte,1)==1);
+        close(slave); _exit(0);
+    }
+    close(pipefd[0]); close(slave); watch_empty(watch);
+    assert(write(pipefd[1],"x",1)==1); close(pipefd[1]);
+    int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    watch_event(watch,wd,IN_CLOSE_NOWRITE); watch_empty(watch);
+    assert(!inotify_rm_watch(watch,wd)); watch_event(watch,wd,IN_IGNORED);
+    wd=inotify_add_watch(watch,path,IN_OPEN|IN_ONESHOT); assert(wd>=0);
+    slave=open(path,O_RDWR|O_NOCTTY|O_CLOEXEC); assert(slave>=0);
+    watch_event(watch,wd,IN_OPEN); watch_event(watch,wd,IN_IGNORED);
+    close(slave); watch_empty(watch);
+    wd=inotify_add_watch(watch,path,IN_DELETE_SELF); assert(wd>=0);
+    close(master); watch_event(watch,wd,IN_DELETE_SELF); watch_event(watch,wd,IN_IGNORED);
+    close(watch);
+    puts("PASS devpts watches: O_PATH, caller open, dup, fork, last close, oneshot and master retirement");
 }
 static void limits(void) {
     const char *path="/tmp/pts-limit";
@@ -180,6 +264,8 @@ int test_devpts_guest(int pid_namespace) {
     assert(!entries("/tmp/pts-a") && !entries("/tmp/pts-b"));
     limits();
     reconfigure();
+    watches("/tmp/pts-a",1);
+    watches("/dev/pts",0);
     ownership();
     int master=open("/tmp/pts-a/ptmx",O_RDWR|O_NOCTTY|O_CLOEXEC); assert(master>=0);
     unsigned index; assert(!ioctl(master,TIOCGPTN,&index));

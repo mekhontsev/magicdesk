@@ -10,27 +10,40 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-int mdi_super_refresh(struct md_inode_store *s,sqlite3_int64 version) {
-    if (s->super_checked && s->super_version==version) return 0;
+static int super_policy(struct md_inode_store *s,const struct md_inode_lifetime *scope,int *value) {
     sqlite3_stmt *q=NULL;
-    int r=mdi_query_acquire(s,s->lifetime->filesystem_kind==MD_FILESYSTEM_OVERLAY
+    int r=mdi_query_acquire(s,scope->filesystem_kind==MD_FILESYSTEM_OVERLAY
         ? MDI_OVERLAY_READONLY : MDI_SUPER_READONLY,&q);
-    if (!r) r=mdi_bind_id(q,1,s->lifetime->scope);
+    if (!r) r=mdi_bind_id(q,1,scope->scope);
     if (!r) {
         int rc=mdi_step(s,q);
         if (rc!=SQLITE_ROW) r=mdi_sql_failure(rc);
-        else {
-            s->super_readonly=sqlite3_column_int(q,0)!=0;
-            s->super_version=version; s->super_checked=1;
-        }
+        else *value=sqlite3_column_int(q,0)!=0;
     }
     return mdi_query_release(q,r);
+}
+int mdi_super_refresh(struct md_inode_store *s,sqlite3_int64 version) {
+    if (s->super_checked && s->super_version==version) return 0;
+    int r=super_policy(s,s->lifetime,&s->super_readonly);
+    if (!r) { s->super_version=version; s->super_checked=1; }
+    return r;
 }
 int md_inode_store_readonly(struct md_inode_store *s) {
     int r=mdi_begin(s,0);
     if (r) return r;
     int value=mdi_readonly(s);
     r=mdi_finish(s,0); return r ? r : value;
+}
+int md_inode_store_scope_readonly(struct md_inode_store *s,const struct md_inode_lifetime *scope) {
+    if (!s || !scope) return -EINVAL;
+    if (!md_inode_lifetime_catalogue_same(s->lifetime,scope)) return -EXDEV;
+    if (md_inode_lifetime_same(s->lifetime,scope)) return md_inode_store_readonly(s);
+    int r=mdi_begin(s,0);
+    if (r) return r;
+    int value=0;
+    r=super_policy(s,scope,&value);
+    r=mdi_finish(s,r);
+    return r ? r : s->readonly || value;
 }
 
 static int writer_check(int directory,const char *name,pid_t tid) {

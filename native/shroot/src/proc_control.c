@@ -32,32 +32,34 @@ long md_proc_control_known(int fd) {
     return kind==MD_DESCRIPTOR_ANONYMOUS ? 0 : kind;
 #endif
 }
-static long control_open(unsigned operation, int process, int selector, int flags, uint64_t view,const char *interface) {
-    long memory=0;
+static long control_request(void *memory,unsigned operation,int process,unsigned selector,
+        unsigned flags,uint64_t view,const char *interface,int publish) {
 #ifndef MD_USE_LIBC
-    if (interface) {
-        memory=md_adapter_buffer_take();
-        if (memory<0) return memory;
-        if (interface) memcpy((void *)memory,interface,16);
-    }
-#endif
-    long fd=RAW6(prctl,MD_GUEST_PROC_FILE,operation,process,selector,flags,view);
-#ifndef MD_USE_LIBC
-    if (fd==MD_PROC_OPEN_RIGHTS) {
-        if (!memory) memory=md_adapter_buffer_take();
-        fd=memory<0 ? memory : md_adapter_receive_fd((void *)memory,(unsigned)flags,MD_BUFFER_PROC_RIGHTS);
-    }
-    if (memory>0) {
-        long released=md_adapter_buffer_release();
-        if (released<0) { if (fd>=0) RAW1(close,fd); return released; }
-    }
+    struct md_proc_open_request *q=memory;
+    *q=(struct md_proc_open_request){.operation=operation,.process=process,
+        .selector=selector,.flags=flags,.view=view};
+    if (interface) memcpy(q->interface,interface,sizeof(q->interface));
+    long result=md_guest_buffer_control(MD_BUFFER_PROC_OPEN,0,0);
+    return !result && publish ? md_guest_buffer_result(flags,0,memory) : result;
 #else
-    (void)memory; (void)interface;
+    (void)memory; (void)operation; (void)process; (void)selector; (void)flags;
+    (void)view; (void)interface; (void)publish; return -ENOTSUP;
 #endif
-    if (fd<0) return fd;
-    long result=md_fd_filter_arm(MD_FD_SELECTOR_PROC,(int)fd);
-    if (result<0) { RAW1(close,fd); return result; }
+}
+static long control_open(unsigned operation,int process,int selector,int flags,uint64_t view,const char *interface) {
+#ifndef MD_USE_LIBC
+    long memory=md_adapter_buffer_take();
+    if (memory<0) return memory;
+    long fd=control_request((void *)memory,operation,process,(unsigned)selector,(unsigned)flags,view,interface,1);
+    long released=md_adapter_buffer_release();
+    if (released<0) { if (fd>=0) RAW1(close,fd); return released; }
     return fd;
+#else
+    return control_request(NULL,operation,process,(unsigned)selector,(unsigned)flags,view,interface,1);
+#endif
+}
+long md_proc_control_pidfd(void *memory,int fd,unsigned command) {
+    return control_request(memory,MD_PROC_FILE_PIDFD_NAMESPACE,fd,command,O_CLOEXEC,0,NULL,1);
 }
 long md_proc_control_open(const struct md_proc_path *ref, int flags, uint64_t view) {
     enum md_proc_kind kind=ref->kind==MD_PROC_FOREIGN ? ref->foreign_kind : ref->kind;
@@ -225,14 +227,16 @@ long md_proc_control_call(long nr, const unsigned long *a, int kind) {
             long released=md_adapter_buffer_release();
             return result<0 ? result : released<0 ? released : result;
         }
-        long value=RAW5(prctl,MD_GUEST_PROC_FILE,MD_PROC_FILE_NAMESPACE_QUERY,a[0],a[1],0);
+        long memory=md_adapter_buffer_take();
+        if (memory<0) return memory;
+        int publish=a[1]==NS_GET_USERNS || a[1]==NS_GET_PARENT;
+        long value=control_request((void *)memory,MD_PROC_FILE_NAMESPACE_QUERY,(int)a[0],
+            (unsigned)a[1],publish ? O_CLOEXEC : 0,0,NULL,publish);
+        long released=md_adapter_buffer_release();
+        if (released<0) { if (publish && value>=0) RAW1(close,value); return released; }
         if (value>=0 && a[1]==NS_GET_OWNER_UID) {
             uint32_t uid=(uint32_t)value;
             return md_write_memory((void *)a[2],&uid,sizeof(uid));
-        }
-        if (value>=0 && (a[1]==NS_GET_USERNS || a[1]==NS_GET_PARENT)) {
-            long armed=md_fd_filter_arm(MD_FD_SELECTOR_PROC,(int)value);
-            if (armed<0) { RAW1(close,value); return armed; }
         }
         return value;
     }

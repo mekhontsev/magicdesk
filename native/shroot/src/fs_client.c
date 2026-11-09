@@ -6,6 +6,7 @@
 #include "raw.h"
 #include "fd_client.h"
 #include "fs_buffer.h"
+#include "native_identity.h"
 #include "bpf_request.h"
 #include "filesystem_ioctl.h"
 #include <errno.h>
@@ -242,7 +243,7 @@ long md_fs_call_deliver(const char *name, unsigned timeout_ms,
     wire.packet.magic=MD_FS_MAGIC; wire.packet.version=MD_FS_VERSION;
     wire.packet.operation=request->operation; wire.packet.flags=request->flags; wire.packet.mode=request->mode;
     wire.packet.capacity=request->capacity; wire.packet.offset=request->offset; wire.packet.resolve=request->resolve;
-    wire.packet.actor=request->actor ? request->actor : (int)RAW0(gettid); wire.packet.attributes=request->attributes;
+    wire.packet.actor=request->actor ? request->actor : md_native_tid(); wire.packet.attributes=request->attributes;
     if (request->value_size>MD_FS_VALUE_MAX || (request->value_size && !request->value)) return -EINVAL;
     wire.packet.value_size=request->value_size;
     struct md_fs_rights rights = {0};

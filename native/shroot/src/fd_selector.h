@@ -23,6 +23,11 @@ void md_fd_selector_release(struct md_fd_selector *);
 int md_fd_selector_has(struct md_fd_selector *, unsigned kind, int fd);
 int md_fd_selector_has_mask(struct md_fd_selector *, unsigned kinds, int fd);
 int md_fd_selector_mark(struct md_fd_selector *, unsigned kind, int fd);
+/* Bounded difference of two selector inventories. Does not install anything;
+ * a suspended file-table owner may retain requirements separately until it can
+ * execute again. 1 supplies one missing class/number, 0 means covered. */
+int md_fd_selector_missing(const struct md_fd_selector *required,struct md_fd_selector *installed,
+        enum md_fd_selector_kind *kind,int *fd);
 /* Bound our irreversible filters to half of Linux's 32768-instruction path
  * limit, leaving room for the base adapter and application filters. Promotion
  * uses the existing all-FD dispatch of this kind, not a policy bypass. */

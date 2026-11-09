@@ -10,8 +10,10 @@
 #include <string.h>
 #include <grp.h>
 #include <sys/prctl.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 static pthread_mutex_t mutex;
@@ -113,8 +115,98 @@ static void priority_inheritance(int virtual) {
     assert(!pthread_mutex_destroy(&mutex));
     puts("PASS PI futex admission and ordinary mutex fallback");
 }
+static void robust_mutex_init(pthread_mutex_t *,int);
+static void robust_query(void) {
+    pthread_mutex_t lock;
+    /* musl registers lazily for process-shared robust locks. */
+    robust_mutex_init(&lock,1);
+    assert(!pthread_mutex_lock(&lock));
+    struct robust_list_head *head=NULL;
+    size_t length=0;
+    assert(!syscall(SYS_get_robust_list,0,&head,&length));
+    assert(head && length==sizeof(*head) && head->list.next);
+    assert(syscall(SYS_set_robust_list,head,sizeof(*head)-1)==-1 && errno==EINVAL);
+    struct robust_list_head *again=NULL;
+    assert(!syscall(SYS_get_robust_list,syscall(SYS_gettid),&again,&length));
+    assert(again==head && length==sizeof(*head));
+    assert(!pthread_mutex_unlock(&lock));
+    assert(!pthread_mutex_destroy(&lock));
+    puts("PASS robust list registration and query");
+}
+static void robust_mutex_init(pthread_mutex_t *lock,int shared) {
+    pthread_mutexattr_t attr;
+    assert(!pthread_mutexattr_init(&attr));
+    assert(!pthread_mutexattr_setrobust(&attr,PTHREAD_MUTEX_ROBUST));
+    if (shared) assert(!pthread_mutexattr_setpshared(&attr,PTHREAD_PROCESS_SHARED));
+    assert(!pthread_mutex_init(lock,&attr));
+    assert(!pthread_mutexattr_destroy(&attr));
+}
+static void robust_recover(pthread_mutex_t *lock) {
+    struct timespec deadline;
+    assert(!clock_gettime(CLOCK_REALTIME,&deadline));
+    deadline.tv_sec+=3;
+    int error=pthread_mutex_timedlock(lock,&deadline);
+    if (error!=EOWNERDEAD) fprintf(stderr,"robust owner death: result=%d (%s)\n",error,strerror(error));
+    assert(error==EOWNERDEAD);
+    assert(!pthread_mutex_consistent(lock));
+    assert(!pthread_mutex_unlock(lock));
+    assert(!pthread_mutex_trylock(lock));
+    assert(!pthread_mutex_unlock(lock));
+}
+static void *robust_worker(void *lock) {
+    assert(!pthread_mutex_lock(lock));
+    return NULL;
+}
+static void robust_thread(void) {
+    pthread_mutex_t lock;
+    robust_mutex_init(&lock,0);
+    for (unsigned i=0;i<8;++i) {
+        pthread_t thread;
+        assert(!pthread_create(&thread,NULL,robust_worker,&lock));
+        assert(!pthread_join(thread,NULL));
+        robust_recover(&lock);
+    }
+    assert(!pthread_mutex_destroy(&lock));
+    puts("PASS robust mutex thread owner death");
+}
+static void robust_process(const char *mode) {
+    assert(!strcmp(mode,"exit") || !strcmp(mode,"kill") || !strcmp(mode,"exec"));
+    pthread_mutex_t *lock=mmap(NULL,sizeof(*lock),PROT_READ|PROT_WRITE,
+        MAP_SHARED|MAP_ANONYMOUS,-1,0);
+    assert(lock!=MAP_FAILED);
+    robust_mutex_init(lock,1);
+    int channel[2]; assert(!pipe(channel));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        close(channel[0]);
+        assert(!pthread_mutex_lock(lock));
+        assert(write(channel[1],"x",1)==1);
+        if (!strcmp(mode,"kill")) for (;;) pause();
+        if (!strcmp(mode,"exec")) {
+            execl("/bin/true","true",NULL);
+            _exit(120);
+        }
+        _exit(0);
+    }
+    close(channel[1]);
+    char byte; assert(read(channel[0],&byte,1)==1);
+    close(channel[0]);
+    int killed=!strcmp(mode,"kill");
+    if (killed) assert(!kill(child,SIGKILL));
+    int status;
+    assert(waitpid(child,&status,0)==child);
+    assert(killed ? WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL
+        : WIFEXITED(status) && !WEXITSTATUS(status));
+    robust_recover(lock);
+    assert(!pthread_mutex_destroy(lock));
+    assert(!munmap(lock,sizeof(*lock)));
+    printf("PASS robust shared mutex owner %s\n",mode);
+}
 int main(int argc,char **argv) {
     if (argc==2) {
+        if (!strcmp(argv[1],"--robust-query")) { robust_query(); return 0; }
+        if (!strcmp(argv[1],"--robust-thread")) { robust_thread(); return 0; }
+        if (!strncmp(argv[1],"--robust-",9)) { robust_process(argv[1]+9); return 0; }
         assert(!strcmp(argv[1],"--pid-futex"));
         priority_inheritance(getpid()==1);
         assert(!prctl(PR_SET_DUMPABLE,0));

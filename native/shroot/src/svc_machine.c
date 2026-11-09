@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "svc_machine.h"
+#include "signal_protocol.h"
 #include "mapping_reader.h"
 #include <elf.h>
 #include <errno.h>
@@ -164,7 +165,7 @@ int md_svc_machine_signal(struct md_svc_registry *r,struct md_svc_machine_thread
     siginfo_t info=stop->info;
     int signal=info.si_signo;
     if (signal<=0 || signal>=NSIG) return 0;
-    if (signal==SIGSTOP || signal==SIGKILL || (info.si_code>0 && info.si_code!=SI_KERNEL))
+    if (signal==SIGSTOP || signal==SIGKILL || md_signal_synchronous(&info))
         return 0;
     error=md_task_signal_registers(pid,stop);
     if (error) return error;

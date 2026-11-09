@@ -43,13 +43,14 @@ target_compile_options(guest-objects PRIVATE -std=c17 -O2 -Wall -Wextra -Werror 
 add_library(guest-interruptible STATIC ${src}/interruptible_call.c ${src}/interruptible_call.S)
 target_compile_options(guest-interruptible PRIVATE -std=c17 -O2 -Wall -Wextra -Werror -fno-pie)
 set(fifo_descriptions ${src}/fifo_description.c ${src}/fifo_readiness.c)
+set(pty_descriptions ${src}/pty_events.c)
 set(origins ${src}/fs_anchor.c ${src}/fs_origin_transfer.c ${src}/inode_lifetime.c ${src}/inode_custody.c ${src}/sealed_manifest.c ${src}/ipc_scope.c ${src}/mount_policy.c ${src}/mount_graph.c ${src}/resource_order.c ${src}/ofd_order.c ${src}/fd_origins.c ${src}/fd_channel.c ${src}/fd_mutation.c ${src}/fd_delivery.c ${src}/fd_table_observation.c ${src}/fd_return.c ${src}/fd_exchange.c ${src}/received_fds.c ${src}/fd_messages.c ${src}/task_descriptor.c ${src}/task_lifetime.c)
 list(APPEND origins ${src}/native_mounts.c ${src}/devpts_view.c ${src}/cgroup.c ${src}/cgroup_resources.c ${src}/cgroup_program.c ${src}/bpf_map.c ${src}/bpf_handle.c ${src}/sysfs_view.c ${src}/network_namespace.c ${src}/socket_filter.c ${src}/network_model.c ${src}/network_route.c ${src}/network_message.c ${src}/network_generic.c ${src}/network_endpoint.c ${src}/network_sysctl.c ${src}/network_proc.c
     ${src}/ipc_namespace.c ${src}/mqueue_view.c ${src}/landlock_policy.c ${src}/landlock_file.c
     ${src}/mount_stream.c ${src}/mount_pin.c ${src}/mount_propagation.c ${src}/temporary_directory.c ${src}/private_tree.c
     ${src}/provider_tree.c ${src}/host_fs_view.c ${src}/device_events.c ${src}/identity_snapshot.c ${src}/proc_sysctl.c ${src}/user_sysctl.c ${src}/proc_static.c ${src}/kernel_policy.c ${src}/uts_namespace.c ${src}/control_event.c)
 list(APPEND origins ${fifo_descriptions} ${src}/descriptor_inode.c ${src}/fd_native_pin.c ${src}/network_ethernet.c ${src}/network_raw6.c ${src}/network_raw4.c ${src}/network_nexthop.c ${src}/network_autoconf.c ${src}/network_multicast.c ${src}/network_link.c ${src}/network_tc.c)
-list(APPEND origins ${src}/proc_file.c ${src}/proc_namespace.c ${src}/procfs_policy.c)
+list(APPEND origins ${pty_descriptions} ${src}/proc_file.c ${src}/proc_namespace.c ${src}/procfs_policy.c)
 list(APPEND origins ${src}/device_tree.c ${src}/kmsg_device.c ${src}/fuse_device.c ${src}/fuse_transport.c ${src}/fuse_session.c)
 list(APPEND origins ${src}/render_device.c ${src}/render_sysfs.c ${src}/sysfs_uevent.c)
 list(APPEND origins ${src}/network_filter.c ${src}/network_filter_program.c ${src}/network_reject.c ${src}/network_nft.c ${src}/network_nft_expression.c ${src}/network_nft_objects.c)
@@ -104,6 +105,7 @@ guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c ${src}/
     ${src}/task_receive.c ${src}/fs_client.c ${src}/fs_buffer_client.c ${src}/adapter_buffer.c ${src}/file_open.c ${wire} ${src}/raw.c ${src}/raw.S)
 target_sources(bootstrap PRIVATE ${src}/descriptor_calls.c ${src}/epoll_calls.c ${src}/descriptor_capture.c ${src}/freestanding_memory.c)
 target_sources(bootstrap PRIVATE ${src}/host_open.c)
+target_sources(bootstrap PRIVATE ${src}/task_atomic.S)
 target_sources(bootstrap PRIVATE ${src}/pid_filter_program.c)
 guest_freestanding(bootstrap)
 target_sources(bootstrap PRIVATE ${src}/arguments.c ${src}/guest_copy.S ${src}/cooperative_entry.c ${src}/cooperative_native.S)
@@ -129,6 +131,7 @@ target_sources(supervisor PRIVATE ${src}/control_epoll.c ${src}/fd_admission.c $
 target_sources(bootstrap PRIVATE ${src}/poll_calls.c)
 target_sources(supervisor PRIVATE ${src}/poll_wait.c)
 target_sources(supervisor PRIVATE ${src}/task_copy.c ${src}/seccomp_capture.c ${src}/seccomp_policy.c ${src}/seccomp_listener.c ${src}/seccomp_notify.c)
+target_sources(supervisor PRIVATE ${src}/robust_futex.c ${src}/task_robust.c ${src}/task_child_reap.c ${src}/task_retained.c)
 target_sources(supervisor PRIVATE ${src}/task_signal_control.c ${src}/signal_actions.c ${src}/signal_view.c ${src}/signal_pending.c ${src}/signal_fd.c)
 target_sources(supervisor PRIVATE ${src}/pid_filter_program.c)
 target_sources(supervisor PRIVATE ${src}/input_session.c ${src}/input_devices.c ${src}/input_uinput.c)
@@ -176,6 +179,11 @@ endforeach()
 
 option(MAGICDESK_GUEST_FIXTURES "Build standalone native fixtures" OFF)
 if(MAGICDESK_GUEST_FIXTURES)
+    guest_executable(test_robust_futex ../guest-exec-lab/test_robust_futex.c ../guest-exec-lab/test_robust_futex_entry.S ${src}/robust_futex.c
+        ${src}/task_atomic.S ${src}/task_call.c ${src}/task_quiesce.c
+        ${src}/task_robust.c ${src}/task_checkpoint.c ${src}/task_copy.c ${src}/task_child_reap.c
+        ${src}/task_retained.c ${src}/task_birth.c)
+    target_compile_options(test_robust_futex PRIVATE -iquote ${src} -UNDEBUG)
     guest_executable(test_host_policy ../guest-exec-lab/test_host_policy.c)
     target_link_libraries(test_host_policy PRIVATE guest-host-libc guest-host-raw)
     target_compile_options(test_host_policy PRIVATE -iquote ${src} -UNDEBUG)

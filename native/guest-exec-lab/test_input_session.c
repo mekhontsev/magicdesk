@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/joystick.h>
+#include <linux/mount.h>
 #include <linux/netlink.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -143,7 +144,7 @@ static void initial_devices(struct md_filesystem *fs) {
     assert(request(fs,MD_FS_STAT,"/devices-flat/shm/sentinel",0,NULL,NULL).error==-ENOENT);
     assert(request(fs,MD_FS_STAT,"/devices-flat/shm/nested",0,NULL,NULL).error==-ENOENT);
     struct md_fs_anchor *detached=NULL;
-    struct md_fs_request clone={.operation=MD_FS_OPEN_TREE,.mode=AT_RECURSIVE,
+    struct md_fs_request clone={.operation=MD_FS_OPEN_TREE,.mode=OPEN_TREE_CLONE|AT_RECURSIVE,
         .directory={-1,-1},.path={"/dev",NULL}};
     md_fs_execute(fs,&clone,&r,&(struct md_fs_output){.origin=&detached});
     assert(!r.error && r.fd>=0 && detached);

@@ -27,7 +27,8 @@ __asm__(".text\n.balign 4\n.global alias_call\nalias_call:\n"
     "mov x8,x0\nmov x0,x1\nmov x1,x2\nmov x2,x3\nmov x3,x4\n"
     ".global alias_svc\nalias_svc:\nsvc #0\nb original_svc+4\n"
     ".global original_svc\noriginal_svc:\nsvc #0\nret\n");
-enum { RESTART=1, ALTSTACK=2, FILTER=4, IGNORE=8, SUPPRESS=16, ESCAPE=32, NATIVE_ENTRY=64, QUIET_RETURN=128 };
+enum { RESTART=1, ALTSTACK=2, FILTER=4, IGNORE=8, SUPPRESS=16, ESCAPE=32,
+    NATIVE_ENTRY=64, QUIET_RETURN=128, KERNEL_CHILD=256 };
 static struct { volatile int handled; } *shared;
 static unsigned mode;
 static int expected_restart, word;
@@ -42,7 +43,9 @@ static long signal_trace(int request,pid_t pid,void *address,void *data) {
 static void handler(int number,siginfo_t *info,void *context) {
     ucontext_t *uc=context;
     char stack;
-    assert(number==SIGUSR1 && info->si_code==SI_USER);
+    assert(number==(mode&KERNEL_CHILD ? SIGCHLD : SIGUSR1));
+    assert(info->si_code==(mode&KERNEL_CHILD ? CLD_EXITED : SI_USER));
+    if (mode&KERNEL_CHILD) assert(info->si_pid==12345 && info->si_status==7);
     assert(uc->uc_mcontext.pc==(uintptr_t)original_svc+(expected_restart ? 0 : 4));
     assert(expected_restart || (long)uc->uc_mcontext.regs[0]==-EINTR);
     uintptr_t at=(uintptr_t)&stack;
@@ -68,7 +71,7 @@ static void run(unsigned selected,int timed) {
             |(mode&RESTART ? SA_RESTART : 0)|(mode&ALTSTACK ? SA_ONSTACK : 0)};
         sigemptyset(&action.sa_mask);
         if (mode&IGNORE) action.sa_handler=SIG_IGN;
-        assert(!sigaction(SIGUSR1,&action,NULL));
+        assert(!sigaction(mode&KERNEL_CHILD ? SIGCHLD : SIGUSR1,&action,NULL));
         if (mode&FILTER) {
             struct sock_filter instructions[]={
                 BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
@@ -153,8 +156,14 @@ static void run(unsigned selected,int timed) {
         return;
     }
     assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
-    assert(!kill(pid,SIGUSR1));
-    int status=stop(pid); assert(WSTOPSIG(status)==SIGUSR1);
+    int signal=mode&KERNEL_CHILD ? SIGCHLD : SIGUSR1;
+    assert(!kill(pid,signal));
+    int status=stop(pid); assert(WSTOPSIG(status)==signal);
+    if (mode&KERNEL_CHILD) {
+        siginfo_t info={.si_signo=SIGCHLD,.si_code=CLD_EXITED};
+        info.si_pid=12345; info.si_status=7;
+        assert(!ptrace(PTRACE_SETSIGINFO,pid,NULL,&info));
+    }
     struct md_svc_machine_thread machine={0};
     struct md_signal_delivery queue={0};
     int deliver=0;
@@ -164,7 +173,7 @@ static void run(unsigned selected,int timed) {
         info_reads=register_reads=0;
         assert(!md_task_signal_info(pid,&observation));
         assert(!md_task_signal_registers(pid,&observation));
-        assert(md_svc_machine_signal(&registry,&machine,pid,&queue,&observation,&deliver)==1 && deliver==SIGUSR1);
+        assert(md_svc_machine_signal(&registry,&machine,pid,&queue,&observation,&deliver)==1 && deliver==signal);
         assert(info_reads==1 && register_reads==1);
         assert(machine.signal_alias==(uintptr_t)alias_svc);
         assert(md_svc_machine_flush(&registry,&machine,pid)==1);
@@ -205,6 +214,10 @@ int main(void) {
         }
     }
     run(NATIVE_ENTRY|IGNORE|QUIET_RETURN,0); ++cases;
+    for (unsigned flags=0;flags<8;++flags) {
+        run(flags|KERNEL_CHILD,0); ++cases;
+        run(flags|KERNEL_CHILD,1); ++cases;
+    }
     assert(!munmap(shared,4096));
     printf("PASS native alias signal commit: %u cases; EINTR, restart, restart-block, altstack, filter, ignored, suppressed and longjmp\n",cases);
 }

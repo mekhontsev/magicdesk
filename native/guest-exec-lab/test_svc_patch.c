@@ -23,6 +23,7 @@ static struct md_svc_payload_state payload;
 static int reads,writes,fail_write=-1,fail_read;
 static void *publication_code;
 static int publication_memory=-1;
+static uint64_t revocation_code[2];
 ssize_t __real_process_vm_readv(pid_t,const struct iovec *,unsigned long,const struct iovec *,unsigned long,unsigned long);
 ssize_t __wrap_process_vm_readv(pid_t pid,const struct iovec *local,unsigned long ln,
         const struct iovec *remote,unsigned long rn,unsigned long flags) {
@@ -34,6 +35,10 @@ ssize_t __wrap_process_vm_readv(pid_t pid,const struct iovec *local,unsigned lon
     assert((pid==111 || pid==222) && ln==1 && rn==1 && !flags);
     ++reads;
     if (fail_read) { errno=ESRCH; return -1; }
+    if (remote->iov_base==revocation_code || remote->iov_base==revocation_code+1) {
+        assert(remote->iov_len<=8);
+        memcpy(local->iov_base,remote->iov_base,remote->iov_len); return remote->iov_len;
+    }
     assert(remote->iov_base==&payload && remote->iov_len==sizeof(payload));
     memcpy(local->iov_base,&payload,sizeof(payload)); return sizeof(payload);
 }
@@ -48,6 +53,9 @@ long __wrap_ptrace(int request,pid_t pid,void *address,void *value) {
     if (request==PTRACE_PEEKTEXT) { assert(fail_read); errno=ESRCH; return -1; }
     assert(request==PTRACE_POKETEXT);
     if (writes++==fail_write) { errno=ESRCH; return -1; }
+    if (address==revocation_code || address==revocation_code+1) {
+        uint64_t word=(uintptr_t)value; memcpy(address,&word,8); return 0;
+    }
     assert((char *)address>=(char *)&payload && (char *)address+8<=(char *)(&payload+1));
     if (address==&payload.clients[0].tid) {
         struct md_entry_client zero={0};
@@ -93,6 +101,35 @@ static void client_retirement(void) {
     assert(previous==reads+writes && r.clients_dirty);
     fail_read=0; fail_write=-1;
     puts("PASS SVC client retirement: lost stop, live peer, owner-last publication and idle fast path");
+}
+
+static void entry_revocation(void) {
+    for (int failure=0;failure<3;++failure) {
+        payload.admitted=1;
+        revocation_code[0]=revocation_code[1]=UINT64_C(0xd503201f14000000);
+        struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE,.count=2};
+        for (unsigned i=0;i<2;++i) r.sites[i]=(struct md_svc_site){
+            .direct={.svc=(uintptr_t)(revocation_code+i),.gate=1},
+            .original=0xd4000001,.replacement=0x14000000,.state=MD_SVC_PUBLISHED};
+        writes=0; fail_write=failure;
+        assert(md_svc_registry_revoke(&r,111)==-ESRCH && r.disabled && r.revoke_pending);
+        uint64_t slots;
+        assert(md_svc_registry_occupied(&r,222,&slots)==-EINVAL);
+        assert(payload.admitted==(failure==0));
+        assert(!md_svc_registry_direct(&r,222,-1,0x10000,SYS_getpid));
+        struct md_svc_registry *copy=md_svc_registry_copy(&r);
+        assert(copy && copy->disabled && copy->revoke_pending); free(copy);
+        fail_write=-1;
+        assert(!md_svc_registry_revoke(&r,222) && r.disabled && !r.revoke_pending);
+        assert(!payload.admitted);
+        for (unsigned i=0;i<2;++i) {
+            assert(r.sites[i].state==MD_SVC_RETIRED);
+            assert(revocation_code[i]==UINT64_C(0xd503201fd4000001));
+        }
+        int before=reads+writes;
+        assert(!md_svc_registry_revoke(&r,INT_MAX) && before==reads+writes);
+    }
+    puts("PASS SVC revocation: lost stop, partial retirement, peer retry and disabled discovery");
 }
 
 static void code_staging(void) {
@@ -342,6 +379,7 @@ static void revoked_frames(void) {
 }
 int main(void) {
     client_retirement();
+    entry_revocation();
     code_staging();
     sole_identity();
     publication_admission();

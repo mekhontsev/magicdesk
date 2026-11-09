@@ -15,6 +15,7 @@
 #include "fs_context.h"
 #include "image_catalogue.h"
 #include "inode_watch.h"
+#include "pty_events.h"
 #include "inode_fifo.h"
 #include "fs_mount_internal.h"
 #include "mount_graph.h"
@@ -136,7 +137,18 @@ static int watch_add(struct md_filesystem *fs, int instance, int object,
         int r=md_cgroup_watch(mount->cgroup,fs->store,instance,object,flags);
         if (r!=-EOPNOTSUPP) return r;
     }
-    if (!md_view_inode(mount)) return md_inode_watch_add(fs->store,instance,object,flags);
+    if (mount && mount->devpts) {
+        int r=md_devpts_access(mount->devpts,object,R_OK,fs->store->identity);
+        if (r) return r;
+    }
+    if (!md_view_inode(mount)) {
+        int r=md_inode_watch_add(fs->store,instance,object,flags);
+        if (r==-EACCES || r==-EPERM) {
+            int fallback=md_pty_events_watch(fs->pty_events,fs->store,instance,object,flags);
+            if (fallback!=-EOPNOTSUPP) r=fallback;
+        }
+        return r;
+    }
     struct md_fs_storage_scope scope;
     int r=md_fs_storage_enter(fs,mount,&scope);
     if (!r) {

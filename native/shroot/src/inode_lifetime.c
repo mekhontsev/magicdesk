@@ -33,7 +33,9 @@ void md_inode_lifetime_release(struct md_inode_lifetime *p) {
     if (p->overlay_identity) { md_identity_release(p->overlay_identity); free(p->overlay_identity); }
     free(p);
 }
+int md_inode_lifetime_catalogue_same(const struct md_inode_lifetime *a, const struct md_inode_lifetime *b) {
+    return a==b || (a && b && a->device==b->device && a->inode==b->inode);
+}
 int md_inode_lifetime_same(const struct md_inode_lifetime *a, const struct md_inode_lifetime *b) {
-    return a==b || (a && b && a->device==b->device && a->inode==b->inode
-        && !strcmp(a->scope,b->scope));
+    return a==b || (a && b && md_inode_lifetime_catalogue_same(a,b) && !strcmp(a->scope,b->scope));
 }

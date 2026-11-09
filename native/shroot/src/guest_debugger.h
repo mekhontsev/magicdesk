@@ -1,5 +1,6 @@
 #ifndef MD_GUEST_DEBUGGER_H
 #define MD_GUEST_DEBUGGER_H
+#include "signal_origin.h"
 #include <asm/ptrace.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -35,8 +36,10 @@ struct md_debugger_host {
     void (*wait)(pid_t, const struct user_pt_regs *, enum md_debugger_wait_action);
     void (*wait_wake)(pid_t);
     void (*complete)(pid_t, struct user_pt_regs *, long);
-    void (*resume)(pid_t, int);
-    void (*reaped)(pid_t, int native_wait);
+    void (*resume)(pid_t,int,const struct md_signal_origin *);
+    void (*reaped)(pid_t observer,pid_t child,int native_wait);
+    void (*signal_origin)(pid_t recipient,const siginfo_t *,struct md_signal_origin *);
+    void (*signal_translate)(pid_t observer,const struct md_signal_origin *,siginfo_t *);
 };
 /* Sole physical ptrace ownership stays in the supervisor. This owner represents
  * guest debugger relationships and wait events, not a second system tracer. */

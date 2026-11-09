@@ -420,6 +420,52 @@ static int retained_providers(void *argument) {
     puts("PASS pivoted root providers: non-base root, native proc/dev and namespace-copy retention");
     return 0;
 }
+static void table_target(const char *target,int expected) {
+    const char *tables[]={"/proc/self/mountinfo","/proc/thread-self/mountinfo",
+        "/proc/self/mounts","/proc/thread-self/mounts","/proc/mounts"};
+    char match[128]; snprintf(match,sizeof(match)," %s ",target);
+    for (unsigned i=0;i<sizeof(tables)/sizeof(tables[0]);++i) {
+        FILE *table=fopen(tables[i],"re");
+        if (!table) fprintf(stderr,"mount table %s after exit=%d: %s\n",tables[i],!expected,strerror(errno));
+        assert(table);
+        char line[4096]; unsigned lines=0,found=0;
+        while (fgets(line,sizeof(line),table)) { ++lines; if (strstr(line,match)) ++found; }
+        assert(!ferror(table) && lines && found==(unsigned)expected); fclose(table);
+    }
+}
+static int retired_proc_target(void *argument) {
+    (void)argument;
+    assert(getpid()==1);
+    assert(!mount("proc","/proc","proc",0,NULL));
+    assert(!mkdir("/tmp/retired-proc",0700));
+    int value=open("/tmp/retired-proc/value",O_CREAT|O_WRONLY,0600); assert(value>=0);
+    assert(write(value,"data",4)==4); close(value);
+    int alive[2]; assert(!pipe(alive));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        close(alive[1]); char byte;
+        /* EVENT_WAIT: parent releases the proc target owner after mounting;
+         * the executable's deadline bounds the isolated process tree. */
+        assert(read(alive[0],&byte,1)==0); _exit(0);
+    }
+    close(alive[0]);
+    char target[96]; snprintf(target,sizeof(target),"/proc/%d/fd",child);
+    assert(!mount("/tmp/retired-proc",target,NULL,MS_BIND,NULL));
+    int held=open(target,O_PATH|O_DIRECTORY); assert(held>=0);
+    uint64_t mounted=id(held,"");
+    table_target(target,1);
+    close(alive[1]);
+    /* EVENT_WAIT: exact task exit retires its proc dentry before enumeration. */
+    int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    table_target(target,0);
+    assert(id(held,"")==mounted);
+    value=openat(held,"value",O_RDONLY); assert(value>=0);
+    char text[4]; assert(read(value,text,sizeof(text))==4 && !memcmp(text,"data",4));
+    close(value); close(held);
+    assert(!unlink("/tmp/retired-proc/value") && !rmdir("/tmp/retired-proc"));
+    puts("PASS mount tables: retired proc targets do not hide live mounts or revoke held descriptors");
+    return 0;
+}
 void test_mount_namespace_guest(void) {
     assert(!chdir("/tmp"));
     uint64_t root=id(AT_FDCWD,"/");
@@ -479,6 +525,12 @@ void test_mount_namespace_guest(void) {
     int provider_status;
     assert(waitpid(providers,&provider_status,0)==providers && WIFEXITED(provider_status)
         && !WEXITSTATUS(provider_status));
+    pid_t retired=clone(retired_proc_target,(char *)stack+1024*1024,SIGCHLD|CLONE_NEWNS|CLONE_NEWPID,NULL);
+    assert(retired>0);
+    /* EVENT_WAIT: isolated proc lifetime case; the guest deadline fails a hang. */
+    int retired_status;
+    assert(waitpid(retired,&retired_status,0)==retired && WIFEXITED(retired_status)
+        && !WEXITSTATUS(retired_status));
     assert(!setresuid(1000,1000,1000));
     assert(unshare(CLONE_NEWNS)<0 && errno==EPERM);
     close(c.dir); free(stack);

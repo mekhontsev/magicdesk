@@ -154,7 +154,9 @@ static int debug_options(pid_t pid, unsigned long options) { (void)pid; (void)op
 static void debug_usage(pid_t pid, struct rusage *usage) { (void)pid; *usage = (struct rusage){0}; }
 static void debug_complete(pid_t pid, struct user_pt_regs *r, long result) { (void)pid; r->regs[0] = result; }
 static unsigned debug_resumed;
-static void debug_resume(pid_t pid, int signal) { (void)pid; assert(!signal); ++debug_resumed; }
+static void debug_resume(pid_t pid,int signal,const struct md_signal_origin *origin) {
+    (void)pid; assert(!signal && (!origin || !origin->valid)); ++debug_resumed;
+}
 static long debug_call(struct md_debugger *d, unsigned op, pid_t target, uintptr_t address, uintptr_t data) {
     struct user_pt_regs r = {.regs = {op, target, address, data}}; r.regs[8] = SYS_ptrace;
     assert(md_debugger_call(d, getpid(), &r)); return r.regs[0];

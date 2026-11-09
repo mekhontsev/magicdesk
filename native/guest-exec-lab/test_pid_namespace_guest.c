@@ -19,6 +19,7 @@
 #include <sys/prctl.h>
 #include <sys/ptrace.h>
 #include <sys/socket.h>
+#include <sys/signalfd.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -200,7 +201,137 @@ static void zombie_signal_case(int credentials) {
     errno=0; assert(kill(-child,0)==-1 && errno==ESRCH);
     puts("PASS unreaped process/group signals retain identity and permission checks until wait");
 }
+static volatile sig_atomic_t reaped_sender,reaped_uid,reaped_status;
+static void reaped_handler(int signal,siginfo_t *info,void *context) {
+    (void)signal; (void)context;
+    reaped_sender=info->si_pid; reaped_uid=info->si_uid; reaped_status=info->si_status;
+}
+static void *reaped_waiter(void *argument) {
+    pid_t child=*(pid_t *)argument;
+    sigset_t mask; sigemptyset(&mask); sigaddset(&mask,SIGCHLD);
+    siginfo_t info={0}; struct timespec timeout={5,0};
+    assert(sigtimedwait(&mask,&info,&timeout)==SIGCHLD);
+    fprintf(stderr,"reaped SIGCHLD child=%d sender=%d uid=%d expected=%d status=%d\n",
+        child,info.si_pid,info.si_uid,getuid(),info.si_status);
+    assert(info.si_pid==child && info.si_uid==getuid() && info.si_status==23);
+    return NULL;
+}
+static void *reaped_exec_worker(void *argument) {
+    char child[32]; snprintf(child,sizeof(child),"%d",*(pid_t *)argument);
+    execl("/bin/test","/bin/test","pid-namespace","reaped-exec",child,NULL);
+    _exit(90);
+}
+static void reaped_exec_case(void) {
+    pid_t parent=fork(); assert(parent>=0);
+    if (!parent) {
+        sigset_t mask; sigemptyset(&mask); sigaddset(&mask,SIGCHLD);
+        assert(!sigprocmask(SIG_BLOCK,&mask,NULL));
+        pid_t child=fork(); assert(child>=0);
+        if (!child) _exit(23);
+        assert(waitpid(child,NULL,0)==child);
+        pthread_t worker; assert(!pthread_create(&worker,NULL,reaped_exec_worker,&child));
+        pthread_join(worker,NULL); _exit(91);
+    }
+    reap(parent);
+    puts("PASS reaped child SIGCHLD survives nonleader exec");
+}
+static void reaped_signal_cases(void) {
+    sigset_t mask,saved; sigemptyset(&mask); sigaddset(&mask,SIGCHLD);
+    struct sigaction action={.sa_sigaction=reaped_handler,.sa_flags=SA_SIGINFO},old;
+    sigemptyset(&action.sa_mask);
+    assert(!sigaction(SIGCHLD,&action,&old));
+    assert(!sigprocmask(SIG_BLOCK,&mask,&saved));
+    siginfo_t info; struct timespec zero={0};
+    while (sigtimedwait(&mask,&info,&zero)==SIGCHLD) {}
+    for (int mode=0;mode<6;++mode) {
+        if (mode==5) {
+            action.sa_flags|=SA_NOCLDWAIT;
+            assert(!sigaction(SIGCHLD,&action,NULL));
+        }
+        pid_t child=fork(); assert(child>=0);
+        if (!child) _exit(23);
+        if (mode==5) {
+            errno=0; assert(waitpid(child,NULL,0)==-1 && errno==ECHILD);
+        } else if (mode==1) {
+            info=(siginfo_t){0}; assert(!waitid(P_PID,child,&info,WEXITED));
+            assert(info.si_pid==child && info.si_uid==getuid());
+        } else {
+            int status; assert(waitpid(child,&status,0)==child);
+            assert(WIFEXITED(status) && WEXITSTATUS(status)==23);
+        }
+        errno=0; assert(kill(child,0)==-1 && errno==ESRCH);
+        /* A second child coalesces with the first pending notice, even after
+         * both wait results have removed their process-table entries. */
+        pid_t second=fork(); assert(second>=0);
+        if (!second) _exit(24);
+        if (mode==5) { errno=0; assert(waitpid(second,NULL,0)==-1 && errno==ECHILD); }
+        else assert(waitpid(second,NULL,0)==second);
+        if (mode==2) {
+            pthread_t worker; assert(!pthread_create(&worker,NULL,reaped_waiter,&child));
+            assert(!pthread_join(worker,NULL));
+        } else if (mode==4) {
+            int fd=signalfd(-1,&mask,SFD_CLOEXEC|SFD_NONBLOCK); assert(fd>=0);
+            struct signalfd_siginfo record={0};
+            assert(read(fd,&record,sizeof(record))==sizeof(record));
+            assert(record.ssi_signo==SIGCHLD && record.ssi_pid==(unsigned)child
+                && record.ssi_uid==getuid() && record.ssi_status==23);
+            close(fd);
+        } else if (mode==3) {
+            reaped_sender=0;
+            assert(!sigprocmask(SIG_UNBLOCK,&mask,NULL));
+            assert(reaped_sender==child && reaped_uid==(sig_atomic_t)getuid() && reaped_status==23);
+            assert(!sigprocmask(SIG_BLOCK,&mask,NULL));
+        } else reaped_waiter(&child);
+    }
+    siginfo_t queued={.si_signo=SIGCHLD,.si_code=SI_QUEUE,.si_pid=64321,.si_uid=7654};
+    assert(!syscall(SYS_rt_sigqueueinfo,getpid(),SIGCHLD,&queued));
+    assert(sigtimedwait(&mask,&info,&zero)==SIGCHLD);
+    assert(info.si_pid==64321 && info.si_uid==7654 && info.si_code==SI_QUEUE);
+    assert(!sigaction(SIGCHLD,&old,NULL));
+    assert(!sigprocmask(SIG_SETMASK,&saved,NULL));
+    puts("PASS reaped child SIGCHLD retains sender identity across wait, coalescing and threads");
+}
+static void reaped_debugger_case(int detach) {
+    int pipefd[2]; assert(!pipe(pipefd));
+    pid_t tracee=fork(); assert(tracee>=0);
+    if (!tracee) {
+        close(pipefd[0]);
+        struct sigaction action={.sa_sigaction=reaped_handler,.sa_flags=SA_SIGINFO};
+        sigemptyset(&action.sa_mask); assert(!sigaction(SIGCHLD,&action,NULL));
+        sigset_t mask; sigemptyset(&mask); sigaddset(&mask,SIGCHLD);
+        assert(!sigprocmask(SIG_BLOCK,&mask,NULL));
+        assert(!ptrace(PTRACE_TRACEME,0,NULL,NULL)); raise(SIGSTOP);
+        pid_t child=fork(); assert(child>=0);
+        if (!child) _exit(23);
+        assert(waitpid(child,NULL,0)==child);
+        assert(write(pipefd[1],&child,sizeof(child))==sizeof(child)); close(pipefd[1]);
+        reaped_sender=0;
+        assert(!sigprocmask(SIG_UNBLOCK,&mask,NULL));
+        assert(reaped_sender==child && reaped_uid==(sig_atomic_t)getuid() && reaped_status==(detach ? 24 : 23));
+        _exit(0);
+    }
+    close(pipefd[1]);
+    int status; assert(waitpid(tracee,&status,0)==tracee && WIFSTOPPED(status));
+    assert(!ptrace(PTRACE_CONT,tracee,NULL,NULL));
+    pid_t child; assert(read(pipefd[0],&child,sizeof(child))==sizeof(child)); close(pipefd[0]);
+    assert(waitpid(tracee,&status,0)==tracee && WIFSTOPPED(status) && WSTOPSIG(status)==SIGCHLD);
+    siginfo_t info={0}; assert(!ptrace(PTRACE_GETSIGINFO,tracee,NULL,&info));
+    assert(info.si_pid==child && info.si_uid==getuid() && info.si_status==23);
+    assert(!ptrace(PTRACE_SETSIGINFO,tracee,NULL,&info));
+    info=(siginfo_t){0}; assert(!ptrace(PTRACE_GETSIGINFO,tracee,NULL,&info));
+    assert(info.si_pid==child && info.si_uid==getuid() && info.si_status==23);
+    info.si_status=24; info.si_errno=71;
+    assert(!ptrace(PTRACE_SETSIGINFO,tracee,NULL,&info));
+    info=(siginfo_t){0}; assert(!ptrace(PTRACE_GETSIGINFO,tracee,NULL,&info));
+    assert(info.si_pid==child && info.si_uid==getuid() && info.si_status==24 && info.si_errno==71);
+    if (!detach) { info.si_status=23; assert(!ptrace(PTRACE_SETSIGINFO,tracee,NULL,&info)); }
+    assert(!ptrace(detach ? PTRACE_DETACH : PTRACE_CONT,tracee,NULL,(void *)SIGCHLD)); reap(tracee);
+    puts("PASS debugger and recipient retain reaped SIGCHLD identity");
+}
 static void wait_cases(void) {
+    reaped_signal_cases();
+    reaped_debugger_case(0); reaped_debugger_case(1);
+    reaped_exec_case();
     zombie_signal_case(1);
     pid_t child=fork(); assert(child>0 || !child);
     if (!child) _exit(17);
@@ -527,6 +658,16 @@ int test_pid_namespace_guest(int argc,char **argv) {
     }
     if (argc==3 && !strcmp(argv[2],"zombie-signal-native")) {
         zombie_signal_case(0); return 0;
+    }
+    if (argc==3 && !strcmp(argv[2],"reaped-signal")) {
+        reaped_signal_cases(); reaped_debugger_case(0); reaped_debugger_case(1); reaped_exec_case();
+        pid_t unprivileged=fork(); assert(unprivileged>=0);
+        if (!unprivileged) { assert(!setuid(1000)); reaped_signal_cases(); _exit(0); }
+        reap(unprivileged); return 0;
+    }
+    if (argc==4 && !strcmp(argv[2],"reaped-exec")) {
+        pid_t child=(pid_t)strtol(argv[3],NULL,10); assert(child>0);
+        reaped_waiter(&child); return 0;
     }
     if (argc==3 && !strcmp(argv[2],"debug-exec")) {
         assert(getpid()>1 && syscall(SYS_gettid)==getpid());

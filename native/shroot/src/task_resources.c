@@ -62,16 +62,23 @@ int md_resources_fork(const struct md_task_resources *r, unsigned long flags,
     }
     md_resources_release(out); return -ENOMEM;
 }
-int md_resources_exec_closed(struct md_task_resources *r,struct md_user_namespace *owner,struct md_fd_closed *closed) {
-    struct md_process_access *access=md_process_access_new(owner);
-    if (!access) return -ENOMEM;
-    struct md_fd_origins *next=r->files ? md_fd_origins_unshare_prepare(r->files) : NULL;
-    if (r->files && !next) { md_process_access_release(access); return -ENOMEM; }
-    md_process_access_release(r->access); r->access=access;
-    if (!next) return 0;
-    md_fd_origins_exec_collect(next,closed);
-    struct md_fd_origins *old=r->files; r->files=next; md_fd_origins_release(old);
+int md_resources_exec_prepare(const struct md_task_resources *r,struct md_user_namespace *owner,
+        struct md_resource_change *change) {
+    *change=(struct md_resource_change){0};
+    change->next.access=md_process_access_new(owner);
+    if (!change->next.access) return -ENOMEM;
+    change->next.files=r->files ? md_fd_origins_unshare_prepare(r->files) : NULL;
+    if (r->files && !change->next.files) {
+        md_resources_unshare_finish(NULL,NULL,change,-ENOMEM); return -ENOMEM;
+    }
     return 0;
+}
+int md_resources_exec_closed(struct md_task_resources *r,struct md_user_namespace *owner,struct md_fd_closed *closed) {
+    struct md_resource_change change;
+    int error=md_resources_exec_prepare(r,owner,&change);
+    if (!error) error=md_resources_unshare_finish(r,NULL,&change,0);
+    if (!error && r->files) md_fd_origins_exec_collect(r->files,closed);
+    return error;
 }
 int md_resources_exec(struct md_task_resources *r,struct md_user_namespace *owner) { return md_resources_exec_closed(r,owner,NULL); }
 void md_resources_exit_files(struct md_task_resources *r,struct md_fd_closed *closed) {
@@ -177,6 +184,10 @@ int md_resources_unshare_finish(struct md_task_resources *r,
         || (change->join_mounts && (!change->next.mounts || !change->next.fs))
         || (change->check_root && !change->next.fs));
     if (!result && !invalid) {
+        if (change->next.access) {
+            struct md_process_access *old=r->access;
+            r->access=change->next.access; change->next.access=old;
+        }
         if (change->next.cgroup) {
             struct md_cgroup_member *old=r->cgroup;
             r->cgroup=change->next.cgroup; change->next.cgroup=old;

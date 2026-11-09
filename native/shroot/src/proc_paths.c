@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "proc_paths.h"
 #include "kernel_policy.h"
+#include "native_identity.h"
 #include "raw.h"
 #include <limits.h>
 
@@ -264,16 +265,19 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
     return out;
 }
 struct md_proc_path md_proc_path(const char *path) {
-    return md_proc_path_for(path,(int)RAW0(gettid),(int)RAW0(getpid));
+    if (!md_host_path(path)) return (struct md_proc_path){.descriptor=-1};
+    uint64_t ids=md_native_ids();
+    return md_proc_path_for(path,(int)(uint32_t)ids,(int)(ids>>32));
 }
 int md_proc_task_path(const char *path, char *out, size_t capacity) {
     const char *p=path;
     if (*p!='/' || !word(&p,"proc") || !word(&p,"thread-self"))
         return md_copy(out,capacity,path);
     char prefix[64]="/proc/";
-    md_decimal(prefix+md_length(prefix),(unsigned)RAW0(getpid));
+    uint64_t ids=md_native_ids();
+    md_decimal(prefix+md_length(prefix),(unsigned)(ids>>32));
     md_append(prefix,sizeof(prefix),"/task/");
-    md_decimal(prefix+md_length(prefix),(unsigned)RAW0(gettid));
+    md_decimal(prefix+md_length(prefix),(unsigned)ids);
     int error=md_copy(out,capacity,prefix);
     return error ? error : md_append(out,capacity,p);
 }

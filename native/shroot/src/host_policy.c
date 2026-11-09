@@ -27,21 +27,34 @@ int md_app_uid_admit(long uid, long euid, long gid, long egid) {
 /* Only admitted equal-ID, capability-free hosts use this fallback.
  * Guest permission decisions still belong to the inode engine. */
 static long access_compat(long dir, long path, long mode, long flags) {
-    if (flags & ~(MD_AT_EACCESS | AT_EMPTY_PATH)) return -EOPNOTSUPP;
+    if (mode & ~7 || flags & ~(MD_AT_EACCESS | AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) return -EINVAL;
     if (!path) return -EFAULT;
+    long pin = -1;
+    if ((flags & AT_SYMLINK_NOFOLLOW) && *(const char *)path) {
+        pin = __real_md_raw(SYS_openat, dir, path, O_PATH | O_NOFOLLOW | O_CLOEXEC, 0, 0, 0);
+        if (pin < 0) return pin;
+        /* The proc FD magic link retains the symlink itself, including a
+         * dangling target. Keep kernel DAC/ACL/LSM checks on that exact object. */
+        dir = pin; path = (long)""; flags |= AT_EMPTY_PATH;
+    }
     char buffer[64];
     if ((flags & AT_EMPTY_PATH) && !*(const char *)path) {
-        if (dir < 0) return -EBADF;
-        const char prefix[] = "/proc/self/fd/";
-        unsigned n = 0;
-        for (; prefix[n]; ++n) buffer[n] = prefix[n];
-        char digits[24]; unsigned count = 0;
-        unsigned long value = (unsigned long)dir;
-        do { digits[count++] = '0' + value % 10; value /= 10; } while (value);
-        while (count) buffer[n++] = digits[--count];
-        buffer[n] = 0; path = (long)buffer; dir = AT_FDCWD;
+        if (dir == AT_FDCWD) path = (long)".";
+        else {
+            if (dir < 0) return -EBADF;
+            const char prefix[] = "/proc/self/fd/";
+            unsigned n = 0;
+            for (; prefix[n]; ++n) buffer[n] = prefix[n];
+            char digits[24]; unsigned count = 0;
+            unsigned long value = (unsigned long)dir;
+            do { digits[count++] = '0' + value % 10; value /= 10; } while (value);
+            while (count) buffer[n++] = digits[--count];
+            buffer[n] = 0; path = (long)buffer; dir = AT_FDCWD;
+        }
     }
-    return __real_md_raw(SYS_faccessat, dir, path, mode, 0, 0, 0);
+    long result = __real_md_raw(SYS_faccessat, dir, path, mode, 0, 0, 0);
+    if (pin >= 0) __real_md_raw(SYS_close, pin, 0, 0, 0, 0, 0);
+    return result;
 }
 
 #ifdef MD_WRAP_LIBC

@@ -150,6 +150,7 @@ umount /run/netns
 
 
 def main():
+    from fixture_executor import FixtureExecutor
     from test_oci_services import Suite
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -161,15 +162,16 @@ def main():
     parser.add_argument('--network', choices=('dhcp', 'preconfigured'), default='dhcp',
                         help='Use the initial image DHCP policy or the recipe preconfigured uplink')
     parser.add_argument('--output', type=Path, default=Path('build/nixos-boot'))
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.output, args.build)
+    suite = Suite(args.output, args.build, executor=args.executor)
     suite.report['entryMode'] = args.entry
     suite.report['store'] = args.store
     target = '/mnt/md-nixos-' + suite.report['id']
     verified = prepared = False
     try:
-        args.system = suite.command(suite.guest(args.store, '--user', '0:0', '--',
-            args.system + '/sw/bin/readlink', '-f', args.system), quiet=True).strip()
+        args.system = suite.stdout(suite.guest(args.store, '--user', '0:0', '--',
+            args.system + '/sw/bin/readlink', '-f', args.system)).strip()
         assert args.system.startswith('/nix/store/') and '\n' not in args.system, args.system
         args.python = args.python or args.system + '/sw/bin/python3'
         path = args.system + '/sw/bin:/bin'

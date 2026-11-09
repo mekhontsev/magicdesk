@@ -64,8 +64,9 @@ static int finish_snapshot(struct md_fs_storage_scope *scope,int result) {
     }
     return result;
 }
-static int target_stat(struct md_filesystem *fs,const struct md_view_mount *m,
-        struct md_fs_storage_scope *scope,struct stat *st) {
+static int target_removed(struct md_filesystem *fs,const struct md_view_mount *m,
+        struct md_fs_storage_scope *scope) {
+    struct stat st;
     int r=0;
     if (md_view_inode(m->parent)) {
         struct md_inode_lifetime *storage=m->parent->storage ? m->parent->storage : fs->store->lifetime;
@@ -78,12 +79,14 @@ static int target_stat(struct md_filesystem *fs,const struct md_view_mount *m,
                 if (r) md_fs_storage_leave(scope);
             }
         }
-        if (!r) r=md_inode_fstat(scope->store,m->target,st);
+        if (!r) r=md_inode_fstat(scope->store,m->target,&st);
     } else {
         r=finish_snapshot(scope,0);
-        if (!r && fstat(m->target,st)) r=-errno;
+        if (!r && fstat(m->target,&st)) r=-errno;
     }
-    return r;
+    /* proc dentries can lose their task before their retained target FD is
+     * released. ENOENT and an unlinked inode both retire that placement. */
+    return r ? (r==-ENOENT ? 1 : r) : !st.st_nlink;
 }
 int md_view_mount_reconcile_branch(struct md_filesystem *fs,struct md_view_mount *mount) {
     struct md_mount_namespace *view=fs->mounts;
@@ -97,9 +100,9 @@ int md_view_mount_reconcile_branch(struct md_filesystem *fs,struct md_view_mount
     for (struct md_view_mount *m=mount;m && m->parent && !r;m=m->parent) {
         if (++depth>view->tree->count+1) { r=-ELOOP; break; }
         if (m->detached) break;
-        struct stat st;
-        r=target_stat(fs,m,&scope,&st);
-        if (!r && !st.st_nlink) missing=m;
+        int removed=target_removed(fs,m,&scope);
+        if (removed<0) r=removed;
+        else if (removed) missing=m;
     }
     r=finish_snapshot(&scope,r);
     if (!r && missing) {
@@ -133,11 +136,11 @@ int md_view_mount_reconcile(struct md_filesystem *fs) {
         if (!m->id || m->detached || !m->parent) continue;
         if (removed[node_index(view,m->parent)]) removed[i]=1;
         else {
-            struct stat st;
             /* One fresh snapshot per consecutive store run. Never hold
              * a store gate across another provider or topology changes. */
-            r=target_stat(fs,m,&scope,&st);
-            if (!r) removed[i]=!st.st_nlink;
+            int missing=target_removed(fs,m,&scope);
+            if (missing<0) r=missing;
+            else removed[i]=(unsigned)missing;
         }
         changed|=removed[i];
     }

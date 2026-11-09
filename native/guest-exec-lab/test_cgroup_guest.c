@@ -611,6 +611,87 @@ static void resource_controllers(void) {
     assert(writing(root,"-cpu -cpuset -memory")==20);
     puts("PASS guest cgroup resources: policies, controller retirement, process RSS, terminal CPU and hierarchy");
 }
+static void expect_group_text(const char *path,const char *expected) {
+    char text[4096]; read_text(path,text,sizeof(text)); assert(!strcmp(text,expected));
+}
+struct threaded_fixture { int ready[2],finish[2]; };
+static void *threaded_worker(void *context) {
+    struct threaded_fixture *fixture=context;
+    assert(writing("/tmp/cgv2/thread-domain/worker/cgroup.threads","0")==1);
+    pid_t tid=syscall(SYS_gettid);
+    assert(write(fixture->ready[1],&tid,sizeof(tid))==sizeof(tid));
+    char byte;
+    /* EVENT_WAIT: parent validates and migrates this live thread; alarm bounds failure. */
+    assert(read(fixture->finish[0],&byte,1)==1);
+    char text[4096]; read_text("/proc/thread-self/cgroup",text,sizeof(text));
+    assert(strstr(text,"0::/thread-domain\n"));
+    return NULL;
+}
+static void threaded_membership(void) {
+    const char *root="/tmp/cgv2/cgroup.subtree_control";
+    const char *domain="/tmp/cgv2/thread-domain",*worker="/tmp/cgv2/thread-domain/worker";
+    const char *leaf="/tmp/cgv2/thread-domain/worker/leaf";
+    assert(access("/tmp/cgv2/cgroup.type",F_OK)<0 && errno==ENOENT);
+    assert(writing(root,"+cpu +memory +pids")==18);
+    assert(!mkdir(domain,0700) && !mkdir(worker,0700));
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.subtree_control","+cpu +pids")==10);
+    assert(writing("/tmp/cgv2/thread-domain/worker/cgroup.type","threaded")==8);
+    expect_group_text("/tmp/cgv2/thread-domain/cgroup.type","domain threaded\n");
+    expect_group_text("/tmp/cgv2/thread-domain/worker/cgroup.type","threaded\n");
+    expect_group_text("/tmp/cgv2/thread-domain/worker/cgroup.controllers","cpu pids\n");
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.subtree_control","+memory")<0 && errno==EOPNOTSUPP);
+    assert(writing("/tmp/cgv2/thread-domain/worker/cgroup.type","domain")<0 && errno==EINVAL);
+    assert(writing("/tmp/cgv2/thread-domain/worker/cgroup.type","threaded")==8);
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.procs","0")==1);
+    assert(!mkdir(leaf,0700));
+    expect_group_text("/tmp/cgv2/thread-domain/worker/leaf/cgroup.type","domain invalid\n");
+    assert(writing("/tmp/cgv2/thread-domain/worker/leaf/cgroup.procs","0")<0 && errno==EOPNOTSUPP);
+    assert(writing("/tmp/cgv2/thread-domain/worker/cgroup.subtree_control","+pids")==5);
+    assert(writing("/tmp/cgv2/thread-domain/worker/leaf/cgroup.subtree_control","+pids")<0 && errno==EOPNOTSUPP);
+    assert(writing("/tmp/cgv2/thread-domain/worker/leaf/cgroup.type","threaded")==8);
+    struct threaded_fixture fixture;
+    assert(!pipe(fixture.ready) && !pipe(fixture.finish));
+    pthread_t thread; assert(!pthread_create(&thread,NULL,threaded_worker,&fixture));
+    pid_t tid; assert(read(fixture.ready[0],&tid,sizeof(tid))==sizeof(tid));
+    char number[32],text[4096]; snprintf(number,sizeof(number),"%d\n",tid);
+    expect_group_text("/tmp/cgv2/thread-domain/worker/cgroup.threads",number);
+    assert(writing("/tmp/cgv2/thread-domain/worker/leaf/cgroup.threads",number)==(int)strlen(number));
+    expect_group_text("/tmp/cgv2/thread-domain/worker/cgroup.threads","");
+    expect_group_text("/tmp/cgv2/thread-domain/worker/leaf/cgroup.threads",number);
+    assert(writing("/tmp/cgv2/cgroup.threads",number)<0 && errno==EOPNOTSUPP);
+    snprintf(number,sizeof(number),"%d\n",getpid());
+    expect_group_text("/tmp/cgv2/thread-domain/cgroup.procs",number);
+    int fd=open("/tmp/cgv2/thread-domain/worker/cgroup.procs",O_RDONLY); assert(fd>=0);
+    assert(read(fd,text,sizeof(text))<0 && errno==EOPNOTSUPP); close(fd);
+    assert(writing("/tmp/cgv2/thread-domain/worker/leaf/cgroup.procs","0")==1);
+    expect_group_text("/tmp/cgv2/thread-domain/cgroup.threads","");
+    expect_group_text("/tmp/cgv2/thread-domain/cgroup.procs",number);
+    assert(resource_value("/tmp/cgv2/thread-domain/memory.current",NULL)>0);
+    assert(access("/tmp/cgv2/thread-domain/worker/memory.current",F_OK)<0 && errno==ENOENT);
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.procs","0")==1);
+    assert(write(fixture.finish[1],"x",1)==1 && !pthread_join(thread,NULL));
+    for (unsigned i=0;i<2;++i) { close(fixture.ready[i]); close(fixture.finish[i]); }
+    assert(!rmdir(leaf) && !rmdir(worker));
+    expect_group_text("/tmp/cgv2/thread-domain/cgroup.type","domain threaded\n");
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.subtree_control","-cpu -pids")==10);
+    expect_group_text("/tmp/cgv2/thread-domain/cgroup.type","domain\n");
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.subtree_control","+memory")<0 && errno==EBUSY);
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.type","threaded")<0 && errno==EOPNOTSUPP);
+    assert(writing("/tmp/cgv2/cgroup.procs","0")==1);
+    assert(!rmdir(domain));
+    /* The hierarchy root may host both domains and threads. Converting a child
+     * retires domain-only controls, including already opened descriptions. */
+    assert(!mkdir(domain,0700));
+    fd=open("/tmp/cgv2/thread-domain/memory.current",O_RDONLY); assert(fd>=0);
+    assert(writing("/tmp/cgv2/thread-domain/cgroup.type","threaded")==8);
+    assert(read(fd,text,sizeof(text))<0 && errno==ENODEV); close(fd);
+    assert(access("/tmp/cgv2/thread-domain/memory.current",F_OK)<0 && errno==ENOENT);
+    assert(writing(root,"-memory")==7 && writing(root,"+memory")==7);
+    assert(access("/tmp/cgv2/thread-domain/memory.current",F_OK)<0 && errno==ENOENT);
+    assert(!rmdir(domain));
+    assert(writing(root,"-cpu -memory -pids")==18);
+    puts("PASS cgroup threads: domain topology, per-thread and process migration, memory domain, retirement and restoration");
+}
 int test_cgroup_guest(int pid_namespace) {
     if (pid_namespace) {
         alarm(45); assert(!unshare(CLONE_NEWPID));
@@ -630,9 +711,20 @@ int test_cgroup_guest(int pid_namespace) {
         puts("PASS guest cgroup: PID namespace membership"); return 0;
     }
     alarm(45); assert(!unshare(CLONE_NEWNS));
+    struct timespec cpu_start,cpu_now;
+    assert(!clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&cpu_start));
+    do {
+        for (volatile unsigned i=0;i<10000;++i) {}
+        assert(!clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&cpu_now));
+    } while ((cpu_now.tv_sec-cpu_start.tv_sec)*1000000000LL+cpu_now.tv_nsec-cpu_start.tv_nsec<150000000);
+    /* The restricted proc provider can start shared accounting before cgroup
+     * exists. Mounting must retain that CPU history instead of charging twice. */
+    int statistics=open("/proc/stat",O_RDONLY|O_CLOEXEC); assert(statistics>=0);
+    char first; assert(read(statistics,&first,1)==1 && first=='c'); close(statistics);
     assert(!mkdir("/tmp/cgv2",0700) && !mkdir("/tmp/cgv1",0700));
     int r=mount("none","/tmp/cgv2","cgroup2",MS_NOSUID|MS_NOEXEC|MS_NODEV,NULL);
     if (r) perror("cgroup2 mount"); assert(!r);
+    assert(resource_value("/tmp/cgv2/cpu.stat","usage_usec ")>=100000);
     assert(!umount2("/tmp/cgv2",0));
     assert(!mount("none","/tmp/cgv2","cgroup2",MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_REC|MS_RELATIME,NULL));
     assert(!mount("none","/tmp/cgv1","cgroup",MS_NOSUID|MS_NOEXEC|MS_NODEV,"devices"));
@@ -641,6 +733,7 @@ int test_cgroup_guest(int pid_namespace) {
     delegation_metadata();
     namespace_delegation();
     named_hierarchies();
+    threaded_membership();
     struct statfs st; assert(!statfs("/tmp/cgv2",&st) && st.f_type==CGROUP2_SUPER_MAGIC);
     assert(!statfs("/tmp/cgv1",&st) && st.f_type==CGROUP_SUPER_MAGIC);
     char text[8192]; read_text("/tmp/cgv2/cgroup.controllers",text,sizeof(text)); assert(!strcmp(text,"cpu cpuset memory pids\n"));
@@ -666,7 +759,10 @@ int test_cgroup_guest(int pid_namespace) {
     read_text("/tmp/cgv2/cgroup.subtree_control",text,sizeof(text)); assert(!strcmp(text,"pids\n"));
     assert(writing("/tmp/cgv2/child/cgroup.procs","0")==1);
     read_text("/tmp/cgv2/child/pids.current",text,sizeof(text)); assert(!strcmp(text,"1\n"));
-    assert(writing("/tmp/cgv2/child/cgroup.subtree_control","+pids")<0 && errno==EBUSY);
+    assert(writing("/tmp/cgv2/child/cgroup.subtree_control","+pids")==5);
+    expect_group_text("/tmp/cgv2/child/cgroup.type","domain threaded\n");
+    assert(writing("/tmp/cgv2/child/cgroup.subtree_control","-pids")==5);
+    expect_group_text("/tmp/cgv2/child/cgroup.type","domain\n");
     read_text("/proc/self/cgroup",text,sizeof(text)); assert(strstr(text,"0::/child\n"));
     read_text("/tmp/cgv2/child/cgroup.procs",text,sizeof(text));
     char pid[32]; snprintf(pid,sizeof(pid),"%d\n",getpid()); assert(strstr(text,pid));

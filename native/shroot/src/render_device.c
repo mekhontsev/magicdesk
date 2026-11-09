@@ -45,14 +45,17 @@ int md_render_device_restore(unsigned minor,struct md_control_file *out) {
 }
 int md_render_device_admit(struct md_control_file *out,int completion_owned) {
     /* Never replace an actual DRM render device. KGSL remains the GPU owner. */
-    struct stat st; unsigned number;
+    struct stat st; unsigned number; int denied=0;
     for (number=128;number<192;++number) {
         char path[64]; snprintf(path,sizeof(path),"/dev/dri/renderD%u",number);
         if (!stat(path,&st)) continue;
+        /* An inaccessible native node is occupied, not proof that every
+         * later minor is unavailable. Only ENOENT/ENOTDIR admits a new node. */
+        if (errno==EACCES || errno==EPERM) { denied=errno; continue; }
         if (errno!=ENOENT && errno!=ENOTDIR) return -errno;
         break;
     }
-    if (number==192) return -ENOSPC;
+    if (number==192) return denied ? -denied : -ENOSPC;
     int gpu=open("/dev/kgsl-3d0",O_RDWR|O_CLOEXEC);
     if (gpu<0) return -errno;
     close(gpu);

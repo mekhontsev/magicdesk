@@ -12,4 +12,5 @@ struct md_inode_lifetime *md_inode_store_lifetime(const struct md_inode_store *)
 struct md_inode_lifetime *md_inode_lifetime_retain(struct md_inode_lifetime *);
 void md_inode_lifetime_release(struct md_inode_lifetime *);
 int md_inode_lifetime_same(const struct md_inode_lifetime *, const struct md_inode_lifetime *);
+int md_inode_lifetime_catalogue_same(const struct md_inode_lifetime *, const struct md_inode_lifetime *);
 #endif

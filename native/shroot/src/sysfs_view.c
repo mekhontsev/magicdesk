@@ -15,7 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 
-enum attribute { DIRECTORY, LINK, IFINDEX, IFLINK, MTU, TYPE, ADDRESS, BROADCAST, FLAGS, OPERSTATE, CARRIER, RETIRED, BRIDGE, STP_STATE };
+enum attribute { DIRECTORY, LINK, IFINDEX, IFLINK, MTU, TYPE, ADDRESS, BROADCAST, FLAGS, OPERSTATE, CARRIER, RETIRED, BRIDGE, STP_STATE, PORT_STATE };
 static const struct node { const char *path; enum attribute attribute; const char *target; } nodes[]={
     {".",DIRECTORY,NULL}, {"block",DIRECTORY,NULL}, {"bus",DIRECTORY,NULL},
     {"dev",DIRECTORY,NULL}, {"dev/block",DIRECTORY,NULL}, {"dev/char",DIRECTORY,NULL},
@@ -31,6 +31,7 @@ static const struct node attributes[]={
     {"address",ADDRESS,NULL}, {"broadcast",BROADCAST,NULL}, {"flags",FLAGS,NULL},
     {"operstate",OPERSTATE,NULL}, {"carrier",CARRIER,NULL},
     {"bridge",BRIDGE,NULL}, {"bridge/stp_state",STP_STATE,NULL},
+    {"brif",BRIDGE,NULL},
 };
 enum { NODE_COUNT=sizeof(nodes)/sizeof(*nodes), ATTRIBUTE_COUNT=sizeof(attributes)/sizeof(*attributes) };
 struct interface {
@@ -39,6 +40,11 @@ struct interface {
     char name[16];
     int staged,ready;
     struct md_sysfs_node nodes[ATTRIBUTE_COUNT+1];
+    unsigned master;
+    uint64_t bridge_lifetime;
+    char bridge_name[16];
+    int port_ready,aliases;
+    struct md_sysfs_node port[5];
 };
 struct md_sysfs {
     atomic_uint refs;
@@ -129,11 +135,93 @@ static int remove_interface(struct md_sysfs *v,struct interface *link) {
 static int same_interface(const struct interface *a,const struct md_network_link *b) {
     return a->index==b->index && a->lifetime==b->lifetime;
 }
+static int unlink_node(int parent,const char *path,int flags) {
+    return unlinkat(parent,path,flags) && errno!=ENOENT ? -errno : 0;
+}
+static int port_aliases_remove(struct md_sysfs *v,struct interface *link) {
+    if (!link->aliases) return 0;
+    char path[80];
+    snprintf(path,sizeof(path),"%s/brif/%s",link->bridge_name,link->name);
+    int error=unlink_node(v->net,path,0);
+    snprintf(path,sizeof(path),"%s/brport/bridge",link->name);
+    if (!error) error=unlink_node(v->net,path,0);
+    snprintf(path,sizeof(path),"%s/master",link->name);
+    if (!error) error=unlink_node(v->net,path,0);
+    if (!error) { link->aliases=0; memset(link->port+2,0,3*sizeof(*link->port)); }
+    return error;
+}
+static int port_remove(struct md_sysfs *v,struct interface *link) {
+    int error=port_aliases_remove(v,link);
+    if (error) return error;
+    char name[32]; staged_name(link,name);
+    int directory=openat(link->staged ? v->staging : v->net,link->staged ? name : link->name,
+        O_DIRECTORY|O_RDONLY|O_CLOEXEC);
+    if (directory<0 && errno!=ENOENT) return -errno;
+    if (directory>=0) {
+        error=unlink_node(directory,"brport/state",0);
+        if (!error) error=unlink_node(directory,"brport",AT_REMOVEDIR);
+        close(directory);
+    }
+    if (!error) { link->master=0; link->port_ready=0; memset(link->port,0,sizeof(link->port)); }
+    return error;
+}
+static const struct md_network_link *snapshot_link(const struct md_network_link *links,int count,unsigned index) {
+    for (int i=0;i<count;++i) if (links[i].index==index) return links+i;
+    return NULL;
+}
+static int port_publish(struct md_sysfs *v,struct interface *link,const struct md_network_link *wanted,
+        const struct md_network_link *bridge) {
+    if (link->port_ready && link->aliases) return 0;
+    int directory=openat(v->net,link->name,O_DIRECTORY|O_RDONLY|O_CLOEXEC);
+    if (directory<0) return -errno;
+    int error=0;
+    if (!link->port_ready) {
+        link->master=bridge->index; link->bridge_lifetime=wanted->bridge_lifetime;
+        const struct node port[]={{"brport",DIRECTORY,NULL},{"brport/state",PORT_STATE,NULL}};
+        for (unsigned i=0;i<2 && !error;++i) {
+            error=materialize(v,directory,port+i,link->port+i);
+            link->port[i].interface=link->index; link->port[i].lifetime=link->lifetime;
+            link->port[i].bridge_lifetime=link->bridge_lifetime;
+        }
+        if (!error) link->port_ready=1;
+    }
+    if (!error && !link->aliases) {
+        char target[64],path[80];
+        memcpy(link->bridge_name,bridge->name,sizeof(link->bridge_name));
+        link->aliases=1;
+        snprintf(target,sizeof(target),"../../%s",bridge->name);
+        struct node alias={"brport/bridge",LINK,target};
+        error=materialize(v,directory,&alias,link->port+2);
+        snprintf(target,sizeof(target),"../%s",bridge->name);
+        alias.path="master";
+        if (!error) error=materialize(v,directory,&alias,link->port+3);
+        snprintf(path,sizeof(path),"%s/brif/%s",bridge->name,link->name);
+        snprintf(target,sizeof(target),"../../%s/brport",link->name);
+        alias.path=path;
+        if (!error) error=materialize(v,v->net,&alias,link->port+4);
+        if (error) port_aliases_remove(v,link);
+    }
+    close(directory); return error;
+}
 int md_sysfs_refresh(struct md_sysfs *v) {
     struct md_network_link snapshot[256];
     uint64_t generation=v->generation;
     int count=md_network_link_snapshot(v->network,&generation,snapshot,256);
     if (count<=0) return count;
+    /* Detach cross-interface aliases before retiring or staging either end.
+     * Renames retain the port directory and its open state descriptors. */
+    for (unsigned i=0;i<v->count;++i) {
+        struct interface *link=v->links[i];
+        if (!link->master) continue;
+        const struct md_network_link *wanted=snapshot_link(snapshot,count,link->index);
+        const struct md_network_link *bridge=snapshot_link(snapshot,count,link->master);
+        int error=0;
+        if (!wanted || !same_interface(link,wanted) || !bridge || wanted->master!=link->master
+                || wanted->bridge_lifetime!=link->bridge_lifetime) error=port_remove(v,link);
+        else if (strcmp(link->name,wanted->name) || strcmp(link->bridge_name,bridge->name))
+            error=port_aliases_remove(v,link);
+        if (error) return error;
+    }
     /* Only topology revisions materialize dentries. Open controls own values,
      * not array slots; retiring a link needs no historical tombstone inventory. */
     for (unsigned i=0;i<v->count;) {
@@ -199,6 +287,14 @@ int md_sysfs_refresh(struct md_sysfs *v) {
         int error=materialize(v,v->classes,&alias,&link->nodes[ATTRIBUTE_COUNT]);
         if (error) return error;
     }
+    for (unsigned i=0;i<v->count;++i) {
+        struct interface *link=v->links[i];
+        const struct md_network_link *wanted=snapshot_link(snapshot,count,link->index);
+        const struct md_network_link *bridge=snapshot_link(snapshot,count,wanted->master);
+        if (!bridge) continue;
+        int error=port_publish(v,link,wanted,bridge);
+        if (error) return error;
+    }
     v->generation=generation; return 0;
 }
 struct md_sysfs *md_sysfs_new(int parent,struct md_network_namespace *network,const struct md_identity *id) {
@@ -242,6 +338,8 @@ int md_sysfs_node(struct md_sysfs *v,int fd,struct md_sysfs_node *out) {
         if (st.st_ino==v->nodes[i].stat.st_ino) { *out=v->nodes[i]; return 0; }
     for (unsigned i=0;i<v->count;++i) for (unsigned j=0;j<=ATTRIBUTE_COUNT;++j)
         if (st.st_ino==v->links[i]->nodes[j].stat.st_ino) { *out=v->links[i]->nodes[j]; return 0; }
+    for (unsigned i=0;i<v->count;++i) for (unsigned j=0;j<5;++j)
+        if (st.st_ino==v->links[i]->port[j].stat.st_ino) { *out=v->links[i]->port[j]; return 0; }
     if (st.st_nlink) return -EXDEV;
     int owned=md_provider_tree_private(v->tree,fd);
     if (owned<=0) return owned ? owned : -EXDEV;
@@ -287,6 +385,9 @@ static long read_open(void *data,const struct md_control_actor *actor,void *out,
     case STP_STATE:
         /* Bridges forward without STP; enabling it is not accepted by netlink. */
         length=snprintf(text,sizeof(text),"0\n"); break;
+    case PORT_STATE:
+        if (!info.master || info.bridge_lifetime!=o->node.bridge_lifetime) return -ENODEV;
+        length=snprintf(text,sizeof(text),"%u\n",info.bridge_state); break;
     default: return -EINVAL;
     }
     if ((uint64_t)offset>=(unsigned)length) return 0;

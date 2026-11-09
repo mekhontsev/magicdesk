@@ -31,7 +31,10 @@ enum md_proc_kind { MD_PROC_NONE, MD_PROC_FD, MD_PROC_FDINFO, MD_PROC_CWD, MD_PR
                     MD_PROC_NET_TCP, MD_PROC_NET_TCP6, MD_PROC_NET_UDP, MD_PROC_NET_UDP6, MD_PROC_NET_IF_INET6,
                     MD_PROC_NET_ROUTE, MD_PROC_NET_ROUTE6,
                     MD_PROC_DEVICES, MD_PROC_KERNEL_CMDLINE, MD_PROC_FILESYSTEMS, MD_PROC_SWAPS, MD_PROC_DISKSTATS, MD_PROC_MODULES,
-                    MD_PROC_KERNEL_POLICY, MD_PROC_UPTIME };
+                    MD_PROC_KERNEL_POLICY, MD_PROC_UPTIME, MD_PROC_SYSTEM_STAT };
+static inline int md_proc_host_sample(enum md_proc_kind kind) {
+    return kind==MD_PROC_UPTIME || kind==MD_PROC_SYSTEM_STAT;
+}
 static inline int md_proc_static(enum md_proc_kind kind) {
     return kind==MD_PROC_DEVICES || kind==MD_PROC_KERNEL_CMDLINE || kind==MD_PROC_FILESYSTEMS
         || kind==MD_PROC_SWAPS || kind==MD_PROC_DISKSTATS || kind==MD_PROC_MODULES;

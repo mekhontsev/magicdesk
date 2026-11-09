@@ -7,6 +7,7 @@
 #include <linux/if_arp.h>
 #include <linux/sockios.h>
 #include "lwip/ethip6.h"
+#include "lwip/nd6.h"
 #include "lwip/ip.h"
 #include "lwip/timeouts.h"
 #include "netif/ethernet.h"
@@ -93,6 +94,8 @@ static err_t output(struct netif *netif,struct pbuf *p) {
     struct md_network_namespace *n=i->owner->space;
     struct md_network_interface *link=md_network_interface_find(n,i->index,NULL);
     if(!link || link->policy_id!=i->policy) return ERR_IF;
+    if(i->ethernet && i->noarp && p->tot_len>=14 && pbuf_get_at(p,12)==0x08 && pbuf_get_at(p,13)==0x06)
+        return ERR_OK;
     if(md_stack_packet_output(i,p)) return ERR_RTE;
     void *data=malloc(p->tot_len); if(!data) return ERR_MEM;
     pbuf_copy_partial(p,data,p->tot_len,0);
@@ -113,6 +116,9 @@ static err_t ethernet_route(struct netif *n,struct pbuf *p,struct md_ip_address 
         if(link && md_network_neighbor_mac(space,link,md_ip_unspecified(route.gateway) ? destination : route.gateway,mac.addr))
             return ethernet_output(n,p,(const struct eth_addr *)n->hwaddr,&mac,destination.family==AF_INET6 ? ETHTYPE_IPV6 : ETHTYPE_IP);
     }
+    if(i->noarp && !md_ip_multicast(destination))
+        return ethernet_output(n,p,(const struct eth_addr *)n->hwaddr,(const struct eth_addr *)n->hwaddr,
+            destination.family==AF_INET6 ? ETHTYPE_IPV6 : ETHTYPE_IP);
     ip_addr_t ip=md_stack_ip(destination);
     return destination.family==AF_INET6 ? ethip6_output(n,p,ip_2_ip6(&ip)) : etharp_output(n,p,ip_2_ip4(&ip));
 }
@@ -144,6 +150,11 @@ static const ip6_addr_t *gateway6(struct netif *netif,const ip6_addr_t *a) {
 }
 static void synchronize(struct md_stack_interface *i,struct md_network_interface *link) {
     struct netif *n=&i->netif;
+    int noarp=!!(link->info.flags&IFF_NOARP);
+    if(i->noarp!=noarp) {
+        etharp_cleanup_netif(n); nd6_cleanup_netif(n);
+        i->noarp=noarp;
+    }
     n->mtu=(u16_t)(link->info.mtu>65535 ? 65535 : link->info.mtu);
     memcpy(n->hwaddr,link->info.address,6);
     ip4_addr_t address={0},mask={0},gateway={0};
@@ -238,6 +249,9 @@ int md_network_stack_prepare(struct md_network_namespace *n) {
 int md_network_stack_input(struct md_network_namespace *n,struct md_network_interface *link,const void *data,size_t size) {
     struct md_network_stack *s=n->stack;
     if(!s || !md_stack_interface(s,link->info.index)) return -ENETDOWN;
+    const unsigned char *bytes=data;
+    if((link->info.flags&IFF_NOARP) && link->info.type==ARPHRD_ETHER
+            && size>=14 && bytes[12]==0x08 && bytes[13]==0x06) return 0;
     if(size>65535) return -EMSGSIZE;
     if(s->packets>=1024 || size>4*1024*1024-s->bytes) return -ENOBUFS;
     struct md_stack_packet *p=malloc(sizeof(*p)+size); if(!p) return -ENOMEM;

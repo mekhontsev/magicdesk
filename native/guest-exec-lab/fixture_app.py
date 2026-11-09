@@ -12,6 +12,14 @@ import uuid
 
 PACKAGE = 'io.github.mekhontsev.magicdesk'
 PRIVATE_DIRECTORY = 'cache/guest-fixtures'
+MAX_DEADLINE_SECONDS = 7200
+
+
+def deadline_seconds(value):
+    seconds = int(value)
+    if not 1 <= seconds <= MAX_DEADLINE_SECONDS:
+        raise argparse.ArgumentTypeError(f'deadline must be between 1 and {MAX_DEADLINE_SECONDS} seconds')
+    return seconds
 
 
 def main():
@@ -23,7 +31,7 @@ def main():
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument('--command')
     action.add_argument('--observe-run', help='Retrieve an exact existing run; never replay it')
-    parser.add_argument('--deadline-seconds', type=int, default=60)
+    parser.add_argument('--deadline-seconds', type=deadline_seconds, default=60)
     parser.add_argument('--run-id', help='Caller-owned launch ID for targeted cancellation')
     args = parser.parse_args()
     if args.run_id and args.observe_run:
@@ -31,8 +39,6 @@ def main():
     identity = args.observe_run or args.run_id or uuid.uuid4().hex
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', identity):
         parser.error('Invalid run ID')
-    if not 1 <= args.deadline_seconds <= 1800:
-        parser.error('--deadline-seconds must be between 1 and 1800')
     if args.observe_run and args.apk:
         parser.error('Observing a run must not replace its APK')
     repo = Path(__file__).resolve().parents[2]

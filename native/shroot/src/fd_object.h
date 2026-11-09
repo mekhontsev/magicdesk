@@ -26,9 +26,15 @@ struct md_fd_object_type {
      * under the source table turn, after its metadata lock is released. Owners
      * requiring a complete alias inventory must invalidate that assumption. */
     void (*alias_lost)(struct md_fd_object *);
+    /* Confirmed publication, including dup/receive. Must be idempotent and
+     * must not enter a descriptor table: called under its metadata lock. */
+    void (*published)(struct md_fd_object *);
     /* Borrowed provenance and readiness are independent of data IO. A typed
      * open description may retain an ordinary filesystem anchor. */
     struct md_fs_anchor *(*origin)(struct md_fd_object *);
+    /* Optional native-OFD annotation can travel as ordinary provenance after
+     * export_end invalidates its local-only observation. */
+    int portable_origin;
     struct md_control_file (*readiness)(struct md_fd_object *);
     /* Non-consuming, task-affine supplement to native readiness. No owner is
      * captured at open/dup time, and the native descriptor remains pollable. */

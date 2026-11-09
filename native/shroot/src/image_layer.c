@@ -129,7 +129,7 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
             mode = parsed; mode_seen = 1;
             continue;
         }
-        if ((backup && !strncmp(name, "user.", 5)) || mdi_overlay_attribute(name)) {
+        if ((backup && !strncmp(name, "user.", 5)) || mdi_xattr_virtual(name)) {
             if (length > 65536 || strlen(name) > 255 || link) return -EINVAL;
             continue;
         }

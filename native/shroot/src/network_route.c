@@ -283,8 +283,7 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
         struct md_network_namespace *target,struct md_network_namespace *peer_target) {
     struct md_network_interface *link=md_network_interface_find(n,c->index,c->name);
     if (h->nlmsg_type==RTM_DELLINK) return link ? md_network_interface_remove(n,link->info.index) : -ENODEV;
-    const unsigned mutable_flags=IFF_UP|IFF_MULTICAST|IFF_PROMISC|IFF_ALLMULTI
-        |(link && link->kind==MD_LINK_TUN ? IFF_NOARP : 0);
+    const unsigned mutable_flags=IFF_UP|IFF_MULTICAST|IFF_PROMISC|IFF_ALLMULTI|IFF_NOARP;
     if ((c->change&~mutable_flags) && (!link || ((link->info.flags^c->flags)&c->change&~mutable_flags))) return -EOPNOTSUPP;
     if (c->has_mtu && (c->mtu<68 || c->mtu>65535)) return -EOPNOTSUPP;
     if (c->has_peer_mtu && (c->peer_mtu<68 || c->peer_mtu>65535)) return -EINVAL;
@@ -355,9 +354,13 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
     }
     if (target && c->has_master) return -EOPNOTSUPP;
     int was_up=!!(link->info.flags&IFF_UP), had_ipv6_mtu=link->info.mtu>=1280;
-    link->info.flags=(link->info.flags&~c->change)|(c->flags&c->change);
+    /* Rtnetlink's unmasked flag form replaces mutable flags; 0/0 is an
+       attribute-only update and must leave administrative state alone. */
+    unsigned change=c->change ? c->change : c->flags ? mutable_flags : 0;
+    link->info.flags=(link->info.flags&~change)|(c->flags&change);
     if (c->has_master && link->master!=c->master) {
         link->master=c->master; link->hairpin=link->isolated=0;
+        ++link->bridge_lifetime;
     }
     if (c->has_mtu) {
         if (link->ipv6.mtu==link->info.mtu || link->ipv6.mtu>c->mtu) link->ipv6.mtu=c->mtu;

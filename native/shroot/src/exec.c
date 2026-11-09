@@ -11,6 +11,7 @@
 #include "command_image.h"
 #include "exec_prepare.h"
 #include "interception.h"
+#include "native_identity.h"
 #include "namespace_internal.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -35,14 +36,14 @@ static long prepare_retained(const struct md_fs *fs, int base, const char *path,
             q.mode|=MD_EXEC_OBJECT;
             error=md_copy(routed,sizeof(routed),fs->image->executable_path);
         }
-    } else if (ref.kind==MD_PROC_FD && ref.process==(int)RAW0(gettid)) {
+    } else if (ref.kind==MD_PROC_FD && ref.process==md_native_tid()) {
         const char *tail=ref.tail;
         while (*tail=='/') ++tail;
         /* Preserve a trailing slash as a directory lookup, not descriptor exec. */
         if (!*tail && *ref.tail) tail=".";
         memmove(routed,tail,md_length(tail)+1);
         q.directory[0]=ref.descriptor; q.offset=ref.descriptor;
-    } else if (ref.kind==MD_PROC_ROOT || (ref.kind==MD_PROC_CWD && ref.process==(int)RAW0(gettid))) {
+    } else if (ref.kind==MD_PROC_ROOT || (ref.kind==MD_PROC_CWD && ref.process==md_native_tid())) {
         if (!*ref.tail) return -EACCES;
         const char *tail=ref.tail;
         if (ref.kind==MD_PROC_CWD) while (*tail=='/') ++tail;

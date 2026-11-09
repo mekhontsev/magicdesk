@@ -14,10 +14,13 @@
 #include <sys/sysmacros.h>
 #include <unistd.h>
 
-static int failure, calls, descriptors[32], count, bridge_error;
+static int failure, calls, descriptors[32], count, bridge_error, node_error, all_nodes;
 int __real_stat(const char *,struct stat *);
 int __wrap_stat(const char *path,struct stat *st) {
-    if (strcmp(path,"/dev/dri/renderD128")) return __real_stat(path,st);
+    if (strncmp(path,"/dev/dri/renderD",15)) return __real_stat(path,st);
+    if (node_error && (all_nodes || !strcmp(path,"/dev/dri/renderD128"))) {
+        errno=node_error; return -1;
+    }
     errno=ENOENT; return -1;
 }
 static int tracked(int fd) { assert(fd>=0 && count<32); descriptors[count++]=fd; return fd; }
@@ -82,6 +85,22 @@ int main(void) {
     assert(!f.ops->access(f.context,NULL,R_OK|W_OK));
     int fd=f.ops->descriptor(f.context,O_RDWR); assert(fd>=0); close(fd);
     md_control_file_release(f); closed();
+
+    for (unsigned i=0;i<2;++i) {
+        node_error=(int[]){EACCES,EPERM}[i];
+        f=(struct md_control_file){0};
+        assert(!md_render_device_admit(&f,0) && md_render_device_minor(f)==129);
+        assert(!f.ops->stat(f.context,&st) && st.st_rdev==makedev(226,129));
+        md_control_file_release(f); closed();
+        all_nodes=1;
+        f=(struct md_control_file){0};
+        assert(md_render_device_admit(&f,0)==-node_error && !f.ops && !calls);
+        closed(); all_nodes=0;
+    }
+    node_error=EIO;
+    f=(struct md_control_file){0};
+    assert(md_render_device_admit(&f,0)==-EIO && !f.ops && !calls);
+    closed(); node_error=0;
 
     for (unsigned i=0;i<3;++i) {
         bridge_error=(int[]){ENOTTY,ENOSYS,EPERM}[i];

@@ -19,6 +19,10 @@ import subprocess
 import sys
 
 
+def network_arguments(network):
+    return [] if network == 'default' else ['--network', network]
+
+
 def guest(options):
     defaults = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
     os.environ['PATH'] = os.pathsep.join(dict.fromkeys(
@@ -150,7 +154,7 @@ def guest(options):
                 port = external(operation='allocate')['port']
                 ports.append(port)
                 external(operation='handoff', port=port)
-                run(prefix + ['run', '-d', '--name', name, '--log-driver', 'k8s-file', '--network', network, *limits,
+                run(prefix + ['run', '-d', '--name', name, '--log-driver', 'k8s-file', *network_arguments(network), *limits,
                               '-p', f'{host}:{port}:8080/tcp', '-p', f'{host}:{port}:8080/udp',
                               '--mount', 'type=bind,src=' + str(Path(__file__).with_name('docker_network_fixture.py'))
                               + ',dst=/fixture.py,readonly', image, 'python3', '/fixture.py', name, *family])
@@ -180,7 +184,7 @@ def guest(options):
                 report['traceDetachPassed'] = True
                 for source, target in (names, tuple(reversed(names))):
                     run(prefix + ['exec', source, 'python3', '/fixture.py', '--client', target, '8080', target, '20', *family])
-            conflict = run(prefix + ['run', '--rm', '--name', 'md-podman-conflict', '--network', network,
+            conflict = run(prefix + ['run', '--rm', '--name', 'md-podman-conflict', *network_arguments(network),
                                     *limits, '-p', f'{host}:{ports[0]}:8080', image, '/bin/true'], required=False)
             assert conflict.get('exitCode') != 0 and ('already allocated' in conflict['output']
                     or 'address already in use' in conflict['output'].lower()), conflict
@@ -196,6 +200,12 @@ def guest(options):
             report['portFailure'] = repr(error)
             run(['nft', 'list', 'ruleset'], required=False)
             run(['cat', '/etc/resolv.conf'], required=False)
+            if managed_network:
+                run(prefix + ['network', 'inspect', network], required=False)
+                run(prefix + ['inspect', *names], required=False)
+                for name in names:
+                    run(prefix + ['exec', name, 'cat', '/etc/resolv.conf'], required=False)
+                report['networkProcesses'] = process_snapshot()
             raise
         finally:
             try:
@@ -226,7 +236,7 @@ def guest(options):
             run(prefix + ['pull', options['image']], timeout=180)
         created = True
         command = prefix + ['run', '--rm', '--name', name, '--log-driver', 'k8s-file',
-                            '--network', options['network'], *limits, options['image'],
+                            *network_arguments(options['network']), *limits, options['image'],
                             '/bin/sh', '-ec', 'id; echo PODMAN_CONTAINER_OK']
         result = run(command)
         assert 'PODMAN_CONTAINER_OK' in result['output'].splitlines(), result
@@ -234,7 +244,7 @@ def guest(options):
             exercise_ports()
         if options['network'] != 'none' and options['internet']:
             result = run(prefix + ['run', '--rm', '--name', name, '--log-driver', 'k8s-file',
-                          '--network', options['network'], *limits, options['image'], '/bin/sh', '-ec',
+                          *network_arguments(options['network']), *limits, options['image'], '/bin/sh', '-ec',
                           'wget -T 15 -qO /tmp/page http://example.com; test -s /tmp/page; echo PODMAN_INTERNET_OK'])
             assert 'PODMAN_INTERNET_OK' in result['output'].splitlines(), result
         if options['observer'] and options['internet']:
@@ -267,9 +277,9 @@ def main():
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
     parser.add_argument('--storage', choices=('overlay', 'vfs'), default='overlay')
-    parser.add_argument('--network', choices=('bridge', 'slirp4netns', 'host', 'none'),
-                        help='Default: bridge, or slirp4netns with --rootless-user')
-    parser.add_argument('--rootless-user', help='Existing disposable guest user with subuid/subgid ranges and stock uidmap/slirp4netns')
+    parser.add_argument('--network', choices=('default', 'bridge', 'pasta', 'slirp4netns', 'host', 'none'),
+                        help='Default: bridge, or the installed Podman default with --rootless-user')
+    parser.add_argument('--rootless-user', help='Existing disposable guest user with subuid/subgid ranges and stock uidmap/network helpers')
     parser.add_argument('--cgroups', choices=('enabled', 'disabled'), default='enabled',
                         help='Explicit diagnostic mode; disabled does not certify cgroup support')
     parser.add_argument('--image', default='docker.io/library/alpine:3.23')
@@ -293,9 +303,9 @@ def main():
     add_machine_entry_argument(parser)
     KernelProfile.add_argument(parser)
     args = parser.parse_args()
-    args.network = args.network or ('slirp4netns' if args.rootless_user else 'bridge')
-    if args.exercise_ports and args.network not in ('bridge', 'slirp4netns'):
-        parser.error('--exercise-ports requires bridge or slirp4netns')
+    args.network = args.network or ('default' if args.rootless_user else 'bridge')
+    if args.exercise_ports and args.network not in ('default', 'bridge', 'pasta', 'slirp4netns'):
+        parser.error('--exercise-ports requires default, bridge, pasta or slirp4netns')
     if args.ipv6 and args.network != 'bridge':
         parser.error('--ipv6 currently exercises the bridge network')
     if args.trace and args.rootless_user:

@@ -1,6 +1,7 @@
 #include "namespace_internal.h"
 #include "fs_path_call.h"
 #include "raw.h"
+#include "linux_abi.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/mount.h>
@@ -10,7 +11,16 @@ long md_namespace_mount_fd(const struct md_fs *fs,long nr,const unsigned long *a
     struct md_fs_request q={.directory={-1,-1}};
     char key[PATH_MAX],value[PATH_MAX];
     long r=0;
-    if (nr==SYS_open_tree) {
+    if (nr==SYS_open_tree || nr==SYS_open_tree_attr) {
+        struct mount_attr attr;
+        if (nr==SYS_open_tree_attr) {
+            if (!a[3] && a[4]) return -EINVAL;
+            if (a[3]) {
+                r=md_read_struct(&attr,sizeof(attr),(const void *)a[3],a[4]);
+                if (r<0) return r;
+                q.value=&attr; q.value_size=sizeof(attr);
+            }
+        }
         unsigned flags=(unsigned)a[2];
         if (flags&~(OPEN_TREE_CLONE|OPEN_TREE_CLOEXEC|AT_EMPTY_PATH|AT_NO_AUTOMOUNT
                 |AT_SYMLINK_NOFOLLOW|AT_RECURSIVE)) return -EINVAL;
@@ -19,13 +29,13 @@ long md_namespace_mount_fd(const struct md_fs *fs,long nr,const unsigned long *a
         if (r<0) return r;
         if (!*key && !(flags&AT_EMPTY_PATH)) return -ENOENT;
         unsigned opened=O_PATH|((flags&OPEN_TREE_CLOEXEC) ? O_CLOEXEC : 0);
-        if (!(flags&OPEN_TREE_CLONE)) {
+        if (!(flags&OPEN_TREE_CLONE) && !q.value_size) {
             if (flags&AT_SYMLINK_NOFOLLOW) opened|=O_NOFOLLOW;
             if (!*key && (int)a[0]!=AT_FDCWD) return md_namespace_proc_reopen(fs,(int)a[0],opened);
             return md_namespace_open(fs,(int)a[0],*key ? key : ".",opened,0);
         }
         q.operation=MD_FS_OPEN_TREE; q.directory[0]=(int)a[0]; q.path[0]=key;
-        q.flags=opened; q.mode=flags&(AT_RECURSIVE|AT_SYMLINK_NOFOLLOW);
+        q.flags=opened; q.mode=flags&(OPEN_TREE_CLONE|AT_RECURSIVE|AT_SYMLINK_NOFOLLOW);
         return md_namespace_paths_request(fs,&q);
     }
     if (nr==SYS_mount_setattr) {

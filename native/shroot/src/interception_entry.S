@@ -101,7 +101,7 @@ md_guest_ipc_wait:
     mov x3, xzr
     mov x4, #8
     mov x8, #__NR_ppoll
-    b md_raw_return - 4
+    b md_guest_task_call
 .balign 4
 .global md_guest_watch_gate
 md_guest_watch_gate:

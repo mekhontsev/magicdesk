@@ -17,11 +17,20 @@ def main():
     source.add_argument('--machine')
     source.add_argument('--archive', type=Path)
     parser.add_argument('--command', action='store_true', help='test command mode using an existing machine image')
+    parser.add_argument('--diagnostics', action='store_true', help='Record nspawn debug messages in command mode')
+    parser.add_argument('--trace', action='store_true', help='Trace command-mode syscalls; requires guest strace')
     args = parser.parse_args()
+    if (args.diagnostics or args.trace) and not args.command:
+        parser.error('--diagnostics and --trace require --command')
     if args.command:
         if not args.machine:
             parser.error('--command requires --machine')
-        run_fixture(args.session, 'nspawn-command', ['--machine', args.machine])
+        options = ['--machine', args.machine]
+        if args.diagnostics:
+            options.append('--diagnostics')
+        if args.trace:
+            options.append('--trace')
+        run_fixture(args.session, 'nspawn-command', options)
         return
     if args.archive:
         run_fixture(args.session, 'nspawn', ['--archive', args.archive], [args.archive])
