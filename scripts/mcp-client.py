@@ -213,12 +213,16 @@ def update(client, apk, update_id=None):
             raise ToolError("Installer outcome is unknown; do not repeat installation automatically: "
                             + json.dumps(result, ensure_ascii=False))
         if result["state"] == "installed":
+            if result.get("powerRestore") == "failed":
+                raise ToolError("APK installed, but phone power restoration failed: "
+                                + json.dumps(result, ensure_ascii=False))
             state = client.call("get_state", retry=True, deadline=deadline)
-            if state["app"]["versionCode"] == result["versionCode"]:
+            if (state["app"]["versionCode"] == result["versionCode"]
+                    and result.get("powerRestore") != "pending"):
                 return {"update": result, "app": state["app"],
                         "processChanged": before["app"]["instanceId"] != state["app"]["instanceId"]}
         time.sleep(min(0.5, max(0, deadline - time.monotonic())))
-    raise TimeoutError("Installer has not reported completion; query app.update_status with updateId=" + update_id)
+    raise TimeoutError("Update or power restoration is pending; query app.update_status with updateId=" + update_id)
 
 
 def main():

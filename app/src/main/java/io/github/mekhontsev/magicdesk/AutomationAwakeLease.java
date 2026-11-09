@@ -41,20 +41,43 @@ final class AutomationAwakeLease implements AutoCloseable {
                 throw new java.io.IOException("background work connection lost", error);
             }
         } else {
-            final String reason = AutomationDeviceState.capture(mContext).phoneUiUnavailableReason();
-            if (reason != null) throw new IllegalStateException(reason);
-            if (!held) {
-                final PowerManager power = mContext.getSystemService(PowerManager.class);
-                // No wake-up flag: ordinary phone automation cannot light or unlock it.
-                mLock = power.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "MagicDesk:Automation");
-                mLock.setReferenceCounted(false);
-            }
-            mLock.acquire(duration);
+            acquirePhoneLock(duration);
         }
         if (!held) mId = UUID.randomUUID().toString();
         mDisplayId = display;
         mExpiresAt = SystemClock.elapsedRealtime() + duration;
         return state();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void acquirePhoneLock(long duration) {
+        final String reason = AutomationDeviceState.capture(mContext).phoneUiUnavailableReason();
+        if (reason != null) throw new IllegalStateException(reason);
+        if (mLock == null) {
+            final PowerManager power = mContext.getSystemService(PowerManager.class);
+            // No wake-up flag: ordinary phone automation cannot light or unlock it.
+            mLock = power.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "MagicDesk:Automation");
+            mLock.setReferenceCounted(false);
+        }
+        mLock.acquire(duration);
+    }
+
+    synchronized AppUpdatePowerState updateState(boolean blackScreen) {
+        boolean held = mDisplayId == 0 && mLock != null && mLock.isHeld()
+                && mExpiresAt > SystemClock.elapsedRealtime();
+        return new AppUpdatePowerState(held ? mId : "", held ? mExpiresAt : 0, blackScreen);
+    }
+
+    synchronized void restoreAfterUpdate(AppUpdatePowerState state) {
+        long remaining = state.remaining(SystemClock.elapsedRealtime());
+        if (state.leaseId().isEmpty() || remaining == 0) return;
+        if (mWork != null || (mLock != null && mLock.isHeld())) {
+            throw new IllegalStateException("an awake lease is already held after update");
+        }
+        close();
+        acquirePhoneLock(remaining);
+        mId = state.leaseId();
+        mExpiresAt = state.expiresAt();
     }
 
     synchronized JSONObject release(final String id) throws JSONException {

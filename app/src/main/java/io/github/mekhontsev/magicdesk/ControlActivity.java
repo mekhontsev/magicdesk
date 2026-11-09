@@ -346,7 +346,7 @@ public final class ControlActivity extends Activity
                 || getDisplay() == null || getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY || mBlackScreen == null) return;
         sBlackScreenRequest = null;
         mBlackScreen.enter();
-        request.complete(true);
+        mBlackScreen.confirmFrame(request);
     }
 
     static boolean blackScreenEnabled() {

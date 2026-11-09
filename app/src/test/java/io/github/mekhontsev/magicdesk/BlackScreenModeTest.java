@@ -24,7 +24,7 @@ public final class BlackScreenModeTest {
         assertTrue(applied.contains("!hasWindowFocus()"));
         assertTrue(applied.contains("request.isDone()"));
         assertTrue(applied.contains("Display.DEFAULT_DISPLAY"));
-        assertTrue(applied.indexOf("mBlackScreen.enter()") < applied.indexOf("request.complete(true)"));
+        assertTrue(applied.indexOf("mBlackScreen.enter()") < applied.indexOf("mBlackScreen.confirmFrame(request)"));
         assertTrue(RuntimeSourceFixture.methods("ControlActivity", "onWindowFocusChanged")
                 .contains("applyBlackScreenRequest()"));
     }
@@ -40,6 +40,26 @@ public final class BlackScreenModeTest {
                     void setVisibility(int value) { visibility = value; }
                     void setBackgroundColor(int value) { color = value; }
                     WindowInsets getRootWindowInsets() { return new WindowInsets(); }
+                    android.view.ViewTreeObserver observer = new android.view.ViewTreeObserver();
+                    List<Runnable> posts = new ArrayList<>();
+                    boolean focused = true;
+                    android.view.ViewTreeObserver getViewTreeObserver() { return observer; }
+                    void post(Runnable r) { posts.add(r); }
+                    boolean hasWindowFocus() { return focused; }
+                    void invalidate() { }
+                    void drain() { while (!posts.isEmpty()) posts.remove(0).run(); }
+                }
+                static class android {
+                    static class view {
+                        static class ViewTreeObserver {
+                            interface OnDrawListener { void onDraw(); }
+                            List<OnDrawListener> listeners = new ArrayList<>();
+                            void addOnDrawListener(OnDrawListener l) { listeners.add(l); }
+                            void removeOnDrawListener(OnDrawListener l) { listeners.remove(l); }
+                            boolean isAlive() { return true; }
+                            void draw() { for (var listener : List.copyOf(listeners)) listener.onDraw(); }
+                        }
+                    }
                 }
                 static class FrameLayout extends View {
                     FrameLayout(Object context) { super(context); }
@@ -100,6 +120,25 @@ public final class BlackScreenModeTest {
                         check(mode.black.visibility == View.GONE, "initial black overlay");
                         mode.enter();
                         mode.enter();
+                        var drawn = new java.util.concurrent.CompletableFuture<Boolean>();
+                        mode.confirmFrame(drawn);
+                        check(!drawn.isDone(), "acknowledged before window traversal");
+                        mode.root.observer.draw();
+                        check(!drawn.isDone(), "completed during draw");
+                        mode.root.drain();
+                        check(drawn.join() && mode.root.observer.listeners.isEmpty(), "frame ack leaked listener");
+                        var cancelled = new java.util.concurrent.CompletableFuture<Boolean>();
+                        mode.confirmFrame(cancelled);
+                        cancelled.cancel(false);
+                        mode.root.drain();
+                        check(mode.root.observer.listeners.isEmpty(), "cancel leaked draw listener");
+                        var lost = new java.util.concurrent.CompletableFuture<Boolean>();
+                        mode.confirmFrame(lost);
+                        mode.root.focused = false;
+                        mode.root.observer.draw();
+                        mode.root.drain();
+                        check(lost.isCompletedExceptionally(), "unfocused window acknowledged");
+                        mode.root.focused = true;
                         check(mode.active() && mode.black.color == Color.BLACK, "not opaque black");
                         check(panel.visibility == View.INVISIBLE && mode.black.visibility == View.VISIBLE, "panel exposed");
                         check(window.attributes.flags == 144, "keep-screen-on not scoped");

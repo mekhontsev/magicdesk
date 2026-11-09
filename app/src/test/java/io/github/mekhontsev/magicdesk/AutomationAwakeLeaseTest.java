@@ -62,7 +62,10 @@ public final class AutomationAwakeLeaseTest {
                         void release() { held=false; }
                     }
                 }
-                static class SystemClock { static long elapsedRealtime() { return 100; } }
+                static class SystemClock { static long now = 100; static long elapsedRealtime() { return now; } }
+                record AppUpdatePowerState(String leaseId, long expiresAt, boolean blackScreen) {
+                    long remaining(long now) { return Math.max(0, expiresAt - now); }
+                }
                 static class AutomationDeviceState {
                     static String reason;
                     static AutomationDeviceState capture(Context c) { return new AutomationDeviceState(); }
@@ -128,7 +131,33 @@ public final class AutomationAwakeLeaseTest {
                     check(!background.equals(f.mId), "new work reused expired id");
                     f.close();
                     check(!ShellAccess.last.held, "close leaked background work");
+                    AutomationDeviceState.reason = null;
+                    f.acquire(new JSONObject().put("durationMillis",2000));
+                    var saved = f.updateState(true);
+                    check(saved.blackScreen() && saved.expiresAt() == 2100, "snapshot changed deadline");
+                    try { f.restoreAfterUpdate(saved); throw new AssertionError("overwrote live lease"); }
+                    catch(IllegalStateException expected) { }
+                    f.close();
+                    SystemClock.now = 500;
+                    f.restoreAfterUpdate(saved);
+                    check(f.mId.equals(saved.leaseId()) && f.mLock.timeout == 1600 && f.mExpiresAt == 2100,
+                            "restoration replaced owner or extended deadline");
+                    f.release(saved.leaseId());
+                    f.restoreAfterUpdate(new AppUpdatePowerState("", 0, true));
+                    check(f.mLock == null, "black-only restore created automation lease");
+                    SystemClock.now = 2100;
+                    f.restoreAfterUpdate(saved);
+                    check(f.mLock == null, "expired lease restored");
+                    SystemClock.now = 500;
+                    AutomationDeviceState.reason = "locked";
+                    try { f.restoreAfterUpdate(saved); throw new AssertionError("restored on locked phone"); }
+                    catch(IllegalStateException expected) { }
+                    f.acquire(new JSONObject().put("displayId",7));
+                    check(f.updateState(false).leaseId().isEmpty(), "virtual display lease transferred as phone");
+                    f.close();
+                    check(f.updateState(false).leaseId().isEmpty(), "released lease transferred");
                 }
-                """ + RuntimeSourceFixture.methods("AutomationAwakeLease", "acquire", "release", "state", "close"));
+                """ + RuntimeSourceFixture.methods("AutomationAwakeLease", "acquire", "acquirePhoneLock",
+                        "updateState", "restoreAfterUpdate", "release", "state", "close"));
     }
 }

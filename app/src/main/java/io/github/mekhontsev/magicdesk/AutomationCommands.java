@@ -40,6 +40,7 @@ final class AutomationCommands implements AutoCloseable {
     }
 
     DesktopAutomationStateReader stateReader() { return mAutomation.stateReader(); }
+    void restoreUpdatePower(AppUpdatePowerState state) { mUi.restoreUpdatePower(state); }
 
     private synchronized UserInteractions interactions() {
         if (mClosed) throw new IllegalStateException("command runtime is closed");
@@ -103,7 +104,7 @@ final class AutomationCommands implements AutoCloseable {
         }
         if (name.equals("app.update") || name.equals("app.update_status")) {
             try {
-                return DesktopAutomationResult.success("ok", name.equals("app.update") ? MagicDeskAppUpdates.start(mContext, args)
+                return DesktopAutomationResult.success("ok", name.equals("app.update") ? MagicDeskAppUpdates.start(mContext, args, mUi)
                         : MagicDeskAppUpdates.status(mContext, args.getString("updateId")));
             } catch (java.io.IOException error) {
                 return DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,

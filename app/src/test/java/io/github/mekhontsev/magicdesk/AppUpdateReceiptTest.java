@@ -32,6 +32,19 @@ public final class AppUpdateReceiptTest {
         assertEquals(0, receipt.getInt("installerStatus"));
     }
 
+    @Test public void powerRestoreDoesNotChangeInstallationOutcome() throws Exception {
+        for (String power : new String[] {"pending", "restored", "failed", "not_requested"}) {
+            var receipt = result("submitted");
+            var installed = result("installed").put("powerRestore", power).put("powerRestoreError", "detail");
+            AppUpdateReceipt.merge(receipt, AppUpdateReceipt.read(new ByteArrayInputStream(encode(installed))));
+            assertEquals("installed", receipt.getString("state"));
+            assertEquals(power, receipt.getString("powerRestore"));
+            assertEquals("detail", receipt.getString("powerRestoreError"));
+        }
+        assertThrows(IOException.class, () -> AppUpdateReceipt.merge(result("submitted"),
+                result("installed").put("powerRestore", "invalid")));
+    }
+
     @Test public void everyIncompletePrefixIsStillPending() throws Exception {
         final byte[] bytes = encode(result("installed"));
         for (int size = 0; size < bytes.length; size++) {

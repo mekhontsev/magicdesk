@@ -175,6 +175,13 @@ for Android's installation result independently of the old application process.
 It writes a bounded durable receipt, invokes the installer-only process entry
 after success, and exits. That entry is a `Theme.NoDisplay` Activity with no
 window or Recents entry; it starts enabled automation and immediately finishes.
+If phone keep-awake or black-screen mode was active at handoff, the worker
+bridges replacement with a bounded wake lock. The new process retains the
+original phone lease ID and expiration, and restores black mode through Control
+Panel. The bridge is released after acknowledgement of the new lease and/or
+drawn black window, or after a bounded failure deadline. It does not enable
+previously inactive modes, wake/unlock a manually locked phone, or restore
+virtual displays. This is a one-update handoff, not a startup preference.
 This does not rely on delivery of the package-replaced
 broadcast and adds no continuously running updater. The normal privileged command
 service retains its original lifetime. Neither the worker nor the new runtime
@@ -1610,6 +1617,10 @@ independent privileged worker, which writes a durable receipt before starting th
 new automation runtime. `app.update_status(updateId)` returns that exact operation's
 state; a lost response during replacement is not evidence of installation
 failure and must not cause a new update request.
+The receipt's `powerRestore` is `not_requested`, `pending`, `restored`, or
+`failed`, with `powerRestoreError` on failure. Installation success and power
+restoration are separate outcomes; wait for restoration to leave `pending`
+before continuing an unattended workflow.
 
 The host client uploads/downloads binary data directly, without filling the AI
 conversation with base64. Its `update` command closes desktop through production

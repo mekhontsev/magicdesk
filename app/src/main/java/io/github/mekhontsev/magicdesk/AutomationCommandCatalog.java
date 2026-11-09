@@ -687,7 +687,7 @@ final class AutomationCommandCatalog {
         addShellTools(tools);
         addTransferTools(tools);
         tools.put(destructiveTool("app.update", "Update MagicDesk",
-                "Install a same-package, same-signer APK with no downgrade or data reset. Requires an inactive desktop. A one-operation privileged worker restores enabled MCP after installation. Reconnect and query app.update_status with the same updateId; do not retry using a new id after a lost response.",
+                "Install a same-package, same-signer APK with no downgrade or data reset. Requires an inactive desktop. A one-operation privileged worker restores enabled MCP, bridges active phone keep-awake without extending its lease, and restores active black-screen mode through Control Panel. Reconnect and query app.update_status with the same updateId; wait for powerRestore to leave pending. Do not retry using a new id after a lost response.",
                 objectSchema(new JSONObject().put("updateId", stringProperty("Unique client operation id, 16-64 letters, digits, underscores or hyphens."))
                         .put("path", stringProperty("Absolute shell-readable APK path, typically from files.upload_commit."))
                         .put("sha256", stringProperty("Expected APK SHA-256 digest.")), "updateId", "path", "sha256")))

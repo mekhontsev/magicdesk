@@ -24,7 +24,7 @@ final class AppUpdateWorkerConnection implements ServiceConnection {
     private boolean mDisconnected;
 
     static void begin(int sessionId, int userId, String updateId,
-            ParcelFileDescriptor receipt) throws IOException {
+            ParcelFileDescriptor receipt, AppUpdatePowerState power) throws IOException {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw new HandoffException("update handoff must not block the UI thread", null, false);
         }
@@ -45,7 +45,7 @@ final class AppUpdateWorkerConnection implements ServiceConnection {
                 }
                 // A lost Binder reply may mean begin was accepted. Do not kill that worker or resubmit.
                 submitted = true;
-                connection.mWorker.begin(sessionId, userId, updateId, receipt);
+                connection.mWorker.begin(sessionId, userId, updateId, receipt, power.toBundle());
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();

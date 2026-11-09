@@ -34,6 +34,24 @@ final class BlackScreenMode {
     View view() { return root; }
     boolean active() { return previous != null; }
 
+    void confirmFrame(java.util.concurrent.CompletableFuture<Boolean> result) {
+        var observer = root.getViewTreeObserver();
+        var listener = new android.view.ViewTreeObserver.OnDrawListener() {
+            @Override public void onDraw() {
+                // Window attributes have been submitted by traversal. Remove listeners after drawing.
+                root.post(() -> {
+                    if (active() && root.hasWindowFocus()) result.complete(true);
+                    else result.completeExceptionally(new IllegalStateException("Black-screen window lost focus"));
+                });
+            }
+        };
+        observer.addOnDrawListener(listener);
+        result.whenComplete((unused, error) -> root.post(() -> {
+            if (observer.isAlive()) observer.removeOnDrawListener(listener);
+        }));
+        root.invalidate();
+    }
+
     void enter() {
         if (active()) return;
         previous = new WindowManager.LayoutParams();
