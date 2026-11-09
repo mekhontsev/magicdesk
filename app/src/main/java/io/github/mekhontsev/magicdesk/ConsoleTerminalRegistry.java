@@ -92,8 +92,10 @@ final class ConsoleTerminalRegistry {
     static Snapshot mostRecent() {
         return callOnMain(() -> {
             synchronized (ENTRIES) {
+                pruneLocked();
                 Entry selected = null;
                 for (final Entry entry : ENTRIES.values()) {
+                    if (entry.lastFocusSequence == 0) continue;
                     if (selected == null || entry.lastFocusSequence >= selected.lastFocusSequence) {
                         selected = entry;
                     }

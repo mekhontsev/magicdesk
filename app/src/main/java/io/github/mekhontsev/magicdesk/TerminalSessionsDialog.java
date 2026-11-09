@@ -66,6 +66,11 @@ final class TerminalSessionsDialog {
         show(activity, currentTarget(activity), null);
     }
 
+    static void create(Activity activity) {
+        new TerminalSessionsDialog(activity, currentTarget(activity), null,
+                DesktopLaunchPresentation.automatic(), null, null).create();
+    }
+
     private static ToolLaunchTarget currentTarget(Activity activity) {
         return ToolLaunchTarget.resolve("auto", activity.getDisplay() == null
                 ? 0 : activity.getDisplay().getDisplayId(), DesktopRuntimeBridge.workspaceDisplayIds());

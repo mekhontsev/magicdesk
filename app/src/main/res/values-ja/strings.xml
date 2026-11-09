@@ -639,8 +639,8 @@
     <string name="notification_hw_connected">物理キーボード接続済み</string>
     <string name="notification_hw_disconnected">物理キーボードなし</string>
     <string name="notification_automation_ready">自動操作サーバー準備完了</string>
-    <string name="notification_open_touchpad">タッチパッドを開く</string>
-    <string name="notification_open_terminal">ターミナル</string>
+    <string name="notification_open_control_panel">コントロールパネル</string>
+    <string name="notification_black_screen">黒画面</string>
     <string name="control_status_ready">準備完了</string>
     <string name="capability_android_15_required">Android 15 以降が必要です</string>
     <string name="capability_access_required">shell または root 権限が必要です</string>

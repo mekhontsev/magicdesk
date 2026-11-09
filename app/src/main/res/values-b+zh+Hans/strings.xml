@@ -639,8 +639,8 @@
     <string name="notification_hw_connected">实体键盘已连接</string>
     <string name="notification_hw_disconnected">未连接实体键盘</string>
     <string name="notification_automation_ready">自动化服务器已就绪</string>
-    <string name="notification_open_touchpad">打开触控板</string>
-    <string name="notification_open_terminal">终端</string>
+    <string name="notification_open_control_panel">控制面板</string>
+    <string name="notification_black_screen">黑屏</string>
     <string name="control_status_ready">就绪</string>
     <string name="capability_android_15_required">需要 Android 15 或更新版本</string>
     <string name="capability_access_required">需要 shell 或 root 权限</string>

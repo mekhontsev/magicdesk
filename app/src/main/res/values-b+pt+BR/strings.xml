@@ -655,8 +655,8 @@
     <string name="notification_hw_connected">Teclado físico conectado</string>
     <string name="notification_hw_disconnected">Sem teclado físico</string>
     <string name="notification_automation_ready">Servidor de automação pronto</string>
-    <string name="notification_open_touchpad">Abrir touchpad</string>
-    <string name="notification_open_terminal">Terminal</string>
+    <string name="notification_open_control_panel">Painel de controle</string>
+    <string name="notification_black_screen">Tela preta</string>
     <string name="control_status_ready">Pronto</string>
     <string name="capability_android_15_required">Requer Android 15 ou mais recente</string>
     <string name="capability_access_required">Requer acesso shell ou root</string>

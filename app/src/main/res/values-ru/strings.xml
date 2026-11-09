@@ -665,8 +665,8 @@
     <string name="notification_hw_connected">Аппаратная клавиатура подключена</string>
     <string name="notification_hw_disconnected">Нет аппаратной клавиатуры</string>
     <string name="notification_automation_ready">Сервер автоматизации готов</string>
-    <string name="notification_open_touchpad">Открыть тачпад</string>
-    <string name="notification_open_terminal">Терминал</string>
+    <string name="notification_open_control_panel">Панель управления</string>
+    <string name="notification_black_screen">Чёрный экран</string>
     <string name="control_status_ready">Готово</string>
     <string name="capability_android_15_required">Требуется Android 15 или новее</string>
     <string name="capability_access_required">Требуется доступ shell или root</string>

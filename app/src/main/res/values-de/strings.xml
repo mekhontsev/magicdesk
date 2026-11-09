@@ -647,8 +647,8 @@
     <string name="notification_hw_connected">Hardwaretastatur verbunden</string>
     <string name="notification_hw_disconnected">Keine Hardwaretastatur</string>
     <string name="notification_automation_ready">Automatisierungsserver bereit</string>
-    <string name="notification_open_touchpad">Touchpad öffnen</string>
-    <string name="notification_open_terminal">Terminal</string>
+    <string name="notification_open_control_panel">Systemsteuerung</string>
+    <string name="notification_black_screen">Schwarzer Bildschirm</string>
     <string name="control_status_ready">Bereit</string>
     <string name="capability_android_15_required">Erfordert Android 15 oder neuer</string>
     <string name="capability_access_required">Erfordert Shell- oder Root-Zugriff</string>

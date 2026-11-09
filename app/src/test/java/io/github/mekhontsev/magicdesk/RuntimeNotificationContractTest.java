@@ -28,22 +28,60 @@ public final class RuntimeNotificationContractTest {
                         + "MagicDeskRuntimeService.java"));
 
         assertTrue(source.contains("PendingIntent.getActivity("));
-        assertTrue(source.contains("ControlActivity.createLaunchIntent(this)"));
-        assertTrue(source.contains("MagicDeskTouchpadActivity.createLaunchIntent("));
-        assertTrue(source.contains("TerminalNotificationActivity.resumeIntent(this)"));
+        for (String action : new String[]{"PANEL", "CONSOLE", "BLACK_SCREEN"}) {
+            assertTrue(source.contains("ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction." + action + ")"));
+        }
+        final String notification = RuntimeSourceFixture.methods("MagicDeskRuntimeService", "buildNotification");
+        assertFalse(notification.contains("ShellAccess"));
+        assertFalse(notification.contains("ConsoleTerminalRegistry"));
+        assertFalse(notification.contains("MagicDeskTouchpadActivity"));
+        assertTrue(notification.contains(".setOnlyAlertOnce(true)"));
+        assertTrue(notification.contains(".setStyle(new Notification.DecoratedCustomViewStyle())"));
+        assertTrue(notification.contains(".setCustomContentView(content)"));
+        assertTrue(notification.contains(".setCustomBigContentView(content)"));
+        assertFalse(notification.contains(".addAction("));
+        assertFalse(notification.contains("MediaStyle"));
         assertTrue(source.contains("options.setLaunchDisplayId("));
         assertTrue(source.contains("PendingIntent.FLAG_IMMUTABLE"));
         assertFalse(source.contains("PendingIntent.getForegroundService("));
         assertFalse(source.contains("PendingIntent.getService("));
         assertFalse(source.contains("PendingIntent.getBroadcast("));
+        final String panel = Files.readString(Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/ControlActivity.java"));
+        assertTrue(panel.contains("createLaunchIntent(context).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)"));
+        assertTrue(panel.contains(".setAction(BuildConfig.APPLICATION_ID + \".control.\" + action.name())"));
+        final String manifest = Files.readString(Path.of("src/main/AndroidManifest.xml"));
+        final String panelDeclaration = manifest.substring(manifest.indexOf("android:name=\".ControlActivity\""));
+        assertTrue(panelDeclaration.substring(0, panelDeclaration.indexOf('>'))
+                .contains("android:taskAffinity=\"${applicationId}.control\""));
+    }
+
+    @Test public void compactNotificationHasThreeAccessibleExistingIcons() throws Exception {
+        final var xml = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(Path.of("src/main/res/layout/runtime_notification.xml").toFile());
+        final var buttons = xml.getElementsByTagName("ImageButton");
+        org.junit.Assert.assertEquals(3, buttons.getLength());
+        final String[] ids = {"notification_panel", "notification_console", "notification_black_screen"};
+        final String[] icons = {"ic_quick_controls", "ic_file_console", "ic_phone_screen_off"};
+        final String notification = RuntimeSourceFixture.methods("MagicDeskRuntimeService", "buildNotification");
+        for (int i = 0; i < ids.length; i++) {
+            final var button = (org.w3c.dom.Element) buttons.item(i);
+            org.junit.Assert.assertEquals("@+id/" + ids[i], button.getAttribute("android:id"));
+            org.junit.Assert.assertEquals("@drawable/" + icons[i], button.getAttribute("android:src"));
+            org.junit.Assert.assertEquals("48dp", button.getAttribute("android:layout_width"));
+            org.junit.Assert.assertEquals("48dp", button.getAttribute("android:layout_height"));
+            assertTrue(button.getAttribute("android:contentDescription").startsWith("@string/"));
+            assertTrue(notification.contains("setOnClickPendingIntent(R.id." + ids[i] + ","));
+        }
     }
 
     @Test
-    public void terminalResumeSharesSessionActivationAndRejectsPreviousProcesses() throws Exception {
+    public void terminalMessagesShareSessionActivationAndRejectPreviousProcesses() throws Exception {
         final String source = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/TerminalNotificationActivity.java"));
         assertTrue(source.contains("TerminalNotifications.PROCESS.equals("));
-        assertTrue(source.contains("ConsoleTerminalRegistry.mostRecent()"));
+        assertTrue(source.contains("ConsoleTerminalRegistry.status(id)"));
+        assertFalse(source.contains("resumeIntent"));
         assertTrue(source.contains("TerminalSessions.open("));
         assertTrue(source.contains("CommandConsoleActivity.attachIntent("));
         assertFalse(source.contains("CommandConsoleActivity.createIntent("));
@@ -52,5 +90,80 @@ public final class RuntimeNotificationContractTest {
         final String activity = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/CommandConsoleActivity.java"));
         assertTrue(activity.contains("if (hasFocus) { ConsoleTerminalRegistry.focused(mTerminalRegistryId, this); }"));
+    }
+
+    @Test public void panelActionsRequireFocusedResumedPhoneAndAreConsumedBeforeExecution() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static final String EXTRA_PANEL_ACTION="panelAction";
+                enum LaunchAction { PANEL, CONSOLE, BLACK_SCREEN }
+                static class Intent {
+                    String action;
+                    String getStringExtra(String key) { return action; }
+                    void removeExtra(String key) { action=null; }
+                    void putExtra(String key,String value) { action=value; }
+                }
+                static class Display {
+                    static final int DEFAULT_DISPLAY=0;
+                    int id; int getDisplayId(){return id;}
+                }
+                static class KeyguardManager {
+                    boolean locked; boolean isKeyguardLocked(){return locked;}
+                }
+                static class BlackScreenMode {
+                    boolean active; void exit(){active=false;}
+                }
+                static class TerminalSessions {
+                    static int opens;
+                    static void resumeMostRecent(Fixture activity) {
+                        check(activity.intent.action==null,"action still armed during console launch");
+                        opens++;
+                        activity.applyLaunchAction();
+                    }
+                }
+                static CompletableFuture<Boolean> sBlackScreenRequest;
+                final Intent intent=new Intent();
+                final Display display=new Display();
+                final KeyguardManager keyguard=new KeyguardManager();
+                final BlackScreenMode mBlackScreen=new BlackScreenMode();
+                boolean mResumed,focused,unavailable;
+                int blackEnters;
+                Intent getIntent(){return intent;}
+                boolean hasWindowFocus(){return focused;}
+                boolean isActivityUnavailable(){return unavailable;}
+                Display getDisplay(){return display;}
+                KeyguardManager getSystemService(Class<?> type){return keyguard;}
+                void openBlackScreen(){check(intent.action==null,"action not consumed");mBlackScreen.active=true;blackEnters++;}
+                public static void verify() {
+                    var panel=new Fixture();panel.intent.action="CONSOLE";
+                    panel.applyLaunchAction();
+                    panel.mResumed=true;panel.applyLaunchAction();
+                    check(TerminalSessions.opens==0,"acted before focus");
+                    panel.focused=true;panel.display.id=7;panel.applyLaunchAction();
+                    check(TerminalSessions.opens==0,"acted on external display");
+                    panel.display.id=0;panel.keyguard.locked=true;panel.applyLaunchAction();
+                    check(TerminalSessions.opens==0,"acted while locked");
+                    panel.keyguard.locked=false;panel.applyLaunchAction();panel.applyLaunchAction();
+                    check(TerminalSessions.opens==1,"console action repeated");
+                    panel.intent.action="BLACK_SCREEN";panel.applyLaunchAction();
+                    check(panel.mBlackScreen.active && panel.blackEnters==1,"black mode missing");
+                    panel.mBlackScreen.exit();panel.applyLaunchAction();
+                    check(!panel.mBlackScreen.active && panel.blackEnters==1,"focus reentered black mode");
+                    sBlackScreenRequest=new CompletableFuture<>();var request=sBlackScreenRequest;
+                    panel.mBlackScreen.active=true;panel.intent.action="PANEL";panel.applyLaunchAction();
+                    check(!panel.mBlackScreen.active && request.isCompletedExceptionally(),"explicit panel did not supersede black mode");
+                    panel.intent.action="CONSOLE";panel.mResumed=false;panel.applyLaunchAction();
+                    check(TerminalSessions.opens==1 && panel.intent.action!=null,"consumed action while paused");
+                    panel.mResumed=true;panel.unavailable=true;panel.applyLaunchAction();
+                    check(TerminalSessions.opens==1,"acted after destruction");
+                }
+                """ + RuntimeSourceFixture.methods("ControlActivity", "applyLaunchAction")
+                        .replace("android.app.KeyguardManager", "KeyguardManager"));
+        final String save = RuntimeSourceFixture.methods("ControlActivity", "onSaveInstanceState");
+        final String create = RuntimeSourceFixture.methods("ControlActivity", "onCreate");
+        assertTrue(save.contains("state.putString(EXTRA_PANEL_ACTION, getIntent().getStringExtra(EXTRA_PANEL_ACTION))"));
+        assertTrue(create.contains("savedInstanceState.getString(EXTRA_PANEL_ACTION)"));
+        for (String method : new String[]{"onNewIntent", "onResume", "onWindowFocusChanged"}) {
+            assertTrue(RuntimeSourceFixture.methods("ControlActivity", method).contains("applyLaunchAction()"));
+        }
     }
 }

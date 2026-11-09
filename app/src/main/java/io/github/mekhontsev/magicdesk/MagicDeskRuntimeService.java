@@ -23,7 +23,7 @@ public final class MagicDeskRuntimeService extends Service
     private static final String TAG = "MagicDeskWatcher";
     private static final String CHANNEL_ID = "magicdesk";
     private static final int NOTIFICATION_ID = 1;
-    private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
+    private static final int BLACK_SCREEN_REQUEST_CODE = 4;
     private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
     private static final int OPEN_TERMINAL_REQUEST_CODE = 3;
     private final PlatformDriver mPlatform = PlatformDrivers.current();
@@ -816,7 +816,7 @@ public final class MagicDeskRuntimeService extends Service
         final PendingIntent openControlPanelPendingIntent =
                 phoneActivityPendingIntent(
                         OPEN_CONTROL_PANEL_REQUEST_CODE,
-                        ControlActivity.createLaunchIntent(this));
+                        ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.PANEL));
         final String text = mOperationStatus != null
                 ? mOperationStatus
                 : (!mInitialized
@@ -827,6 +827,16 @@ public final class MagicDeskRuntimeService extends Service
                         ? getString(R.string.notification_hw_connected)
                         : getString(R.string.notification_hw_disconnected));
 
+        final var content = new android.widget.RemoteViews(getPackageName(), R.layout.runtime_notification);
+        content.setTextViewText(R.id.notification_status, text);
+        content.setOnClickPendingIntent(R.id.notification_panel, openControlPanelPendingIntent);
+        content.setOnClickPendingIntent(R.id.notification_console, phoneActivityPendingIntent(
+                OPEN_TERMINAL_REQUEST_CODE,
+                ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.CONSOLE)));
+        content.setOnClickPendingIntent(R.id.notification_black_screen, phoneActivityPendingIntent(
+                BLACK_SCREEN_REQUEST_CODE,
+                ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.BLACK_SCREEN)));
+
         final Notification.Builder builder =
                 new Notification.Builder(this, CHANNEL_ID);
         builder
@@ -834,27 +844,12 @@ public final class MagicDeskRuntimeService extends Service
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(text)
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .setShowWhen(false)
-                .setContentIntent(openControlPanelPendingIntent);
-        if (ConsoleTerminalRegistry.registeredCount() > 0) {
-            builder.addAction(
-                    R.drawable.ic_file_console,
-                    getString(R.string.notification_open_terminal),
-                    phoneActivityPendingIntent(
-                            OPEN_TERMINAL_REQUEST_CODE,
-                            TerminalNotificationActivity.resumeIntent(this)));
-        }
-        final int targetDisplayId = inputDisplayId();
-        if (ShellAccess.isReady()
-                && PhoneTouchpadController.isSupported(targetDisplayId)) {
-            builder.addAction(
-                        R.drawable.ic_touchpad,
-                        getString(R.string.notification_open_touchpad),
-                        phoneActivityPendingIntent(
-                                OPEN_TOUCHPAD_REQUEST_CODE,
-                                MagicDeskTouchpadActivity.createLaunchIntent(
-                                        this, targetDisplayId)));
-        }
+                .setContentIntent(openControlPanelPendingIntent)
+                .setStyle(new Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(content)
+                .setCustomBigContentView(content);
         return builder.build();
     }
 

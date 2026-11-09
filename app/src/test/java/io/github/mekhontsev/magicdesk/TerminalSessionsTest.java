@@ -5,6 +5,66 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public final class TerminalSessionsTest {
+    @Test public void resumeReusesCapturedSessionAndChoosesOnlyWhenMissing() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Activity {
+                    boolean finishing,destroyed,focused=true;
+                    boolean isFinishing(){return finishing;}
+                    boolean isDestroyed(){return destroyed;}
+                    boolean hasWindowFocus(){return focused;}
+                    void runOnUiThread(Runnable action){action.run();}
+                }
+                static class ConsoleTerminalRegistry {
+                    record Snapshot(String id,String backend) { }
+                    static Snapshot session;
+                    static Snapshot mostRecent(){return session;}
+                    static Snapshot status(String id){return session!=null && session.id.equals(id)?session:null;}
+                }
+                static class CommandConsoleActivity {
+                    static Object attachIntent(Activity activity,ConsoleTerminalRegistry.Snapshot session){return session;}
+                }
+                static class TerminalSessionsDialog {
+                    static int choices;
+                    static void create(Activity activity){choices++;}
+                }
+                static class DesktopRuntimeBridge { static Set<Integer> workspaceDisplayIds(){return Set.of();} }
+                static class ToolLaunchTarget {
+                    static Object resolve(String placement,int display,Set<Integer> workspaces){
+                        check(placement.equals("auto") && display==0,"resume not placed on phone");return new Object();
+                    }
+                }
+                static class ShellAccess { static String usefulMessage(Throwable error){return error.toString();} }
+                static class Toast {
+                    static final int LENGTH_LONG=1;static int errors;
+                    static Toast makeText(Activity activity,String message,int duration){return new Toast();}
+                    void show(){errors++;}
+                }
+                static int opens;
+                static java.util.function.Consumer<Throwable> completion;
+                static void open(Activity activity,Object intent,Object target,String uniqueId,
+                        java.util.function.Consumer<Throwable> callback){
+                    check(intent==ConsoleTerminalRegistry.session,"new session or changed identity");
+                    opens++;completion=callback;
+                }
+                public static void verify() {
+                    var activity=new Activity();resumeMostRecent(activity);
+                    check(TerminalSessionsDialog.choices==1 && opens==0,"missing session did not open chooser");
+                    for(String backend:List.of("app","shell","termux")) {
+                        ConsoleTerminalRegistry.session=new ConsoleTerminalRegistry.Snapshot(backend,backend);
+                        resumeMostRecent(activity);completion.accept(null);
+                    }
+                    check(opens==3 && TerminalSessionsDialog.choices==1,"success created session or chooser");
+                    completion.accept(new IOException("placement refused"));
+                    check(Toast.errors==1 && TerminalSessionsDialog.choices==1,"placement error replaced a live session");
+                    ConsoleTerminalRegistry.session=null;completion.accept(new IOException("expired"));
+                    check(TerminalSessionsDialog.choices==2,"expired session did not open chooser");
+                    activity.focused=false;completion.accept(new IOException("expired"));
+                    check(TerminalSessionsDialog.choices==2,"late callback displayed background dialog");
+                }
+                """ + RuntimeSourceFixture.methods("TerminalSessions", "resumeMostRecent")
+                        .replace("android.view.Display.DEFAULT_DISPLAY", "0"));
+    }
+
     private static ConsoleTerminalRegistry.Snapshot terminal(String id, String tmux, long pid, boolean ready, int task) {
         return new ConsoleTerminalRegistry.Snapshot(id, task, task < 0 ? -1 : 0, false, ready,
                 pid, 80, 24, "/home", "program", "termux", TerminalProcessInfo.unknown(), "", tmux, 100);

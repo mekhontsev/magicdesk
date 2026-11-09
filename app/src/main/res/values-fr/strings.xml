@@ -655,8 +655,8 @@
     <string name="notification_hw_connected">Clavier physique connecté</string>
     <string name="notification_hw_disconnected">Aucun clavier physique</string>
     <string name="notification_automation_ready">Serveur d\'automatisation prêt</string>
-    <string name="notification_open_touchpad">Ouvrir le pavé tactile</string>
-    <string name="notification_open_terminal">Terminal</string>
+    <string name="notification_open_control_panel">Panneau de contrôle</string>
+    <string name="notification_black_screen">Écran noir</string>
     <string name="control_status_ready">Prêt</string>
     <string name="capability_android_15_required">Nécessite Android 15 ou ultérieur</string>
     <string name="capability_access_required">Nécessite un accès shell ou root</string>

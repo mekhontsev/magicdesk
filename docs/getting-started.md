@@ -484,10 +484,15 @@ for the privileged service. MagicDesk is not offered as an inactive HOME choice.
 When there was no explicit HOME holder at session start, Android may show its
 launcher chooser again; MagicDesk does not choose a replacement on the user's behalf.
 
-The persistent notification opens Phone Control Panel. Its separate touchpad
-action opens the phone input surface when external input control is available.
-While a retained terminal exists, a **Terminal** action resumes the most recently
-focused terminal even without Desktop, rather than creating another shell.
+The persistent notification provides **Control Panel**, **Console** and
+**Black screen** icons directly in its compact view, with no expansion required.
+Each first brings a fresh Control Panel to the phone
+foreground, dismissing its previous dialogs without closing terminal sessions.
+**Console** resumes the most recently focused retained terminal on the phone,
+without creating another PTY or changing its executor. If none remains, it opens
+the existing **New session** chooser. **Black screen** enters the keep-awake mode
+described below. Tapping the notification itself opens the panel. Touchpad remains
+available from the panel when external input control is available.
 
 The **Black screen (keep awake)** icon beside Console in Control Panel keeps
 the phone awake with a black screen at minimum window brightness. Touches are

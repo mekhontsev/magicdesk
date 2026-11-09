@@ -648,8 +648,8 @@
     <string name="notification_hw_connected">Hardware keyboard connected</string>
     <string name="notification_hw_disconnected">No hardware keyboard</string>
     <string name="notification_automation_ready">Automation server ready</string>
-    <string name="notification_open_touchpad">Open touchpad</string>
-    <string name="notification_open_terminal">Terminal</string>
+    <string name="notification_open_control_panel">Control Panel</string>
+    <string name="notification_black_screen">Black screen</string>
     <string name="control_status_ready">Ready</string>
     <string name="capability_android_15_required">Requires Android 15 or newer</string>
     <string name="capability_access_required">Requires shell or root access</string>

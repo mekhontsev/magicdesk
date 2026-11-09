@@ -23,7 +23,9 @@ public final class TerminalOwnershipRegressionTest {
                     check(mostRecent() == null, "empty registry offered a terminal");
                     Activity first = new HostActivity(), second = new HostActivity();
                     ConsoleTerminalSession a = acquire("terminal-a", ignored -> new ConsoleTerminalSession());
+                    check(mostRecent() == null, "unseen background session became MRU");
                     register(first, a, new ConsoleTerminalView(), "terminal-a");
+                    check(mostRecent() == null, "unfocused window became MRU");
                     focused("terminal-a", first);
                     ConsoleTerminalSession b = acquire("terminal-b", ignored -> new ConsoleTerminalSession());
                     register(second, b, new ConsoleTerminalView(), "terminal-b");

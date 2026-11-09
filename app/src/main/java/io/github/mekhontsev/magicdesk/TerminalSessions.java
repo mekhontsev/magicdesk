@@ -2,6 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.content.Intent;
+import android.app.Activity;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,6 +15,27 @@ final class TerminalSessions {
     private TerminalSessions() { }
 
     record Item(ConsoleTerminalRegistry.Snapshot terminal, TmuxSessionProvider.Session tmux) { }
+
+    static void resumeMostRecent(final Activity activity) {
+        // Resolve at invocation, not when SystemUI builds the notification.
+        final var session = ConsoleTerminalRegistry.mostRecent();
+        if (session == null) {
+            TerminalSessionsDialog.create(activity);
+            return;
+        }
+        open(activity, CommandConsoleActivity.attachIntent(activity, session),
+                ToolLaunchTarget.resolve("auto", android.view.Display.DEFAULT_DISPLAY,
+                        DesktopRuntimeBridge.workspaceDisplayIds()), null,
+                error -> activity.runOnUiThread(() -> {
+                    if (error == null || activity.isFinishing() || activity.isDestroyed()
+                            || !activity.hasWindowFocus()) return;
+                    if (ConsoleTerminalRegistry.status(session.id) == null) {
+                        TerminalSessionsDialog.create(activity);
+                    } else {
+                        Toast.makeText(activity, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+                    }
+                }));
+    }
 
     static List<Item> merge(List<ConsoleTerminalRegistry.Snapshot> terminals, TmuxSessionProvider.Snapshot tmux) {
         final List<Item> result = new ArrayList<>();
