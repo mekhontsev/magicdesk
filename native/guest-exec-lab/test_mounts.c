@@ -214,6 +214,17 @@ static void nested_mounts(const char *base) {
     /* A readonly bind does not change its backing superblock. */
     assert(strstr(bytes," / ro - none attachment rw") && strstr(bytes," /child rw - none attachment rw"));
     assert(!strstr(bytes,"/tree") && !strstr(bytes,"/proc") && !strstr(bytes,base));
+    /* Path prefixes belong to one export, not the lifetime of the mount view. */
+    snprintf(path,sizeof(path),"%s/child",source[1]);
+    snprintf(moved,sizeof(moved),"%s/renamed-child",source[1]);
+    assert(!renameat(AT_FDCWD,path,AT_FDCWD,moved));
+    for (unsigned info=0;info<2;++info) {
+        r=call(&fs,MD_FS_MOUNT_TABLE,-1,NULL,O_RDONLY,info,NULL,0); assert(!r.error);
+        count=read(r.fd,bytes,sizeof(bytes)-1); assert(count>0); bytes[count]=0; close(r.fd);
+        assert(strstr(bytes," /renamed-child ") && !strstr(bytes," /child "));
+        assert(!strstr(bytes,"/tree") && !strstr(bytes,base));
+    }
+    assert(!renameat(AT_FDCWD,moved,AT_FDCWD,path));
     md_task_registry_destroy(fs.tasks); fs.tasks=NULL;
     md_identity_release(&identity); md_domain_release(context);
     close(leaf); close(covered); md_fs_mounts_close(&fs);

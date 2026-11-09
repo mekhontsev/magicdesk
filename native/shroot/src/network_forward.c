@@ -1188,7 +1188,7 @@ int md_network_forward_source(struct md_network_namespace *n,int type,struct md_
         if (c->type!=type) continue;
         if (!c->forgotten && c->remote.ip.family==address->ip.family && c->remote.port==address->port && c->path.destination==n->inode) {
             if (info) *info=(struct md_network_packet_info){.destination=c->path.translated.destination,
-                .interface=c->path.translated.input,.hops=c->group_hops,.hops_set=c->group};
+                .interface=md_network_flow_input(&c->path),.hops=c->group_hops,.hops_set=c->group};
             address->ip=c->path.translated.source; address->port=c->path.translated.source_port; return 1;
         }
         if (c->gateway.ip.family==address->ip.family && c->gateway.port==address->port

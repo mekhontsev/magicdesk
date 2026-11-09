@@ -5632,8 +5632,18 @@ rmdir /run/md-host-dev
 # Recovery images with this initrd layout keep persistent /etc in /var.
 # Expose it before PID 1 loads units and generators, not at local-fs.target.
 if [ -f /usr/lib/initcpio/hooks/etc_overlay ] && ! mountpoint -q /etc; then
+    # Keep the launch-owned resolver reachable above the recovery overlay.
+    resolver_mount=
+    if mountpoint -q /etc/resolv.conf; then
+        resolver_mount=$(mktemp /run/md-init-resolver.XXXXXXXX)
+        mount --move /etc/resolv.conf "$resolver_mount"
+    fi
     mkdir -p /var/lib/overlays/etc/upper /var/lib/overlays/etc/work
     mount -t overlay -o lowerdir=/etc,upperdir=/var/lib/overlays/etc/upper,workdir=/var/lib/overlays/etc/work overlay /etc
+    if [ -n "$resolver_mount" ]; then
+        mount --move "$resolver_mount" /etc/resolv.conf
+        rm "$resolver_mount"
+    fi
 fi
 # The launch configures eth0 without DHCP. Preserve that uplink when networkd
 # starts; earlier user profiles (or the same filename in /etc) can override it.

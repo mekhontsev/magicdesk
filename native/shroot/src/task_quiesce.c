@@ -109,10 +109,15 @@ int md_task_quiesce_event(struct md_task_quiesce *q,pid_t pid,int status,const s
     *d=(struct deferred){.pid=pid,.status=status}; if (usage) d->usage=*usage;
     if (q->last) q->last->next=d; else q->first=d; q->last=d;
     if (event==PTRACE_EVENT_CLONE || event==PTRACE_EVENT_FORK || event==PTRACE_EVENT_VFORK) {
-        unsigned long child;
-        if (q->trace(PTRACE_GETEVENTMSG,pid,NULL,&child)<0) return -errno;
+        int terminal;
+        long child=md_task_birth_read(q->trace,pid,event,&terminal);
+        if (child<0) return (int)child;
         /* Birth already stops the child; wait for its own stop, in either order. */
-        if (!find(q,(pid_t)child)) return md_task_quiesce_add(q,(pid_t)child,0,0);
+        if (!find(q,(pid_t)child)) {
+            int error=md_task_quiesce_add(q,(pid_t)child,0,0);
+            if (error) return error;
+        }
+        return (int)child;
     }
     return 0;
 }
@@ -135,6 +140,21 @@ int md_task_quiesce_return(struct md_task_quiesce *q,pid_t pid) {
     if (!p || !p->borrowed) return -EINVAL;
     p->borrowed=0; --q->borrowed;
     return 0;
+}
+int md_task_quiesce_terminal(struct md_task_quiesce *q,pid_t pid,int status,const struct rusage *usage) {
+    struct participant *p=find(q,pid);
+    unsigned event=(unsigned)status>>16;
+    if (!p || !(WIFEXITED(status) || WIFSIGNALED(status)
+            || (WIFSTOPPED(status) && (event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)))) return -EINVAL;
+    if (p->borrowed) { p->borrowed=0; --q->borrowed; }
+    struct deferred **at=&q->first,*previous=NULL;
+    while (*at) {
+        struct deferred *d=*at;
+        if (d->pid==pid) {
+            *at=d->next; if (q->last==d) q->last=previous; free(d);
+        } else { previous=d; at=&d->next; }
+    }
+    return md_task_quiesce_event(q,pid,status,usage);
 }
 int md_task_quiesce_release(struct md_task_quiesce *q) {
     if (q->borrowed) return -EBUSY;
@@ -160,6 +180,9 @@ int md_task_quiesce_newborn(struct md_task_quiesce *q,pid_t pid) {
     while (*at && (*at)->pid!=pid) { previous=*at; at=&(*at)->next; }
     if (!*at) return 0;
     struct deferred *d=*at;
-    if ((unsigned)d->status>>16!=PTRACE_EVENT_STOP || WSTOPSIG(d->status)!=SIGTRAP) return -EPROTO;
-    *at=d->next; if (q->last==d) q->last=previous; free(d); return 1;
+    unsigned event=(unsigned)d->status>>16;
+    if (!WIFSTOPPED(d->status) || WSTOPSIG(d->status)!=SIGTRAP
+            || (event!=PTRACE_EVENT_STOP && event!=PTRACE_EVENT_EXIT)) return -EPROTO;
+    *at=d->next; if (q->last==d) q->last=previous; free(d);
+    return event==PTRACE_EVENT_EXIT ? MD_TASK_BIRTH_EXIT : MD_TASK_BIRTH_READY;
 }

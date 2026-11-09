@@ -74,6 +74,54 @@ static void directory_timestamps(const char *base) {
 static void logical_create(struct md_inode_store *s,const char *path) {
     int fd=md_inode_create(s,-1,path,0600); CHECK(fd>=0); close(fd);
 }
+static int crash_after_commit(unsigned kind,void *context,void *statement,void *elapsed) {
+    (void)context; (void)elapsed;
+    if (kind==SQLITE_TRACE_PROFILE && !strcmp(sqlite3_sql(statement),"COMMIT")) kill(getpid(),SIGKILL);
+    return 0;
+}
+static void source_readiness(const char *base) {
+    char path[PATH_MAX],foreign_path[PATH_MAX],bytes[1024];
+    snprintf(path,sizeof(path),"%s/readiness",base);
+    snprintf(foreign_path,sizeof(foreign_path),"%s/readiness-foreign",base);
+    struct md_inode_store *s,*writer,*foreign;
+    CHECK(!md_inode_store_open(path,1,&s) && !md_inode_store_open(path,0,&writer));
+    CHECK(!md_inode_store_open(foreign_path,1,&foreign));
+    logical_create(writer,"/base");
+    int root=md_inode_open(s,-1,"/",O_PATH|O_DIRECTORY,0); CHECK(root>=0);
+    int foreign_root=md_inode_open(foreign,-1,"/",O_PATH|O_DIRECTORY,0); CHECK(foreign_root>=0);
+    int reader=md_inode_watch_create(s,IN_NONBLOCK); CHECK(reader>=0);
+    int wd=md_inode_watch_add(s,reader,root,IN_CREATE); CHECK(wd>0);
+    int foreign_wd=md_inode_watch_add_from(s,foreign,reader,foreign_root,IN_CREATE); CHECK(foreign_wd>0);
+    struct md_watch_source *provider; CHECK(!md_watch_source_new(&provider));
+    int provider_wd=md_inode_watch_add_provider(s,reader,provider,7,S_IFREG,IN_MODIFY); CHECK(provider_wd>0);
+    CHECK(md_inode_watch_read(s,reader,bytes,sizeof(bytes),NULL,NULL)==-EAGAIN);
+    struct md_inode_statistics stats={0}; md_inode_measure(s,&stats);
+    for (unsigned i=0;i<64;++i) {
+        CHECK(!md_inode_watch_pump(s));
+        CHECK(!md_inode_watch_bytes(s,reader));
+        CHECK(md_inode_watch_read(s,reader,bytes,sizeof(bytes),NULL,NULL)==-EAGAIN);
+    }
+    logical_create(foreign,"/foreign"); expect_record(reader,s,foreign_wd,IN_CREATE,"foreign");
+    md_watch_source_emit(provider,7,IN_MODIFY,0,NULL,0);
+    expect_record(reader,s,provider_wd,IN_MODIFY,NULL);
+    CHECK(!stats.step.calls && !stats.transaction.calls);
+    pid_t pid=fork(); CHECK(pid>=0);
+    if (!pid) {
+        struct md_inode_store *other; CHECK(!md_inode_store_open(path,0,&other));
+        CHECK(!sqlite3_trace_v2(other->db,SQLITE_TRACE_PROFILE,crash_after_commit,NULL));
+        md_inode_link(other,-1,"/base",-1,"/committed",0);
+        _exit(2);
+    }
+    int status;
+    CHECK(waitpid(pid,&status,0)==pid && WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL);
+    expect_record(reader,s,wd,IN_CREATE,"committed");
+    CHECK(md_inode_watch_read(s,reader,bytes,sizeof(bytes),NULL,NULL)==-EAGAIN);
+    CHECK(stats.step.calls);
+    close(reader); CHECK(!md_inode_watch_pump(s) && md_inode_watch_pollfd(s)==-1);
+    md_watch_source_release(provider); close(root); close(foreign_root);
+    md_inode_store_close(writer); md_inode_store_close(foreign); md_inode_store_close(s);
+    puts("PASS event-driven watch sources: idle/foreign/provider IO avoids SQL; WAL recovers commit without a marker");
+}
 static void unrelated_io(struct md_inode_store *s) {
     int noisy=md_inode_open(s,-1,"/unsubscribed",O_RDONLY,0); CHECK(noisy>=0);
     char path[64]; snprintf(path,sizeof(path),"/proc/self/fd/%d",noisy);
@@ -307,6 +355,7 @@ int main(int argc, char **argv) {
     native_transitions(argv[1]);
     directory_timestamps(argv[1]);
     collected_view_journal(argv[1]);
+    source_readiness(argv[1]);
     quotas(argv[1]);
     return 0;
 }

@@ -786,9 +786,10 @@ static void packet_reject(int tap,int ipv6) {
         /* EVENT_WAIT: ICMP refusal completes the pending packet-side handshake. */
         assert(ready.fd>=0 && poll(&ready,1,2000)==1);
     }
-    assert(md_network_endpoint_connect_result(endpoint,NULL)==-EACCES);
+    int refused=ipv6 ? EACCES : EHOSTUNREACH;
+    assert(md_network_endpoint_connect_result(endpoint,NULL)==-refused);
     int error=0; socklen_t error_size=sizeof(error);
-    assert(!md_network_endpoint_sockopt(endpoint,fd,NULL,0,SOL_SOCKET,SO_ERROR,&error,&error_size) && error==EACCES);
+    assert(!md_network_endpoint_sockopt(endpoint,fd,NULL,0,SOL_SOCKET,SO_ERROR,&error,&error_size) && error==refused);
     close(fd); md_fd_object_release(endpoint);
     pthread_mutex_lock(&spaces[1]->fabric->lock);
     spaces[1]->filter=NULL; md_network_forward_changed(spaces[1]->fabric);

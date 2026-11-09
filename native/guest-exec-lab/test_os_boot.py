@@ -219,6 +219,7 @@ def check_systemd_boot(log):
     assert not re.search(r'generator.*(?:failed|exit(?:ed)? (?:with )?(?:code|status))',
                          plain, re.IGNORECASE), plain
     failures = re.findall(r"\S+\.(?:service|mount|socket|scope|target): Failed with result '[^']+'", plain)
+    failures += re.findall(r'^.*\[\s*FAILED\s*\].*$', plain, re.MULTILINE)
     assert not failures, '\n'.join(failures)
 
 

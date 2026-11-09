@@ -189,6 +189,12 @@ int md_view_backing_contains(struct md_filesystem *,const struct md_view_mount *
 int md_view_identity(struct md_filesystem *, int fd, struct md_view_object **);
 int md_view_path(struct md_filesystem *, int fd, struct md_view_mount *, char *, size_t);
 int md_view_dentry_path(struct md_filesystem *,int,struct md_view_mount *,uint64_t,int,char *,size_t);
+/* One path-rendering operation may resolve several objects against this root.
+ * It retains no descriptors or locks and must not outlive that operation. */
+struct md_view_path_root { struct md_view_mount *boundary; int scoped; char path[PATH_MAX]; };
+int md_view_path_root(struct md_filesystem *,struct md_view_path_root *);
+int md_view_path_at(struct md_filesystem *,const struct md_view_path_root *,int,
+    struct md_view_mount *,uint64_t,int,char *,size_t);
 int md_view_location_path(struct md_filesystem *,const struct md_view_location *,char *,size_t);
 int md_view_backing_path(struct md_filesystem *, int fd, const struct md_view_mount *, char *, size_t);
 /* Worker-only publication of an already prepared filesystem. The caller owns

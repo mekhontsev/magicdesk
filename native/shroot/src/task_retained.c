@@ -56,7 +56,7 @@ int md_task_retained_event(struct md_task_retained *r,pid_t pid,int status) {
         if (event==PTRACE_EVENT_CLONE) {
             if (r->actor) return -EPROTO;
             int terminal=0;
-            long child=md_task_birth_read(r->parent.trace,pid,event,SYS_clone,&terminal);
+            long child=md_task_birth_read(r->parent.trace,pid,event,&terminal);
             if (child<0) return (int)child;
             r->actor=(pid_t)child;
             r->parent_terminal|=terminal;

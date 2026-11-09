@@ -1,4 +1,5 @@
 #include "network_filter.h"
+#include "network_filter_compare.h"
 #include "network_ipset.h"
 #include <errno.h>
 #include <linux/netfilter.h>
@@ -279,8 +280,7 @@ static int evaluate_chain(struct md_network_filter *f,const struct md_filter_cha
             case MD_FILTER_IMMEDIATE:
                 memset(dst,0,(e->size+3)&~3U); memcpy(dst,e->value,e->size); break;
             case MD_FILTER_COMPARE: {
-                int same=!memcmp(src,e->value,e->size);
-                match=e->operation==NFT_CMP_EQ ? same : !same; break;
+                match=md_filter_compare(e->operation,memcmp(src,e->value,e->size)); break;
             }
             case MD_FILTER_RANGE: {
                 int inside=memcmp(src,e->value,e->size)>=0 && memcmp(src,e->mask,e->size)<=0;

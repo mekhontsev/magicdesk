@@ -1,17 +1,35 @@
 #define _GNU_SOURCE
 #include "task_quiesce.h"
 #include <assert.h>
+#include <asm/ptrace.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <sys/ptrace.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 
 static int interrupts, resumes, request;
 static pid_t resumed, newborn;
+static unsigned birth_event=PTRACE_EVENT_CLONE;
+static long birth_number=SYS_clone;
+static int terminal_birth;
 static long trace(int op,pid_t pid,void *address,void *data) {
     (void)address;
-    if (op==PTRACE_GETEVENTMSG) { *(unsigned long *)data=(unsigned long)newborn; return 0; }
+    if (op==PTRACE_GETEVENTMSG) {
+        *(unsigned long *)data=terminal_birth ? SIGKILL : (unsigned long)newborn; return 0;
+    }
+    if (op==PTRACE_GETSIGINFO) {
+        *(siginfo_t *)data=(siginfo_t){.si_signo=SIGTRAP,
+            .si_code=SIGTRAP|((terminal_birth ? PTRACE_EVENT_EXIT : birth_event)<<8)};
+        return 0;
+    }
+    if (op==PTRACE_GETREGSET) {
+        struct iovec *io=data;
+        *(struct user_pt_regs *)io->iov_base=(struct user_pt_regs){.regs={[0]=newborn,[8]=birth_number}};
+        return 0;
+    }
     if (op==PTRACE_INTERRUPT) { ++interrupts; return 0; }
     assert(op==PTRACE_CONT || op==PTRACE_SYSCALL || op==PTRACE_SINGLESTEP);
     ++resumes; resumed=pid; request=op; return 0;
@@ -49,7 +67,7 @@ int main(void) {
         assert(!md_task_quiesce_add(q,4,0,PTRACE_SYSCALL));
         assert(!md_task_quiesce_stop(q)); newborn=5;
         if (child_first) assert(!md_task_quiesce_event(q,5,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
-        assert(!md_task_quiesce_event(q,4,stop(SIGTRAP,PTRACE_EVENT_CLONE),NULL));
+        assert(md_task_quiesce_event(q,4,stop(SIGTRAP,PTRACE_EVENT_CLONE),NULL)==newborn);
         assert(md_task_quiesce_ready(q)==child_first);
         if (!child_first) assert(!md_task_quiesce_event(q,5,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
         assert(md_task_quiesce_ready(q));
@@ -58,6 +76,30 @@ int main(void) {
         assert(md_task_quiesce_take(q,&status,NULL)==4 && status==stop(SIGTRAP,PTRACE_EVENT_CLONE));
         assert(!md_task_quiesce_take(q,&status,NULL));
     }
+    const unsigned births[]={PTRACE_EVENT_CLONE,PTRACE_EVENT_FORK,PTRACE_EVENT_VFORK};
+    const long numbers[]={SYS_clone,SYS_clone3};
+    terminal_birth=1;
+    for (unsigned kind=0;kind<3;++kind) for (unsigned call=0;call<2;++call)
+        for (int child_first=0;child_first<2;++child_first) {
+            birth_event=births[kind]; birth_number=numbers[call]; newborn=35;
+            int start=resumes;
+            assert(!md_task_quiesce_add(q,34,0,PTRACE_CONT));
+            assert(!md_task_quiesce_stop(q));
+            if (child_first) assert(!md_task_quiesce_event(q,newborn,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
+            assert(md_task_quiesce_event(q,34,stop(SIGTRAP,birth_event),&saved)==newborn);
+            assert(!md_task_quiesce_contains(q,SIGKILL) && md_task_quiesce_contains(q,newborn));
+            assert(md_task_quiesce_ready(q)==child_first);
+            if (!child_first) assert(!md_task_quiesce_event(q,newborn,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
+            assert(md_task_quiesce_ready(q));
+            assert(!md_task_quiesce_event(q,34,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
+            assert(!md_task_quiesce_release(q) && resumes==start);
+            assert(md_task_quiesce_newborn(q,newborn)==MD_TASK_BIRTH_EXIT);
+            assert(md_task_quiesce_take(q,&status,&usage)==34 && status==stop(SIGTRAP,birth_event));
+            assert(usage.ru_maxrss==saved.ru_maxrss);
+            assert(md_task_quiesce_take(q,&status,&usage)==34 && status==stop(SIGTRAP,PTRACE_EVENT_EXIT));
+            assert(!md_task_quiesce_take(q,&status,NULL));
+        }
+    terminal_birth=0; birth_event=PTRACE_EVENT_CLONE;
     assert(!md_task_quiesce_add(q,6,1,PTRACE_SYSCALL));
     assert(!md_task_quiesce_add(q,6,0,PTRACE_CONT));
     assert(!md_task_quiesce_stop(q));
@@ -110,11 +152,29 @@ int main(void) {
             assert(md_task_quiesce_take(q,&status,&usage)==9 && status==events && usage.ru_maxrss==123);
         assert(!md_task_quiesce_take(q,&status,NULL));
     }
+    const int terminals[]={stop(SIGTRAP,PTRACE_EVENT_EXIT),stop(SIGTRAP,PTRACE_EVENT_EXEC),0,SIGKILL};
+    for (unsigned i=0;i<sizeof(terminals)/sizeof(*terminals);++i) {
+        int start=resumes;
+        struct md_task_quiesce_stop boundary;
+        assert(!md_task_quiesce_event(q,19,stop(SIGTRAP,PTRACE_EVENT_SECCOMP),NULL));
+        assert(!md_task_quiesce_event(q,20,stop(SIGUSR1,0),NULL));
+        assert(!md_task_quiesce_borrow(q,19,&boundary));
+        assert(md_task_quiesce_terminal(q,19,stop(SIGUSR2,0),NULL)==-EINVAL);
+        assert(!md_task_quiesce_terminal(q,19,terminals[i],&saved));
+        assert(md_task_quiesce_ready(q) && !md_task_quiesce_release(q) && resumes==start);
+        assert(md_task_quiesce_take(q,&status,NULL)==20 && status==stop(SIGUSR1,0));
+        assert(md_task_quiesce_take(q,&status,&usage)==19 && status==terminals[i] && usage.ru_maxrss==123);
+        assert(!md_task_quiesce_take(q,&status,NULL));
+    }
     assert(!md_task_quiesce_add(q,9,0,PTRACE_CONT) && !md_task_quiesce_stop(q));
     assert(!md_task_quiesce_event(q,9,0,NULL));
     struct md_task_quiesce_stop boundary;
     assert(md_task_quiesce_borrow(q,9,&boundary)==-ESRCH);
     assert(!md_task_quiesce_release(q) && md_task_quiesce_take(q,&status,NULL)==9 && status==0);
+    assert(!md_task_quiesce_event(q,9,stop(SIGTRAP,PTRACE_EVENT_EXIT),NULL));
+    assert(md_task_quiesce_newborn(q,9)==MD_TASK_BIRTH_EXIT);
+    assert(!md_task_quiesce_newborn(q,9) && !md_task_quiesce_take(q,&status,NULL));
+    assert(!md_task_quiesce_release(q));
     for (unsigned round=0;round<3;++round) {
         enum { COUNT=4096 };
         int start=resumes;

@@ -35,6 +35,11 @@ struct md_debugger_host {
     void (*usage)(pid_t, struct rusage *);
     void (*wait)(pid_t, const struct user_pt_regs *, enum md_debugger_wait_action);
     void (*wait_wake)(pid_t);
+    /* Optional child snapshot when private executors share parentage. Returns
+     * one with an owned array of visible candidates, zero for native waiting,
+     * or a negative error. The kernel still decides exact wait eligibility
+     * (including __WNOTHREAD) through nonblocking probes. */
+    int (*wait_children)(pid_t,const struct user_pt_regs *,pid_t **,size_t *);
     void (*complete)(pid_t, struct user_pt_regs *, long);
     void (*resume)(pid_t,int,const struct md_signal_origin *);
     void (*reaped)(pid_t observer,pid_t child,int native_wait);
@@ -53,6 +58,9 @@ int md_debugger_birth(struct md_debugger *, pid_t, pid_t, unsigned);
 int md_debugger_event(struct md_debugger *, pid_t, unsigned, unsigned long);
 int md_debugger_seccomp(struct md_debugger *, pid_t, const struct user_pt_regs *, unsigned);
 void md_debugger_exit(struct md_debugger *, pid_t, int);
+/* Native child group-stop/continue changed wait eligibility. Wake existing
+ * waits only; the kernel owns the corresponding SIGCHLD notification. */
+void md_debugger_child_changed(struct md_debugger *,pid_t);
 int md_debugger_step(struct md_debugger *, pid_t);
 int md_debugger_traced(struct md_debugger *, pid_t);
 pid_t md_debugger_owner(struct md_debugger *, pid_t);
@@ -65,7 +73,8 @@ int md_debugger_boundary(struct md_debugger *, pid_t);
 int md_debugger_newborn(struct md_debugger *, pid_t);
 int md_debugger_syscall_mode(struct md_debugger *, pid_t);
 int md_debugger_syscall(struct md_debugger *, pid_t, const struct user_pt_regs *, int);
-void md_debugger_wait_complete(struct md_debugger *, pid_t, long);
+/* Optional captured result for waitid with a NULL application output. */
+void md_debugger_wait_complete(struct md_debugger *,pid_t,long,const siginfo_t *);
 /* Zero means event wake; -512 requests kernel-owned restart/signal delivery. */
 void md_debugger_wait_resumed(struct md_debugger *, pid_t, long);
 void md_debugger_rekey(struct md_debugger *, pid_t, pid_t);

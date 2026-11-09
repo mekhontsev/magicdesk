@@ -469,7 +469,7 @@ static void reject_admission(void) {
         struct md_fd_object *endpoint; int fd;
         assert(!md_network_endpoint_open(n,0,target.ip.family,tcp ? SOCK_STREAM : SOCK_DGRAM,0,&endpoint,&fd));
         assert(!md_network_endpoint_autobind(endpoint,fd,&root,(void *)&wire,size,0));
-        const int errors[]={-ENETUNREACH,-ECONNREFUSED,-EHOSTUNREACH,-EACCES};
+        const int errors[]={-ENETUNREACH,-ECONNREFUSED,-EHOSTUNREACH,ipv6 ? -EACCES : -EHOSTUNREACH};
         for(unsigned code=0;code<4;++code) {
             pthread_mutex_lock(&n->fabric->lock);
             n->filter=&filter; rule.expressions[0].aux=code; md_network_forward_changed(n->fabric);

@@ -47,7 +47,8 @@ enum scenario { NORMAL, FULL, DENIED, KILLED_OPEN, CANCEL_CHANNEL, CANCEL_EXPORT
     CANCEL_SECOND, NO_SLOT, INVALID_INPUT, REPLACE_CAPTURED, CLONE_TRAPPED, CLONE_DENIED,
     ONE_SLOT, CANCEL_RIGHT, FILTER_EPIPE, PEER_CLOSED, SIGNAL_PIPE, CANCEL_IMPORT, PREFIX_SLOTS,
     EXACT_SLOTS, IMPORT_DENIED, CLOSE_DENIED, CONTROL_FAULT, ANCHOR_REJECT, ANCHOR_CANCEL, ANCHOR_DELIVER,
-    CANCEL_CAPTURE, REPLACE_PATH, INTERRUPT_OWNER, QUIESCE_NEWBORN, BORROWED, STOP_HELPER, CLEAR_DENIED };
+    CANCEL_CAPTURE, REPLACE_PATH, INTERRUPT_OWNER, QUIESCE_NEWBORN, BORROWED, STOP_HELPER, CLEAR_DENIED,
+    KILLED_BIRTH, KILLED_BIRTH_EARLY, KILLED_BIRTH_STALE, KILLED_BIRTH_BORROWED };
 struct snapshot { unsigned char present[512]; };
 struct completed {
     int called, captured, mutate, socket, source;
@@ -56,6 +57,7 @@ struct completed {
     struct md_fd_order turn, mutation;
 };
 static pid_t early_child;
+static int early_terminal;
 static const char *directory_path;
 static long native_trace(int request, pid_t pid, void *address, void *data) {
     return ptrace(request,pid,address,data);
@@ -70,7 +72,9 @@ static long trace(int request,pid_t pid,void *address,void *data) {
 }
 static int newborn(pid_t pid) {
     if (!early_child) return 0;
-    assert(early_child==pid); early_child=0; return 1;
+    assert(early_child==pid); early_child=0;
+    int stop=early_terminal ? MD_TASK_BIRTH_EXIT : MD_TASK_BIRTH_READY;
+    early_terminal=0; return stop;
 }
 static void completed(void *context, struct md_task_helper_result result) {
     struct completed *c=context; assert(!c->called++); c->result=result;
@@ -298,6 +302,39 @@ static void quiesce_newborn(struct md_task_helpers *helpers,pid_t owner) {
     assert(initial==1);
     md_task_quiesce_destroy(q);
 }
+static int cancel_birth(struct md_task_helpers *helpers,pid_t owner,enum scenario scenario) {
+    int birth;
+    for (;;) {
+        birth=wait_child(owner);
+        assert(WIFSTOPPED(birth));
+        if ((unsigned)birth>>16==PTRACE_EVENT_CLONE) break;
+        assert(md_task_helper_event(helpers,owner,birth)==1);
+    }
+    unsigned long id; assert(!ptrace(PTRACE_GETEVENTMSG,owner,NULL,&id));
+    pid_t child=(pid_t)id;
+    int initial=wait_child(child);
+    assert(WIFSTOPPED(initial) && (unsigned)initial>>16==PTRACE_EVENT_STOP);
+    assert(!kill(owner,SIGKILL));
+    /* EVENT_WAIT: group death replaces both unresumed stops. Select each exact
+     * EXIT so the race is deterministic, bounded by the fixture alarm. */
+    int parent_exit=wait_child(owner),child_exit=wait_child(child);
+    assert(WIFSTOPPED(parent_exit) && (unsigned)parent_exit>>16==PTRACE_EVENT_EXIT);
+    assert(WIFSTOPPED(child_exit) && (unsigned)child_exit>>16==PTRACE_EVENT_EXIT);
+    if (scenario==KILLED_BIRTH_EARLY || scenario==KILLED_BIRTH_STALE) {
+        early_child=child; early_terminal=1;
+    }
+    if (scenario==KILLED_BIRTH_STALE)
+        assert(md_task_helper_event(helpers,owner,birth)==1);
+    assert(!md_task_helper_event(helpers,owner,parent_exit));
+    assert(md_task_helper_owns(helpers,owner,child));
+    assert(!md_task_helper_detach(helpers,owner));
+    if (scenario!=KILLED_BIRTH_EARLY && scenario!=KILLED_BIRTH_STALE)
+        assert(md_task_helper_event(helpers,child,child_exit)==1);
+    int done=wait_child(child);
+    assert(WIFSIGNALED(done) && WTERMSIG(done)==SIGKILL);
+    assert(md_task_helper_event(helpers,child,done)==1);
+    return parent_exit;
+}
 struct send_frame {
     struct msghdr message;
     struct iovec vector;
@@ -376,7 +413,7 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
         int bad=-1; invalid=request; invalid.descriptors=&bad; invalid.descriptor_count=1;
         assert(md_task_helper_begin(helpers,child,child,&saved,&abi,memory,&buffer,&invalid,completed,&c)==-EBADF);
     }
-    int directory=-1,cancelled=0; unsigned sent=0,admissions=0;
+    int directory=-1,cancelled=0,parent_exit=0; unsigned sent=0,admissions=0;
     struct md_received_fds *retained=NULL;
     struct md_mount_namespace *view=NULL; struct md_fs_anchor *origin=NULL;
     if (exported) {
@@ -451,7 +488,7 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
         if (scenario==INTERRUPT_OWNER || scenario==BORROWED) assert(!ptrace(PTRACE_INTERRUPT,child,0,0));
         int owner_interrupted=0;
         int stop_sent=0,stop_delivered=0,stop_listened=0;
-        if (scenario==BORROWED) {
+        if (scenario==BORROWED || scenario==KILLED_BIRTH_BORROWED) {
             assert(md_task_checkpoint_suspend(&checkpoints,child)>=0);
             assert(!md_task_helper_borrow(helpers,child,child,MD_TASK_CALL_USER,&saved,&abi,
                 memory,&buffer,&request,completed,&c));
@@ -459,6 +496,9 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
         assert(md_task_helper_owns(helpers,child,child));
         assert(!md_task_helper_owns(helpers,child+1,child));
         if (scenario==QUIESCE_NEWBORN) quiesce_newborn(helpers,child);
+        if (scenario>=KILLED_BIRTH) {
+            parent_exit=cancel_birth(helpers,child,scenario); cancelled=1;
+        }
         if (native_anchor>=0) close(native_anchor);
         md_received_fds_release(send_inputs); request.send_inputs=NULL;
         if (exported) memset(offered,0xff,exported*sizeof(int));
@@ -685,12 +725,12 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
         if (scenario==ANCHOR_DELIVER) assert(!unlink(native_name.sun_path));
         md_fd_message_release(message);
     }
-    if (cancelled) assert(!kill(child,SIGKILL));
+    if (cancelled) { if (!parent_exit) assert(!kill(child,SIGKILL)); }
     else {
         struct iovec io={&saved,sizeof(saved)}; assert(!trace(PTRACE_SETREGSET,child,(void *)NT_PRSTATUS,&io));
         assert(!trace(PTRACE_CONT,child,0,0));
     }
-    status=wait_child(child);
+    status=parent_exit ? parent_exit : wait_child(child);
     unsigned wakeups=0;
     while (!cancelled && (scenario==QUIESCE_NEWBORN || scenario==STOP_HELPER)
             && WIFSTOPPED(status)) {
@@ -782,6 +822,10 @@ int main(int argc, char **argv) {
     }
     native_control_fault();
     for (int protected=0;protected<2;++protected) {
+        for (enum scenario s=KILLED_BIRTH;s<=KILLED_BIRTH_BORROWED;++s) {
+            exercise(protected,s,0,0);
+            exercise(protected,s,254,0);
+        }
         exercise(protected,STOP_HELPER,0,0);
         exercise(protected,QUIESCE_NEWBORN,0,0);
         exercise(protected,QUIESCE_NEWBORN,254,0);

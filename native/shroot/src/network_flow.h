@@ -13,6 +13,9 @@ struct md_network_flow_path {
     struct md_filter_packet original, translated;
     struct md_network_flow_step steps[16];
     unsigned count, mediated, output_binding;
+    /* IPv6 local delivery retains route scope for socket lookup/pktinfo even
+     * while netfilter observes the loopback input device. */
+    unsigned input_scope;
     struct md_network_rejection rejection[2];
     uint64_t destination, generation;
     uint64_t packet_space;
@@ -23,6 +26,9 @@ struct md_network_flow_path {
     struct md_ip_address native_address;
     struct md_network_transport_policy transport;
 };
+static inline unsigned md_network_flow_input(const struct md_network_flow_path *path) {
+    return path->input_scope ? path->input_scope : path->translated.input;
+}
 /* A connection-setup snapshot, never retained or consulted by payload IO. */
 struct md_network_nat_ports { uint64_t used[1024]; };
 void md_network_flow_nat_ports(const struct md_network_flow_path *,uint64_t,

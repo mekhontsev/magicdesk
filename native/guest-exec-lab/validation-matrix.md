@@ -151,9 +151,11 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 
 Package lifecycle means install, update/reinstall, verification and removal,
 including transaction hooks. A zero package-manager exit with failed hooks is
-not a pass. SteamOS default boot passes on a private bridge but retains the
-routed host-port restriction and unsupported firewalld rules documented in its
-[evidence](distribution-evidence.md#steamos-recipedefault-boot).
+not a pass. SteamOS default boot uses a private bridge; routed host-port
+publication has the Android permission restriction documented in its
+[evidence](distribution-evidence.md#steamos-recipedefault-boot). Current App-UID
+boot and firewalld acceptance is recorded separately in
+[host execution](host-execution.md#steamos-user-open-work); it does not promote these Shell cells.
 Focused control-target tests do not certify a healthy default target.
 Ubuntu reaches a healthy default target, but its packaged LXC and Podman
 shutdown units return errors with empty container lists; see the
@@ -192,16 +194,20 @@ All runs use default lazy entry; Base remains untested in this batch.
 Fedora and openSUSE required their separately packaged networkd, installed in
 the lab from their own repositories before the passing rerun. This does not
 replace openSUSE's Wicked or add a test-only dependency to the user recipe.
-SteamOS firewalld still submits unsupported UDP/ICMP REJECT rules.
+SteamOS's current shared firewall implementation admits its inet REJECT rules
+and ordered port comparisons. The App-UID boot receipt below verifies rule
+addition/removal and restarts; the Shell boot row above has not been rerun.
 (*) Armtix's 2026-10-24 boot receipt is under `build/compat-contract-tests/`:
 stock runit stages, service start/restart/stop and launch cleanup pass without
 startup failures. Its root remount uses the documented persistent-store contract.
-Current focused service receipts under `build/boot-service-repair/`:
-`a90f1ba5666a4fe987381e65d4bb3f37` verifies SteamOS Avahi mDNS over IPv4/IPv6
-and three restart cycles. `0553d599fba34bf2ba48e0262789fb0d` verifies Ubuntu
+Current service receipts:
+`build/matrix-close-steamos/boot-handles/oci-services-bf17fdb74ade4dfabbfa36dd79153142.json`
+verifies SteamOS default boot under App UID, Avahi mDNS over IPv4/IPv6,
+firewalld nft rule addition/removal, three restart cycles, binfmt, RTKit and
+clean shutdown. `build/boot-service-repair/oci-services-0553d599fba34bf2ba48e0262789fb0d.json` verifies Ubuntu
 default-target startup, journal/D-Bus/logind IO and three CUPS IPP restart
-cycles within the unchanged five-second readiness bound. These receipts do
-not certify SteamOS firewalld or unrelated Ubuntu container-service shutdown.
+cycles within the unchanged five-second readiness bound. That Ubuntu receipt
+does not certify unrelated container-service shutdown.
 
 ### NixOS Recipe And Initial-Image Probes
 

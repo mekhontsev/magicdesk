@@ -70,6 +70,7 @@ stop another launch. Persistent stores outlive those processes.
 | --- | --- | --- |
 | Filesystems | Guest roots, mount views, DAC/ACL permissions, read-only/no-exec policy, Landlock filesystem rules | Unadapted calls and retained host descriptors are not fully confined |
 | Processes | Launch-scoped signals with guest credential checks, nested PID views, proc visibility, translated waits and guest PID 1 lifetime | Not a host kernel PID namespace |
+| Robust mutexes | Owner-death cleanup and waiter wakeup under User and logical PID namespaces, including exit, SIGKILL and exec; ordinary futex IO remains native | Shell outside PID namespaces retains native kernel behavior; no emulated priority inheritance |
 | Credentials | Guest users, groups, capabilities, drops and namespace ownership | Guest root never grants Android root or kernel capabilities |
 | Dumpability | Guest prctl state, mm sharing, exec reset and guest process-inspection checks | Native tasks remain dumpable for runtime access; no Android isolation or guest core-dump service |
 | IPC and terminals | Separate SysV IPC owners, store-scoped pathname sockets, private devpts views | Inherited connections retain authority; explicit abstract Unix sockets share the host namespace |
@@ -1555,7 +1556,9 @@ MagicDesk ships no D-Bus daemon and does not reuse Android's or Termux's bus.
 ## Coverage And Limits
 
 The device baseline for these results is RM11/NX809J, Android API 36,
-Linux 6.12.23, 4 KiB pages and actual UID 2000. The minimum supported kernel
+Linux 6.12.23 and 4 KiB pages. Shell results use actual UID 2000; separate
+[User-mode evidence](../native/guest-exec-lab/host-execution.md) records app-UID
+coverage, including stock glibc/musl robust mutexes. The minimum supported kernel
 remains 5.15; build and injected-error checks are not device coverage for another
 kernel, firmware, page size or executor identity.
 

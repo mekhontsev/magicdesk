@@ -449,6 +449,9 @@ static void local_output_publication(void) {
             .protocol=udp ? IPPROTO_UDP : IPPROTO_TCP,.state=8},p=original;
         struct md_network_flow_path path;
         assert(!md_network_flow_route(n,&p,0,0,&path) && path.destination==n->inode);
+        assert(md_network_flow_input(&path)==(v6 ? bound : 1));
+        ++n->fabric->policy_generation;
+        assert(!md_network_flow_check(n->fabric,&path,0));
         assert(md_ip_equal(p.source,host) && !path.mediated);
         assert(path.steps[0].packet.output==1 && !strcmp(path.steps[0].packet.output_name,"lo"));
         assert(path.count==3 && path.steps[1].hook==NF_INET_POST_ROUTING
@@ -1476,14 +1479,68 @@ static void reject_tcp(void) {
     }
     puts("PASS nft/xt TCP REJECT: IPv4/IPv6, immediate error, UDP exclusion and hook/family validation");
 }
+static void ordered_comparisons(void) {
+    struct md_network_filter_table table={.handle=1,.family=NFPROTO_INET};
+    struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_LOCAL_IN,.policy=NF_DROP};
+    struct md_network_filter f={.tables=&table,.count=1,.chains=&chain,.chain_count=1};
+    const unsigned widths[]={1,2,4,16};
+    for(unsigned width=0;width<4;++width) for(unsigned op=0;op<=NFT_CMP_GTE+1;++op) {
+        unsigned size=widths[width];
+        struct md_filter_rule typed={.chain=2,.count=2,.expressions={
+            {.code=MD_FILTER_IMMEDIATE,.size=size},
+            {.code=MD_FILTER_COMPARE,.size=size,.operation=op}}};
+        memset(typed.expressions[0].value,0x80,size);
+        memset(typed.expressions[1].value,0x80,size);
+        struct packet wire;
+        struct md_network_message out={.data=wire.data,.capacity=sizeof(wire.data),
+            .size=NLMSG_HDRLEN,.message=(void *)wire.data};
+        assert(!md_nft_emit_expressions(&f,&typed,&out));
+        const struct nlattr *list=(void *)(wire.data+NLMSG_HDRLEN);
+        struct md_filter_rule parsed={.chain=2};
+        int error=md_nft_expressions(&f,1,&parsed,list+1,list->nla_len-sizeof(*list));
+        if(op>NFT_CMP_GTE) { assert(error==-EOPNOTSUPP); continue; }
+        assert(!error && parsed.count==2);
+        assert(!memcmp(parsed.expressions,typed.expressions,2*sizeof(*typed.expressions)));
+        f.rules=&parsed; f.rule_count=1;
+        parsed.expressions[parsed.count++]=(struct md_filter_expression){.code=MD_FILTER_VERDICT,.operation=NF_ACCEPT};
+        for(int order=-1;order<=1;++order) for(unsigned last=0;last<2;++last) {
+            memset(parsed.expressions[0].value,0x80,size);
+            parsed.expressions[0].value[last ? size-1 : 0]=(unsigned char)(0x80+order);
+            int expected[]={order==0,order!=0,order<0,order<=0,order>0,order>=0};
+            struct md_filter_packet p={.destination=md_ip_loopback(AF_INET6)};
+            assert(md_filter_evaluate(&f,NF_INET_LOCAL_IN,&p)==(expected[op] ? 0 : -EACCES));
+        }
+        free(parsed.wire);
+    }
+    chain.hook=NF_INET_PRE_ROUTING; chain.nat=1; chain.policy=NF_ACCEPT;
+    struct md_filter_rule rule={.chain=2,.count=5,.expressions={
+        {.code=MD_FILTER_PAYLOAD,.key=NFT_PAYLOAD_TRANSPORT_HEADER,.aux=2,.size=2},
+        {.code=MD_FILTER_COMPARE,.operation=NFT_CMP_GTE,.size=2,.value={4,0}},
+        {.code=MD_FILTER_PAYLOAD,.key=NFT_PAYLOAD_TRANSPORT_HEADER,.aux=2,.size=2},
+        {.code=MD_FILTER_COMPARE,.operation=NFT_CMP_EQ,.size=2},
+        {.code=MD_FILTER_NAT,.operation=NFT_NAT_DNAT,.constant=1,.aux=1,.nat_port=htons(8080)}}};
+    f.rules=&rule; f.rule_count=1;
+    for(unsigned unknown=0;unknown<2;++unknown) for(unsigned port=1023;port<=1025;++port) {
+        rule.expressions[0].aux=unknown ? 0 : 2;
+        uint16_t value=htons(port); memcpy(rule.expressions[3].value,&value,2);
+        struct md_filter_port ports[4]; size_t count=0;
+        assert(!md_filter_ports(&f,md_ip_loopback(AF_INET),ports,4,&count));
+        assert(count==(unknown || port>=1024 ? 2U : 0U));
+        for(size_t i=0;i<count;++i) assert(ports[i].port==value);
+    }
+    rule.expressions[3].operation=NFT_CMP_GTE;
+    struct md_filter_port ports[4]; size_t count=0;
+    assert(md_filter_ports(&f,md_ip_loopback(AF_INET),ports,4,&count)==-EOPNOTSUPP);
+    puts("PASS nft comparisons: six operators, unsigned 1/2/4/16-byte order, wire roundtrip and conservative NAT publication");
+}
 static void reject_icmp(void) {
-    for(unsigned family=0;family<3;++family) for(unsigned compat=0;compat<(family==2 ? 1U : 2U);++compat) {
-        unsigned families[]={NFPROTO_IPV4,NFPROTO_IPV6,NFPROTO_INET};
+    for(unsigned family=0;family<4;++family) for(unsigned compat=0;compat<(family>=2 ? 1U : 2U);++compat) {
+        unsigned families[]={NFPROTO_IPV4,NFPROTO_IPV6,NFPROTO_INET,NFPROTO_INET};
         struct md_network_filter_table table={.handle=1,.family=families[family]};
         struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_LOCAL_IN,.policy=NF_ACCEPT};
         struct md_filter_rule rule={.chain=2};
         struct md_network_filter f={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule,.rule_count=1};
-        for(unsigned code=0;code<16;++code) {
+        for(unsigned code=0;code<=16;++code) {
             struct packet p;
             struct md_network_message out={.data=p.data,.capacity=sizeof(p.data)};
             add(&out,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,table.family);
@@ -1492,8 +1549,7 @@ static void reject_icmp(void) {
             const char *name=compat ? "target" : "reject";
             assert(!md_network_message_attribute(&out,NFTA_EXPR_NAME,name,strlen(name)+1));
             assert(!md_network_message_nest(&out,NFTA_EXPR_DATA,&data));
-            unsigned kind=family==2 ? MD_REJECT_ICMPX : family ? MD_REJECT_ICMP6 : MD_REJECT_ICMP4;
-            int valid=md_network_reject_valid(kind,code);
+            int valid=code<=(family==2 ? 3U : 15U);
             if(compat) {
                 static const int v4[]={IPT_ICMP_NET_UNREACHABLE,IPT_ICMP_HOST_UNREACHABLE,
                     IPT_ICMP_PROT_UNREACHABLE,IPT_ICMP_PORT_UNREACHABLE,-1,-1,-1,-1,-1,
@@ -1501,7 +1557,10 @@ static void reject_icmp(void) {
                 static const int v6[]={IP6T_ICMP6_NO_ROUTE,IP6T_ICMP6_ADM_PROHIBITED,
                     IP6T_ICMP6_NOT_NEIGHBOUR,IP6T_ICMP6_ADDR_UNREACH,IP6T_ICMP6_PORT_UNREACH,
                     IP6T_ICMP6_POLICY_FAIL,IP6T_ICMP6_REJECT_ROUTE};
-                uint32_t info[2]={valid ? (unsigned)(family ? v6[code] : v4[code]) : 999,0},zero=0;
+                int mode=family ? (code<sizeof(v6)/sizeof(*v6) ? v6[code] : -1)
+                                : (code<sizeof(v4)/sizeof(*v4) ? v4[code] : -1);
+                valid=mode>=0;
+                uint32_t info[2]={valid ? (unsigned)mode : 999,0},zero=0;
                 assert(!md_network_message_attribute(&out,NFTA_TARGET_NAME,"REJECT",7));
                 assert(!md_network_message_attribute(&out,NFTA_TARGET_REV,&zero,4));
                 assert(!md_network_message_attribute(&out,NFTA_TARGET_INFO,info,sizeof(info)));
@@ -1521,9 +1580,18 @@ static void reject_icmp(void) {
                     struct md_filter_packet packet={.destination=md_ip_any(v6 ? AF_INET6 : AF_INET),
                         .protocol=tcp ? IPPROTO_TCP : IPPROTO_UDP};
                     error=md_filter_evaluate(&f,NF_INET_LOCAL_IN,&packet);
-                    if(family!=2 && family!=v6) assert(!error && !packet.rejection.type);
+                    if(family<2 && family!=v6) assert(!error && !packet.rejection.type);
                     else {
+                        static const int errors4[]={ENETUNREACH,EHOSTUNREACH,ENOPROTOOPT,ECONNREFUSED,
+                            EMSGSIZE,EOPNOTSUPP,ENETUNREACH,EHOSTDOWN,ENONET,ENETUNREACH,EHOSTUNREACH,
+                            ENETUNREACH,EHOSTUNREACH,EHOSTUNREACH,EHOSTUNREACH,EHOSTUNREACH};
+                        static const int errors6[]={ENETUNREACH,EACCES,EHOSTUNREACH,EHOSTUNREACH,
+                            ECONNREFUSED,EACCES,EACCES};
+                        static const unsigned char codes4[]={0,3,1,13},codes6[]={0,4,3,1};
+                        unsigned wire_code=family==2 ? (v6 ? codes6[code] : codes4[code]) : code;
                         assert(error<0 && packet.rejection.type==(v6 ? MD_REJECT_ICMP6 : MD_REJECT_ICMP4));
+                        assert(packet.rejection.code==wire_code);
+                        assert(error==-(v6 ? (wire_code<7 ? errors6[wire_code] : EPROTO) : errors4[wire_code]));
                         assert(error==md_network_reject_error(packet.rejection));
                     }
                     /* A later accepted evaluation must not retain stale refusal metadata. */
@@ -1535,7 +1603,8 @@ static void reject_icmp(void) {
             }
         }
     }
-    puts("PASS nft/xt ICMP REJECT: code/family admission, ICMPX normalization, TCP/UDP and hook validation");
+    assert(!md_network_reject_resolve(MD_REJECT_ICMP,3,AF_UNIX).type);
+    puts("PASS nft/xt ICMP REJECT: inet wire codes, ICMPX normalization, typed errors, TCP/UDP and hook validation");
 }
 static struct md_filter_route_result reroute_probe(void *context,const struct md_filter_packet *p,unsigned flags) {
     unsigned *calls=context; ++*calls;
@@ -1920,6 +1989,7 @@ void test_network_nft(void) {
     data_maps();
     reject_tcp();
     reject_icmp();
+    ordered_comparisons();
     compat_icmp();
     packet_route_matches();
     scoped_reverse_path();

@@ -102,8 +102,8 @@ timer, helper thread or additional descriptor is allocated. Guest signals use
 the shared syscall-restart path: the original wait number, arguments and kernel
 orig_x0 are restored before the kernel decides EINTR or SA_RESTART. The old wait
 record is released before a handler can issue another wait. If no virtual
-children remain, a blocking wait returns to the kernel with ordinary signal
-semantics. The debugger's own syscall filters also apply to the wait carrier;
+children or matching private actors remain, a blocking wait returns to the kernel
+with ordinary signal semantics. The debugger's own syscall filters also apply to the wait carrier;
 a denied operation remains an error. Kernel parenthood retains real-child exit
 reaping; traced nonchildren have supervisor-owned exit
 records. Event waits end on a trace event, owned child exit or launch cancellation,
@@ -111,6 +111,16 @@ not a settling delay. Nonleader thread termination belongs to the virtual trace
 relationship: the native parent cannot reap it as an ordinary child of the
 debugger while the supervisor remains the kernel ptracer. Only a process leader
 with actual parenthood can use native child reaping.
+
+The same owner excludes retained-memory actors from guest waits. It snapshots
+visible real-child candidates once per wake round and probes exact PIDs; the
+kernel still enforces __WNOTHREAD and wait-class eligibility. No eligible child
+means ECHILD, even if a private actor remains alive. Child stop/continue events
+wake existing waiters without fabricating SIGCHLD. NULL waitid output borrows a
+shared buffer only for the nonblocking probe, so consuming an event remains
+distinguishable from WNOHANG returning no event. Pool exhaustion parks through
+the existing continuation queue; completion/cancellation releases the lease.
+Unrelated native waits allocate no candidate list or output buffer.
 
 A debugger may share a descriptor table with its inferior through `CLONE_FILES`,
 as crash collectors do. Publishing a virtual descriptor must install its selector

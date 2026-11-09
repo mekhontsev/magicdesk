@@ -57,6 +57,9 @@ misses trim idle excess. Cache capacity is not a guest `EMFILE` condition.
 Mount-table policy reads reuse an existing connection to the same catalogue
 across retained overlay scopes. They use the catalogue gate and current policy
 query, without opening an overlay writer or importing another mount's flags.
+Each export groups catalogue queries and reads a scope once for all bind aliases,
+then restores public mount order. Policy values live only for that snapshot;
+independent remounts are read afresh on the next export.
 They neither enlarge the IO cache nor add a separately invalidated policy cache.
 
 `inode_db.c` owns transactions, allocation, identities and metadata queries;

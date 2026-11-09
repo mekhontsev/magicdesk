@@ -420,7 +420,7 @@ int md_network_endpoint_reply(struct md_network_fabric *f,const struct md_networ
     if (!md_ip_is_loopback(native->ip)) return 0;
     for (struct md_network_endpoint *e=f->endpoints;e;e=e->next)
         if (e->native.port==native->port && receives(e,path,SOCK_DGRAM)
-                && !device_admits(e,path->translated.input)) return 1;
+                && !device_admits(e,md_network_flow_input(path))) return 1;
     return 0;
 }
 int md_network_endpoint_resolve(struct md_network_fabric *f,struct md_network_flow_path *path,int type,
@@ -438,7 +438,7 @@ int md_network_endpoint_resolve(struct md_network_fabric *f,struct md_network_fl
     uint64_t score=0;
     for (struct md_network_endpoint *e=f->endpoints;e;e=e->next)
         if (receives(e,path,type)) {
-            if (device_admits(e,path->translated.input)) { excluded=1; continue; }
+            if (device_admits(e,md_network_flow_input(path))) { excluded=1; continue; }
             unsigned candidate=(e->connected ? 8 : 0)+(!md_ip_unspecified(e->local.ip) ? 4 : 0)
                 +(e->device ? 2 : 0)+(e->family==logical.ip.family ? 1 : 0);
             uint64_t hash=e->reuse_port ? reuse_score(e,&path->translated) : 0;
@@ -479,15 +479,8 @@ static int destination_locked(struct md_network_endpoint *e,struct md_inet_addre
     int multicast=md_ip_multicast(logical.ip);
     if (multicast && md_ip_multicast(local.ip)) local.ip=md_ip_any(logical.ip.family);
     unsigned selected=e->device ? e->device : md_ip_linklocal(logical.ip) ? logical.scope : 0;
-    if (multicast && !selected) {
-        if (logical.scope) selected=logical.scope;
-        else error=md_network_multicast_output(n,&e->multicast[logical.ip.family==AF_INET6],&selected);
-    }
+    if (multicast && !selected) selected=logical.scope;
     if (e->device && logical.scope && e->device!=logical.scope) error=-EINVAL;
-    struct md_network_interface *device=selected ? md_network_interface_find(n,selected,NULL) : NULL;
-    if (selected && !device) error=-ENODEV;
-    if (md_ip_linklocal(logical.ip) && !selected) error=-EINVAL;
-    if (!error && device && !(device->info.flags&IFF_UP)) error=-ENETUNREACH;
     if (info) {
         struct md_network_interface *link=info->interface ? md_network_interface_find(n,info->interface,NULL) : NULL;
         if (info->interface && !link) error=-ENODEV;
@@ -497,6 +490,13 @@ static int destination_locked(struct md_network_endpoint *e,struct md_inet_addre
         if (!error && !md_ip_unspecified(info->source)) local.ip=info->source;
     }
     if (!error && info && info->interface) selected=info->interface;
+    if (!error && multicast && !selected)
+        error=md_network_multicast_output(n,&e->multicast[logical.ip.family==AF_INET6],&selected);
+    /* Per-message packet info supplies the scope before destination validation. */
+    struct md_network_interface *device=selected ? md_network_interface_find(n,selected,NULL) : NULL;
+    if (!error && selected && !device) error=-ENODEV;
+    if (!error && md_ip_linklocal(logical.ip) && !selected) error=-EINVAL;
+    if (!error && device && !(device->info.flags&IFF_UP)) error=-ENETUNREACH;
     logical.ip=socket_destination(e,local.ip,logical.ip,selected);
     if (!error && selected) md_network_policy_route(n,local.ip,logical.ip,e->mark,selected,NULL,&error);
     if (!error && multicast && e->type==SOCK_DGRAM) {

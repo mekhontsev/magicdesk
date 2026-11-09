@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared stock-k3s workload, isolated node lifecycle and staged guest driver."""
 import hashlib
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -101,6 +102,31 @@ def kubelet_pods(kubectl, node):
     if result.returncode:
         return {}
     return {pod['metadata']['uid']: pod for pod in (json.loads(result.stdout)['items'] or [])}
+
+
+def node_ready_since(conditions, started):
+    for condition in conditions or []:
+        if condition.get('type') != 'Ready' or condition.get('status') != 'True':
+            continue
+        heartbeat = condition.get('lastHeartbeatTime')
+        if heartbeat and datetime.fromisoformat(heartbeat.replace('Z', '+00:00')).timestamp() >= started:
+            return True
+    return False
+
+
+def wait_node_ready(kubectl, node, started, check_alive=None, timeout=90):
+    deadline = time.monotonic() + timeout
+    while (remaining := deadline - time.monotonic()) > 0:
+        if check_alive is not None:
+            check_alive()
+        result = kubectl('--request-timeout=5s', 'get', 'node/' + node,
+                         '-o=jsonpath={.status.conditions}', check=False, timeout=min(15, remaining))
+        if result.returncode == 0 and node_ready_since(json.loads(result.stdout or 'null'), started):
+            return
+        # Bounded readiness reconciliation: a persisted Ready condition from
+        # the previous kubelet cannot certify the process just started.
+        time.sleep(min(1, max(0, deadline - time.monotonic())))
+    raise AssertionError('Node did not publish fresh Ready state: ' + node)
 
 
 def network_diagnostics():
@@ -261,12 +287,13 @@ class Agent:
             print('AGENT_HOST_LOG', Path('/tmp/agent-host.log').read_text(), flush=True)
 
 
-def guest(k3s, backend, nodes, agent_root):
+def guest(k3s, backend, nodes, agent_root, restart_checks=1):
     prepare_images(Path(k3s).parent, '/tmp/k3s-data')
     env = dict(os.environ, KUBECONFIG='/tmp/kubeconfig', K3S_DATA_DIR='/tmp/k3s-data', K3S_TOKEN=uuid.uuid4().hex)
     server = None
     remote = None
-    report = {'passed': False, 'checks': [], 'serverDistribution': platform.freedesktop_os_release()}
+    report = {'passed': False, 'checks': [], 'serverDistribution': platform.freedesktop_os_release(),
+              'restartChecks': restart_checks, 'completedRestarts': 0}
     report['version'] = subprocess.check_output([k3s, '--version'], env=env, text=True, timeout=15).strip()
     print('K3S_VERSION', report['version'], flush=True)
 
@@ -276,10 +303,12 @@ def guest(k3s, backend, nodes, agent_root):
         options = [] if backend == 'vxlan' else ['--flannel-backend', backend]
         if nodes == 2:
             options += ['--node-ip', '192.0.2.1', '--flannel-iface', 'md-server']
+        started = time.time()
         process = subprocess.Popen([k3s, 'server', '--data-dir', '/tmp/k3s-data',
             '--node-name', 'md-k3s-lab', *options,
             '--write-kubeconfig', '/tmp/kubeconfig'], env=env,
             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        process.started_at = started
         return process
 
     def ready():
@@ -296,7 +325,9 @@ def guest(k3s, backend, nodes, agent_root):
         else:
             raise AssertionError('API readiness timeout')
         kubectl('wait', 'node/md-k3s-lab', '--for=create', '--timeout=90s')
-        kubectl('wait', 'node/md-k3s-lab', '--for=condition=Ready', '--timeout=90s')
+        def check_alive():
+            assert server.poll() is None, f'k3s server exited: {server.returncode}'
+        wait_node_ready(kubectl, 'md-k3s-lab', server.started_at, check_alive)
         kubectl('wait', '-n', 'kube-system', 'deployment/coredns', '--for=create', '--timeout=90s')
         kubectl('rollout', 'status', '-n', 'kube-system', 'deployment/coredns',
                 '--timeout=240s', timeout=255)
@@ -473,14 +504,17 @@ def guest(k3s, backend, nodes, agent_root):
                 remote.action('restart')
                 network()
                 report['checks'].append('agent-restart-preserves-workload')
-            stop()
-            server = start(log)
-            ready()
-            assert kubectl('get', 'pod/md-http', '-o', 'jsonpath={.metadata.uid}') == uid
-            assert kubectl('get', 'service/md-http', '-o', 'jsonpath={.spec.clusterIP}') == address
-            for name in ('md-http', 'md-client'):
-                kubectl('wait', 'pod/' + name, '--for=condition=Ready', '--timeout=120s', timeout=135)
-            network()
+            for index in range(restart_checks):
+                stop()
+                server = start(log)
+                ready()
+                assert kubectl('get', 'pod/md-http', '-o', 'jsonpath={.metadata.uid}') == uid
+                assert kubectl('get', 'service/md-http', '-o', 'jsonpath={.spec.clusterIP}') == address
+                for name in ('md-http', 'md-client'):
+                    kubectl('wait', 'pod/' + name, '--for=condition=Ready', '--timeout=120s', timeout=135)
+                network()
+                report['completedRestarts'] = index + 1
+                print('PASS server restart', index + 1, flush=True)
             report['checks'].append('server-restart-preserves-workload')
             # Default pod grace is 30 seconds; observation must also cover cleanup.
             kubectl('delete', 'pod/md-http', 'pod/md-client', 'service/md-http',
@@ -551,6 +585,8 @@ def add_runtime_arguments(parser):
     parser.add_argument('--output', type=Path)
     parser.add_argument('--store', help='Existing server store accessible to the selected executor; no copy')
     parser.add_argument('--backend', choices=('vxlan', 'host-gw'), default='vxlan')
+    parser.add_argument('--restart-checks', type=int, default=1,
+                        help='Independent server restart/workload checks; a failure is never retried')
     parser.add_argument('--images', type=Path, action='append', default=[],
                         help='Verified uncompressed airgap image tar; repeat for workload images')
     add_diagnostics_argument(parser)
@@ -559,17 +595,21 @@ def add_runtime_arguments(parser):
     FixtureExecutor.add_argument(parser)
 
 
-def guest_command(fixture, binary, backend='vxlan', nodes=1, agent_root=''):
+def guest_command(fixture, binary, backend='vxlan', nodes=1, agent_root='', restart_checks=1):
+    if restart_checks < 1:
+        raise ValueError('At least one server restart is required')
     # Model the init service's creation policy, not Android's private app umask.
-    script = 'umask 022\n' + STATE + '\nexec python3 "$1" --guest "$2" "$3" "$4" "$5"\n'
+    script = 'umask 022\n' + STATE + '\nexec python3 "$1" --guest "$2" "$3" "$4" "$5" "$6"\n'
     return ['unshare', '-mpf', '--mount-proc', '/bin/sh', '-ec', script,
-            'k3s', str(fixture), str(binary), backend, str(nodes), agent_root]
+            'k3s', str(fixture), str(binary), backend, str(nodes), agent_root, str(restart_checks)]
 
 
 def run(args):
     from fixture_executor import diagnostic_options
     from init_fixture import GUEST_PATH
     from test_oci_services import Suite
+    if args.restart_checks < 1:
+        raise ValueError('At least one server restart is required')
     suite = Suite(args.output or args.build or Path('build/k3s-results'), args.build,
                   machine_entry=args.machine_entry, kernel_profile=args.kernel_profile,
                   executor=args.executor)
@@ -631,7 +671,7 @@ def run(args):
         command = prefix + diagnostic_options(args.diagnostics) + ['--statistics', '--network', 'routed',
             *attachments, '--deadline-seconds', '1200', '--', '/bin/sh', '-ec', 'exec "$@"', 'k3s',
             *guest_command(target + '/test.py', target + '/k3s', args.backend,
-                           args.nodes, agent_target if agent_store else '')]
+                           args.nodes, agent_target if agent_store else '', args.restart_checks)]
         try:
             print('K3s log: ' + suite.base + '/full.log', flush=True)
             suite.command(['sh', '-c', shlex.join(command) + ' > ' +
@@ -670,6 +710,6 @@ def run(args):
 if __name__ == '__main__':
     if len(sys.argv) == 5 and sys.argv[1] == '--agent':
         sys.exit(agent(sys.argv[2], int(sys.argv[3]), sys.argv[4]))
-    if len(sys.argv) == 6 and sys.argv[1] == '--guest':
-        sys.exit(guest(sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]))
+    if len(sys.argv) == 7 and sys.argv[1] == '--guest':
+        sys.exit(guest(sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5], int(sys.argv[6])))
     sys.exit('Use test_k3s.py or test_k3s_cluster.py to stage this fixture')

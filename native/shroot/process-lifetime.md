@@ -84,6 +84,56 @@ before normalizing that result to 125.
 A cleanup deadline expiring is failure, not successful termination. Service
 shutdown has its own bounded join and process-failure path.
 
+## Robust Mutex Ownership
+
+User and logical PID namespaces use managed `set_robust_list`/`get_robust_list`:
+the owner TID in a guest mutex need not match the native TID, and Android may
+deny native registration. Shell outside a logical PID namespace keeps the native
+kernel path. Original guest seccomp admission and process-inspection checks
+still apply. Ordinary futex waits and wakes are not intercepted for this feature;
+priority inheritance is a separate unsupported contract in logical PID views.
+
+One private `task_retained` actor per registered address space retains the old
+mm across thread exit, SIGKILL and exec, including exec from a nonleader. It is
+not a guest thread and has no guest stack, TLS or shared descriptor table.
+`robust_futex` bounds list traversal to 2048 nodes; `task_robust` yields after
+32 read steps, atomically replaces the matching owner word with OWNER_DIED
+and wakes a native waiter. Invalid lists and inaccessible words terminate their
+cleanup without invoking a guest SIGSEGV handler. The supervisor owns queued
+terminal events and replays each once cleanup finishes. Only pending mm owners
+enter its work queue; private actor lookup uses a PID index rather than a
+scan on every syscall.
+
+Guest proc/debugger inventories exclude private actors. The common
+[wait owner](debugging.md#waits-and-process-identity) filters them only when they
+would match an application's wait. The kernel remains authoritative for real
+children, wait classes, thread-specific waits and WNOWAIT.
+
+After the final mm member detaches, `task_child_reap` retires the exact private
+PID and preserves real or directed SIGCHLD. Retirement acquires its memory turn
+and waits for existing helper and exit owners before stopping the real parent
+group and its direct children; unrelated processes remain runnable. A resumed
+exit, including a zombie leader awaiting its other threads, cannot acknowledge
+a new ptrace interrupt. Retirement must not stop those remaining threads while
+waiting for that leader's final event. Creation and retirement
+share quiescence admission with mapping repair, policy changes and task-affine
+calls. Deferred memory events retain their exact stop and terminal-event owner.
+A parked signal wait lends its native continuation without transferring or
+resetting the outer checkpoint ownership. A parent exit/exec cancels the borrowed
+context and returns the terminal event to its owner, not to stale registers. Adoption
+transfers reaping to the next real parent or the supervisor. This does not add
+ordinary read/write interception, periodic scans or synthetic child notices.
+
+`test_thread_identity_runtime.py --case robust` tests ten cases both directly
+and in a logical PID namespace with stock glibc/musl. `--native-control` compares
+the same static fixture outside Shroot. On the qualified 6.12.23 device, native
+nonleader exec does not publish owner death for the tested process-shared mutex;
+the native Shell path retains this limitation, while managed cleanup passes.
+The `robust-futex` component suite additionally covers private-child birth,
+reaping, blocked wait/signalfd readers, coalesced/directed notifications,
+SA_NOCLDWAIT and cleanup faults. Current receipts are in
+[host execution](../guest-exec-lab/host-execution.md#robust-mutex-qualification).
+
 ## Verification And Limits
 
 `test_lifecycle.c` builds an Android/Bionic driver and a Debian/glibc guest fixture.

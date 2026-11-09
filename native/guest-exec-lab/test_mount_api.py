@@ -8,6 +8,7 @@ import fcntl
 import os
 import select
 from pathlib import Path
+import signal
 import socket
 import struct
 import subprocess
@@ -106,6 +107,33 @@ def guest():
 
     def config(fd, key, value=None):
         return call(431, fd, 0 if value is None else 1, key, 0 if value is None else value, 0)
+
+    with tempfile.TemporaryDirectory(prefix='md-proc-mount-') as directory:
+        source, moved, target = (Path(directory) / name for name in ('source', 'moved', 'target'))
+        source.write_text('original')
+        target.touch()
+        descriptor = os.open(source, os.O_PATH | os.O_CLOEXEC)
+        try:
+            source.rename(moved)
+            source.write_text('replacement')
+            reference = f'/proc/self/fd/{descriptor}'
+            expected = os.fstat(descriptor)
+            assert os.stat(reference).st_ino == expected.st_ino
+            assert os.lstat(reference).st_mode & 0o170000 == 0o120000
+            call(56, -100, reference, os.O_PATH | os.O_DIRECTORY, 0, error=errno.ENOTDIR)
+            # The peer shares the table, but proc/self resolves its leader.
+            # Rename/replacement must not turn a captured dentry into a path.
+            with ThreadPoolExecutor(max_workers=1) as workers:
+                workers.submit(call, 40, reference, str(target), 0, 4096, 0).result(timeout=10)
+            try:
+                assert target.read_text() == 'original'
+                assert target.stat().st_ino == expected.st_ino
+            finally:
+                call(39, str(target), 2)
+        finally:
+            os.close(descriptor)
+        call(56, -100, reference, os.O_PATH, 0, error=errno.ENOENT)
+    print('PASS proc FD metadata and threaded bind retain the selected dentry', flush=True)
 
     # Exec closes the construction FD, but the running image must keep its
     # detached mount alive across later mount collection, including in a peer.
@@ -499,6 +527,48 @@ if sys.argv[-1] == '0':
         event.close()
         os.close(watched)
         print('PASS live mount table, epoll notification, reread and unmount', flush=True)
+
+        # libc does not silently retry EINTR as Python's file IO does. Internal
+        # table preparation must survive signals even without SA_RESTART.
+        libc.fopen.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+        libc.fopen.restype = ctypes.c_void_p
+        libc.getline.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p]
+        libc.getline.restype = ctypes.c_ssize_t
+        for name in ('rewind', 'ferror', 'feof', 'fclose', 'free'):
+            getattr(libc, name).argtypes = [ctypes.c_void_p]
+        stream = libc.fopen(b'/proc/self/mountinfo', b're')
+        assert stream, ctypes.get_errno()
+        line, capacity = ctypes.c_void_p(), ctypes.c_size_t()
+        received = []
+        action = signal.signal(signal.SIGALRM, lambda *_: received.append(True))
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        timer = signal.setitimer(signal.ITIMER_REAL, 0.0005, 0.0005)
+        mounted = False
+        try:
+            for _ in range(32):
+                call(40, 'tmpfs', str(root), 'tmpfs', 0, 0)
+                mounted = True
+                libc.rewind(stream)
+                signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
+                count = 0
+                while libc.getline(ctypes.byref(line), ctypes.byref(capacity), stream) >= 0:
+                    assert b' - ' in ctypes.string_at(line)
+                    count += 1
+                error = ctypes.get_errno()
+                signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+                assert not libc.ferror(stream) and libc.feof(stream) and count, (error, count)
+                call(39, str(root), 2)
+                mounted = False
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, *timer)
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            signal.signal(signal.SIGALRM, action)
+            libc.free(line)
+            assert libc.fclose(stream) == 0
+            if mounted:
+                call(39, str(root), 2)
+        assert received, 'signal stress did not deliver any signal'
+        print('PASS libc mountinfo refresh under signals without SA_RESTART', flush=True)
 
         for table in ('/proc/mounts', '/proc/self/mountinfo'):
             paths = [root / ('ordered-' + str(i)) for i in range(3)]

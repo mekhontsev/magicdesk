@@ -224,12 +224,14 @@ int md_view_path(struct md_filesystem *fs, int fd, struct md_view_mount *m, char
 }
 int md_view_dentry_path(struct md_filesystem *fs,int fd,struct md_view_mount *m,
         uint64_t dentry,int native_birth,char *out,size_t size) {
-    if (!fs->native_root && !fs->store->root_id) return location_path(fs,fd,m,NULL,dentry,native_birth,out,size);
-    if (fs->native_root) {
-        struct md_view_mount *ancestor=m;
-        while (ancestor && ancestor!=fs->native_root->mount) ancestor=ancestor->parent;
-        if (!ancestor) return -ENOENT;
-    }
+    struct md_view_path_root root;
+    int r=md_view_path_root(fs,&root);
+    return r ? r : md_view_path_at(fs,&root,fd,m,dentry,native_birth,out,size);
+}
+int md_view_path_root(struct md_filesystem *fs,struct md_view_path_root *root) {
+    root->boundary=fs->native_root ? fs->native_root->mount : NULL;
+    root->scoped=fs->native_root || fs->store->root_id;
+    if (!root->scoped) return 0;
     int root_fd=fs->native_root ? fs->native_root->fd
         : md_inode_open(fs->store,MD_INODE_ROOT,"/",O_PATH|O_DIRECTORY|O_CLOEXEC,0);
     if (root_fd<0) return root_fd;
@@ -237,15 +239,27 @@ int md_view_dentry_path(struct md_filesystem *fs,int fd,struct md_view_mount *m,
     /* Source and covered dentries belong to their backing filesystem. Apply
      * the process root only after composing the complete mount-tree path. */
     fs->store->root_id=NULL;
-    char root[PATH_MAX], path[PATH_MAX];
-    struct md_view_mount *boundary=fs->native_root ? fs->native_root->mount : NULL;
-    int r = location_path(fs,root_fd,boundary,boundary,0,0,root,sizeof(root));
-    if (!r) r = location_path(fs,fd,m,boundary,dentry,native_birth,path,sizeof(path));
+    int r=location_path(fs,root_fd,root->boundary,root->boundary,0,0,root->path,sizeof(root->path));
     fs->store->root_id=selected;
     if (!fs->native_root) close(root_fd);
-    if (!r && !beneath(path,root)) r = -ENOENT;
+    return r;
+}
+int md_view_path_at(struct md_filesystem *fs,const struct md_view_path_root *root,int fd,
+        struct md_view_mount *m,uint64_t dentry,int native_birth,char *out,size_t size) {
+    if (!root->scoped) return location_path(fs,fd,m,NULL,dentry,native_birth,out,size);
+    if (root->boundary) {
+        struct md_view_mount *ancestor=m;
+        while (ancestor && ancestor!=root->boundary) ancestor=ancestor->parent;
+        if (!ancestor) return -ENOENT;
+    }
+    const char *selected=fs->store->root_id;
+    fs->store->root_id=NULL;
+    char path[PATH_MAX];
+    int r=location_path(fs,fd,m,root->boundary,dentry,native_birth,path,sizeof(path));
+    fs->store->root_id=selected;
+    if (!r && !beneath(path,root->path)) r = -ENOENT;
     if (!r) {
-        const char *relative = !strcmp(path,root) ? "/" : path+(strlen(root)==1 ? 0 : strlen(root));
+        const char *relative = !strcmp(path,root->path) ? "/" : path+(strlen(root->path)==1 ? 0 : strlen(root->path));
         if (strlen(relative)>=size) r=-ERANGE;
         else strcpy(out,relative);
     }

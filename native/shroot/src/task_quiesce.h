@@ -2,6 +2,7 @@
 #define MD_TASK_QUIESCE_H
 #include <sys/resource.h>
 #include <sys/types.h>
+#include "task_birth.h"
 
 struct md_task_quiesce;
 /* A cold explicitly selected task barrier. Real wait events retain their exact order and
@@ -22,6 +23,9 @@ int md_task_quiesce_waiting(struct md_task_quiesce *, pid_t);
 /* A real interrupt was requested and its stop has not yet been collected. */
 int md_task_quiesce_interrupting(struct md_task_quiesce *, pid_t);
 void md_task_quiesce_describe(const struct md_task_quiesce *, int fd);
+/* Returns a validated newborn PID for birth events, zero otherwise, or
+ * negative errno. The outer owner can transfer an already collected stop
+ * without querying a potentially displaced kernel event a second time. */
 int md_task_quiesce_event(struct md_task_quiesce *, pid_t, int, const struct rusage *);
 /* Temporarily lend a stopped participant to a task-affine operation. HELD
  * belongs to an outer continuation; SYNTHETIC resumes only on barrier release;
@@ -35,8 +39,12 @@ enum md_task_quiesce_boundary { MD_TASK_QUIESCE_HELD=1, MD_TASK_QUIESCE_SYNTHETI
 struct md_task_quiesce_stop { enum md_task_quiesce_boundary kind; int status; };
 int md_task_quiesce_borrow(struct md_task_quiesce *,pid_t,struct md_task_quiesce_stop *);
 int md_task_quiesce_return(struct md_task_quiesce *,pid_t);
+/* A borrowed task exited or exec replaced its image. Drop its superseded
+ * continuation and queue only the exact terminal event for normal dispatch. */
+int md_task_quiesce_terminal(struct md_task_quiesce *,pid_t,int,const struct rusage *);
 /* Releases only synthetic stops. Deferred events remain owned until take. */
 int md_task_quiesce_release(struct md_task_quiesce *);
 pid_t md_task_quiesce_take(struct md_task_quiesce *, int *, struct rusage *);
+/* Transfer an initial/terminal stop as md_task_birth_stop or negative errno. */
 int md_task_quiesce_newborn(struct md_task_quiesce *, pid_t);
 #endif

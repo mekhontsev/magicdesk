@@ -514,6 +514,19 @@ it needs no newer kernel API, polling loop or additional worker thread.
 
 ### Process Birth And Proc Views
 
+Managed robust-list cleanup uses baseline clone(CLONE_VM), ptrace lifecycle
+events, atomic AArch64 owner-word updates and native futex wakes. It requires
+neither host `set_robust_list` permission nor a kernel PID namespace. User and
+logical PID namespaces use the shared managed owner; Shell otherwise retains
+native registration. Private-child selection uses the existing task registry
+and `/proc/PID/stat`/status, not the optional `/proc/PID/task/TID/children` file.
+Exact reaping and signal preservation use wait4, rt_sigtimedwait and
+PTRACE_PEEKSIGINFO, all available before 5.15. `--case robust-futex` tests the
+component lifecycle; `test_thread_identity_runtime.py --case robust` checks
+stock glibc/musl mutexes, exec, SIGKILL, wait selection and private SIGCHLD
+exclusion. `--native-control` isolates kernel behavior from Shroot. A passing
+6.12 device run is not physical-kernel-5.15 coverage.
+
 PI futex words contain owner TIDs and cannot use native PI state inside a
 logical PID namespace. The PID selector leaves ordinary futex waits and wakes
 native, but rejects PI acquisition/requeue with EOPNOTSUPP and PI unlock with
@@ -1020,8 +1033,13 @@ TCP REJECT uses baseline SO_LINGER with zero linger on relay-owned stream FDs
 (`network_forward.c`), not host netfilter or raw packet injection. Local
 connection admission returns ECONNREFUSED. `test_network_nft.c` covers nft/xt
 wire validation and `test_network_launch.c` checks IPv4/IPv6 native RST for new
-and established peers. Unsupported UDP/ICMP rejection fails rule admission;
-no host ICMP permission or newer kernel capability is assumed.
+and established peers. ICMP/ICMPv6 REJECT shares `network_reject` for nft and
+xtables, including `inet` raw-code and `icmpx` translation. Managed socket
+admission reports the family-specific errno; TUN/TAP uses packet-owned ICMP
+replies. `test_network_nft.c` checks encoding and policy, and
+`test_network_tun.c` checks wire replies and pending-connection errors. No host
+ICMP permission or newer kernel capability is assumed; native UDP has no
+synthetic asynchronous error queue.
 
 Protected proc final-link capture uses caller-side O_PATH|O_NOFOLLOW and the
 existing exact-description transport. The filesystem walker verifies the captured

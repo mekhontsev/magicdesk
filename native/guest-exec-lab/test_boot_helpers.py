@@ -32,6 +32,26 @@ from systemd_ready import wait_systemd, wait_systemd_unit
 
 
 class BootHelpers(unittest.TestCase):
+    def test_container_outbound_reconnects_and_never_retries_failure(self):
+        from docker_network_fixture import http_exchange
+        response = Mock(status=200)
+        response.read.return_value = b'token'
+        context = Mock()
+        context.__enter__ = Mock(return_value=response)
+        context.__exit__ = Mock(return_value=False)
+        url = 'http://127.0.0.1:1234/token/outbound'
+        with patch('docker_network_fixture.urllib.request.urlopen', return_value=context) as connect, \
+                patch('sys.stdout', new=io.StringIO()):
+            http_exchange(url, repeats=3)
+        self.assertEqual([call(url, timeout=5)] * 3, connect.call_args_list)
+        self.assertEqual(3, context.__exit__.call_count)
+        error = TimeoutError('connect')
+        with patch('docker_network_fixture.urllib.request.urlopen', side_effect=[context, error]) as connect:
+            with self.assertRaisesRegex(AssertionError, 'connection 2/3 failed') as caught:
+                http_exchange(url, repeats=3)
+        self.assertIs(error, caught.exception.__cause__)
+        self.assertEqual(2, connect.call_count)
+
     def test_published_controller_opens_only_its_owned_port(self):
         for init in ('systemd', 'openrc', 'runit'):
             with self.subTest(init=init):
@@ -223,6 +243,16 @@ class BootHelpers(unittest.TestCase):
         self.assertIn('exec python3 ', command[5])
         self.assertNotIn('/usr/bin', ' '.join(command))
 
+    def test_k3s_restart_checks_are_explicit_and_cannot_be_skipped(self):
+        from k3s_fixture import guest_command
+        self.assertEqual('1', guest_command('/test.py', '/k3s')[-1])
+        command = guest_command('/test.py', '/k3s', restart_checks=3)
+        self.assertEqual('3', command[-1])
+        self.assertIn('"$6"', command[5])
+        for count in (0, -1):
+            with self.assertRaises(ValueError):
+                guest_command('/test.py', '/k3s', restart_checks=count)
+
     def test_k3s_state_preparation_tracks_partial_creation(self):
         from k3s_fixture import prepare_node_state
         suite, created = Mock(), []
@@ -271,6 +301,47 @@ class BootHelpers(unittest.TestCase):
         pod = {'metadata': {'uid': 'expected'}}
         client.return_value = subprocess.CompletedProcess([], 0, json.dumps({'items': [pod]}))
         self.assertEqual({'expected': pod}, kubelet_pods(client, 'node'))
+
+    def test_kubelet_ready_requires_current_process_heartbeat(self):
+        from k3s_fixture import node_ready_since
+        for value in (None, [], [{'type': 'Ready', 'status': 'True'}],
+                      [{'type': 'Ready', 'status': 'True', 'lastHeartbeatTime': '1970-01-01T00:00:10Z'}],
+                      [{'type': 'Ready', 'status': 'False', 'lastHeartbeatTime': '1970-01-01T00:00:12Z'}]):
+            with self.subTest(value=value):
+                self.assertFalse(node_ready_since(value, 10.5))
+        for stamp in ('1970-01-01T00:00:11Z', '1970-01-01T01:00:11+01:00'):
+            self.assertTrue(node_ready_since([dict(type='Ready', status='True', lastHeartbeatTime=stamp)], 10.5))
+
+    def test_kubelet_ready_reconciles_stale_state_with_one_deadline(self):
+        from k3s_fixture import wait_node_ready
+        stale = dict(type='Ready', status='True', lastHeartbeatTime='1970-01-01T00:00:10Z')
+        fresh = dict(stale, lastHeartbeatTime='1970-01-01T00:00:12Z')
+        client = Mock(side_effect=[subprocess.CompletedProcess([], 0, json.dumps([value]))
+                                   for value in (stale, fresh)])
+        alive = Mock()
+        with patch('k3s_fixture.time.monotonic', side_effect=[0, 1, 2, 3]), \
+                patch('k3s_fixture.time.sleep') as sleep:
+            wait_node_ready(client, 'node', 10.5, alive)
+        self.assertEqual(client.call_count, 2)
+        self.assertEqual(alive.call_count, 2)
+        sleep.assert_called_once_with(1)
+        client = Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps([stale])))
+        with patch('k3s_fixture.time.monotonic', side_effect=[0, 1, 89.5, 90]), \
+                patch('k3s_fixture.time.sleep') as sleep:
+            with self.assertRaisesRegex(AssertionError, 'fresh Ready'):
+                wait_node_ready(client, 'node', 10.5, alive)
+        sleep.assert_called_once_with(0.5)
+        self.assertEqual(client.call_count, 1)
+
+    def test_init_managed_kubelet_uses_launch_boundary(self):
+        from k3s_fixture import wait_node_ready
+        client = Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps([
+            dict(type='Ready', status='True', lastHeartbeatTime='1970-01-01T00:00:12Z')])))
+        with patch('k3s_fixture.time.monotonic', side_effect=[0, 1]), \
+                patch('k3s_fixture.time.sleep') as sleep:
+            wait_node_ready(client, 'node', 10.5)
+        client.assert_called_once()
+        sleep.assert_not_called()
 
     def test_k3s_cleanup_restores_files_and_dangling_symlinks(self):
         cleanup = runpy.run_path(str(Path(__file__).with_name('fixtures') / 'k3s-boot.py'))['cleanup']
@@ -633,6 +704,8 @@ class BootHelpers(unittest.TestCase):
                     check_systemd_boot(boot + f"\x1b[31m{unit}: Failed with result '{result}'.\x1b[0m\r\n")
         with self.assertRaises(AssertionError):
             check_systemd_boot('systemd-test-generator failed with exit status 1\n' + boot)
+        with self.assertRaisesRegex(AssertionError, '/etc/resolv.conf'):
+            check_systemd_boot(boot + '[\x1b[31mFAILED\x1b[0m] Failed unmounting /etc/resolv.conf.\r\n')
 
     def test_init_services(self):
         for init in ('systemd', 'openrc', 'runit'):

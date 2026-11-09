@@ -75,6 +75,10 @@ static int epoll_add(int epoll, int fd, unsigned events) {
     struct epoll_event event = {.events = events, .data.fd = fd};
     return epoll_ctl(epoll, EPOLL_CTL_ADD, fd, &event) ? -errno : 0;
 }
+static int source_ready(const struct epoll_event *events,int count,int fd) {
+    for (int i=0;i<count;++i) if (events[i].data.fd==fd && (events[i].events&EPOLLIN)) return 1;
+    return 0;
+}
 static int watch_path(int native, int fd, const char *suffix, unsigned mask) {
     char path[80];
     int n = snprintf(path, sizeof(path), "/proc/self/fd/%d%s", fd, suffix);
@@ -518,6 +522,9 @@ int md_inode_watch_pump(struct md_inode_store *s) {
     }
     if (!w->instances) { md_inode_watch_close(s); return 0; }
     for (struct watch_source *p=w->sources;p;p=p->next) {
+        /* WAL changes wake the same native source even if a writer dies before
+         * publishing its marker. Idle sources need no catalogue snapshot. */
+        if (!source_ready(events,n,p->native)) continue;
         if (!p->logical_subscriptions) {
             int r=drain_native(w,p,4*65536);
             if (r) return r;
@@ -537,6 +544,7 @@ int md_inode_watch_pump(struct md_inode_store *s) {
         if (r) return r;
     }
     for (struct provider_source *p=w->providers;p;p=p->next) {
+        if (!source_ready(events,n,md_watch_listener_descriptor(p->listener))) continue;
         struct md_watch_event event;
         for (unsigned budget=0;budget<PROVIDER_EVENT_BUDGET && md_watch_listener_next(p->listener,&event);++budget) {
             if (event.mask&IN_Q_OVERFLOW) {

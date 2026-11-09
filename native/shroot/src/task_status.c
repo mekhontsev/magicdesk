@@ -131,6 +131,37 @@ long md_task_parent(int tid) {
     }
     return -ENOTSUP;
 }
+int md_task_child_class(pid_t tid,pid_t *group,int *exit_signal) {
+    char path[64]="/proc/",text[2048];
+    md_decimal(path+md_length(path),(unsigned)tid);
+    md_copy(path+md_length(path),sizeof(path)-md_length(path),"/stat");
+    long fd=RAW4(openat,AT_FDCWD,path,O_RDONLY|O_CLOEXEC,0);
+    if (fd<0) return (int)fd;
+    long size=read_status((int)fd,text,sizeof(text));
+    RAW1(close,fd);
+    if (size<0) return (int)size;
+    /* comm can contain spaces and parentheses. The final ')' precedes field
+     * 3; pgrp and exit_signal are stable proc-stat fields 5 and 38. */
+    const char *last=NULL;
+    for (const char *p=text;*p;++p) if (*p==')') last=p;
+    if (!last) return -EIO;
+    const char *p=last+1;
+    for (unsigned field=3;field<=38;++field) {
+        while (*p==' ') ++p;
+        if (!*p || *p=='\n') return -EIO;
+        if (field==5 || field==38) {
+            unsigned value=0,digits=0;
+            while (*p>='0' && *p<='9') {
+                unsigned digit=(unsigned)(*p++-'0');
+                if (value>(INT32_MAX-digit)/10) return -EIO;
+                value=value*10+digit; ++digits;
+            }
+            if (!digits || (*p!=' ' && *p!='\n' && *p)) return -EIO;
+            if (field==5) *group=(pid_t)value; else *exit_signal=(int)value;
+        } else while (*p && *p!=' ' && *p!='\n') ++p;
+    }
+    return 0;
+}
 long md_task_signal_handlers(int tid,uint64_t *caught) {
     char text[8192];
     long result=task_status(tid,text,sizeof(text));

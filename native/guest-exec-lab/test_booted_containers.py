@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import shlex
+import signal
 import urllib.request
 import uuid
 
@@ -44,6 +45,8 @@ def main():
     parser.add_argument('--trace', action='store_true', help='Trace Podman exec and its DNS service for diagnosis')
     parser.add_argument('--trace-runtime', action='store_true',
                         help='Trace runc in the fixture-owned rootless Docker daemon')
+    parser.add_argument('--trace-network', action='store_true',
+                        help='Attach to the rootless Docker daemon after its stock set-ID startup')
     parser.add_argument('--image-archive', default='',
                         help='Guest Docker image archive to load instead of pulling from a registry')
     parser.add_argument('--path-prefix', default='', help='Installed vendor command directory; no runtime option changes')
@@ -54,6 +57,8 @@ def main():
         parser.error('--image-archive requires --engine docker')
     if args.trace_runtime and (args.engine != 'docker' or not args.rootless):
         parser.error('--trace-runtime requires --engine docker --rootless')
+    if args.trace_network and (args.engine != 'docker' or not args.rootless):
+        parser.error('--trace-network requires --engine docker --rootless')
     if args.rootless and (args.trace or args.docker_profile != 'service'):
         parser.error('--rootless retains stock set-ID helpers and daemon policy')
     state = json.loads(args.session.read_text())
@@ -71,7 +76,7 @@ def main():
                         nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'),
                         pathPrefix=args.path_prefix, rootless=args.rootless,
                         imageArchive=args.image_archive,
-                        diagnostics=dict(podman=args.trace, runtime=args.trace_runtime))
+                        diagnostics=dict(podman=args.trace, runtime=args.trace_runtime, network=args.trace_network))
     try:
         for name in ('probe_docker_runtime.py', 'probe_podman_runtime.py', 'docker_network_fixture.py'):
             remote = state['directory'] + '/' + name
@@ -84,7 +89,8 @@ def main():
             if args.docker_profile == 'service':
                 if args.rootless:
                     options.update(profile='rootless', cgroup='v2', storage_driver='overlay2',
-                                   rootless_user=state['user'], trace_runtime=args.trace_runtime)
+                                   rootless_user=state['user'], trace_runtime=args.trace_runtime,
+                                   trace_network=args.trace_network)
                 else:
                     options['endpoint'] = 'unix:///var/run/docker.sock'
             else:
@@ -138,6 +144,9 @@ def main():
             assert report['passed'], report.get('failure')
         else:
             assert report.get('portPublicationPassed') and report.get('containerPeerExchangePassed'), report
+            if args.trace_network:
+                assert report.get('daemonTraceAttachment') and not report.get('daemonTraceForcedStop'), report
+                assert report.get('daemonTraceExitCode') in (0, -signal.SIGINT), report
             if args.docker_profile == 'service' and not args.rootless:
                 assert report['externalDaemon'] and report['daemonRetained'], report
             else:

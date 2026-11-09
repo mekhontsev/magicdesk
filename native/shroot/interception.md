@@ -477,6 +477,12 @@ queued realtime signals.
 
 ### Typed Provider Reads
 
+Providers may explicitly mark asynchronous internal preparation as repeatable
+after signal delivery, including without SA_RESTART. Direct control calls and
+the common file-IO continuation honor the same contract. Accepted effects,
+partially transferred data and splice are not replayed. Ordinary native reads
+and writes do not enter this preparation path.
+
 Mapped watch reads use the same engine reservation as RPC. The supervisor offers
 the shared reply, then queues commit/rejection on the filesystem worker after the
 adapter acknowledges its copy. No file-table or filesystem turn is held while

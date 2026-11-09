@@ -1150,11 +1150,35 @@ static struct md_fs_anchor *capture_origin(struct md_fs_buffer_request *r,unsign
     md_task_snapshot_release(&target);
     return origin;
 }
+static int capture_native_path(struct md_fs_buffer_request *r,unsigned index,const struct md_proc_path *path) {
+    const struct md_fs_task_capture *capture=&r->request.capture[index];
+    if (!(capture->flags&O_PATH) || md_domain_restricted(r->context.task.fs)) return 0;
+    struct md_task_snapshot target={0};
+    if (md_task_registry_read(r->service->tasks,path->process,r->context.task.tgid,&target)) return 0;
+    struct md_fd_native native={0};
+    /* Same-process proc lookup needs no ptrace permission. The held table
+     * turn preserves this exact dentry across a peer's close or unshare. */
+    int found=target.tgid==r->context.task.tgid && target.files==r->files.table
+        && !md_domain_restricted(target.fs) && md_fd_origins_native(&r->files,path->descriptor,&native);
+    if (found) r->input[index]=md_fs_anchor_retain(native.origin);
+    md_task_snapshot_release(&target);
+    if (!found) return 0;
+    if ((capture->flags&O_DIRECTORY) && native.kind!=S_IFDIR) return -ENOTDIR;
+    r->request.origin[index]=r->input[index];
+    r->request.directory[index]=md_fs_anchor_fd(r->input[index]);
+    r->capture_mask&=~(1U<<index);
+    r->request.capture[index]=(struct md_fs_task_capture){0};
+    return 1;
+}
 static int capture_proc_object(struct md_fs_buffer_request *r,unsigned index) {
     const struct md_fs_task_capture *capture=&r->request.capture[index];
     if (!capture->path || (capture->flags&O_NOFOLLOW)) return 0;
     struct md_proc_path path=md_proc_path_for(capture->path,r->context.task.tid,r->context.task.tgid);
     enum md_proc_kind kind=path.kind==MD_PROC_FOREIGN ? path.foreign_kind : path.kind;
+    if (kind==MD_PROC_FD && path.tail && !*path.tail) {
+        int found=capture_native_path(r,index,&path);
+        if (found) return found;
+    }
     if (kind==MD_PROC_FD && !*path.tail && r->request.operation==MD_FS_PATH
             && r->service->control_capture) {
         struct md_fd_object *object=NULL;

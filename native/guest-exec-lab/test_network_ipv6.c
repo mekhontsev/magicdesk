@@ -87,6 +87,58 @@ static void exchange(int family,int type) {
     close(c); close(s); md_fd_object_release(client); md_fd_object_release(server);
     md_identity_release(&root); md_network_launch_close(&launch);
 }
+static void packet_scope(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_network_interface *link=md_network_interface_find(n,0,"eth0");
+    struct md_inet_address destination={0};
+    for (unsigned i=0;i<link->address_count;++i)
+        if (md_ip_linklocal(link->addresses[i].address)) destination.ip=link->addresses[i].address;
+    assert(md_ip_linklocal(destination.ip));
+    unsigned index=link->info.index;
+    struct md_identity root=md_identity_new(0,0);
+    struct md_fd_object *server,*client; int s,c;
+    assert(!md_network_endpoint_open(n,0,AF_INET6,SOCK_DGRAM,0,&server,&s));
+    assert(!md_network_endpoint_open(n,0,AF_INET6,SOCK_DGRAM,0,&client,&c));
+    socklen_t size,length;
+    struct sockaddr_storage any=encode((struct md_inet_address){.ip=md_ip_any(AF_INET6)},AF_INET6,&size);
+    destination.scope=index;
+    struct sockaddr_storage scoped=encode(destination,AF_INET6,&size);
+    assert(!md_network_endpoint_bind(server,s,&root,(void *)&scoped,size));
+    assert(!md_network_endpoint_bind(client,c,&root,(void *)&any,size));
+    assert(!md_network_endpoint_name(server,s,0,&any,&size));
+    struct md_inet_address bound;
+    assert(!md_inet_decode((void *)&any,size,&bound));
+    destination.port=bound.port;
+    destination.scope=0;
+    struct sockaddr_storage target=encode(destination,AF_INET6,&size),native;
+    assert(md_network_endpoint_destination(client,(void *)&target,size,&native,&length)==-EINVAL);
+    struct md_network_packet_info info={.interface=UINT32_MAX,.source=md_ip_any(AF_INET6)};
+    assert(md_network_endpoint_destination_info(client,(void *)&target,size,&info,&native,&length)==-ENODEV);
+    info.interface=index;
+    unsigned flags=link->info.flags; link->info.flags&=~IFF_UP;
+    assert(md_network_endpoint_destination_info(client,(void *)&target,size,&info,&native,&length)==-ENETUNREACH);
+    link->info.flags=flags;
+    destination.scope=1;
+    target=encode(destination,AF_INET6,&size);
+    assert(md_network_endpoint_destination_info(client,(void *)&target,size,&info,&native,&length)==-EINVAL);
+    for (unsigned explicit_scope=0;explicit_scope<2;++explicit_scope) {
+        destination.scope=explicit_scope ? index : 0;
+        target=encode(destination,AF_INET6,&size);
+        info=(struct md_network_packet_info){.interface=index,.source=md_ip_any(AF_INET6)};
+        if (explicit_scope) for (unsigned i=0;i<link->address_count;++i)
+            if (link->addresses[i].address.family==AF_INET6 && !md_ip_linklocal(link->addresses[i].address))
+                info.source=link->addresses[i].address;
+        assert(!md_network_endpoint_destination_info(client,(void *)&target,size,&info,&native,&length));
+        assert(sendto(c,"ping",4,0,(void *)&native,length)==4);
+        struct sockaddr_storage peer; length=sizeof(peer); char data[4]; ready(s);
+        assert(recvfrom(s,data,sizeof(data),0,(void *)&peer,&length)==4 && !memcmp(data,"ping",4));
+        assert(!md_network_endpoint_source_info(server,&peer,&length,&info));
+        assert(info.interface==index && md_ip_equal(info.destination,destination.ip));
+    }
+    close(c); close(s); md_fd_object_release(client); md_fd_object_release(server);
+    md_identity_release(&root); md_network_namespace_release(n);
+    puts("PASS IPv6 packet scope: pktinfo supplies interface, conflicts and invalid/down links rejected");
+}
 static void policy(void) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_network_namespace *child=md_network_namespace_copy(n,NULL);
@@ -331,6 +383,7 @@ static void transport_policy(void) {
     puts("PASS IPv6 route transport: native UDP MTU/hops, application override/reset and TCP MSS without payload mediation");
 }
 void test_network_ipv6(void) {
+    packet_scope();
     transport_policy();
     literals(); policy(); temporary_addresses(); raw_bindings();
     raw_datagrams(AF_INET); raw_datagrams(AF_INET6);

@@ -618,25 +618,36 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         calls = root / 'mounts'
         fragment = fragment.replace('/usr/lib/initcpio/hooks/etc_overlay', str(hook))
         fragment = fragment.replace('/var/lib/overlays/etc', str(root / 'overlay'))
-        functions = ('mountpoint() { test -e "$MARKER"; }\n'
+        fragment = fragment.replace('/run/md-init-resolver.', str(root / 'resolver.'))
+        functions = ('mountpoint() { if [ "$2" = /etc ]; then test -e "$MARKER"; '
+                     'else test "$RESOLVER" = yes; fi; }\n'
                      'mount() { printf "%s\\n" "$*" >> "$CALLS"; }\n')
         env = {**os.environ, 'MARKER': str(marker), 'CALLS': str(calls)}
-        for present, mounted, expected in ((False, False, False), (True, False, True),
-                                            (True, True, False)):
-            with self.subTest(present=present, mounted=mounted):
+        for present, mounted, resolver, expected in ((False, False, False, False),
+                (True, False, False, True), (True, False, True, True), (True, True, True, False)):
+            with self.subTest(present=present, mounted=mounted, resolver=resolver):
                 if present:
                     hook.touch()
                 if mounted:
                     marker.touch()
                 calls.unlink(missing_ok=True)
                 subprocess.run(['sh', '-eu', '-c', functions + fragment],
-                               env=env, check=True, timeout=5)
+                               env=dict(env, RESOLVER='yes' if resolver else 'no'), check=True, timeout=5)
                 self.assertEqual(expected, calls.exists())
                 if expected:
                     self.assertTrue((root / 'overlay/upper').is_dir())
                     self.assertTrue((root / 'overlay/work').is_dir())
                     self.assertIn('lowerdir=/etc,upperdir=', calls.read_text())
-                    self.assertTrue(calls.read_text().endswith(' overlay /etc\n'))
+                    actions = calls.read_text().splitlines()
+                    if resolver:
+                        self.assertEqual(3, len(actions))
+                        saved = actions[0].removeprefix('--move /etc/resolv.conf ')
+                        self.assertEqual('--move ' + saved + ' /etc/resolv.conf', actions[-1])
+                        self.assertFalse(Path(saved).exists())
+                        self.assertTrue(actions[1].endswith(' overlay /etc'))
+                    else:
+                        self.assertEqual(1, len(actions))
+                        self.assertTrue(actions[0].endswith(' overlay /etc'))
 
     def test_init_preserves_launch_uplink_with_overridable_runtime_profile(self):
         prepare = self.run_script('--print-init-prepare').stdout

@@ -128,6 +128,11 @@ file data. Logical owners follow their own sharing rules: address space,
 Fork, unshare and exec prepare changes before native execution and publish only
 confirmed results. Native rejection preserves prior ownership.
 
+[Robust mutex cleanup](process-lifetime.md#robust-mutex-ownership) uses the shared
+retained-memory, task-call and child-reaping owners under User and logical PID
+namespaces. Shell otherwise retains native cleanup. Ordinary futex IO remains
+native in both executors.
+
 The event loop services ptrace, worker and descriptor completions together.
 Task and memory progress uses bounded event-count batches between readiness
 checks. An idle task queue enters the shared blocking wait immediately; its

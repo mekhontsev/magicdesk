@@ -414,8 +414,10 @@ supports consumers which identify recursive bind additions by their table suffix
 Mount changes signal pollers and mark open tables dirty without rendering them.
 A new read snapshot is prepared on the existing filesystem worker, using the
 open description's retained root and namespace. Partial reads keep their captured
-snapshot; rewinding observes subsequent changes. Cancellation retains no new
-guest authority, and ordinary file IO does not use this refresh path.
+snapshot; rewinding observes subsequent changes. Snapshot preparation is
+repeatable after signal delivery, so its internal wait does not expose EINTR
+to a table reader without SA_RESTART. Cancellation retains no new guest
+authority, and ordinary file IO does not use this refresh path.
 
 Ordinary inode storage reports its backing filesystem type in mount tables,
 consistent with its native `statfs` capacity and type. The worker's existing

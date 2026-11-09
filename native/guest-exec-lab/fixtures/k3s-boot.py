@@ -10,7 +10,7 @@ import sys
 import time
 import traceback
 
-from k3s_fixture import Kubectl, command, kubelet_pods, pid1_command, prepare_images
+from k3s_fixture import Kubectl, command, kubelet_pods, pid1_command, prepare_images, wait_node_ready
 from systemd_ready import wait_systemd_unit
 
 
@@ -123,8 +123,8 @@ def cleanup_boot(root, init):
         poweroff(init)
 
 
-def observe(root, init, phase):
-    report = dict(phase=phase, passed=False, checks=[])
+def observe(root, init, phase, started):
+    report = dict(phase=phase, startedAfter=started, passed=False, checks=[])
     kubectl = Kubectl('/usr/local/bin/k3s')
     try:
         assert os.isatty(0) and os.tcgetpgrp(0) == os.getpgrp(), 'console lacks foreground PTY ownership'
@@ -143,14 +143,17 @@ def observe(root, init, phase):
         else:
             raise AssertionError('API readiness timeout')
         kubectl('wait', 'nodes', '--all', '--for=create', '--timeout=90s')
-        kubectl('wait', 'nodes', '--all', '--for=condition=Ready', '--timeout=90s')
+        nodes = json.loads(kubectl('get', 'nodes', '-o', 'json'))['items']
+        assert len(nodes) == 1, nodes
+        node = nodes[0]
+        # The launcher captured this boundary before starting the new init.
+        # Persisted Ready from the previous boot cannot establish readiness.
+        wait_node_ready(kubectl, node['metadata']['name'], started)
+        report['checks'].append('fresh-node-ready')
         kubectl('wait', '-n', 'kube-system', 'deployment/coredns', '--for=create', '--timeout=90s')
         pull_limit = 600 if phase == 0 else 240
         kubectl('rollout', 'status', '-n', 'kube-system', 'deployment/coredns',
                 '--timeout=' + str(pull_limit) + 's', timeout=pull_limit + 15)
-        nodes = json.loads(kubectl('get', 'nodes', '-o', 'json'))['items']
-        assert len(nodes) == 1, nodes
-        node = nodes[0]
         if init == 'systemd':
             command('systemctl', 'is-enabled', 'k3s')
             # API readiness can precede the service's READY=1 notification.
@@ -259,6 +262,6 @@ if __name__ == '__main__':
         log = open(root / ('phase-' + arguments[0] + '.log'), 'w')
         os.dup2(log.fileno(), 1)
         os.dup2(log.fileno(), 2)
-        observe(root, init, int(arguments[0]))
+        observe(root, init, int(arguments[0]), float(arguments[1]))
     else:
         raise ValueError(mode)

@@ -256,6 +256,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         context.space=n;
         if (local || native_local(&context,p->destination)) {
             if (!arrived) {
+                if (local && p->destination.family==AF_INET6) path->input_scope=local->info.index;
                 struct md_network_interface *loop=md_network_interface_find(n,1,NULL);
                 interface(p,loop,0);
                 error=hook(n,NF_INET_POST_ROUTING,p,path);
@@ -346,6 +347,7 @@ static int routing_admits(struct md_network_namespace *n,const struct md_network
     if (md_ip_multicast(p->destination) || md_network_address_type(n,p->destination)==RTN_BROADCAST
             || (path->native_space==n->inode && md_ip_equal(path->native_address,p->destination))) return 0;
     struct md_network_route_entry route={0}; int error;
+    if (!selected && hook==NF_INET_LOCAL_IN && path->destination==n->inode) selected=path->input_scope;
     struct md_network_interface *link=md_network_policy_route(n,p->source,p->destination,p->mark,
         selected ? selected : md_ip_linklocal(p->destination) ? (p->output ? p->output : p->input) : 0,&route,&error);
     if (!link) return error;

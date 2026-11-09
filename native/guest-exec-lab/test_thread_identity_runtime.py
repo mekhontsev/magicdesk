@@ -14,9 +14,13 @@ def main():
                         help='Prebuilt fixture; otherwise compile with the guest compiler and libc')
     parser.add_argument('--debuggers', action='store_true', help='Also exercise installed strace and GDB')
     parser.add_argument('--case', choices=('all', 'identity', 'pi', 'robust'), default='all')
+    parser.add_argument('--native-control', action='store_true',
+                        help='Build a static fixture and compare the native Shell executor outside Shroot')
     parser.add_argument('--output', type=Path, default=Path('build/thread-identity'))
     FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
+    if args.native_control and args.executor != 'shell':
+        parser.error('Native ELF control requires the Shell executor executable directory')
     suite = Suite(args.output, args.build, executor=args.executor)
     target = '/tmp/md-thread-' + suite.report['id']
     base = [suite.runner, '--store', args.store, '--user', '0:0']
@@ -29,30 +33,34 @@ def main():
             source = Path(__file__).with_name('test_thread_identity.c')
             suite.upload(source, suite.base + '/thread.c')
             suite.command(base + ['--bind', suite.base, target, '--deadline-seconds', '60',
-                                 '--', '/usr/bin/cc', '-O2', '-pthread', target + '/thread.c',
+                                 '--', '/usr/bin/cc', '-O2', '-pthread']
+                          + (['-static'] if args.native_control else []) + [target + '/thread.c',
                                  '-o', target + '/thread'], timeout=70)
-        for wrapper in ([], ['/usr/bin/unshare', '--pid', '--fork', '--mount-proc']):
+        variants = [([], False), (['/usr/bin/unshare', '--pid', '--fork', '--mount-proc'], False)]
+        if args.native_control:
+            variants.insert(0, ([], True))
+        for wrapper, native in variants:
+            command = ([suite.base + '/thread'] if native else base
+                       + ['--bind-ro', suite.base, target, '--deadline-seconds', '20', '--']
+                       + wrapper + [target + '/thread'])
             if args.case in ('all', 'identity'):
-                suite.command(base + ['--bind-ro', suite.base, target, '--deadline-seconds', '20', '--']
-                              + wrapper + [target + '/thread'], timeout=30)
+                suite.command(command, timeout=30)
             if args.case in ('all', 'pi'):
-                output = suite.command(base + ['--bind-ro', suite.base, target, '--deadline-seconds', '20', '--']
-                                       + wrapper + [target + '/thread', '--pid-futex'], timeout=30)
+                output = suite.command(command + ['--pid-futex'], timeout=30)
                 assert 'PASS PI futex admission' in output, output
             if args.case in ('all', 'robust'):
-                for case in ('query', 'thread', 'exit', 'kill', 'exec'):
-                    record = dict(name='robust-' + case, pidNamespace=bool(wrapper), passed=False)
+                for case in ('query', 'thread', 'exit', 'kill', 'exec', 'thread-exec',
+                             'children', 'thread-children', 'notices', 'orphan'):
+                    record = dict(name='robust-' + case, pidNamespace=bool(wrapper), native=native, passed=False)
                     suite.report['cases'].append(record)
                     try:
-                        output = suite.command(base + ['--bind-ro', suite.base, target,
-                            '--deadline-seconds', '20', '--'] + wrapper
-                            + [target + '/thread', '--robust-' + case], timeout=30, quiet=True)
+                        output = suite.command(command + ['--robust-' + case], timeout=30, quiet=True)
                         assert 'PASS robust' in output, output
                         record['passed'] = True
                     except Exception as error:
                         record['error'] = str(error)
                     print(('PASS' if record['passed'] else 'FAIL')
-                          + f' robust-{case} pidNamespace={bool(wrapper)}', flush=True)
+                          + f' robust-{case} pidNamespace={bool(wrapper)} native={native}', flush=True)
         if args.debuggers:
             namespace = ['/usr/bin/unshare', '--pid', '--fork', '--mount-proc']
             trace = ['/usr/bin/strace', '-f', '-qq', '-o', '/dev/null']

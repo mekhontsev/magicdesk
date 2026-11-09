@@ -159,7 +159,9 @@ loads a prepared image when it is absent, instead of pulling from a registry;
 the requested image must be present after loading. This separates local container
 acceptance from download availability without weakening the network checks.
 `--trace-runtime` traces the fixture-owned rootless Docker runtime for diagnosis;
-it is not a performance run. `test_booted_nspawn.py --session SESSION --machine
+`--trace-network` attaches to its daemon after set-ID startup and image
+preparation, and observes network, namespace and capability calls. Neither
+is a performance run. `test_booted_nspawn.py --session SESSION --machine
 MACHINE` uses an existing `/var/lib/machines/MACHINE`, while
 `test_booted_lxc.py --session SESSION --archive ROOTFS.tar.gz` creates and removes
 its own container from a systemd/D-Bus/iproute2/Python rootfs. The latter two
@@ -520,9 +522,13 @@ thread identities and multi-threaded setuid/setgid/setgroups, including strace
 both inside and outside a PID namespace. The store must contain strace and GDB.
 `--executor app|shell` selects the Android identity; without a prebuilt fixture,
 the test compiles against that store's libc. `--case robust` independently checks
-list registration/query and mutex owner death after thread exit, process exit,
-SIGKILL and exec, both directly and inside a logical PID namespace. This is a
-strict acceptance test, including currently unsupported owner-death paths;
+ten cases both directly and inside a logical PID namespace: list registration/
+query, owner death after thread/process exit, SIGKILL, leader/nonleader exec,
+childless and real-child waits, thread-specific waits, native SIGCHLD readers
+and subreaper adoption. Wait coverage includes WNOWAIT, NULL waitid output and
+stop/continue events. `--native-control --executor shell` builds a static fixture
+and runs the same assertions directly under Android before the Shroot variants.
+It distinguishes kernel limitations without weakening the managed-path checks;
 libc accepting a robust attribute alone is not a pass.
 `test_resources.py BUILD --case robust-futex --executor app|shell` tests the
 cleanup cursor and retained-address-space executor independently of libc:
@@ -533,8 +539,17 @@ The same native signal queues supply those readers after retirement. Cleanup
 faults retain the application's SIGSEGV disposition; malformed-list walks yield
 bounded progress turns without accepting another cleanup over unfinished work.
 The fixture uses `task_retained`, `task_robust` and `task_child_reap`, not its own
-implementation of those operations. These components are not yet connected to
-runtime robust-list registration, so this is not a distribution-mutex pass.
+implementation of those operations. The runtime uses these same owners; the
+separate libc fixture verifies their integration with distribution mutexes.
+The supervisor-state suite checks filtered-wait selection, cancellation of
+NULL-output waitid probes when their shared buffer pool is exhausted, shared
+checkpoint ownership for parked signal waits, and retirement admission while
+the parent or its children still have terminal events to complete. Memory-repair
+stops are retained across every quiescence owner and replayed exactly once.
+Provider-wait checks distinguish repeatable direct/IO preparation from committed
+effects, partial transfers and splice. `test_mount_api.py` also uses libc reads
+under signals without SA_RESTART while refreshing an already-open mount table;
+Python's automatic EINTR retry cannot mask that assertion.
 Signal information remains native while stopped and is translated separately
 for debugger observation and delivery to the target.
 Compile the fixture with both stock glibc and musl: `--pid-futex` also checks

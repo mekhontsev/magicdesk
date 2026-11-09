@@ -1,4 +1,5 @@
 #include "network_filter.h"
+#include "network_filter_compare.h"
 #include <errno.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nf_tables.h>
@@ -110,11 +111,17 @@ static int may_translate(struct md_network_filter *f,const struct md_filter_chai
                 break;
             }
             case MD_FILTER_COMPARE: {
+                if (all(known+e->src,size,1)) {
+                    possible=md_filter_compare(e->operation,memcmp(values+e->src,e->value,size));
+                    break;
+                }
+                /* Ordered unknown predicates can select any candidate. Do
+                 * not apply equality's finite-exclusion proof to them. */
+                if (e->operation!=NFT_CMP_EQ && e->operation!=NFT_CMP_NEQ) { uncertain=1; break; }
                 int mismatch=0;
                 for (unsigned b=0;b<size;++b) if (known[e->src+b] && values[e->src+b]!=e->value[b]) mismatch=1;
                 int excluded=(size==address_size && all(tags+e->src,size,ADDRESS)) || (size==2 && all(tags+e->src,size,PORT));
                 if (mismatch || excluded) possible=e->operation==NFT_CMP_NEQ;
-                else if (all(known+e->src,size,1)) possible=e->operation==NFT_CMP_EQ;
                 else uncertain=1;
                 break;
             }

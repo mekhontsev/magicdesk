@@ -66,7 +66,14 @@ def peer(family):
         index = socket.if_nametoindex('md-mc-peer')
         for round_number in range(3):
             source = received(stream, family, index, str(round_number).encode(), 7 if round_number == 2 else 255)
-            stream.sendto(b'reply' + str(round_number).encode(), source)
+            if family == socket.AF_INET6 and round_number != 0:
+                # mDNS responders supply the interface in pktinfo, not sockaddr.
+                stream.sendmsg([b'reply' + str(round_number).encode()],
+                               [(socket.IPPROTO_IPV6, socket.IPV6_PKTINFO,
+                                 struct.pack('=16sI', b'\0' * 16, index))],
+                               0, (source[0], source[1], 0, 0))
+            else:
+                stream.sendto(b'reply' + str(round_number).encode(), source)
         assert not select.select([stream], [], [], .05)[0], 'duplicate bridge delivery'
     print('PASS peer', flush=True)
 
@@ -156,12 +163,15 @@ def guest():
 
 
 def main():
+    from fixture_executor import FixtureExecutor
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
+    parser.add_argument('--output', type=Path, default=Path('build/network-multicast-results'))
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
     from test_oci_services import Suite
-    suite = Suite(args.build, args.build)
+    suite = Suite(args.output, args.build, executor=args.executor)
     target = '/tmp/md-multicast-' + suite.report['id']
     try:
         suite.upload(Path(__file__), suite.base + '/test.py')

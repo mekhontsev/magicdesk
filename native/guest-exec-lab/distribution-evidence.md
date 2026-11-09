@@ -2002,10 +2002,8 @@ HOME
 ### SteamOS recipe/default boot
 
 `build/steamos-recipe-hardware-current/oci-services-c668b2e77f3a4d77958f4f40811784f0.json`
-; official recovery image, helper refresh and full pacman synchronization. Avahi
-protocol/restart acceptance is recorded in
-[Boot and IPv6 acceptance](validation-matrix.md#boot-and-ipv6-acceptance). Firewalld
-REJECT, hardware boot and the package removal/verification lifecycle are not certified
+; official recovery image, helper refresh and full pacman synchronization.
+Hardware boot and the package removal/verification lifecycle are not certified.
 
 `build/steamos-default-debugger-recovery/oci-services-a0de428d4e944cf7b64057646099f597.json`
 uses supervisor `729b3c3b988519fa...` and a private bridge. Stock systemd reaches
@@ -2013,6 +2011,13 @@ uses supervisor `729b3c3b988519fa...` and a private bridge. Stock systemd reache
 and execution, RTKit start/restart/stop and normal shutdown pass. A healthy
 manager state is not acceptance of the whole firewalld ruleset. Routed automatic host-port publication
 separately denies systemd-resolved's port 53 under Android shell permissions.
+
+Current App-UID acceptance:
+`build/matrix-close-steamos/boot-handles/oci-services-bf17fdb74ade4dfabbfa36dd79153142.json`
+verifies default boot on a private bridge, zero failed units, journal/D-Bus/logind
+IO, Avahi IPv4/IPv6 replies, firewalld port-range rule addition/removal in nftables,
+three service restarts, binfmt, RTKit and clean shutdown. It does not rerun the
+Shell launch or certify every firewall expression.
 
 ### SteamOS Docker
 

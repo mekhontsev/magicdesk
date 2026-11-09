@@ -338,12 +338,21 @@ def observe(address, **request):
         connection.close()
 
 
+def http_exchange(url, repeats=20):
+    token = url.split('/')[-2]
+    for index in range(repeats):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                assert response.status == 200
+                assert response.read().decode() == token
+        except Exception as error:
+            raise AssertionError(f'Outbound HTTP connection {index + 1}/{repeats} failed') from error
+    print('CONTAINER_OUTBOUND_OK', repeats, flush=True)
+
+
 if __name__ == '__main__':
     if sys.argv[1] == '--http':
-        with urllib.request.urlopen(sys.argv[2], timeout=5) as response:
-            assert response.status == 200
-            assert response.read().decode() == sys.argv[2].split('/')[-2]
-        print('CONTAINER_OUTBOUND_OK', flush=True)
+        http_exchange(sys.argv[2])
     elif sys.argv[1] == '--internet':
         internet()
     elif sys.argv[1] == '--internet-ipv6':

@@ -32,7 +32,7 @@ void md_pid_filter_build(uintptr_t gate,uintptr_t task,struct md_pid_filter_prog
         PROCESS(pidfd_open) PROCESS(pidfd_send_signal) PROCESS(rt_sigqueueinfo) PROCESS(rt_tgsigqueueinfo) PROCESS(rt_sigtimedwait)
         PROCESS(sched_getaffinity) PROCESS(sched_setaffinity) PROCESS(sched_getparam) PROCESS(sched_setparam)
         PROCESS(sched_getscheduler) PROCESS(sched_setscheduler) PROCESS(sched_getattr) PROCESS(sched_setattr)
-        PROCESS(sched_rr_get_interval) PROCESS(get_robust_list) PROCESS(prlimit64)
+        PROCESS(sched_rr_get_interval) PROCESS(get_robust_list) PROCESS(set_robust_list) PROCESS(prlimit64)
         PROCESS(ioprio_get) PROCESS(ioprio_set)
         PROCESS(process_vm_readv) PROCESS(process_vm_writev) PROCESS(kcmp)
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,0,6),

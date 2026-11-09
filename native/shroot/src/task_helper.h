@@ -5,6 +5,7 @@
 #include "task_send.h"
 #include "task_receive.h"
 #include "task_call.h"
+#include "task_birth.h"
 #include <sys/user.h>
 #include <sys/types.h>
 #include <asm/ptrace.h>
@@ -73,8 +74,8 @@ struct md_task_helper_result {
 typedef void (*md_task_helper_complete)(void *, struct md_task_helper_result);
 struct md_task_helper_callbacks {
     long (*trace)(int, pid_t, void *, void *);
-    /* Transfer early newborn ownership. Positive means ready to initialize;
-     * zero also covers an already LISTENing child awaiting native CONT. */
+    /* Transfer early ownership as md_task_birth_stop or negative errno.
+     * PENDING also covers a LISTENing child awaiting native CONT. */
     int (*newborn)(pid_t);
     /* Shared fair collection includes private tasks until their terminal wait. */
     struct md_task_wait *wait;

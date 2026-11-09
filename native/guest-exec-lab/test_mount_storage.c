@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
 #include <sys/inotify.h>
@@ -19,6 +20,18 @@
 #include <unistd.h>
 
 void test_mount_allocation_failure_after(int);
+static unsigned policy_reads, policy_connections;
+static int policy_failure;
+int __real_md_inode_store_reconnect(struct md_inode_lifetime *,struct md_inode_store **);
+int __wrap_md_inode_store_reconnect(struct md_inode_lifetime *life,struct md_inode_store **out) {
+    ++policy_connections;
+    return __real_md_inode_store_reconnect(life,out);
+}
+int __real_md_fs_storage_readonly(struct md_filesystem *,const struct md_view_mount *);
+int __wrap_md_fs_storage_readonly(struct md_filesystem *fs,const struct md_view_mount *mount) {
+    ++policy_reads;
+    return policy_failure ? -EIO : __real_md_fs_storage_readonly(fs,mount);
+}
 static unsigned descriptors(void) {
     DIR *directory=opendir("/proc/self/fd"); assert(directory);
     unsigned n=0; struct dirent *entry;
@@ -490,6 +503,77 @@ static void projection_policy(struct md_inode_store *main,const char *base) {
     assert(descriptors()==before);
     puts("PASS projection policy: one connection per catalogue, fresh peer/upper remounts, no mount-flag leakage or FD retention");
 }
+static void table_policy(const char *base) {
+    enum { COUNT=MD_FS_STORAGE_CACHE_LIMIT+3, ALIASES=4 };
+    unsigned before=descriptors();
+    char path[PATH_MAX]; snprintf(path,sizeof(path),"%s/table-policy",base);
+    struct md_inode_store *main=NULL,*stores[COUNT];
+    struct md_inode_lifetime *leases[COUNT];
+    assert(!md_inode_store_open(path,1,&main));
+    struct md_fs_storage_cache cache={0};
+    struct md_filesystem fs={.store=main,.storage=&cache};
+    assert(!md_fs_mounts_open(&fs,NULL,0));
+    for (unsigned i=0;i<COUNT;++i) {
+        snprintf(path,sizeof(path),"%s/table-policy-%u",base,i);
+        assert(!md_inode_store_open(path,1,&stores[i]));
+        leases[i]=md_inode_lifetime_retain(stores[i]->lifetime);
+    }
+    /* Interleave aliases beyond the LRU capacity, as container mount views do. */
+    for (unsigned alias=0;alias<ALIASES;++alias) for (unsigned i=0;i<COUNT;++i) {
+        snprintf(path,sizeof(path),"/policy-%u-%u",i,alias);
+        assert(!md_inode_mkdir(main,-1,path,0755));
+        struct md_view_location target;
+        assert(!md_view_walk(&fs,-1,NULL,path,1,0,0,&target));
+        int fd=md_inode_open(stores[i],-1,"/",O_PATH|O_DIRECTORY,0); assert(fd>=0);
+        struct md_mount_source source={.fd=fd,.backing=MD_MOUNT_INODE,.storage=leases[i]};
+        assert(!md_view_attach_source(&fs,&source,&target,NULL));
+        close(fd); md_view_location_close(&target);
+    }
+    for (unsigned i=0;i<COUNT;++i) md_inode_store_close(stores[i]);
+    for (unsigned pass=0;pass<2;++pass) {
+        for (unsigned i=0;i<COUNT;++i) {
+            struct md_inode_store *peer=NULL;
+            assert(!md_inode_store_reconnect(leases[i],&peer));
+            assert(!md_inode_store_reconfigure(peer,(i+pass)%2));
+            md_inode_store_close(peer);
+        }
+        for (unsigned info=0;info<2;++info) {
+            md_fs_storage_close(&cache);
+            policy_reads=policy_connections=0;
+            int fd=md_fs_mount_table(&fs,info,0); assert(fd>=0);
+            assert(policy_reads==COUNT+1 && policy_connections==COUNT);
+            assert(cache.count<=MD_FS_STORAGE_CACHE_LIMIT);
+            FILE *table=fdopen(fd,"r"); assert(table);
+            char *line=NULL; size_t capacity=0;
+            unsigned seen=0,previous=0;
+            while (getline(&line,&capacity,table)>=0) {
+                char options[64]; unsigned id=0,i,alias;
+                if (info) assert(sscanf(line,"%u %*u %*s %*s %4095s %63s",&id,path,options)==3);
+                else assert(sscanf(line,"%*s %4095s %*s %63s",path,options)==2);
+                if (sscanf(path,"/policy-%u-%u",&i,&alias)!=2) continue;
+                assert(i<COUNT && alias<ALIASES && seen++==alias*COUNT+i);
+                int ro=(i+pass)%2;
+                if (info) {
+                    assert(id>previous); previous=id;
+                    assert(!strcmp(options,"rw"));
+                    char *separator=strstr(line," - "); assert(separator);
+                    assert(sscanf(separator+3,"%*s %*s %63s",options)==1);
+                }
+                assert(!strcmp(options,ro ? "ro" : "rw"));
+            }
+            assert(!ferror(table) && seen==COUNT*ALIASES);
+            free(line); assert(!fclose(table));
+        }
+    }
+    unsigned live=descriptors();
+    policy_failure=1; assert(md_fs_mount_table(&fs,1,0)==-EIO); policy_failure=0;
+    assert(descriptors()==live);
+    md_fs_mounts_close(&fs); md_fs_storage_close(&cache);
+    for (unsigned i=0;i<COUNT;++i) md_inode_lifetime_release(leases[i]);
+    md_inode_store_close(main);
+    assert(descriptors()==before);
+    puts("PASS table policies: one read/reconnect per superblock, bounded cache, fresh peer remounts and stable alias order");
+}
 void test_mount_storage(const char *base) {
     file_binds(base);
     socket_binds(base);
@@ -672,6 +756,7 @@ void test_mount_storage(const char *base) {
     projected_root_window(base);
     deferred_storage(main,base);
     projection_policy(main,base);
+    table_policy(base);
     main->identity=NULL; md_identity_release(&root); md_inode_store_close(main);
     assert(descriptors()==before);
     puts("PASS mounted inode storage: identity, symlinks, bind/copy, policy, portable custody and old dirfd");

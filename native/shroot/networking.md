@@ -175,7 +175,11 @@ translated destination through the same flow owner. Socket output binding
 applies only before egress, including veth pairs in the same namespace;
 generation-based route revalidation retains that binding only for the originating
 egress. Ingress performs a new route lookup and retains the incoming interface's
-IPv6 link-local scope. Nftables element deletion
+IPv6 link-local scope. Local delivery retains the destination interface's scope
+for socket selection and received packet info while firewall INPUT still sees
+loopback. Per-message IPv6 packet info participates in interface selection before
+link-local scope validation, including when sockaddr supplies no scope ID.
+Nftables element deletion
 selects by key; an echoed value does not change the match or retain a verdict
 target. Both contracts are covered by native network tests and the nspawn
 command/publication lifecycle fixture.
@@ -536,7 +540,10 @@ Random selection runs only on NAT admission and uses the existing collision
 reservations; retained mappings keep their chosen port. Xtables DNAT/SNAT state
 aliases are ORed with ordinary conntrack state using the flow's NAT status.
 ACCEPT ends a chain, not a hook; later
-base chains may deny it. RETURN applies the base policy.
+base chains may deny it. RETURN applies the base policy. Register comparisons
+support EQ, NEQ, LT, LTE, GT and GTE in network-byte order for the declared
+operand width. NAT publication uses that same comparison owner; an unresolved
+ordered predicate is not treated as a finite set of candidate ports.
 `route` OUTPUT chains repeat route selection after a mark/address change and
 publish the selected output to later chains. They use the same policy-routing
 owner as socket admission; unsupported route-chain hooks fail at installation.
@@ -555,9 +562,10 @@ established native streams close with SO_LINGER reset, so peers observe RST
 rather than waiting for a DROP timeout. Existing direct streams retain the
 ordinary policy-update rule: an update requiring mediation returns EBUSY.
 `network_reject` owns typed TCP/ICMP refusals and socket error conversion.
-nft ICMP/ICMPv6 unreachable, inet `icmpx`, and revision-zero xtables unreachable
+nft ICMP/ICMPv6 unreachable, family-dependent raw ICMP in `inet`, inet `icmpx`, and revision-zero xtables unreachable
 targets share that owner. Address/connection admission returns the corresponding
-errno. On TUN/TAP, the packet owner sends an actual ICMP reply with checksum and
+Linux-family errno. Raw codes retain their wire value; `icmpx` uses its explicit
+IPv4/IPv6 code translation. On TUN/TAP, the packet owner sends an actual ICMP reply with checksum and
 a bounded quote of the original header, including IPv4 options. A retained
 packet channel uses the relay's generation-cached decision after rule changes;
 it does not re-evaluate the rules for every packet. Incoming, validated ICMP

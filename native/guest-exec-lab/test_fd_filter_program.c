@@ -55,7 +55,7 @@ static int pid_sensitive(const struct seccomp_data *d) {
     case SYS_sched_getaffinity: case SYS_sched_setaffinity: case SYS_sched_getparam:
     case SYS_sched_setparam: case SYS_sched_getscheduler: case SYS_sched_setscheduler:
     case SYS_sched_getattr: case SYS_sched_setattr: case SYS_sched_rr_get_interval:
-    case SYS_get_robust_list: case SYS_prlimit64: case SYS_ioprio_get: case SYS_ioprio_set:
+    case SYS_get_robust_list: case SYS_set_robust_list: case SYS_prlimit64: case SYS_ioprio_get: case SYS_ioprio_set:
     case SYS_process_vm_readv: case SYS_process_vm_writev: case SYS_kcmp: return 1;
     case SYS_ioctl:
         return (unsigned)d->args[1]==TIOCGPGRP || (unsigned)d->args[1]==TIOCSPGRP

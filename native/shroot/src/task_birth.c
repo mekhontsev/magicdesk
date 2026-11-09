@@ -30,10 +30,10 @@ long md_task_birth_terminal(long (*trace)(int,pid_t,void *,void *),pid_t pid,
 }
 
 long md_task_birth_read(long (*trace)(int,pid_t,void *,void *),pid_t pid,
-        unsigned event,long number,int *terminal) {
+        unsigned event,int *terminal) {
     *terminal=0;
-    if ((event!=PTRACE_EVENT_CLONE && event!=PTRACE_EVENT_FORK && event!=PTRACE_EVENT_VFORK)
-            || !md_clone_call(number)) return -EINVAL;
+    if (event!=PTRACE_EVENT_CLONE && event!=PTRACE_EVENT_FORK && event!=PTRACE_EVENT_VFORK)
+        return -EINVAL;
     unsigned long child=0;
     if (trace(PTRACE_GETEVENTMSG,pid,NULL,&child)<0) return -errno;
     siginfo_t info={0};
@@ -47,7 +47,7 @@ long md_task_birth_read(long (*trace)(int,pid_t,void *,void *),pid_t pid,
     struct user_pt_regs r;
     struct iovec io={&r,sizeof(r)};
     if (trace(PTRACE_GETREGSET,pid,(void *)NT_PRSTATUS,&io)<0) return -errno;
-    if (r.regs[8]!=(unsigned long)number || !r.regs[0] || r.regs[0]>INT_MAX) return -EPROTO;
+    if (!md_clone_call(r.regs[8]) || !r.regs[0] || r.regs[0]>INT_MAX) return -EPROTO;
     *terminal=1;
     return (long)r.regs[0];
 }

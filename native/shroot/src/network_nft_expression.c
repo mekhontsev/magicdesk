@@ -397,6 +397,7 @@ static int expression(struct md_network_filter *f,uint64_t table,
             e->aux=*(const unsigned char *)a[NFTA_REJECT_ICMP_CODE].data;
             unsigned family=table_family(f,table);
             if(value==NFT_REJECT_ICMPX_UNREACH && family==NFPROTO_INET) e->key=MD_REJECT_ICMPX;
+            else if(value==NFT_REJECT_ICMP_UNREACH && family==NFPROTO_INET) e->key=MD_REJECT_ICMP;
             else if(value==NFT_REJECT_ICMP_UNREACH && family==NFPROTO_IPV4) e->key=MD_REJECT_ICMP4;
             else if(value==NFT_REJECT_ICMP_UNREACH && family==NFPROTO_IPV6) e->key=MD_REJECT_ICMP6;
             else return -EOPNOTSUPP;
@@ -444,7 +445,7 @@ static int expression(struct md_network_filter *f,uint64_t table,
     } else if (!strcmp(name,"cmp")) {
         FIELDS(BIT(NFTA_CMP_SREG)|BIT(NFTA_CMP_OP)|BIT(NFTA_CMP_DATA));
         e->code=MD_FILTER_COMPARE; NUM(NFTA_CMP_OP,e->operation);
-        if (e->operation!=NFT_CMP_EQ && e->operation!=NFT_CMP_NEQ) return -EOPNOTSUPP;
+        if (e->operation>NFT_CMP_GTE) return -EOPNOTSUPP;
         error=data_value(&a[NFTA_CMP_DATA],e->value,&e->size); if (error) return error;
         REG(NFTA_CMP_SREG,e->size,e->src,0);
     } else if (!strcmp(name,"range")) {

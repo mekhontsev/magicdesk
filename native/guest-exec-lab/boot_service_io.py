@@ -134,11 +134,38 @@ def cups():
 
 
 def firewalld():
+    def handles():
+        rules = json.loads(command('nft', '-j', 'list', 'table', 'inet', 'firewalld'))
+        return {(item['rule']['chain'], item['rule']['handle'])
+                for item in rules['nftables'] if 'rule' in item}
+
     assert command('firewall-cmd', '--state') == 'running'
     command('firewall-cmd', '--get-active-zones')
-    rules = json.loads(command('nft', '-j', 'list', 'table', 'inet', 'firewalld'))
-    assert any('rule' in item for item in rules['nftables']), 'firewalld installed no rules'
-    print('PASS firewalld control plane and installed rules', flush=True)
+    before = handles()
+    assert before, 'firewalld installed no rules'
+    occupied = set()
+    for entry in command('firewall-cmd', '--zone=public', '--list-ports').split():
+        ports, protocol = entry.split('/')
+        if protocol == 'udp':
+            limits = [int(value) for value in ports.split('-')]
+            occupied.update(range(limits[0], limits[-1] + 1))
+    first = next((value for value in range(1, 65535)
+                  if value not in occupied and value + 1 not in occupied), None)
+    assert first is not None, 'no unused UDP port range for the lifecycle check'
+    port = '%d-%d/udp' % (first, first + 1)
+    query = ['firewall-cmd', '--zone=public', '--query-port=' + port]
+    result = subprocess.run(query, text=True, capture_output=True, timeout=10)
+    assert result.returncode == 1 and result.stdout.strip() == 'no', result
+    assert command('firewall-cmd', '--zone=public', '--add-port=' + port) == 'success'
+    try:
+        assert command(*query) == 'yes'
+        assert handles() > before, 'port addition did not install a new nft rule'
+    finally:
+        assert command('firewall-cmd', '--zone=public', '--remove-port=' + port) == 'success'
+    result = subprocess.run(query, text=True, capture_output=True, timeout=10)
+    assert result.returncode == 1 and result.stdout.strip() == 'no', result
+    assert handles() == before, 'port removal left changed nft rules'
+    print('PASS firewalld control plane, rule addition/removal and installed rules', flush=True)
 
 
 if __name__ == '__main__':

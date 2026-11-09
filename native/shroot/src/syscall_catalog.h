@@ -5,7 +5,7 @@
 /* Optional native facilities: only an inherited host TRAP becomes ENOSYS.
  * Permitted calls remain native; guest seccomp always takes precedence. */
 #define MD_HOST_OPTIONAL_CALLS(X) \
-    X(set_robust_list) X(get_robust_list) X(rseq) \
+    X(rseq) \
     X(get_mempolicy) X(set_mempolicy) X(mbind) \
     X(adjtimex) X(clock_adjtime) X(kcmp)
 /* No guest provider: these operations must not reach Android's resources. */

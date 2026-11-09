@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <linux/futex.h>
 #include <pthread.h>
+#include <poll.h>
 #include <sched.h>
 #include <signal.h>
 #include <stdio.h>
@@ -11,12 +12,14 @@
 #include <grp.h>
 #include <sys/prctl.h>
 #include <sys/mman.h>
+#include <sys/signalfd.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 static pthread_mutex_t mutex;
+static const char *program;
 static pthread_barrier_t ready, done;
 static void *credential_worker(void *unused) {
     (void)unused;
@@ -40,6 +43,13 @@ static void credentials(void) {
     assert(!pthread_barrier_destroy(&done));
 }
 static volatile pid_t parent_tid, child_tid;
+/* Exercise the kernel clone contract: libc wrappers may reject clear_child_tid
+ * for application-created tasks before issuing any syscall. */
+extern long identity_clone(unsigned long,void *,volatile pid_t *,void *,volatile pid_t *,int (*)(void *));
+__asm__(".text\n.global identity_clone\n.type identity_clone,%function\nidentity_clone:\n"
+    "stp x19,x30,[sp,#-16]!\nmov x19,x5\nmov x8,#220\nsvc #0\n"
+    "cbnz x0,1f\nmov x0,#0\nblr x19\nmov x8,#93\nsvc #0\nbrk #0\n"
+    "1: ldp x19,x30,[sp],#16\nret\n.size identity_clone,.-identity_clone\n");
 static int clone_child(void *unused) {
     (void)unused;
     assert(parent_tid==syscall(SYS_gettid));
@@ -72,8 +82,11 @@ static void threads(void) {
     assert(stack);
     for (unsigned i=0;i<16;++i) {
         parent_tid=child_tid=-1;
-        pid_t child=clone(clone_child,stack+length,CLONE_VM|CLONE_PARENT_SETTID
-            |CLONE_CHILD_SETTID|CLONE_CHILD_CLEARTID|SIGCHLD,NULL,&parent_tid,NULL,&child_tid);
+        pid_t child=(pid_t)identity_clone(CLONE_VM|CLONE_PARENT_SETTID
+            |CLONE_CHILD_SETTID|CLONE_CHILD_CLEARTID|SIGCHLD,stack+length,&parent_tid,NULL,&child_tid,clone_child);
+        if (child<=0 || parent_tid!=child)
+            fprintf(stderr,"clone publication iteration=%u child=%d parent_tid=%d child_tid=%d errno=%d\n",
+                i,child,parent_tid,child_tid,errno);
         assert(child>0 && parent_tid==child);
         int status;
         assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
@@ -153,6 +166,136 @@ static void robust_recover(pthread_mutex_t *lock) {
     assert(!pthread_mutex_trylock(lock));
     assert(!pthread_mutex_unlock(lock));
 }
+static void robust_children(void) {
+    pthread_mutex_t lock;
+    robust_mutex_init(&lock,1);
+    assert(!pthread_mutex_lock(&lock));
+    const unsigned options[]={0,__WCLONE,__WALL};
+    for (unsigned i=0;i<sizeof(options)/sizeof(*options);++i) {
+        int status;
+        errno=0;
+        long result=syscall(SYS_wait4,-1,&status,WNOHANG|options[i],NULL);
+        if (result!=-1 || errno!=ECHILD)
+            fprintf(stderr,"childless wait options=%#x result=%ld errno=%d\n",options[i],result,errno);
+        assert(result==-1 && errno==ECHILD);
+        siginfo_t info={0};
+        errno=0;
+        assert(syscall(SYS_waitid,P_ALL,0,&info,WEXITED|WNOHANG|options[i],NULL)==-1 && errno==ECHILD);
+    }
+    for (unsigned i=0;i<4;++i) {
+        int clone_wait=i&1;
+        pid_t child=(pid_t)syscall(SYS_clone,clone_wait ? 0 : SIGCHLD,0,0,0,0);
+        assert(child>=0);
+        if (!child) {
+            /* Allow the parent to enter its blocking wait before completion. */
+            struct timespec pause={.tv_nsec=20000000};
+            syscall(SYS_nanosleep,&pause,NULL);
+            _exit(47);
+        }
+        unsigned flags=clone_wait ? __WCLONE : __WALL;
+        if (i<2) {
+            int status;
+            assert(waitpid(-1,&status,flags)==child && WIFEXITED(status) && WEXITSTATUS(status)==47);
+        } else {
+            siginfo_t info={0};
+            assert(!waitid(P_ALL,0,&info,WEXITED|WNOWAIT|flags));
+            assert(info.si_pid==child && info.si_code==CLD_EXITED && info.si_status==47);
+            assert(!waitid(P_ALL,0,&info,WEXITED|flags) && info.si_pid==child);
+        }
+        int status;
+        assert(waitpid(-1,&status,WNOHANG|__WALL)==-1 && errno==ECHILD);
+    }
+    for (unsigned observe=0;observe<2;++observe) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) _exit(49);
+        assert(!syscall(SYS_waitid,P_ALL,0,NULL,WEXITED|__WALL|(observe ? WNOWAIT : 0),NULL));
+        int status;
+        if (observe)
+            assert(waitpid(child,&status,__WALL)==child && WIFEXITED(status) && WEXITSTATUS(status)==49);
+        assert(waitpid(-1,&status,WNOHANG|__WALL)==-1 && errno==ECHILD);
+    }
+    int channel[2]; assert(!pipe(channel));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        close(channel[1]);
+        assert(!raise(SIGSTOP));
+        char byte; assert(read(channel[0],&byte,1)==0);
+        _exit(0);
+    }
+    close(channel[0]);
+    siginfo_t info={0};
+    assert(!waitid(P_ALL,0,&info,WSTOPPED|__WALL));
+    assert(info.si_pid==child && info.si_code==CLD_STOPPED && info.si_status==SIGSTOP);
+    assert(!kill(child,SIGCONT));
+    assert(!waitid(P_ALL,0,&info,WCONTINUED|__WALL));
+    assert(info.si_pid==child && info.si_code==CLD_CONTINUED);
+    close(channel[1]);
+    int status;
+    assert(waitpid(-1,&status,__WALL)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(!pthread_mutex_unlock(&lock));
+    assert(!pthread_mutex_destroy(&lock));
+    puts("PASS robust executor excluded from childless waits");
+}
+static pthread_barrier_t child_barrier;
+static pid_t thread_child;
+static void *robust_child_worker(void *unused) {
+    (void)unused;
+    thread_child=(pid_t)syscall(SYS_clone,0,0,0,0,0); assert(thread_child>=0);
+    if (!thread_child) for (;;) pause();
+    pthread_barrier_wait(&child_barrier);
+    pthread_barrier_wait(&child_barrier);
+    assert(!kill(thread_child,SIGKILL));
+    int status;
+    assert(waitpid(-1,&status,__WCLONE|__WNOTHREAD)==thread_child && WIFSIGNALED(status));
+    return NULL;
+}
+static void robust_thread_children(void) {
+    pthread_mutex_t lock;
+    robust_mutex_init(&lock,1); assert(!pthread_mutex_lock(&lock));
+    assert(!pthread_barrier_init(&child_barrier,NULL,2));
+    pthread_t worker; assert(!pthread_create(&worker,NULL,robust_child_worker,NULL));
+    pthread_barrier_wait(&child_barrier);
+    int status;
+    assert(waitpid(-1,&status,WNOHANG|__WCLONE|__WNOTHREAD)==-1 && errno==ECHILD);
+    assert(waitpid(-1,&status,WNOHANG|__WCLONE)==0);
+    pthread_barrier_wait(&child_barrier);
+    assert(!pthread_join(worker,NULL));
+    assert(!pthread_barrier_destroy(&child_barrier));
+    assert(!pthread_mutex_unlock(&lock)); assert(!pthread_mutex_destroy(&lock));
+    puts("PASS robust child wait retains exact native parent-thread eligibility");
+}
+static void robust_notices(void) {
+    pthread_mutex_t lock;
+    robust_mutex_init(&lock,1); assert(!pthread_mutex_lock(&lock));
+    sigset_t mask,old; sigemptyset(&mask); sigaddset(&mask,SIGCHLD);
+    assert(!pthread_sigmask(SIG_BLOCK,&mask,&old));
+    int fd=signalfd(-1,&mask,SFD_NONBLOCK|SFD_CLOEXEC); assert(fd>=0);
+    for (unsigned i=0;i<12;++i) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            pthread_mutex_t child_lock;
+            robust_mutex_init(&child_lock,1); assert(!pthread_mutex_lock(&child_lock));
+            if (i&1) { execl(program,program,"--exec-complete",NULL); _exit(120); }
+            _exit(0);
+        }
+        siginfo_t exited={0};
+        assert(!waitid(P_PID,child,&exited,WEXITED|WNOWAIT) && exited.si_pid==child);
+        struct pollfd poller={.fd=fd,.events=POLLIN};
+        assert(poll(&poller,1,2000)==1);
+        struct signalfd_siginfo info;
+        assert(read(fd,&info,sizeof(info))==sizeof(info));
+        if (info.ssi_pid!=(unsigned)child)
+            fprintf(stderr,"unexpected child notice: expected=%d actual=%u code=%d\n",child,info.ssi_pid,info.ssi_code);
+        assert(info.ssi_signo==SIGCHLD && info.ssi_pid==(unsigned)child && info.ssi_code==CLD_EXITED);
+        int status;
+        assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    }
+    struct pollfd poller={.fd=fd,.events=POLLIN};
+    assert(poll(&poller,1,100)==0);
+    close(fd); assert(!pthread_sigmask(SIG_SETMASK,&old,NULL));
+    assert(!pthread_mutex_unlock(&lock)); assert(!pthread_mutex_destroy(&lock));
+    puts("PASS robust retirement preserves real SIGCHLD and excludes private notices from signalfd");
+}
 static void *robust_worker(void *lock) {
     assert(!pthread_mutex_lock(lock));
     return NULL;
@@ -169,8 +312,16 @@ static void robust_thread(void) {
     assert(!pthread_mutex_destroy(&lock));
     puts("PASS robust mutex thread owner death");
 }
+struct robust_exec_owner { pthread_mutex_t *lock; int channel; };
+static void *robust_exec_worker(void *context) {
+    struct robust_exec_owner *owner=context;
+    assert(!pthread_mutex_lock(owner->lock));
+    assert(write(owner->channel,"x",1)==1);
+    execl(program,program,"--exec-complete",NULL);
+    _exit(120);
+}
 static void robust_process(const char *mode) {
-    assert(!strcmp(mode,"exit") || !strcmp(mode,"kill") || !strcmp(mode,"exec"));
+    assert(!strcmp(mode,"exit") || !strcmp(mode,"kill") || !strcmp(mode,"exec") || !strcmp(mode,"thread-exec"));
     pthread_mutex_t *lock=mmap(NULL,sizeof(*lock),PROT_READ|PROT_WRITE,
         MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(lock!=MAP_FAILED);
@@ -179,11 +330,16 @@ static void robust_process(const char *mode) {
     pid_t child=fork(); assert(child>=0);
     if (!child) {
         close(channel[0]);
+        if (!strcmp(mode,"thread-exec")) {
+            struct robust_exec_owner owner={lock,channel[1]};
+            pthread_t thread; assert(!pthread_create(&thread,NULL,robust_exec_worker,&owner));
+            for (;;) pause();
+        }
         assert(!pthread_mutex_lock(lock));
         assert(write(channel[1],"x",1)==1);
         if (!strcmp(mode,"kill")) for (;;) pause();
         if (!strcmp(mode,"exec")) {
-            execl("/bin/true","true",NULL);
+            execl(program,program,"--exec-complete",NULL);
             _exit(120);
         }
         _exit(0);
@@ -202,10 +358,43 @@ static void robust_process(const char *mode) {
     assert(!munmap(lock,sizeof(*lock)));
     printf("PASS robust shared mutex owner %s\n",mode);
 }
+static void robust_orphan(void) {
+    assert(!prctl(PR_SET_CHILD_SUBREAPER,1));
+    pthread_mutex_t *lock=mmap(NULL,sizeof(*lock),PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
+    assert(lock!=MAP_FAILED); robust_mutex_init(lock,1);
+    int channel[2]; assert(!pipe(channel));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        close(channel[0]);
+        pid_t orphan=fork(); assert(orphan>=0);
+        if (!orphan) {
+            assert(!pthread_mutex_lock(lock));
+            pid_t self=getpid(); assert(write(channel[1],&self,sizeof(self))==sizeof(self));
+            for (;;) pause();
+        }
+        _exit(0);
+    }
+    close(channel[1]);
+    pid_t orphan; assert(read(channel[0],&orphan,sizeof(orphan))==sizeof(orphan)); close(channel[0]);
+    int status;
+    assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(!kill(orphan,SIGKILL));
+    assert(waitpid(-1,&status,__WALL)==orphan && WIFSIGNALED(status));
+    robust_recover(lock);
+    assert(waitpid(-1,&status,WNOHANG|__WALL)==-1 && errno==ECHILD);
+    assert(!pthread_mutex_destroy(lock)); assert(!munmap(lock,sizeof(*lock)));
+    puts("PASS robust owner death and private cleanup after subreaper adoption");
+}
 int main(int argc,char **argv) {
+    program=argv[0];
     if (argc==2) {
+        if (!strcmp(argv[1],"--exec-complete")) return 0;
         if (!strcmp(argv[1],"--robust-query")) { robust_query(); return 0; }
         if (!strcmp(argv[1],"--robust-thread")) { robust_thread(); return 0; }
+        if (!strcmp(argv[1],"--robust-children")) { robust_children(); return 0; }
+        if (!strcmp(argv[1],"--robust-thread-children")) { robust_thread_children(); return 0; }
+        if (!strcmp(argv[1],"--robust-notices")) { robust_notices(); return 0; }
+        if (!strcmp(argv[1],"--robust-orphan")) { robust_orphan(); return 0; }
         if (!strncmp(argv[1],"--robust-",9)) { robust_process(argv[1]+9); return 0; }
         assert(!strcmp(argv[1],"--pid-futex"));
         priority_inheritance(getpid()==1);

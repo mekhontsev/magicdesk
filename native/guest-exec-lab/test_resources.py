@@ -630,6 +630,7 @@ def main():
             check("supervisor state ownership", executable("supervisor_state"),
                   "PASS supervisor completed open:", patterns=(r"PASS supervisor admission:",
                   r"PASS supervisor repair deferral:", r"PASS supervisor accounting:",
+                  r"PASS memory repair preparation:",
                   r"PASS filter publication:",
                   r"PASS notification completion: six kernel cancellation/reentry orders",
                   r"PASS notification bind: live lazy patch"))

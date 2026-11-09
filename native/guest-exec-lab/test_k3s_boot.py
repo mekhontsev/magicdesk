@@ -78,7 +78,7 @@ def run(args):
                 # Initial registry pulls are not recovery latency. Later boots
                 # retain downloaded images and use the shorter deadline.
                 limit = 1200 if phase == 0 else 600
-                launch = boot_command(prefix, target, args.init, label, limit, 'observe', str(phase),
+                launch = boot_command(prefix, target, args.init, label, limit, 'observe', str(phase), str(time.time()),
                                       diagnostics=args.diagnostics)
                 owner = Server(suite, launch, timeout=limit + 30)
                 try:

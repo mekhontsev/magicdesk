@@ -52,7 +52,12 @@ int md_fs_native_mount(struct md_filesystem *fs, uint64_t native, uint64_t *gues
     return 0;
 }
 
-struct table_path { const struct md_view_mount *mount; char *path; };
+struct table_path {
+    const struct md_view_mount *mount;
+    const struct md_inode_lifetime *storage;
+    char *path;
+    int readonly;
+};
 static int path_order(const void *left,const void *right) {
     unsigned a=((const struct table_path *)left)->mount->id;
     unsigned b=((const struct table_path *)right)->mount->id;
@@ -69,11 +74,17 @@ static int paths_capture(struct md_filesystem *fs,const struct md_view_mount *se
     if (!tree) return 0;
     struct table_path *paths=calloc(tree->count+1,sizeof(*paths));
     if (!paths) return -ENOMEM;
-    int r=0;
+    int r=0, captured=0;
+    struct md_view_path_root root;
     for (unsigned i=0;!r && i<=tree->count;++i) {
         const struct md_view_mount *m=i ? &tree->mounts[i-1] : &fs->mounts->base;
         if (m->detached || m==selected || !m->parent) continue;
-        char path[PATH_MAX]; r=md_view_path(fs,m->target,m->parent,path,sizeof(path));
+        if (!captured) {
+            r=md_view_path_root(fs,&root);
+            if (r) break;
+            captured=1;
+        }
+        char path[PATH_MAX]; r=md_view_path_at(fs,&root,m->target,m->parent,0,0,path,sizeof(path));
         /* A retained mount may no longer have a reachable target, including
          * proc task dentries after exit, not just paths outside a chroot. */
         if (r==-ENOENT) { r=0; continue; }
@@ -83,12 +94,7 @@ static int paths_capture(struct md_filesystem *fs,const struct md_view_mount *se
         else ++*count;
     }
     if (r) { paths_release(paths,*count); *count=0; }
-    else {
-        /* Slots are reusable; public IDs are monotonic. Preserve namespace
-         * insertion order so new mounts follow entries already seen by readers. */
-        if (*count>1) qsort(paths,*count,sizeof(*paths),path_order);
-        *out=paths;
-    }
+    else *out=paths;
     return r;
 }
 static int native_covered(const struct md_filesystem *fs,const struct table_path *paths,
@@ -189,6 +195,34 @@ static int super_readonly(struct md_filesystem *fs,const struct md_view_mount *m
     if (!md_view_inode(mount)) return 0;
     return md_fs_storage_readonly(fs,mount);
 }
+static int storage_order(const void *left,const void *right) {
+    const struct md_inode_lifetime *a=((const struct table_path *)left)->storage;
+    const struct md_inode_lifetime *b=((const struct table_path *)right)->storage;
+    if (!a || !b) return (a!=NULL)-(b!=NULL);
+    if (a->device!=b->device) return (a->device>b->device)-(a->device<b->device);
+    if (a->inode!=b->inode) return (a->inode>b->inode)-(a->inode<b->inode);
+    return strcmp(a->scope,b->scope);
+}
+static int policies_capture(struct md_filesystem *fs,struct table_path *paths,unsigned count) {
+    for (unsigned i=0;i<count;++i) {
+        const struct md_view_mount *m=paths[i].mount;
+        if (!m->devpts && !m->provider && md_view_inode(m))
+            paths[i].storage=m->storage ? m->storage : md_inode_store_lifetime(fs->store);
+    }
+    /* Read each scope once, keeping scopes from one catalogue adjacent. Bind
+     * aliases must not churn the bounded connection cache. No policy survives
+     * this snapshot: a peer's remount is observed on the next export. */
+    if (count>1) qsort(paths,count,sizeof(*paths),storage_order);
+    for (unsigned i=0;i<count;++i) {
+        struct table_path *p=&paths[i];
+        p->readonly=i && p->storage && !storage_order(p,&paths[i-1])
+            ? paths[i-1].readonly : super_readonly(fs,p->mount);
+        if (p->readonly<0) return p->readonly;
+    }
+    /* Public IDs, unlike reusable slots, preserve namespace insertion order. */
+    if (count>1) qsort(paths,count,sizeof(*paths),path_order);
+    return 0;
+}
 static const char *filesystem_type(struct md_filesystem *fs,const struct md_view_mount *mount,dev_t device) {
     if (mount && mount->file.ops) {
         if (mount->file.ops->filesystem==NSFS_MAGIC) return "nsfs";
@@ -260,6 +294,7 @@ int md_fs_mount_table(struct md_filesystem *fs, unsigned info, unsigned flags) {
     unsigned dev_id=fs->mounts->base.id;
     int readonly=super_readonly(fs,selected);
     if (!r && readonly<0) r=readonly;
+    if (!r) r=policies_capture(fs,paths,count);
     if (!r) {
         if (!md_view_base(fs->mounts,selected)) {
             const struct md_view_mount *m=selected;
@@ -280,7 +315,7 @@ int md_fs_mount_table(struct md_filesystem *fs, unsigned info, unsigned flags) {
         struct stat st=m->native;
         if (md_fuse_view_matches(m->provider)) st.st_dev=md_fuse_view_device(m->provider);
         if (!r && m->file.ops) r=m->file.ops->stat(m->file.context,&st);
-        if (!r) { readonly=super_readonly(fs,m); if (readonly<0) r=readonly; }
+        readonly=paths[i].readonly;
         char options[128];
         if (!r) r=filesystem_options(fs,m,options,sizeof(options));
         if (!r) filesystem_entry(fs,stream,info,m,m->id,m->parent ? m->parent->id : fs->mounts->base.id,

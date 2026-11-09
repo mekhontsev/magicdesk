@@ -1786,7 +1786,7 @@ static void birth_terminal_race(int kind,int protected,int code) {
         } else if (pid==actor && (unsigned)status>>16==event) {
             assert(!ptrace(PTRACE_GETEVENTMSG,pid,NULL,&newborn) && newborn>0);
             int terminal=-1;
-            assert(md_task_birth_read(task_trace,actor,event,SYS_clone,&terminal)==(long)newborn && !terminal);
+            assert(md_task_birth_read(task_trace,actor,event,&terminal)==(long)newborn && !terminal);
             break;
         }
         if (pid==child || pid==actor) resume(pid,PTRACE_CONT,0);
@@ -1807,7 +1807,7 @@ static void birth_terminal_race(int kind,int protected,int code) {
     unsigned long message=1;
     assert(!ptrace(PTRACE_GETEVENTMSG,actor,NULL,&message) && message==(unsigned)code<<8);
     int terminal=0;
-    assert(md_task_birth_read(task_trace,actor,event,SYS_clone,&terminal)==(long)newborn && terminal);
+    assert(md_task_birth_read(task_trace,actor,event,&terminal)==(long)newborn && terminal);
     assert(md_task_birth_terminal(task_trace,actor,SYS_clone,ULONG_MAX)==(long)newborn);
     assert(md_task_stop_displaced(task_trace,actor)==1);
     /* A separate process survives its creator's group death. */

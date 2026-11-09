@@ -261,6 +261,18 @@ static int child_begin(struct helper *m) {
     m->operation=CLEAR;
     return clear_next(m);
 }
+static int child_adopt(struct helper *m,pid_t child) {
+    if (m->child || m->parent_operation!=CLONE || child<=0) return protocol_error(m,__LINE__);
+    m->child=child;
+    if (m->captured) { m->captured(m->completion); m->captured=NULL; }
+    int ready=m->manager->callbacks.newborn(child);
+    md_task_wait_track(m->manager->callbacks.wait,&m->wait_member,child);
+    if (ready==MD_TASK_BIRTH_EXIT) {
+        m->operation=EXIT;
+        return resume(m,child);
+    }
+    return ready<0 ? ready : ready==MD_TASK_BIRTH_READY ? child_begin(m) : 0;
+}
 static int observe(struct helper *m, const struct user_pt_regs *r) {
     if (m->observed || !m->started) return 0;
     long address=(long)r->regs[0];
@@ -831,7 +843,21 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
     if (!WIFSTOPPED(status)) return protocol_error(m,__LINE__);
     unsigned event=(unsigned)status>>16;
     int sig=WSTOPSIG(status), error=0;
-    if (!child && (event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)) return 0;
+    if (!child && (event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)) {
+        if (event==PTRACE_EVENT_EXIT && !m->child && m->parent_operation==CLONE) {
+            /* Group exit can replace the parent's CLONE stop before wait4
+             * observes it. Retain its exact child through terminal reaping. */
+            long born=md_task_birth_terminal(manager->callbacks.trace,pid,SYS_clone,
+                CLONE_VM|CLONE_THREAD|CLONE_SIGHAND);
+            if (born<0) return born==-ESRCH ? 1 : (int)born;
+            if (born) {
+                m->cancelled=1;
+                error=child_adopt(m,(pid_t)born);
+                if (error && error!=-ESRCH) return error;
+            }
+        }
+        return 0;
+    }
     if (!child && !m->borrowed && !event && sig==SIGSYS && !m->child && m->parent_operation==CLONE) {
         siginfo_t info;
         error=(int)trace(m,PTRACE_GETSIGINFO,pid,NULL,&info);
@@ -850,16 +876,14 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
         if (m->parent_ready) return protocol_error(m,__LINE__);
         error=resume(m,pid);
     } else if (!child && event==PTRACE_EVENT_CLONE) {
-        unsigned long born;
-        error=(int)trace(m,PTRACE_GETEVENTMSG,pid,NULL,&born);
-        if (!error) {
-            if (m->child || m->parent_operation!=CLONE) return protocol_error(m,__LINE__);
-            m->child=(pid_t)born;
-            if (m->captured) { m->captured(m->completion); m->captured=NULL; }
-            int ready=manager->callbacks.newborn(m->child);
-            md_task_wait_track(manager->callbacks.wait,&m->wait_member,m->child);
-            error=ready<0 ? ready : ready ? child_begin(m) : 0;
-            if (!error) error=m->borrowed ? md_task_call_resume(&m->parent_call,0) : resume(m,pid);
+        int terminal=0;
+        long born=md_task_birth_read(manager->callbacks.trace,pid,event,&terminal);
+        if (born<0) error=(int)born;
+        else {
+            m->cancelled|=terminal;
+            error=child_adopt(m,(pid_t)born);
+            if (!error && !terminal)
+                error=m->borrowed ? md_task_call_resume(&m->parent_call,0) : resume(m,pid);
         }
     } else if (!child && m->borrowed) {
         error=borrowed_parent(m,status);
