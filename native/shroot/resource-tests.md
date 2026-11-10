@@ -138,6 +138,10 @@ replay, unrelated progress, and accounting across debugger changes. Real ptraced
 children verify single standard/realtime signal delivery after exhausted buffers,
 failed result adoption and successful adoption. The private-memory suite includes
 this fixture alongside its concurrent guest workloads.
+The same suite verifies execution retirement independently of register delivery,
+the Base argument ABI, and exact-image checkpoint admission across filter
+ancestry. Signal-delivery controls cover standard carriers coalescing with
+pending kernel SIGALRM, SIGCHLD and SIGIO, retaining siginfo and the original mask.
 
 `test_resources.py BUILD --case fs-results` additionally exercises ready-result
 custody with four concurrent threads and 32 killed children, both natively and

@@ -154,6 +154,12 @@ Separating its executor and retirement does not itself remove those ptrace
 exchanges. Shared-memory transport must preserve the same control owners,
 signal boundaries and completion rules before it can replace them.
 
+Checkpoint admission uses the installed policy chain's exact runtime-image
+identity. When every filter admits those internal gates, checkpoints keep the
+ordinary kernel path instead of SYSEMU. This is a constant-time admission check,
+not a per-call filter walk. An unbound ancestor or a filter inherited across exec
+retains emulated checkpoints, even when portable policy permits lazy entry.
+
 ### Native Memory Effects
 
 `interception_memory` publishes the memory admission snapshot only while the

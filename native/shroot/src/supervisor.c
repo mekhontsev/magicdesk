@@ -1235,7 +1235,12 @@ static long checkpoint_native_trace(int request, pid_t pid, void *address, void 
 }
 static int checkpoint_restricted(pid_t pid) {
     struct thread *t=find_thread(pid);
-    return !t || t->application_filter;
+    if (!t) return 1;
+    if (!t->application_filter) return 0;
+    const struct md_svc_registry *registry=md_memory_svc(t->memory);
+    /* Do not emulate checkpoints already admitted by every kernel filter.
+     * Portable entry after exec alone does not establish helper admission. */
+    return !registry || !md_seccomp_policy_internal_gates(t->policy,registry->image);
 }
 static int checkpoint_marker(uintptr_t pc) {
 #define MATCH_MARKER(field,symbol) if (abi.field && pc==abi.field+4) return 1;

@@ -519,10 +519,13 @@ static void ip_guards(void) {
         }
         md_seccomp_policy_bind_entry(policy,17);
         assert(md_seccomp_policy_entry_image(policy)==17);
+        assert(md_seccomp_policy_internal_gates(policy,17));
         struct md_seccomp_policy *child=NULL;
         assert(!md_seccomp_policy_capture(policy,&source,&child));
         md_seccomp_policy_bind_entry(child,invert ? 18 : 17);
         assert(md_seccomp_policy_entry_image(child)==(invert ? 0 : 17));
+        assert(md_seccomp_policy_internal_gates(child,17)==!invert);
+        assert(!md_seccomp_policy_internal_gates(child,18));
         md_seccomp_policy_release(child); md_seccomp_policy_release(policy);
     }
     puts("PASS IP-sensitive gates: both PC halves, ALLOW alias interception, original actions and image ancestry");
@@ -697,12 +700,23 @@ static void inherited_entry(void) {
     struct md_seccomp_policy *parent=NULL,*child=NULL;
     assert(!md_seccomp_policy_capture(NULL,&program,&parent));
     assert(!md_seccomp_policy_entry_compatible(parent,17));
+    assert(!md_seccomp_policy_internal_gates(parent,17));
+    assert(!md_seccomp_policy_internal_gates(NULL,17));
     md_seccomp_policy_bind_entry(parent,17);
+    assert(md_seccomp_policy_internal_gates(parent,17));
+    assert(!md_seccomp_policy_internal_gates(parent,0) && !md_seccomp_policy_internal_gates(parent,18));
     assert(md_seccomp_policy_entry_compatible(parent,17) && md_seccomp_policy_entry_compatible(parent,18));
     assert(md_seccomp_policy_entry_checkpoint(parent)==SYS_gettid);
     assert(!md_seccomp_policy_capture(parent,&program,&child));
     md_seccomp_policy_bind_entry(child,18);
     assert(md_seccomp_policy_entry_image(child)==18 && md_seccomp_policy_entry_compatible(child,19));
+    assert(!md_seccomp_policy_internal_gates(child,17) && !md_seccomp_policy_internal_gates(child,18));
+    struct md_seccomp_policy *grandchild=NULL;
+    assert(!md_seccomp_policy_capture(child,&program,&grandchild));
+    md_seccomp_policy_bind_entry(grandchild,18);
+    assert(md_seccomp_policy_entry_compatible(grandchild,18));
+    assert(!md_seccomp_policy_internal_gates(grandchild,18));
+    md_seccomp_policy_release(grandchild);
     md_seccomp_policy_release(child); child=NULL;
     struct sock_filter denied[]={
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),

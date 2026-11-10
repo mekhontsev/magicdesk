@@ -1289,8 +1289,11 @@ changing application registers. Temporary waits retain their kernel saved-mask
 restoration and the fault-aware frame adapter.
 
 `task_checkpoint` owns exact bootstrap SVC sites and emits an internal typed
-event. Unfiltered service markers use selective seccomp TRACE; with application
-filters the owner scopes PTRACE_SYSEMU to lent bootstrap execution. It skips
+event. Unfiltered service markers and exact-image helper gates admitted by every
+installed filter use selective seccomp TRACE. Other filtered domains scope
+PTRACE_SYSEMU to lent bootstrap execution. The policy owner caches the chain's
+exact gate identity independently of portable lazy-entry compatibility; neither
+exec nor a partially bound filter chain can inherit this exemption. SYSEMU skips
 only registered markers before filter evaluation. Ordinary calls in that scope
 re-enter natively with their original IP and arguments and remain subject to
 seccomp. A synthetic PTRACE_INTERRUPT exposes the real x7 before publishing a

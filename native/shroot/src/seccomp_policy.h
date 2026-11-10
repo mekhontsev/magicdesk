@@ -30,11 +30,14 @@ int md_seccomp_policy_view_write(const struct md_seccomp_policy *,uint64_t ances
  * Dynamic returns remain conservative. No BPF walk on ordinary selector stops. */
 int md_seccomp_policy_may_trace(const struct md_seccomp_policy *);
 int md_seccomp_policy_may_notify(const struct md_seccomp_policy *);
-/* Nonzero only when every ancestor was routed for this entry image. Fork
- * retains the identity; exec must not reuse permissions for old code pools. */
+/* Entry binding may inherit a portable original policy from another image.
+ * It does not prove that all kernel filters admit this image's helper gates. */
 uint64_t md_seccomp_policy_entry_image(const struct md_seccomp_policy *);
 void md_seccomp_policy_bind_entry(struct md_seccomp_policy *,uint64_t image);
 int md_seccomp_policy_entry_compatible(const struct md_seccomp_policy *,uint64_t image);
+/* Constant-time intersection of exact-image helper admission across the whole
+ * installed chain. Fork retains it; exec cannot reuse an older gate range. */
+int md_seccomp_policy_internal_gates(const struct md_seccomp_policy *,uint64_t image);
 /* An inherited image may reuse stable bootstrap gates only with PC-independent
  * policies and a natively admitted, inert rendezvous syscall. */
 int md_seccomp_policy_entry_checkpoint(const struct md_seccomp_policy *);

@@ -526,13 +526,16 @@ static int custody_child(void *argument) {
     if (c->call==SYS_openat) program=(struct sock_fprog){sizeof(delivery)/sizeof(*delivery),delivery};
     assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
-    /* The fifth openat argument is ignored by the kernel; the internal anchor
-     * gate uses it to select a retained result. Kill only that delivery, not the
-     * original application open. Native controls never enter this gate. */
+    /* The original open is allowed even when an internal transport would
+     * match the filter. A subsequent guest call must still be denied. */
     int fd=syscall(SYS_openat,c->dirfd,"custody-file",c->flags,0,0,0); assert(fd>=0);
-    assert(!close(fd)); return 0;
+    assert(!close(fd));
+    if (c->call==SYS_openat)
+        syscall(SYS_openat,c->dirfd,"custody-file",c->flags,0,MD_FS_BUFFER_SOURCE,0);
+    else syscall(c->call,-1,NULL,0);
+    assert(!"denied application operation returned"); return 99;
 }
-static unsigned terminal_custody(int guest, int protected, int call, int explicit_base, int nofollow) {
+static unsigned terminal_custody(int protected, int call, int explicit_base, int nofollow) {
     int fd=open("custody-file",O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC,0600);
     assert(fd>=0 && fd<256 && !close(fd));
     int base=explicit_base ? open(".",O_PATH|O_DIRECTORY|O_CLOEXEC) : AT_FDCWD;
@@ -547,9 +550,7 @@ static unsigned terminal_custody(int guest, int protected, int call, int explici
     /* EVENT_WAIT: exact child termination precedes inspection of its surviving
      * shared FD table. The fixture alarm is a failure bound, not a settling delay. */
     assert(waitpid(child,&status,0)==child);
-    if (guest && call==SYS_openat)
-        assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
-    else assert(WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
     unsigned leaked=0;
     for (unsigned i=0;i<sizeof(before);++i) {
         int flags=fcntl((int)i,F_GETFD);
@@ -1188,7 +1189,9 @@ static int metadata_export_child(void *argument) {
     };
     struct sock_fprog program={sizeof(code)/sizeof(*code),code};
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
-    struct stat st; assert(!fstat(file,&st)); return 0;
+    struct stat st; assert(!fstat(file,&st));
+    syscall(SYS_sendmsg,-1,NULL,0);
+    assert(!"denied application sendmsg returned"); return 99;
 }
 static void retained_proc_filter(int proc) {
     pid_t child=fork(); assert(child>=0);
@@ -1290,8 +1293,7 @@ static void metadata_export(int guest, int managed) {
         assert(pid>0);
         /* EVENT_WAIT: exporter terminal event; alarm bounds a missing exit. */
         int status; assert(waitpid(pid,&status,0)==pid);
-        if (guest && !managed) assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
-        else assert(WIFEXITED(status) && !WEXITSTATUS(status));
+        assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
         assert(export_fds(NULL)==baseline+extra);
         assert(!fstat(file,&st) && st.st_size==1);
     }
@@ -1314,7 +1316,10 @@ static int return_child(void *unused) {
     struct sock_fprog program={sizeof(code)/sizeof(*code),code};
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
     int fd=open(return_paths[0],O_PATH|O_NOFOLLOW|O_CLOEXEC);
-    assert(fd>=0 && !close(fd)); return 0;
+    assert(fd>=0 && !close(fd));
+    /* The guest filter owns guest recvmsg, not an allowed open's transport. */
+    syscall(SYS_recvmsg,-1,NULL,0);
+    assert(!"denied application recvmsg returned"); return 99;
 }
 static void buffer_return(int guest) {
     return_paths[0]=guest ? "/attached/null" : "/dev/null";
@@ -1391,11 +1396,10 @@ static void buffer_return(int guest) {
     for (int i=0;i<16;++i) {
         pid_t child=clone(return_child,(char *)stack+1024*1024,CLONE_FILES|SIGCHLD,NULL);
         assert(child>0);
-        /* EVENT_WAIT: receiver death while a result is queued; alarm bounds a
-         * stuck table/channel turn. The surviving peer must receive next. */
+        /* EVENT_WAIT: filtered receiver death; alarm bounds a stuck table or
+         * channel turn. The surviving peer must receive the next descriptor. */
         int status; assert(waitpid(child,&status,0)==child);
-        if (guest) assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
-        else assert(WIFEXITED(status) && !WEXITSTATUS(status));
+        assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
         fd=open(return_paths[1],O_PATH|O_NOFOLLOW|O_CLOEXEC);
         assert(fd>=0 && !close(fd) && export_fds(NULL)==baseline);
     }
@@ -2510,14 +2514,13 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1],"custody") || !strcmp(argv[1],"custody-native")
             || !strcmp(argv[1],"custody-dirfd") || !strcmp(argv[1],"custody-nofollow")
             || !strcmp(argv[1],"custody-native-dirfd") || !strcmp(argv[1],"custody-native-nofollow")) {
-        int guest=strncmp(argv[1],"custody-native",14)!=0;
         int explicit_base=!strcmp(argv[1],"custody-dirfd") || !strcmp(argv[1],"custody-native-dirfd");
         int nofollow=!strcmp(argv[1],"custody-nofollow") || !strcmp(argv[1],"custody-native-nofollow");
         unsigned leaked=0;
         for (int protected=0;protected<2;++protected) {
-            leaked+=terminal_custody(guest,protected,SYS_connect,explicit_base,nofollow);
-            leaked+=terminal_custody(guest,protected,SYS_recvmsg,explicit_base,nofollow);
-            leaked+=terminal_custody(guest,protected,SYS_openat,explicit_base,nofollow);
+            leaked+=terminal_custody(protected,SYS_connect,explicit_base,nofollow);
+            leaked+=terminal_custody(protected,SYS_recvmsg,explicit_base,nofollow);
+            leaked+=terminal_custody(protected,SYS_openat,explicit_base,nofollow);
         }
         return leaked ? 1 : 0;
     }

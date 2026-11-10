@@ -3570,6 +3570,35 @@ static void provider_wait_boundaries(void) {
     abi.task_call=saved_call; abi.task_return=saved_return;
     puts("PASS provider wait: seccomp exit drain, post-exit entry, poll arguments and cancelled completion");
 }
+static void checkpoint_admission(void) {
+    struct thread t={.pid=123,.memory=md_memory_new()}; assert(t.memory);
+    assert(checkpoint_restricted(t.pid));
+    thread_index[t.pid%THREAD_BUCKETS]=&t;
+    assert(!checkpoint_restricted(t.pid));
+    t.application_filter=1; assert(checkpoint_restricted(t.pid));
+    struct md_svc_registry *r=md_svc_registry_new(0x1000000,0x4000); assert(r);
+    assert(!md_memory_svc_set(t.memory,r) && checkpoint_restricted(t.pid));
+    struct sock_filter allow[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={1,allow};
+    struct md_seccomp_policy *parent=NULL,*child=NULL,*grandchild=NULL;
+    assert(!md_seccomp_policy_capture(NULL,&program,&parent));
+    t.policy=parent; assert(checkpoint_restricted(t.pid));
+    md_seccomp_policy_bind_entry(parent,r->image);
+    for (unsigned host=0;host<2;++host) {
+        t.host_signals=host; assert(!checkpoint_restricted(t.pid));
+    }
+    assert(!md_seccomp_policy_capture(parent,&program,&child));
+    t.policy=child; assert(checkpoint_restricted(t.pid));
+    md_seccomp_policy_bind_entry(child,r->image+1);
+    assert(checkpoint_restricted(t.pid));
+    assert(!md_seccomp_policy_capture(child,&program,&grandchild));
+    md_seccomp_policy_bind_entry(grandchild,r->image);
+    t.policy=grandchild;
+    assert(md_seccomp_policy_entry_compatible(t.policy,r->image) && checkpoint_restricted(t.pid));
+    md_seccomp_policy_release(grandchild); md_seccomp_policy_release(child); md_seccomp_policy_release(parent);
+    md_memory_release(t.memory); thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    puts("PASS checkpoint admission: exact chain gates avoid emulation; inherited and unbound policies retain it");
+}
 static unsigned checkpoint_trace_calls,checkpoint_op;
 static long checkpoint_barrier_trace(int request,pid_t pid,void *address,void *data) {
     assert(pid==123); ++checkpoint_trace_calls;
@@ -4273,6 +4302,7 @@ int main(void) {
     terminal_cleanup_custody();
     retirement_preparation_terminal();
     admission_quiescence();
+    checkpoint_admission();
     checkpoint_quiescence();
     quiescent_task_ownership();
     debugger_quiescence();

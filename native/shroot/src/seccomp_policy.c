@@ -11,7 +11,7 @@
 
 struct md_seccomp_policy {
     struct md_seccomp_policy *parent;
-    uint64_t identity,entry_image;
+    uint64_t identity,entry_image,internal_image;
     struct md_seccomp_cache cache;
     struct md_fd_weak *listener;
     atomic_size_t references;
@@ -127,9 +127,13 @@ int md_seccomp_policy_capture(struct md_seccomp_policy *parent, const struct soc
 int md_seccomp_policy_may_trace(const struct md_seccomp_policy *p) { return p && p->may_trace; }
 int md_seccomp_policy_may_notify(const struct md_seccomp_policy *p) { return p && p->may_notify; }
 uint64_t md_seccomp_policy_entry_image(const struct md_seccomp_policy *p) { return p ? p->entry_image : 0; }
+int md_seccomp_policy_internal_gates(const struct md_seccomp_policy *p,uint64_t image) {
+    return p && image && p->internal_image==image;
+}
 void md_seccomp_policy_bind_entry(struct md_seccomp_policy *p,uint64_t image) {
     assert(p && !p->users && !p->entry_image);
     if (!p->parent || md_seccomp_policy_entry_compatible(p->parent,image)) p->entry_image=image;
+    if (!p->parent || md_seccomp_policy_internal_gates(p->parent,image)) p->internal_image=image;
     p->entry_portable=p->entry_image && !p->uses_ip && (!p->parent || p->parent->entry_portable);
 }
 int md_seccomp_policy_entry_checkpoint(const struct md_seccomp_policy *p) {
