@@ -3,6 +3,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(guest_packet_stack C)
 endif()
 include(FetchContent)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../digest-dependencies.cmake)
 find_package(Git REQUIRED)
 FetchContent_Declare(guest_lwip
     URL https://codeload.github.com/lwip-tcpip/lwip/tar.gz/77dcd25a72509eb83f72b033d219b1d40cd8eb95
@@ -35,6 +36,7 @@ add_library(guest-lwip STATIC context.c
     ${core}/ipv6/ip6.c ${core}/ipv6/ip6_addr.c ${core}/ipv6/ip6_frag.c
     ${core}/ipv6/mld6.c ${core}/ipv6/nd6.c ${context_source}/src/netif/ethernet.c)
 target_include_directories(guest-lwip PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${context_source}/src/include)
+target_link_libraries(guest-lwip PRIVATE guest-sha256)
 target_compile_options(guest-lwip PRIVATE -std=c17 -O2 -Wall -Wextra -Werror -fno-pie)
 add_custom_command(TARGET guest-lwip POST_BUILD
     COMMAND ${CMAKE_COMMAND} -DNM=${CMAKE_NM} -DARCHIVE=$<TARGET_FILE:guest-lwip>
@@ -47,5 +49,5 @@ if(MAGICDESK_GUEST_FIXTURES OR CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DI
     add_executable(test_lwip_context ../../guest-exec-lab/test_lwip_context.c)
     target_link_libraries(test_lwip_context PRIVATE guest-lwip)
     target_compile_options(test_lwip_context PRIVATE -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG -fno-pie)
-    target_link_options(test_lwip_context PRIVATE -static -Wl,--wrap=sys_now)
+    target_link_options(test_lwip_context PRIVATE -static -Wl,--wrap=sys_now -Wl,--wrap=clock_gettime)
 endif()

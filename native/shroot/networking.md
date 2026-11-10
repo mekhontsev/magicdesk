@@ -370,6 +370,9 @@ A scoped thread-local pointer selects a context during callbacks; it contains
 no shared protocol state. A build-time symbol audit rejects mutable globals
 outside that selector. Dynamic stack allocations are capped at 64 MiB per
 namespace and reclaimed together on retirement, including unfinished fragments.
+TCP initial sequence numbers use a monotonic four-microsecond clock and a
+namespace-secret hash of the address/port tuple, independent of idle protocol
+timers. This is connection-admission work, not per-packet or native IO work.
 
 The existing fabric event loop drives bounded packet batches, nonblocking
 channel IO and a monotonic protocol timer. No thread is created per stack or
@@ -463,8 +466,12 @@ Queries and mutations require CAP_NET_ADMIN in the namespace's user owner.
 
 `network_conntrack` exposes CTNETLINK dumps and tuple lookup for managed TCP/UDP
 relays, with namespace-local original/reply tuples, NAT status, marks and expiry.
-UDP deletion retires the mapping after successful ACK publication, preserving
-the guest-facing socket. Its next datagram receives fresh routing/NAT admission.
+UDP deletion retires the mapping after successful ACK publication. Deletion and
+idle expiry preserve carriers still owned by guest sockets, including a connected
+receiver's reply port. The next datagram receives fresh routing/NAT admission.
+Re-admission retains explicit output bindings and native-listener ingress
+authority, not an interface selected by an obsolete route. An unbound sender
+can therefore reach a replacement peer namespace without reconnecting its socket.
 `network_tracking` separates TCP records from the retained transport and NAT
 binding. Deletion or idle expiry removes only the selected namespace's record;
 accepted payload recreates it with a fresh ID. Namespace-local marks do not cross
@@ -686,9 +693,16 @@ The reactor handles nonblocking native sockets, backpressure and TCP half-close.
 TCP has two 64 KiB buffers per mediated flow. UDP preserves datagrams, queues
 temporary EAGAIN up to 64 datagrams/256 KiB per direction, and expires idle
 mappings after 30 seconds, including retained identity for unread queued data.
-This is a bounded flow lifetime, not indefinite native datagram metadata retention.
+Dormant endpoint-owned carriers retain no active conntrack entry, queued payload
+or periodic timer; closing/disconnecting their owners releases them. Multicast
+keeps its sender carrier while its fanout mappings expire independently.
 Queue exhaustion drops datagrams, never reports a
-fake protocol reply. Limits are 512 listeners and 1024 mediated flows per fabric.
+fake protocol reply. Per-fabric limits are 512 listeners, 1024 mediated TCP
+streams and 8192 UDP flows, including dormant carriers. Protocol budgets are
+separate: retained UDP reply identities do not consume TCP's larger-buffer
+allowance. Admission never evicts a valid mapping or extends its idle lifetime.
+Native descriptor and allocation limits still apply, and storage is allocated
+only for admitted flows.
 Idle listeners have no polling timer. Weak namespace/event identities avoid
 ownership cycles and stale FD-reuse events; namespace/endpoint teardown and
 reactor join release all associated resources.

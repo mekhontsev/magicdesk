@@ -1,8 +1,10 @@
 #include "network_conntrack.h"
 #include "network_internal.h"
+#include "network_forward.h"
 #include "network_nft_attr.h"
 #include "guest_identity.h"
 #include <linux/netfilter/nfnetlink_conntrack.h>
+#include <stdlib.h>
 
 struct query {
     const struct nlmsghdr *request;
@@ -10,8 +12,8 @@ struct query {
     uint32_t port, id;
     unsigned family, remove, dump, has_id, has_original, has_reply;
     struct md_connection_tuple original, reply;
-    uint64_t removed[1024];
-    size_t count;
+    uint64_t *removed;
+    size_t count, capacity;
 };
 static int bytes(const struct attribute *a,void *out,size_t size) {
     if (!a->data || a->size!=size || (a->flags&~NLA_F_NET_BYTEORDER)) return -EINVAL;
@@ -70,7 +72,9 @@ static int visit(void *context,const struct md_connection *entry) {
             || (q->has_reply && !same_tuple(&q->reply,&entry->reply))) return 0;
     if (q->remove) {
         /* The relay owns transport lifetime separately from TCP tracking. */
-        if (q->count==sizeof(q->removed)/sizeof(*q->removed)) return -ENOSPC;
+        int error=md_filter_reserve((void **)&q->removed,&q->capacity,q->count+1,sizeof(*q->removed),
+            MD_NETWORK_FORWARD_TCP_LIMIT+MD_NETWORK_FORWARD_UDP_LIMIT);
+        if (error) return error;
         q->removed[q->count++]=entry->id; return 0;
     }
     ++q->count;
@@ -135,5 +139,6 @@ long md_network_conntrack(struct md_network_namespace *n,const struct md_identit
         ? publication->publish(publication->context,out.data,out.size) : (long)out.size;
     if (!error && result>=0 && q.remove) md_network_forward_forget(n,q.removed,q.count);
     pthread_mutex_unlock(&n->fabric->lock);
+    free(q.removed);
     return result;
 }

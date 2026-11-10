@@ -3,6 +3,8 @@
 #include "network_flow.h"
 #include <netinet/in.h>
 
+enum { MD_NETWORK_FORWARD_TCP_LIMIT=1024, MD_NETWORK_FORWARD_UDP_LIMIT=8192 };
+
 struct md_network_forward_update;
 struct md_network_port_reservation;
 struct md_network_event_source;

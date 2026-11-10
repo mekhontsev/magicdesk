@@ -415,6 +415,10 @@ static int receives(const struct md_network_endpoint *e,const struct md_network_
         && (!e->connected || type!=SOCK_DGRAM || (md_ip_equal(e->peer.ip,path->translated.source)
             && e->peer.port==path->translated.source_port));
 }
+int md_network_endpoint_connected_peer(const void *endpoint,const struct md_network_flow_path *path) {
+    const struct md_network_endpoint *e=endpoint;
+    return e && e->connected && receives(e,path,SOCK_DGRAM);
+}
 int md_network_endpoint_reply(struct md_network_fabric *f,const struct md_network_flow_path *path,
         const struct md_inet_address *native) {
     if (!md_ip_is_loopback(native->ip)) return 0;

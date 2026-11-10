@@ -7,6 +7,7 @@
 #include "guest_identity.h"
 #include "network_packet.h"
 #include "network_virtio.h"
+#include "lwip/priv/tcp_priv.h"
 #include "test_network_fixture.h"
 #include <assert.h>
 #include <errno.h>
@@ -509,6 +510,63 @@ static void cable_close(struct cable *cable,struct md_network_namespace *spaces[
     assert(!pthread_join(cable->thread,NULL)); close(cable->stop);
     for(unsigned i=0;i<2;++i) { md_control_file_release(cable->tun[i]); md_network_namespace_release(spaces[i]); }
 }
+static void tcp_retained_ports(int ipv6) {
+    struct md_identity root=md_identity_new(0,0);
+    struct md_network_namespace *spaces[2]; struct md_ip_address addresses[2];
+    struct cable cable={0}; cable_setup(&cable,&root,spaces,addresses,0,ipv6);
+    struct md_network_namespace *client=spaces[0],*server=spaces[1];
+    pthread_mutex_lock(&server->fabric->lock);
+    struct md_lwip_context *previous=md_lwip_enter(server->stack->context);
+    ip_addr_t any=md_stack_ip(md_ip_any(addresses[1].family));
+    struct tcp_pcb *pcb=tcp_new_ip_type(IP_GET_TYPE(&any)); assert(pcb);
+    assert(!tcp_bind(pcb,&any,40000)); pcb=tcp_listen(pcb); assert(pcb); tcp_accept(pcb,accept_tcp);
+    md_stack_arm(server->stack); md_lwip_leave(previous);
+    pthread_mutex_unlock(&server->fabric->lock);
+    assert(!pthread_create(&cable.thread,NULL,cable_run,&cable));
+    struct md_filter_packet packet={.source=addresses[0],.destination=addresses[1],
+        .source_port=htons(41000),.destination_port=htons(40000),.protocol=IPPROTO_TCP};
+    for(unsigned round=0;round<4;++round) {
+        pthread_mutex_lock(&client->fabric->lock);
+        struct md_filter_packet selected=packet;
+        assert(!md_network_forward_nat_port(client,&selected,41000,41003));
+        assert(ntohs(selected.source_port)==41000+round);
+        struct md_network_flow_path path;
+        assert(!md_network_flow_route(client,&selected,0,0,&path));
+        struct md_stack_channel *channel=NULL;
+        int fd=md_network_stack_connect(client->fabric,&path,SOCK_STREAM,&channel);
+        assert(fd>=0 && channel);
+        pthread_mutex_unlock(&client->fabric->lock);
+        assert(send(fd,"x",1,MSG_NOSIGNAL)==1);
+        struct pollfd ready={.fd=fd,.events=POLLIN}; char byte;
+        /* EVENT_WAIT: payload and FIN must traverse the packet stack. */
+        assert(poll(&ready,1,5000)==1 && recv(fd,&byte,1,0)==1 && byte=='x');
+        assert(!shutdown(fd,SHUT_WR));
+        assert(poll(&ready,1,5000)==1 && recv(fd,&byte,1,0)==0);
+        close(fd);
+        pthread_mutex_lock(&client->fabric->lock);
+        md_network_stack_close(channel);
+        previous=md_lwip_enter(client->stack->context);
+        unsigned retained=0;
+        for(pcb=tcp_tw_pcbs;pcb;pcb=pcb->next) if(pcb->local_port==41000+round) ++retained;
+        assert(retained==1);
+        md_lwip_leave(previous);
+        pthread_mutex_unlock(&client->fabric->lock);
+    }
+    pthread_mutex_lock(&client->fabric->lock);
+    assert(md_network_forward_nat_port(client,&packet,41000,41003)==-EADDRNOTAVAIL);
+    packet.destination_port=htons(40001);
+    assert(!md_network_forward_nat_port(client,&packet,41000,41003));
+    assert(ntohs(packet.source_port)==41000);
+    struct md_network_flow_path path;
+    assert(!md_network_flow_route(client,&packet,0,0,&path));
+    struct md_stack_channel *channel=NULL;
+    int fd=md_network_stack_connect(client->fabric,&path,SOCK_STREAM,&channel);
+    assert(fd>=0 && channel);
+    close(fd); md_network_stack_close(channel);
+    pthread_mutex_unlock(&client->fabric->lock);
+    cable_close(&cable,spaces); md_identity_release(&root);
+    printf("PASS packet IPv%u NAT retains TCP TIME_WAIT tuples without reserving unrelated destinations\n",ipv6 ? 6 : 4);
+}
 static int tcp_observed(int raw,int ipv6) {
     int fin=0;
     for(;;) {
@@ -799,6 +857,7 @@ static void packet_reject(int tap,int ipv6) {
 }
 void test_network_tun(void) {
     lifecycle(); packet_contract(); virtio_header(); virtio_packets(); group_packets(); arp_control(); noarp_packets(); retiring_destination();
+    for(int v6=0;v6<2;++v6) tcp_retained_ports(v6);
     for(int server=0;server<3;++server) for(int tap=0;tap<2;++tap) for(int v6=0;v6<2;++v6) for(int tcp=0;tcp<2;++tcp)
         transfer(tap,v6,tcp ? SOCK_STREAM : SOCK_DGRAM,server);
     for(int tap=0;tap<2;++tap) for(int v6=0;v6<2;++v6) raw_echo(tap,v6);

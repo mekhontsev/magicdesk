@@ -9,6 +9,8 @@ struct md_network_flow_path;
 struct md_stack_channel;
 struct arpreq;
 struct md_network_rejection;
+struct md_filter_packet;
+struct md_network_nat_ports;
 /* Packet stacks are lazy and namespace-owned. All calls hold the fabric lock;
  * no ordinary file/socket payload is sent through this interface. */
 int md_network_stack_prepare(struct md_network_namespace *);
@@ -19,6 +21,8 @@ int md_network_stack_arp(struct md_network_namespace *,unsigned,struct arpreq *)
 void md_network_stack_neighbor_forget(struct md_network_namespace *,unsigned,struct md_ip_address);
 void md_network_stack_changed(struct md_network_namespace *);
 void md_network_stack_retire(struct md_network_namespace *);
+/* Packet TCP may retain a tuple after the relay retires, until TIME_WAIT ends. */
+void md_network_stack_nat_ports(struct md_network_namespace *,const struct md_filter_packet *,struct md_network_nat_ports *);
 /* A native socketpair joins the existing relay to a packet transport. The
  * relay owns the returned FD and channel; neither retains a guest payload FD.
  * result is EINPROGRESS until the remote TCP handshake, not the local one. */

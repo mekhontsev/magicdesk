@@ -9,6 +9,7 @@
 #include "network_internal.h"
 #include "network_control_queue.h"
 #include "network_tracking.h"
+#include "netlink_attributes.h"
 #include "proc_static.h"
 #include "network_profile.h"
 #include "guest_identity.h"
@@ -86,6 +87,65 @@ static int fail_publish(void *context,const void *data,size_t size) {
 static void attribute_u32(struct md_network_message *o,unsigned type,uint32_t value) {
     value=htonl(value);
     assert(!md_network_message_attribute(o,type,&value,sizeof(value)));
+}
+static void object_echoes(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity root=md_identity_new(0,0);
+    struct packet wire,reply;
+    struct md_network_message o={.data=wire.data,.capacity=sizeof(wire.data)};
+    begin(&o,0); table(&o,NFT_MSG_NEWTABLE,NLM_F_CREATE,NFPROTO_INET,"echo"); end(&o);
+    assert(!result(n,&root,&o));
+    const struct { unsigned operation,table,name,handle; const char *value; } cases[]={
+        {NFT_MSG_NEWCHAIN,NFTA_CHAIN_TABLE,NFTA_CHAIN_NAME,NFTA_CHAIN_HANDLE,"chain"},
+        {NFT_MSG_NEWSET,NFTA_SET_TABLE,NFTA_SET_NAME,NFTA_SET_HANDLE,"set"},
+        {NFT_MSG_NEWSET,NFTA_SET_TABLE,NFTA_SET_NAME,NFTA_SET_HANDLE,"set"},
+        {NFT_MSG_NEWRULE,NFTA_RULE_TABLE,NFTA_RULE_CHAIN,NFTA_RULE_HANDLE,"chain"},
+        {NFT_MSG_DELRULE,NFTA_RULE_TABLE,NFTA_RULE_CHAIN,NFTA_RULE_HANDLE,"chain"},
+        {NFT_MSG_DELSET,NFTA_SET_TABLE,NFTA_SET_NAME,NFTA_SET_HANDLE,"set"},
+        {NFT_MSG_DELCHAIN,NFTA_CHAIN_TABLE,NFTA_CHAIN_NAME,NFTA_CHAIN_HANDLE,"chain"}
+    };
+    uint64_t handles[7]={0};
+    for (unsigned i=0;i<sizeof(cases)/sizeof(*cases);++i) {
+        o.size=0; begin(&o,0);
+        unsigned operation=cases[i].operation;
+        uint32_t sequence=add(&o,(NFNL_SUBSYS_NFTABLES<<8)|operation,NLM_F_ACK|NLM_F_ECHO,NFPROTO_INET)->nlmsg_seq;
+        assert(!md_network_message_attribute(&o,cases[i].table,"echo",5));
+        assert(!md_network_message_attribute(&o,cases[i].name,cases[i].value,strlen(cases[i].value)+1));
+        if (operation==NFT_MSG_NEWSET) {
+            attribute_u32(&o,NFTA_SET_FLAGS,0);
+            attribute_u32(&o,NFTA_SET_KEY_TYPE,7);
+            attribute_u32(&o,NFTA_SET_KEY_LEN,4);
+        } else if (operation==NFT_MSG_NEWRULE) {
+            size_t expressions;
+            assert(!md_network_message_nest(&o,NFTA_RULE_EXPRESSIONS,&expressions));
+            assert(!md_network_message_end_nest(&o,expressions));
+        }
+        end(&o);
+        uint32_t generation=n->filter->generation;
+        struct md_network_publication reject={.publish=fail_publish};
+        assert(run(n,&root,&o,&reply,&reject)==-EAGAIN && n->filter->generation==generation);
+        long length=run(n,&root,&o,&reply,NULL);
+        struct nlmsghdr *h=(void *)reply.data;
+        assert(NLMSG_OK(h,length) && h->nlmsg_type==((NFNL_SUBSYS_NFTABLES<<8)|operation));
+        assert(h->nlmsg_seq==sequence && h->nlmsg_pid==43);
+        struct nfgenmsg *nf=NLMSG_DATA(h);
+        struct md_netlink_cursor cursor={nf+1,h->nlmsg_len-NLMSG_LENGTH(sizeof(*nf))};
+        struct md_netlink_attribute attr;
+        int more;
+        while ((more=md_netlink_attribute_next(&cursor,&attr))>0) if (attr.type==cases[i].handle) {
+            assert(attr.size==sizeof(handles[i]) && !handles[i]);
+            memcpy(&handles[i],attr.data,sizeof(handles[i])); handles[i]=be64toh(handles[i]);
+        }
+        assert(!more && handles[i]);
+        h=NLMSG_NEXT(h,length);
+        assert(NLMSG_OK(h,length) && h->nlmsg_type==NLMSG_ERROR);
+        assert(h->nlmsg_seq==sequence && !((struct nlmsgerr *)NLMSG_DATA(h))->error);
+        h=NLMSG_NEXT(h,length); assert(!length);
+    }
+    assert(handles[0]==handles[6] && handles[1]==handles[2] && handles[1]==handles[5] && handles[3]==handles[4]);
+    assert(!n->filter->rule_count && !n->filter->set_count && !n->filter->chain_count);
+    md_identity_release(&root); md_network_namespace_release(n);
+    puts("PASS nft object echoes: stable handles, exact sequences, create/repeat/delete and publication rollback");
 }
 static void data_maps(void) {
     for (unsigned ipv6=0;ipv6<2;++ipv6) {
@@ -1974,6 +2034,7 @@ static void control_queue(void) {
     free(data); close(pair[0]); close(pair[1]); md_network_namespace_release(n);
 }
 void test_network_nft(void) {
+    object_echoes();
     tracking_lifetime();
     tracking_namespace_marks();
     native_namespace_admission();

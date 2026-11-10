@@ -24,6 +24,7 @@ struct md_lwip_context {
     void *modules[MD_LWIP_MODULE_COUNT];
     struct md_lwip_allocation *allocations;
     size_t bytes;
+    unsigned char sequence_key[32];
     const struct ip4_addr *(*gateway4)(struct netif *,const struct ip4_addr *);
     const struct ip6_addr *(*gateway6)(struct netif *,const struct ip6_addr *);
     int (*input)(struct pbuf *,struct netif *,unsigned);

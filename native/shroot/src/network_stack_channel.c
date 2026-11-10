@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "network_stack_internal.h"
+#include "lwip/priv/tcp_priv.h"
 #include "network_endpoint.h"
 #include "lwip/ip.h"
 #include <errno.h>
@@ -187,6 +188,18 @@ static int attach_udp(struct md_stack_channel *c,const ip_addr_t *local,u16_t po
     if(!error) error=md_stack_error(udp_connect(c->udp,remote,remote_port));
     return error;
 }
+void md_network_stack_nat_ports(struct md_network_namespace *n,const struct md_filter_packet *packet,
+        struct md_network_nat_ports *ports) {
+    if(!n->stack || packet->protocol!=IPPROTO_TCP) return;
+    struct md_lwip_context *previous=md_lwip_enter(n->stack->context);
+    ip_addr_t local=md_stack_ip(packet->source),remote=md_stack_ip(packet->destination);
+    struct tcp_pcb *lists[]={tcp_active_pcbs,tcp_tw_pcbs};
+    for(unsigned i=0;i<sizeof(lists)/sizeof(*lists);++i) for(struct tcp_pcb *pcb=lists[i];pcb;pcb=pcb->next)
+        if(pcb->remote_port==ntohs(packet->destination_port)
+                && ip_addr_cmp_zoneless(&pcb->local_ip,&local) && ip_addr_cmp_zoneless(&pcb->remote_ip,&remote))
+            ports->used[pcb->local_port/64]|=UINT64_C(1)<<(pcb->local_port%64);
+    md_lwip_leave(previous);
+}
 int md_network_stack_connect(struct md_network_fabric *fabric,const struct md_network_flow_path *path,
         int type,struct md_stack_channel **out) {
     *out=NULL;
@@ -205,6 +218,9 @@ int md_network_stack_connect(struct md_network_fabric *fabric,const struct md_ne
         if(!c->tcp) error=-ENOMEM;
         else {
             attach_tcp(c,c->tcp);
+            /* Guest bind policy belongs to endpoints. Internal channels share
+             * a source port across distinct destinations, never a TCP tuple. */
+            ip_set_option(c->tcp,SOF_REUSEADDR);
             tcp_bind_netif(c->tcp,&i->netif);
             error=md_stack_error(tcp_bind(c->tcp,&local,ntohs(path->translated.source_port)));
             c->result=-EINPROGRESS;

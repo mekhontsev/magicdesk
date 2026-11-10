@@ -6,6 +6,7 @@
 #include "lwip/netif.h"
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
+#include "lwip/priv/tcp_priv.h"
 #include "lwip/timeouts.h"
 #include "lwip/udp.h"
 #include "netif/ethernet.h"
@@ -14,9 +15,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static _Thread_local u32_t now_ms;
 u32_t __wrap_sys_now(void) { return now_ms; }
+int __real_clock_gettime(clockid_t,struct timespec *);
+int __wrap_clock_gettime(clockid_t clock,struct timespec *out) {
+    if(clock!=CLOCK_MONOTONIC) return __real_clock_gettime(clock,out);
+    *out=(struct timespec){.tv_sec=now_ms/1000,.tv_nsec=(long)(now_ms%1000)*1000000};
+    return 0;
+}
+
+static void sequence_clock(int ipv6) {
+    struct md_lwip_context *context=md_lwip_context_new(); assert(context);
+    struct md_lwip_context *previous=md_lwip_enter(context);
+    struct tcp_pcb pcb={.local_port=32000,.remote_port=80};
+    assert(ipaddr_aton(ipv6 ? "fd23::1" : "10.23.0.1",&pcb.local_ip)
+        && ipaddr_aton(ipv6 ? "fd23::2" : "10.23.0.2",&pcb.remote_ip));
+    now_ms=1000;
+    u32_t first=tcp_next_iss(&pcb);
+    now_ms=2000;
+    u32_t second=tcp_next_iss(&pcb);
+    assert(second-first==250000);
+    ++pcb.remote_port;
+    u32_t other=tcp_next_iss(&pcb);
+    --pcb.remote_port;
+    assert(tcp_next_iss(&pcb)==second && other!=second);
+    now_ms=18000000;
+    assert(tcp_next_iss(&pcb)-first==(u32_t)((UINT64_C(18000000)-1000)*250));
+    md_lwip_leave(previous); md_lwip_context_free(context);
+    now_ms=0;
+    printf("PASS IPv%u TCP sequence clock: idle progress, stable tuple offset, distinct ports and 32-bit wrap\n",ipv6 ? 6 : 4);
+}
 
 struct packet {
     struct packet *next;
@@ -218,6 +248,7 @@ static void *worker(void *unused) {
     return NULL;
 }
 int main(void) {
+    sequence_clock(0); sequence_clock(1);
     struct md_lwip_context *limited=md_lwip_context_new(); assert(limited);
     struct md_lwip_context *previous=md_lwip_enter(limited);
     size_t initial=limited->bytes;

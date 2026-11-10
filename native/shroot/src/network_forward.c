@@ -70,7 +70,7 @@ struct md_network_forward {
     int epoll, wake, stopped;
     uint64_t next_id;
     int64_t now;
-    size_t flows, listeners;
+    size_t flows, streams, listeners;
     uint64_t dropped_datagrams;
     struct listener *ports;
     struct flow *connections;
@@ -122,6 +122,7 @@ int md_network_forward_nat_port(struct md_network_namespace *n,struct md_filter_
     for (struct listener *l=f ? f->ports : NULL;l;l=l->next)
         if (!l->external) md_network_flow_nat_ports(&l->path,n->inode,packet,&ports);
     md_network_endpoint_nat_ports(n,packet,&ports);
+    md_network_stack_nat_ports(n,packet,&ports);
     unsigned port=ntohs(packet->source_port),count=(unsigned)high-low+1;
     if (port<low || port>high) port=low;
     for (unsigned i=0;i<count;++i) {
@@ -137,10 +138,11 @@ static int watch(struct md_network_forward *f,int command,int fd,uint64_t id,uns
     return epoll_ctl(f->epoll,command,fd,&e) ? -errno : 0;
 }
 static void listener_interests(struct md_network_forward *,uint64_t);
+static int interests(struct md_network_forward *,struct flow *);
 static void drop_flow(struct md_network_forward *f,struct flow *c) {
     struct flow **at=&f->connections;
     while (*at && *at!=c) at=&(*at)->next;
-    if (*at) { *at=c->next; --f->flows; }
+    if (*at) { *at=c->next; --f->flows; if (c->type==SOCK_STREAM) --f->streams; }
     if (!c->borrowed && c->fd[0]>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[0],NULL); close(c->fd[0]); }
     if (c->fd[1]>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[1],NULL); close(c->fd[1]); }
     md_network_stack_close(c->packet_channel);
@@ -201,41 +203,63 @@ int md_network_forward_connections(struct md_network_namespace *n,
     }
     return 0;
 }
-void md_network_forward_forget(struct md_network_namespace *n,const uint64_t *ids,size_t count) {
+static int connection_id_order(const void *left,const void *right) {
+    uint64_t a=*(const uint64_t *)left,b=*(const uint64_t *)right;
+    return (a>b)-(a<b);
+}
+static int datagram_reply_carrier(const struct flow *c) {
+    return !c->group && !c->packet_channel && c->fd[1]>=0
+        && md_network_endpoint_connected_peer(c->receiver,&c->path);
+}
+static int datagram_owned_carrier(const struct flow *c) {
+    return !c->group && (c->endpoint || datagram_reply_carrier(c));
+}
+static void retire_datagram(struct md_network_forward *f,struct flow *c) {
+    if (!datagram_owned_carrier(c)) { drop_flow(f,c); return; }
+    /* Conntrack expiry does not disconnect an application socket. Retain only
+     * carriers still owned by endpoints, not the route/NAT decision or queues. */
+    if (!datagram_reply_carrier(c)) {
+        if (c->fd[1]>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[1],NULL); close(c->fd[1]); c->fd[1]=-1; }
+        c->receiver=NULL;
+    }
+    md_network_stack_close(c->packet_channel); c->packet_channel=NULL;
+    for (unsigned leg=0;leg<2;++leg) {
+        while (c->datagrams[leg].head) {
+            struct datagram *d=c->datagrams[leg].head;
+            c->datagrams[leg].head=d->next; free(d);
+        }
+        c->datagrams[leg]=(struct datagram_queue){0};
+        free(c->accounting[leg].cells); c->accounting[leg]=(struct md_filter_accounting){0};
+        c->checked[leg]=0; c->denied[leg]=0;
+    }
+    c->receiver_closed=0; c->receiver_generation=UINT64_MAX; c->started=0;
+    c->forgotten=1; c->deadline=INT64_MAX;
+    if (interests(f,c)) drop_flow(f,c);
+    else if (c->borrowed) listener_interests(f,c->listener);
+}
+static void fail_flow(struct md_network_forward *f,struct flow *c,int error) {
+    if (c->type==SOCK_DGRAM) retire_datagram(f,c);
+    else { md_network_endpoint_connect_complete(c->endpoint,error); drop_flow(f,c); }
+}
+void md_network_forward_forget(struct md_network_namespace *n,uint64_t *ids,size_t count) {
     struct md_network_forward *f=n->fabric->forward;
-    if (!f) return;
+    if (!f || !count) return;
+    /* One control transaction must not scan its entire ID set for every flow. */
+    qsort(ids,count,sizeof(*ids),connection_id_order);
     for (struct flow *c=f->connections,*next;c;c=next) {
         next=c->next;
         if (c->type==SOCK_STREAM) {
             struct md_network_tracking_entry *e=md_network_tracking_find(&c->tracking,n->inode);
-            for (size_t i=0;e && e->id && i<count;++i) if (ids[i]==e->id) {
+            if (e && e->id && bsearch(&e->id,ids,count,sizeof(*ids),connection_id_order)) {
                 md_network_tracking_forget(&c->tracking,f->fabric,e);
                 c->checked[0]=c->checked[1]=0;
-                break;
             }
             continue;
         }
         if (c->type!=SOCK_DGRAM) continue;
-        for (size_t i=0;i<count;++i) if (ids[i]==c->id) {
-            /* Keep the guest-facing carrier alive for connected UDP and
-             * cached sendto destinations. Only the mapping is retired. */
-            c->forgotten=1;
-            if (c->fd[1]>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[1],NULL); close(c->fd[1]); c->fd[1]=-1; }
-            md_network_stack_close(c->packet_channel); c->packet_channel=NULL;
-            for (unsigned leg=0;leg<2;++leg) {
-                while (c->datagrams[leg].head) {
-                    struct datagram *d=c->datagrams[leg].head;
-                    c->datagrams[leg].head=d->next; free(d);
-                }
-                c->datagrams[leg]=(struct datagram_queue){0};
-                free(c->accounting[leg].cells); c->accounting[leg]=(struct md_filter_accounting){0};
-                c->checked[leg]=0; c->denied[leg]=0;
-            }
-            c->receiver=NULL; c->receiver_closed=0; c->receiver_generation=UINT64_MAX; c->started=0;
-            break;
-        }
+        if (bsearch(&c->id,ids,count,sizeof(*ids),connection_id_order)) retire_datagram(f,c);
     }
-    if (count) wake(f);
+    wake(f);
 }
 static int socket_bound(int type,struct md_inet_address *address,int v6only) {
     int fd=socket(address->ip.family,type|SOCK_CLOEXEC|SOCK_NONBLOCK,0);
@@ -344,7 +368,12 @@ static int interests(struct md_network_forward *f,struct flow *c) {
 }
 static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int front,
         const struct md_inet_address *client,struct md_network_flow_path *path,const struct md_inet_address *target,const void *receiver) {
-    if (f->flows==1024 || f->next_id>UINT64_MAX/4) { errno=ENOSPC; return NULL; }
+    /* UDP retains reply identity for its idle lifetime without TCP's two
+     * 64 KiB buffers. Give it a separate budget so bursts cannot consume
+     * stream admission; never evict a still-valid tuple to admit another. */
+    size_t used=l->type==SOCK_STREAM ? f->streams : f->flows-f->streams;
+    size_t limit=l->type==SOCK_STREAM ? MD_NETWORK_FORWARD_TCP_LIMIT : MD_NETWORK_FORWARD_UDP_LIMIT;
+    if (used>=limit || f->next_id>UINT64_MAX/4) { errno=ENOSPC; return NULL; }
     struct flow *c=calloc(1,sizeof(*c));
     if (!c) return NULL;
     c->owner=f;
@@ -383,6 +412,7 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
     for (unsigned leg=0;leg<2;++leg) if (c->fd[leg]>=0 && (leg || !c->borrowed))
         if (watch(f,EPOLL_CTL_ADD,c->fd[leg],c->id,leg,0)) goto failed;
     c->next=f->connections; f->connections=c; ++f->flows;
+    if (c->type==SOCK_STREAM) ++f->streams;
     md_network_stack_set_policy(c->packet_channel,c,1,packet_policy);
     int error=interests(f,c);
     if (error) {
@@ -523,25 +553,35 @@ static int reconnect_datagram(struct md_network_forward *f,struct flow *c) {
     packet.state=8;
     const struct md_network_flow_step *first=&c->path.steps[0];
     int external=first->hook==NF_INET_PRE_ROUTING;
-    unsigned link=external ? first->packet.input : packet.output;
+    /* A selected route is not a socket binding. Native ingress likewise
+     * retains listener authority rather than becoming raw packet ingress. */
+    unsigned link=external ? (c->path.native_space ? 0 : first->packet.input) : c->path.output_binding;
     struct md_network_flow_path path;
     int error=md_network_flow_route(n,&packet,external,link,&path);
     struct md_inet_address target,remote={0}; const void *receiver=NULL;
     if (!error) error=md_network_endpoint_resolve(f->fabric,&path,SOCK_DGRAM,&target,&receiver);
     if (error) return error;
+    if (datagram_reply_carrier(c) && !path.packet_space && receiver==c->receiver
+            && same(&target,&c->target)) {
+        c->path=path; c->receiver_generation=f->fabric->endpoint_generation; c->forgotten=0;
+        c->deadline=now_ms()+30000;
+        return 0;
+    }
     struct md_stack_channel *channel=NULL;
     int connecting=0,fd=path.packet_space ? md_network_stack_connect(f->fabric,&path,SOCK_DGRAM,&channel)
         : connect_target(c->endpoint,SOCK_DGRAM,path.transport,&target,&remote,&connecting,!!path.destination);
     if (fd<0) return fd;
     error=watch(f,EPOLL_CTL_ADD,fd,c->id,1,EPOLLIN);
     if (error) { close(fd); md_network_stack_close(channel); return error; }
+    if (c->fd[1]>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[1],NULL); close(c->fd[1]); }
     c->fd[1]=fd; c->packet_channel=channel; c->path=path; c->target=target; c->remote=remote;
     c->receiver=receiver; c->receiver_generation=f->fabric->endpoint_generation; c->forgotten=0;
+    c->deadline=now_ms()+30000;
     md_network_stack_set_policy(channel,c,1,packet_policy);
     return 0;
 }
 static int datagram_submit(struct md_network_forward *f,struct flow *c,unsigned direction,const void *data,size_t size) {
-    if (c->forgotten && (direction || reconnect_datagram(f,c))) { ++f->dropped_datagrams; return 0; }
+    if (c->forgotten && reconnect_datagram(f,c)) { ++f->dropped_datagrams; return 0; }
     int denied=c->group ? 0 : check(f,c,direction);
     if (!c->group) account(c,direction,size);
     if (denied) return -EACCES;
@@ -673,6 +713,7 @@ static void group_send(struct md_network_forward *f,struct listener *l,const voi
     struct md_network_interface *link=n ? md_network_interface_find(n,l->group_output,NULL) : NULL;
     const struct md_network_multicast *m=md_network_endpoint_multicast(l->endpoint,l->path.original.destination.family);
     if (!m || !link || link->policy_id!=l->group_policy || !(link->info.flags&IFF_UP)) return;
+    if (l->deadline<=f->now) l->group_started=0;
     struct group_delivery d={.owner=f,.sender=l,.space=n,.output=link,.data=data,.size=size,
         .hops=l->group_hops<0 ? m->hops : l->group_hops,.loop=m->loop};
     struct md_filter_packet p=l->path.original;
@@ -771,13 +812,14 @@ static void *run(void *context) {
         f->now=now_ms();
         for (struct flow *c=f->connections,*next;c;c=next) {
             next=c->next;
+            if (c->type==SOCK_DGRAM && c->deadline<=f->now) { retire_datagram(f,c); continue; }
             if (c->type!=SOCK_STREAM) continue;
             uint64_t revision=c->tracking.revision;
             md_network_tracking_expire(&c->tracking,f->fabric,f->now);
             if (revision!=c->tracking.revision) {
                 c->checked[0]=c->checked[1]=0;
                 int error=interests(f,c);
-                if (error) { md_network_endpoint_connect_complete(c->endpoint,error); drop_flow(f,c); }
+                if (error) fail_flow(f,c,error);
             }
         }
         for (int i=0;i<count;++i) {
@@ -788,7 +830,7 @@ static void *run(void *context) {
                 while (c) {
                     struct flow *next=c->next;
                     int error=interests(f,c);
-                    if (error) { md_network_endpoint_connect_complete(c->endpoint,error); drop_flow(f,c); }
+                    if (error) fail_flow(f,c,error);
                     c=next;
                 }
             } else if (leg==3) {
@@ -815,7 +857,7 @@ static void *run(void *context) {
                     }
                     else {
                         int error=stream_event(f,c,leg,events[i].events);
-                        if (error) { md_network_endpoint_connect_complete(c->endpoint,error); drop_flow(f,c); }
+                        if (error) fail_flow(f,c,error);
                     }
                 }
             }
@@ -825,7 +867,7 @@ static void *run(void *context) {
         while (c) {
             struct flow *next=c->next;
             if (c->deadline<=now) {
-                md_network_endpoint_connect_complete(c->endpoint,-ETIMEDOUT); drop_flow(f,c);
+                fail_flow(f,c,-ETIMEDOUT);
             } else {
                 if (c->deadline<deadline) deadline=c->deadline;
                 if (c->type==SOCK_STREAM) {
@@ -839,8 +881,11 @@ static void *run(void *context) {
         while (l) {
             struct listener *next=l->next;
             if (l->deadline<=now) {
-                if (!l->external) md_network_endpoint_connect_complete(l->endpoint,-ETIMEDOUT);
-                drop_listener(f,l);
+                if (l->group_output && l->endpoint) { l->group_started=0; l->deadline=INT64_MAX; }
+                else {
+                    if (!l->external) md_network_endpoint_connect_complete(l->endpoint,-ETIMEDOUT);
+                    drop_listener(f,l);
+                }
             } else if (l->deadline<deadline) deadline=l->deadline;
             l=next;
         }
@@ -1178,7 +1223,7 @@ int md_network_forward_group(struct md_network_namespace *n,const void *endpoint
     l->group_output=link->info.index; l->group_policy=link->policy_id; l->group_hops=hops;
     /* A connected socket keeps this carrier across membership/rule changes.
      * Evaluate and account actual packets in the relay, before fanout. */
-    l->path.original=*packet; l->active=1;
+    l->path.original=*packet; l->active=1; l->deadline=INT64_MAX;
     *destination=l->address; wake(f); return 0;
 }
 int md_network_forward_source(struct md_network_namespace *n,int type,struct md_inet_address *address,struct md_network_packet_info *info) {
@@ -1254,7 +1299,8 @@ void md_network_forward_endpoint_disconnected(struct md_network_namespace *n,con
         if (receiver) { c->receiver=NULL; c->receiver_closed=1; }
         for (struct datagram *d=c->datagrams[0].head;d;d=d->next)
             if (d->target.receiver==endpoint) d->target.receiver=NULL;
-        if ((sender || receiver) && (c->type!=SOCK_DGRAM || (!c->endpoint && !c->receiver && !c->borrowed)))
+        if ((sender || receiver) && (c->type!=SOCK_DGRAM || (!c->endpoint && !c->receiver && !c->borrowed)
+                || (c->forgotten && !datagram_owned_carrier(c))))
             drop_flow(f,c);
         /* A surviving private peer may still receive already queued data.
          * Keep its tuple until that peer closes or the existing UDP idle bound;
@@ -1286,8 +1332,11 @@ void md_network_forward_retire(struct md_network_namespace *n) {
     while (c) {
         struct flow *next=c->next;
         if(c->space==n->inode || path_uses_space(&c->path,n->inode)) {
-            md_network_endpoint_connect_complete(c->endpoint,-ENETUNREACH);
-            drop_flow(f,c);
+            if (c->type==SOCK_DGRAM && c->space!=n->inode) retire_datagram(f,c);
+            else {
+                md_network_endpoint_connect_complete(c->endpoint,-ENETUNREACH);
+                drop_flow(f,c);
+            }
         }
         c=next;
     }

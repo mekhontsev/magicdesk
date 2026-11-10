@@ -2,6 +2,7 @@
 #include "network_endpoint.h"
 #include "network_internal.h"
 #include "network_forward.h"
+#include "network_conntrack.h"
 #include "network_proc.h"
 #include "control_epoll.h"
 #include "fd_selector.h"
@@ -11,6 +12,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <linux/netfilter/nfnetlink_conntrack.h>
 #include <net/if.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -268,6 +270,218 @@ static void datagram_handoff(unsigned family) {
     md_identity_release(&identity); md_network_namespace_release(n); md_network_namespace_release(root);
     printf("PASS IPv%u UDP listener handoff: connected peer, reverse tuple and listener fallback\n",family==AF_INET ? 4 : 6);
 }
+static int count_connection(void *context,const struct md_connection *entry) {
+    (void)entry;
+    ++*(size_t *)context; return 0;
+}
+static size_t connection_count(struct md_network_namespace *n) {
+    size_t count=0;
+    pthread_mutex_lock(&n->fabric->lock);
+    assert(!md_network_forward_connections(n,count_connection,&count));
+    pthread_mutex_unlock(&n->fabric->lock); return count;
+}
+static int reject_connection_reply(void *context,const void *data,size_t size) {
+    (void)context; (void)data; (void)size; return -EAGAIN;
+}
+static void forget_connections(struct md_network_namespace *n,const struct md_identity *identity,unsigned family) {
+    struct { struct nlmsghdr header; struct nfgenmsg family; } request={
+        .header={.nlmsg_len=NLMSG_LENGTH(sizeof(struct nfgenmsg)),
+            .nlmsg_type=(NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_DELETE,
+            .nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK,.nlmsg_seq=1},
+        .family={.nfgen_family=family,.version=NFNETLINK_V0}};
+    unsigned char reply[256];
+    size_t count=connection_count(n); assert(count);
+    struct md_network_publication failure={.publish=reject_connection_reply};
+    assert(md_network_conntrack(n,identity,&request,sizeof(request),0,0,reply,sizeof(reply),&failure)==-EAGAIN);
+    assert(connection_count(n)==count);
+    long size=md_network_conntrack(n,identity,&request,sizeof(request),0,0,reply,sizeof(reply),NULL);
+    assert(size>=(long)NLMSG_LENGTH(sizeof(struct nlmsgerr)));
+    struct nlmsghdr *header=(void *)reply;
+    assert(header->nlmsg_type==NLMSG_ERROR && !((struct nlmsgerr *)NLMSG_DATA(header))->error);
+    assert(!connection_count(n));
+}
+static void datagram_namespace_retirement(unsigned family,int bound) {
+    struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity identity=md_identity_new(0,0);
+    struct md_fd_object *client;
+    int fd;
+    assert(root && !md_network_endpoint_open(root,0,family,SOCK_DGRAM,0,&client,&fd));
+    for (unsigned round=0;round<2;++round) {
+        struct md_network_namespace *child=md_network_namespace_copy(root,NULL);
+        unsigned indices[2];
+        assert(child);
+        pthread_mutex_lock(&root->fabric->lock);
+        assert(!md_network_interface_add(root,MD_LINK_VETH,"retire-out",&indices[0]));
+        assert(!md_network_interface_add(child,MD_LINK_VETH,"retire-in",&indices[1]));
+        struct md_network_interface *links[2]={md_network_interface_find(root,indices[0],NULL),
+            md_network_interface_find(child,indices[1],NULL)};
+        struct md_ip_address addresses[2];
+        for (unsigned i=0;i<2;++i) {
+            links[i]->peer=indices[1-i]; links[i]->info.flags|=IFF_UP;
+            addresses[i]=family==AF_INET ? md_ip_v4(htonl(0x0a5a0001+i)) : md_ip_any(AF_INET6);
+            if (family==AF_INET6) { addresses[i].bytes[0]=0xfd; addresses[i].bytes[15]=1+i; }
+            assert(!md_network_interface_address(links[i],(struct md_network_ip_assignment){
+                .address=addresses[i],.prefix=family==AF_INET ? 24 : 64,.flags=IFA_F_PERMANENT},0,0));
+            md_network_interface_up(links[i]);
+        }
+        pthread_mutex_unlock(&root->fabric->lock);
+        struct md_fd_object *server;
+        int peer;
+        assert(!md_network_endpoint_open(child,0,family,SOCK_DGRAM,0,&server,&peer));
+        struct md_inet_address address={.ip=addresses[1],.port=htons(18768)};
+        struct sockaddr_storage wire,native,source; socklen_t length,size,source_size=sizeof(source);
+        assert(!md_inet_encode(&address,0,&wire,&length));
+        assert(!md_network_endpoint_bind(server,peer,&identity,(void *)&wire,length));
+        if (!round) {
+            if (bound) endpoint_option(client,fd,SOL_SOCKET,SO_BINDTOIFINDEX,&indices[0],sizeof(indices[0]));
+            assert(!md_network_endpoint_autobind(client,fd,&identity,(void *)&wire,length,0));
+            assert(!md_network_endpoint_destination(client,(void *)&wire,length,&native,&size));
+            assert(!connect(fd,(void *)&native,size));
+            assert(!md_network_endpoint_connected(client,fd,(void *)&wire,length));
+        }
+        assert(write(fd,"q",1)==1);
+        struct pollfd ready={.fd=peer,.events=POLLIN};
+        if (round && bound) {
+            /* EVENT_WAIT: replacement must not receive traffic bound to the deleted link. */
+            assert(!poll(&ready,1,200));
+            assert(md_network_endpoint_destination(client,(void *)&wire,length,&native,&size)==-ENODEV);
+            close(peer); md_fd_object_release(server); md_network_namespace_release(child);
+            break;
+        }
+        /* EVENT_WAIT: one native write must reach the new namespace; no reconnect or retry. */
+        int count=poll(&ready,1,2000);
+        if (count!=1) fprintf(stderr,"UDP namespace retirement family=%u round=%u readiness=%d\n",family,round,count);
+        assert(count==1 && (ready.revents&POLLIN));
+        char byte;
+        assert(recvfrom(peer,&byte,1,0,(void *)&source,&source_size)==1 && byte=='q');
+        assert(!md_network_endpoint_source(server,&source,&source_size));
+        assert(!md_network_endpoint_destination(server,(void *)&source,source_size,&native,&size));
+        assert(sendto(peer,"a",1,0,(void *)&native,size)==1);
+        ready=(struct pollfd){.fd=fd,.events=POLLIN};
+        assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+        assert(read(fd,&byte,1)==1 && byte=='a');
+        close(peer); md_fd_object_release(server);
+        md_network_namespace_release(child);
+        assert(!md_network_interface_find(root,indices[0],NULL));
+        assert(!connection_count(root));
+    }
+    close(fd); md_fd_object_release(client);
+    assert(!root->fabric->endpoints);
+    md_identity_release(&identity); md_network_namespace_release(root);
+    printf("PASS IPv%u UDP: peer namespace replacement preserves connected client and explicit binding=%d\n",
+        family==AF_INET ? 4 : 6,bound);
+}
+static void datagram_idle(void) {
+    struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity identity=md_identity_new(0,0);
+    struct {
+        struct md_network_namespace *space;
+        struct md_fd_object *objects[2];
+        int fds[2];
+        unsigned family;
+        int flush, connected, external, group;
+    } pairs[14]={0};
+    assert(root);
+    for (unsigned i=0;i<14;++i) {
+        unsigned variant=i%7;
+        pairs[i].family=i<7 ? AF_INET : AF_INET6;
+        pairs[i].flush=variant<6 && (variant&1);
+        pairs[i].connected=variant>=2 && variant<6;
+        pairs[i].external=variant==4 || variant==5;
+        pairs[i].group=variant==6;
+        struct md_network_namespace *n=pairs[i].space=pairs[i].external
+            ? md_network_namespace_new(NULL,MD_NETWORK_ROUTED) : md_network_namespace_copy(root,NULL);
+        assert(n);
+        struct md_network_interface *loop=md_network_interface_find(n,0,"lo");
+        loop->info.flags|=IFF_UP; md_network_interface_up(loop);
+        struct md_inet_address local={.ip=md_ip_loopback(pairs[i].family),.port=pairs[i].external ? 0 : htons(18767)};
+        if (pairs[i].group) local.ip=md_ip_any(pairs[i].family);
+        struct sockaddr_storage wire,native; socklen_t length,native_size;
+        assert(!md_inet_encode(&local,0,&wire,&length));
+        for (unsigned j=0;j<2;++j) {
+            if (j && pairs[i].external) {
+                pairs[i].fds[j]=socket(pairs[i].family,SOCK_DGRAM|SOCK_CLOEXEC,0);
+                assert(pairs[i].fds[j]>=0);
+            } else assert(!md_network_endpoint_open(n,0,pairs[i].family,SOCK_DGRAM,0,&pairs[i].objects[j],&pairs[i].fds[j]));
+        }
+        assert(!md_network_endpoint_bind(pairs[i].objects[0],pairs[i].fds[0],&identity,(void *)&wire,length));
+        if (pairs[i].external) {
+            assert(!md_network_endpoint_name(pairs[i].objects[0],pairs[i].fds[0],0,&wire,&length));
+            assert(!connect(pairs[i].fds[1],(void *)&wire,length));
+            continue;
+        }
+        if (pairs[i].group) {
+            unsigned index;
+            assert(!md_network_interface_add(n,MD_LINK_BRIDGE,"idle-group",&index));
+            struct md_network_interface *link=md_network_interface_find(n,index,NULL);
+            link->info.flags|=IFF_UP; test_network_v4(link,htonl(0x0a580001),24); md_network_interface_up(link);
+            if (pairs[i].family==AF_INET) {
+                local.ip=md_ip_v4(htonl(0xef580001));
+                struct ip_mreqn request={.imr_multiaddr.s_addr=local.ip.v4,.imr_ifindex=(int)index};
+                endpoint_option(pairs[i].objects[0],pairs[i].fds[0],IPPROTO_IP,IP_ADD_MEMBERSHIP,&request,sizeof(request));
+                endpoint_option(pairs[i].objects[1],pairs[i].fds[1],IPPROTO_IP,IP_MULTICAST_IF,&request,sizeof(request));
+            } else {
+                local.ip=md_ip_any(AF_INET6); local.ip.bytes[0]=0xff; local.ip.bytes[1]=2; local.ip.bytes[15]=1;
+                struct ipv6_mreq request={.ipv6mr_multiaddr=local.ip.v6,.ipv6mr_interface=index};
+                endpoint_option(pairs[i].objects[0],pairs[i].fds[0],IPPROTO_IPV6,IPV6_JOIN_GROUP,&request,sizeof(request));
+                endpoint_option(pairs[i].objects[1],pairs[i].fds[1],IPPROTO_IPV6,IPV6_MULTICAST_IF,&index,sizeof(index));
+            }
+            assert(!md_inet_encode(&local,0,&wire,&length));
+        }
+        assert(!md_network_endpoint_autobind(pairs[i].objects[1],pairs[i].fds[1],&identity,(void *)&wire,length,0));
+        assert(!md_network_endpoint_destination(pairs[i].objects[1],(void *)&wire,length,&native,&native_size));
+        assert(!connect(pairs[i].fds[1],(void *)&native,native_size));
+        assert(!md_network_endpoint_connected(pairs[i].objects[1],pairs[i].fds[1],(void *)&wire,length));
+    }
+    for (unsigned round=0;round<2;++round) {
+        for (unsigned i=0;i<14;++i) {
+            if (round) assert(!connection_count(pairs[i].space));
+            if (round && pairs[i].connected) {
+                assert(write(pairs[i].fds[0],"b",1)==1);
+                struct pollfd ready={.fd=pairs[i].fds[1],.events=POLLIN};
+                assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+                char byte;
+                assert(read(pairs[i].fds[1],&byte,1)==1 && byte=='b');
+            }
+            /* Only native connected IO after initial admission: the application
+             * does not know that its route/conntrack mapping has expired. */
+            assert(write(pairs[i].fds[1],"u",1)==1);
+            struct pollfd ready={.fd=pairs[i].fds[0],.events=POLLIN};
+            /* EVENT_WAIT: both directions must deliver, without retrying a lost packet. */
+            int count=poll(&ready,1,2000);
+            if (count!=1) fprintf(stderr,"UDP idle family=%u variant=%u round=%u readiness=%d\n",pairs[i].family,i%7,round,count);
+            assert(count==1 && (ready.revents&POLLIN));
+            struct sockaddr_storage peer,native; socklen_t peer_size=sizeof(peer),native_size;
+            char byte;
+            assert(recvfrom(pairs[i].fds[0],&byte,1,0,(void *)&peer,&peer_size)==1 && byte=='u');
+            if (pairs[i].group) { assert(!connection_count(pairs[i].space)); continue; }
+            if (!round || !pairs[i].connected) {
+                assert(!md_network_endpoint_source(pairs[i].objects[0],&peer,&peer_size));
+                assert(!md_network_endpoint_destination(pairs[i].objects[0],(void *)&peer,peer_size,&native,&native_size));
+                if (pairs[i].connected) {
+                    assert(!connect(pairs[i].fds[0],(void *)&native,native_size));
+                    assert(!md_network_endpoint_connected(pairs[i].objects[0],pairs[i].fds[0],(void *)&peer,peer_size));
+                }
+            }
+            if (pairs[i].connected) assert(write(pairs[i].fds[0],"r",1)==1);
+            else assert(sendto(pairs[i].fds[0],"r",1,0,(void *)&native,native_size)==1);
+            ready=(struct pollfd){.fd=pairs[i].fds[1],.events=POLLIN};
+            assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+            assert(read(pairs[i].fds[1],&byte,1)==1 && byte=='r');
+            assert(connection_count(pairs[i].space)==1);
+            if (!round && pairs[i].flush) forget_connections(pairs[i].space,&identity,pairs[i].family);
+        }
+        /* Protocol delay: cross the actual 30-second UDP idle lifetime once
+         * for both families and explicit deletion, without a test-only clock. */
+        if (!round) assert(!poll(NULL,0,31000));
+    }
+    for (unsigned i=0;i<14;++i) {
+        for (unsigned j=0;j<2;++j) { close(pairs[i].fds[j]); md_fd_object_release(pairs[i].objects[j]); }
+        md_network_namespace_release(pairs[i].space);
+    }
+    md_identity_release(&identity); md_network_namespace_release(root);
+    puts("PASS IPv4/IPv6 UDP: private, published and multicast carriers survive idle expiry and conntrack deletion");
+}
 static void published_datagram_reuse(unsigned family) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_identity identity=md_identity_new(0,0);
@@ -317,11 +531,61 @@ static void published_datagram_reuse(unsigned family) {
         }
     }
     close(client);
+    /* Keep distinct native clients alive: port reuse must not reduce this
+     * burst to fewer retained UDP tuples. TCP shares the same forwarder. */
+    int clients[1152];
+    for (unsigned i=0;i<sizeof(clients)/sizeof(*clients);++i) {
+        clients[i]=socket(family,SOCK_DGRAM|SOCK_CLOEXEC,0); assert(clients[i]>=0);
+        assert(sendto(clients[i],"b",1,0,(void *)&wire,length)==1);
+        struct pollfd ready={.fd=fds[1],.events=POLLIN};
+        /* EVENT_WAIT: this exact datagram and its reply, not a capacity retry. */
+        int count=poll(&ready,1,2000);
+        if(count!=1) fprintf(stderr,"UDP publication burst family=%u index=%u\n",family,i);
+        assert(count==1 && (ready.revents&POLLIN));
+        char byte; peer_size=sizeof(peer);
+        assert(recvfrom(fds[1],&byte,1,0,(void *)&peer,&peer_size)==1 && byte=='b');
+        assert(sendto(fds[1],"r",1,0,(void *)&peer,peer_size)==1);
+        ready=(struct pollfd){.fd=clients[i],.events=POLLIN};
+        assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+        assert(read(clients[i],&byte,1)==1 && byte=='r');
+    }
+    struct md_fd_object *stream=NULL; int listener=-1;
+    assert(!md_network_endpoint_open(n,0,family,SOCK_STREAM,0,&stream,&listener));
+    struct md_inet_address stream_address={.ip=md_ip_loopback(family)};
+    struct sockaddr_storage stream_wire; socklen_t stream_size;
+    assert(!md_inet_encode(&stream_address,0,&stream_wire,&stream_size));
+    assert(!md_network_endpoint_bind(stream,listener,&identity,(void *)&stream_wire,stream_size));
+    assert(!md_network_endpoint_name(stream,listener,0,&stream_wire,&stream_size));
+    assert(!md_network_endpoint_listen(stream,listener,1));
+    int stream_client=socket(family,SOCK_STREAM|SOCK_CLOEXEC,0); assert(stream_client>=0);
+    assert(!connect(stream_client,(void *)&stream_wire,stream_size));
+    struct pollfd ready={.fd=listener,.events=POLLIN};
+    /* EVENT_WAIT: TCP admission still works with all UDP tuples retained. */
+    assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+    int accepted=accept4(listener,NULL,NULL,SOCK_CLOEXEC); assert(accepted>=0);
+    assert(write(accepted,"t",1)==1);
+    ready=(struct pollfd){.fd=stream_client,.events=POLLIN};
+    assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+    char byte; assert(read(stream_client,&byte,1)==1 && byte=='t');
+    close(accepted); close(stream_client); close(listener); md_fd_object_release(stream);
+    assert(connection_count(n)>1024);
+    forget_connections(n,&identity,family);
+    assert(sendto(clients[0],"b",1,0,(void *)&wire,length)==1);
+    ready=(struct pollfd){.fd=fds[1],.events=POLLIN};
+    /* EVENT_WAIT: a flushed tuple reconnects through the retained UDP carrier. */
+    assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+    peer_size=sizeof(peer);
+    assert(recvfrom(fds[1],&byte,1,0,(void *)&peer,&peer_size)==1 && byte=='b');
+    assert(sendto(fds[1],"r",1,0,(void *)&peer,peer_size)==1);
+    ready=(struct pollfd){.fd=clients[0],.events=POLLIN};
+    assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+    assert(read(clients[0],&byte,1)==1 && byte=='r');
+    for (unsigned i=0;i<sizeof(clients)/sizeof(*clients);++i) close(clients[i]);
     for (unsigned i=1;i<3;++i) { close(fds[i]); md_fd_object_release(objects[i]); }
     client=socket(family,SOCK_DGRAM|SOCK_CLOEXEC,0);
     assert(client>=0 && !bind(client,(void *)&wire,length)); close(client);
     md_identity_release(&identity); md_network_namespace_release(n);
-    printf("PASS IPv%u published UDP reuse: wildcard/exact selection, conflict checks and surviving owner\n",family==AF_INET ? 4 : 6);
+    printf("PASS IPv%u published UDP reuse: wildcard/exact selection, conflict checks, surviving owner, retained burst and atomic flush\n",family==AF_INET ? 4 : 6);
 }
 static void multicast(unsigned family) {
     struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
@@ -632,6 +896,10 @@ void test_network_endpoint(void) {
     tcp_defaults();
     tcp_reuse(AF_INET); tcp_reuse(AF_INET6);
     datagram_handoff(AF_INET); datagram_handoff(AF_INET6);
+    for (unsigned bound=0;bound<2;++bound) {
+        datagram_namespace_retirement(AF_INET,bound); datagram_namespace_retirement(AF_INET6,bound);
+    }
+    datagram_idle();
     published_datagram_reuse(AF_INET); published_datagram_reuse(AF_INET6);
     device_binding();
     socket_priority(AF_INET);

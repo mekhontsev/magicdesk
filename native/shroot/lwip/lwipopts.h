@@ -73,6 +73,7 @@ void md_lwip_free(void *);
 #define LWIP_TIMERS 1
 #define LWIP_NOASSERT_ON_ERROR 1
 #define LWIP_HOOK_FILENAME "lwip_hooks.h"
+#define LWIP_HOOK_TCP_ISN(local,port,remote,peer) md_lwip_sequence(local,port,remote,peer)
 #define LWIP_HOOK_ETHARP_GET_GW(n,a) md_lwip_gateway4(n,a)
 #define LWIP_HOOK_ND6_GET_GW(n,a) md_lwip_gateway6(n,a)
 #endif
