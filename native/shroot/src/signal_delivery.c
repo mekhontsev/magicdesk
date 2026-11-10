@@ -167,7 +167,8 @@ int md_signal_delivery_event(struct md_signal_delivery *q,pid_t tid,int signal,i
     if (!q->active || signal!=q->first->info.si_signo) return MD_SIGNAL_NEW;
     siginfo_t observed;
     if (ptrace(PTRACE_GETSIGINFO,tid,NULL,&observed)<0) return -errno;
-    if (observed.si_code>0) return MD_SIGNAL_NEW;
+    /* Standard carriers can coalesce with asynchronous kernel signals too. */
+    if (md_signal_synchronous(&observed)) return MD_SIGNAL_NEW;
     struct md_signal_delivery_node *n=q->first;
     if (ptrace(PTRACE_SETSIGINFO,tid,NULL,&n->info)<0) return -errno;
     *deliver=signal;

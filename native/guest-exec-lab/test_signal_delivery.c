@@ -25,6 +25,51 @@ static siginfo_t original(int signal) {
     return info;
 }
 static void unexpected(int signal) { (void)signal; _exit(90); }
+static void coalesced_kernel_signal(int signal,int code) {
+    pid_t pid=fork(); assert(pid>=0);
+    if (!pid) {
+        struct sigaction action={.sa_handler=unexpected};
+        sigemptyset(&action.sa_mask); assert(!sigaction(signal,&action,NULL));
+        assert(!ptrace(PTRACE_TRACEME,0,NULL,NULL));
+        assert(!raise(SIGSTOP));
+        assert(syscall(SYS_getpid)>0);
+        sigset_t set; sigemptyset(&set); sigaddset(&set,signal);
+        siginfo_t info;
+        struct timespec bound={.tv_sec=1};
+        assert(sigtimedwait(&set,&info,&bound)==signal);
+        assert(info.si_code==SI_TKILL && info.si_pid==12345 && info.si_uid==54321);
+        bound=(struct timespec){0};
+        assert(sigtimedwait(&set,&info,&bound)==-1 && errno==EAGAIN);
+        _exit(0);
+    }
+    int status;
+    assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status) && WSTOPSIG(status)==SIGSTOP);
+    assert(!ptrace(PTRACE_SETOPTIONS,pid,NULL,(void *)(PTRACE_O_TRACESYSGOOD|PTRACE_O_EXITKILL)));
+    assert(!syscall(SYS_tgkill,pid,pid,signal));
+    assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
+    assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status) && WSTOPSIG(status)==signal);
+    siginfo_t pending={.si_signo=signal,.si_code=code};
+    assert(!ptrace(PTRACE_SETSIGINFO,pid,NULL,&pending));
+    uint64_t mask=UINT64_C(1)<<(signal-1);
+    assert(!ptrace(PTRACE_SETSIGMASK,pid,(void *)sizeof(mask),&mask));
+    /* Requeue an asynchronous kernel signal in the task's private pending
+     * set, where publishing the same standard carrier must coalesce. */
+    assert(!ptrace(PTRACE_SYSCALL,pid,NULL,(void *)(intptr_t)signal));
+    assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status) && WSTOPSIG(status)==(SIGTRAP|0x80));
+    struct md_signal_delivery q={0};
+    siginfo_t info=original(signal);
+    assert(!md_signal_delivery_hold(&q,&info));
+    assert(!md_signal_delivery_publish(&q,pid,pid) && q.active && q.mask==mask);
+    assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
+    assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status) && WSTOPSIG(status)==signal);
+    assert(!ptrace(PTRACE_GETSIGINFO,pid,NULL,&pending) && pending.si_code==code);
+    int deliver=signal;
+    assert(md_signal_delivery_event(&q,pid,signal,&deliver)==MD_SIGNAL_RESTORED);
+    assert(!q.active && !q.first && deliver==signal);
+    assert(!ptrace(PTRACE_CONT,pid,NULL,(void *)(intptr_t)deliver));
+    assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
+    md_signal_delivery_clear(&q);
+}
 static volatile sig_atomic_t realtime_count;
 static void realtime_handler(int signal,siginfo_t *info,void *context) {
     (void)context;
@@ -151,6 +196,9 @@ static void child(unsigned round,int traced) {
 }
 int main(void) {
     alarm(15);
+    coalesced_kernel_signal(SIGALRM,SI_KERNEL);
+    coalesced_kernel_signal(SIGCHLD,CLD_EXITED);
+    coalesced_kernel_signal(SIGIO,POLL_IN);
     realtime_order(0); realtime_order(1);
     for (long value=-4095;value<=4095;++value)
         assert(md_syscall_restarting(value)==(value==-512 || value==-513 || value==-514 || value==-516));
