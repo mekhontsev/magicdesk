@@ -5,7 +5,7 @@
 /* Private auxv contract, independent of the libc ABI. The caller retains its
  * original SVC instruction, including clone/signal-return stack semantics. */
 #define MD_AT_COOPERATIVE 0x4d440001UL
-#define MD_ENTRY_VERSION 9
+#define MD_ENTRY_VERSION 10
 enum md_entry_outcome { MD_ENTRY_DECLINED, MD_ENTRY_COMPLETED, MD_ENTRY_UNKNOWN,
     MD_ENTRY_CHECK_CANCEL, MD_ENTRY_KERNEL_CALL, MD_ENTRY_NATIVE_EFFECT };
 struct md_entry_client;
@@ -17,6 +17,9 @@ struct md_entry_call {
     int64_t result;
     int32_t number;
     uint32_t reserved;
+    /* Original architectural PC after SVC, never an internal helper address.
+     * Zero retains kernel admission when an application policy is present. */
+    uintptr_t instruction_pointer;
     /* Optional caller-owned SVC continuation. A libc uses the same site with
      * entry enabled or disabled, preserving instruction-pointer filter policy.
      * It receives only the original syscall, never a synthetic preflight. */
@@ -51,7 +54,7 @@ struct md_entry_api {
     long (*thread_identity)(void);
     /* Resident SVC driver only: its frame defers application handlers until
      * completion. Generic clients keep the original kernel continuation. */
-    int (*native_memory)(struct md_entry_client *,long,long,const uint64_t *,int64_t *);
+    int (*native_memory)(struct md_entry_client *,long,long,const uint64_t *,int64_t *,uintptr_t);
     /* Resident driver has the native identity from thread_identity or the
      * supervisor's sole-mm-owner publication, never a guest namespace PID. */
     enum md_entry_outcome (*try_identified)(struct md_entry_client *,long,struct md_entry_call *);

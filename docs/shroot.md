@@ -126,9 +126,15 @@ lazy entry explicitly. This is a process environment setting, not a persistent
 distribution setting; programs that replace their environment must retain it
 when a Base-only comparison is intended. Already running processes are unchanged.
 
-Application seccomp filters revoke accelerated entry and retain kernel admission.
-Protected processes and debugger ownership also use the common fallback rules.
-A successful sandboxed launch therefore does not prove an unfiltered speedup.
+Application seccomp installation fences accelerated calls before publishing an
+immutable policy view. Eligible calls can then retain lazy entry: the shared
+interpreter checks the original syscall arguments and instruction address before
+any effect. ALLOW uses the existing engine, ERRNO returns directly, and other
+actions retain original-site kernel admission. IP-independent filter chains can
+retain acceleration after exec when they admit an inert return checkpoint.
+IP-sensitive inherited chains, unavailable policy mappings and debugger ownership
+retain Base. A successful sandboxed launch alone therefore does not prove
+acceleration.
 See [entry contracts](../native/shroot/cooperative-entry.md#sandboxes-and-debuggers)
 and [integration evidence](../native/guest-exec-lab/svc-rewriting.md#product-boundary).
 Native `--statistics` reports `SVC_RUNTIME_STATS` and completed calls; ordinary
@@ -149,9 +155,9 @@ docker run --rm -it --platform linux/arm64 alpine:3.23 sh
 
 The container's programs use the same entry admission as other guest processes,
 including after package updates. This also applies to nested Podman processes.
-Keep the engine's normal seccomp policy: when it installs a filter, the container
-uses Base admission. Do not disable that policy merely to claim a higher
-benchmark result.
+Keep the engine's normal seccomp policy. Calls retain their policy checks;
+eligible inherited filters retain lazy entry after exec; others use Base. Do not
+disable that policy merely to claim a higher benchmark result.
 
 For reproducible comparisons, pin the image digest and retain identical mounts,
 sandbox policy and storage. Report actual entry completions separately from

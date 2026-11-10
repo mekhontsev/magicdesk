@@ -774,6 +774,15 @@ static void trace_policy_admission(void) {
     call.nr=SYS_newfstatat; call.instruction_pointer=RAW_GATE;
     assert(!guest_trace_rejected(&t,&call));
     call.instruction_pointer=abi.task_return; assert(!guest_trace_rejected(&t,&call));
+    uintptr_t begin=abi.code_begin,end=abi.code_end;
+    abi.code_begin=0x20000; abi.code_end=0x30000;
+    for (uintptr_t pc=abi.code_begin;pc<abi.code_end;pc+=0x1000) {
+        call.instruction_pointer=pc;
+        assert(!guest_policy_boundary(&t,&call) && !guest_trace_rejected(&t,&call));
+    }
+    call.instruction_pointer=abi.code_end;
+    assert(guest_policy_boundary(&t,&call) && guest_trace_rejected(&t,&call));
+    abi.code_begin=begin; abi.code_end=end;
     call.instruction_pointer=0x12345678;
     t.phase=DISPATCHING; assert(!guest_trace_rejected(&t,&call));
     t.phase=IDLE; t.host_signals=0; assert(guest_trace_rejected(&t,&call));
@@ -782,6 +791,11 @@ static void trace_policy_admission(void) {
     puts("PASS original TRACE admission: notification calls, selector collision and owned-gate isolation");
 }
 
+static void filter_result(struct thread *caller,long result) {
+    struct user_pt_regs regs=caller->original;
+    regs.regs[0]=result;
+    assert(!filter_observed(caller,&regs));
+}
 static void filter_publication(void) {
     struct thread *saved=threads;
     struct thread outside={.pid=3,.tgid=3};
@@ -792,27 +806,27 @@ static void filter_publication(void) {
     caller.original.regs[8]=SYS_seccomp;
     caller.original.regs[0]=SECCOMP_SET_MODE_FILTER;
     caller.original.regs[1]=SECCOMP_FILTER_FLAG_TSYNC;
-    filter_observed(&caller,2);
+    filter_result(&caller,2);
     assert(!caller.application_filter && !peer.application_filter);
-    filter_observed(&caller,-EINVAL);
+    filter_result(&caller,-EINVAL);
     assert(!caller.application_filter && !peer.application_filter);
-    filter_observed(&caller,0);
+    filter_result(&caller,0);
     assert(caller.application_filter && peer.application_filter);
     assert(!outside.application_filter && !retired.application_filter);
     caller.application_filter=peer.application_filter=0;
     caller.original.regs[1]=SECCOMP_FILTER_FLAG_NEW_LISTENER;
-    filter_observed(&caller,5);
+    filter_result(&caller,5);
     assert(caller.application_filter && !peer.application_filter);
     caller.application_filter=0;
-    filter_observed(&caller,0);
+    filter_result(&caller,0);
     assert(caller.application_filter && !peer.application_filter);
     caller.application_filter=0; caller.entered=0;
-    filter_observed(&caller,5); assert(!caller.application_filter);
+    filter_result(&caller,5); assert(!caller.application_filter);
     caller.entered=1; caller.original.regs[8]=SYS_prctl;
     caller.original.regs[0]=PR_SET_SECCOMP; caller.original.regs[1]=SECCOMP_MODE_STRICT;
-    filter_observed(&caller,0); assert(!caller.application_filter);
+    filter_result(&caller,0); assert(!caller.application_filter);
     caller.original.regs[1]=SECCOMP_MODE_FILTER;
-    filter_observed(&caller,0); assert(caller.application_filter && !peer.application_filter);
+    filter_result(&caller,0); assert(caller.application_filter && !peer.application_filter);
     struct md_interception_buffers *pool=NULL;
     assert(!md_buffers_create_readonly(1,sizeof(struct md_seccomp_image),&pool));
     const long outcomes[]={-EINVAL,23,0};
@@ -827,7 +841,7 @@ static void filter_publication(void) {
         assert(!md_seccomp_capture_prepare(&caller.filter_install->capture,pool,0x100000,
             NULL,&program,NULL,0,0,NULL));
         policy_admission_retain(&peer,1);
-        filter_observed(&caller,outcomes[i]);
+        filter_result(&caller,outcomes[i]);
         assert(!caller.filter_install);
         assert(!!caller.policy==(outcomes[i]==0) && caller.policy==peer.policy);
         assert(!outside.policy && !retired.policy);
@@ -929,7 +943,7 @@ static void filter_listener_ownership(void) {
         if (outcomes[i]>=0) {
             caller.filter_install->loan->number=outcomes[i];
             caller.filter_install->admitted=1;
-            filter_observed(&caller,outcomes[i]);
+            filter_result(&caller,outcomes[i]);
         } else filter_install_discard(&caller);
         assert(!caller.filter_install);
         struct md_fd_object *object=md_fd_origins_object(caller.resources.files,(int)outcomes[i],NULL);
@@ -1129,6 +1143,11 @@ static void machine_context_admission(void) {
     assert(!md_memory_svc_set(t.memory,r));
     r->pool_count=1; r->pools[0]=(struct md_svc_code_pool){.address=0x3000,.used=8};
     assert(machine_context(&t,&info) && machine_discovery(&t));
+    t.notification_continued=1;
+    assert(!machine_discovery(&t));
+    t.notification_continued=0; t.admission_policy_valid=1;
+    assert(!machine_discovery(&t));
+    t.admission_policy_valid=0;
     for (unsigned i=0;i<4;++i) {
         t.application_filter=i==0; t.cooperative_blocked=i==1;
         t.debug_options=i==2; r->disabled=i==3;
@@ -1149,8 +1168,41 @@ static void machine_context_admission(void) {
     assert(machine_context(&t,&info));
     t.phase=DISPATCHING;
     assert(!machine_context(&t,&info) && !machine_context(&t,NULL));
+    t.phase=IDLE; t.application_filter=1;
+    struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={1,code};
+    assert(!md_seccomp_policy_capture(NULL,&program,&t.policy));
+    assert(!machine_discovery(&t));
+    md_seccomp_policy_bind_entry(t.policy,r->image);
+    assert(!machine_discovery(&t));
+    struct md_interception_buffers *pool=NULL;
+    assert(!md_buffers_create_readonly(1,128,&pool));
+    assert(!md_memory_snapshot_publish(t.memory,md_seccomp_policy_identity(t.policy),pool,0x200000));
+    assert(machine_discovery(&t));
+    const long mapping_calls[]={SYS_mmap,SYS_munmap,SYS_mprotect,SYS_mremap};
+    for (unsigned i=0;i<sizeof(mapping_calls)/sizeof(*mapping_calls);++i) {
+        __u64 args[]={0x200000,4096,4096,MAP_FIXED,0x400000,0};
+        assert(entry_snapshot_change(&t,mapping_calls[i],args));
+        args[0]=0x400000;
+        assert(!entry_snapshot_change(&t,mapping_calls[i],args));
+    }
+    __u64 args[]={0x400000,4096,4096,MREMAP_MAYMOVE|MREMAP_FIXED,0x200000,0};
+    assert(entry_snapshot_change(&t,SYS_mremap,args));
+    args[2]=SHM_REMAP;
+    assert(entry_snapshot_change(&t,SYS_shmat,args));
+    assert(!entry_snapshot_change(&t,SYS_read,args));
+    struct thread child=t;
+    child.memory=md_memory_fork(t.memory,0); assert(child.memory);
+    assert(machine_discovery(&child));
+    struct md_interception_memory *image=md_memory_new_image(child.memory); assert(image);
+    md_memory_release(child.memory); child.memory=image;
+    assert(!machine_discovery(&child)); md_memory_release(image);
+    md_memory_snapshots_invalidate(t.memory);
+    assert(!machine_discovery(&t));
+    md_buffers_release(pool); md_seccomp_policy_release(t.policy);
     md_memory_release(t.memory);
     puts("PASS machine context: lazy discovery capture, revoked entry recovery and task-owned dispatch");
+    puts("PASS policy entry admission: published view, exact image, fork/exec and mapping mutation scope");
 }
 static void processor_controls(void) {
     const uint64_t controls[]={0,UINT64_C(1)<<12,UINT64_C(1)<<24,(UINT64_C(1)<<12)|(UINT64_C(1)<<24)};
@@ -2023,6 +2075,28 @@ static void native_signal_entry(void) {
         md_signal_actions_release(t.signal_actions); md_memory_release(t.memory);
     }
     puts("PASS native signal entry: no register or mask rewrite, one-shot action reset and released admission");
+}
+static unsigned pending_signal_interrupts;
+static long pending_signal_trace(int request,pid_t pid,void *address,void *data) {
+    assert(request==PTRACE_INTERRUPT && pid==123 && !address && !data);
+    ++pending_signal_interrupts;
+    return 0;
+}
+static void pending_signal_wakeup(void) {
+    checkpoints.trace=pending_signal_trace;
+    for (unsigned state=0;state<4;++state) for (unsigned held=0;held<4;++held) {
+        struct md_signal_entry packet={.pending=1};
+        struct signal_control owner={.returning=state==2,.entry_packet=state==1 ? &packet : NULL};
+        struct thread t={.pid=123,.signal_control=state ? &owner : NULL,
+            .host_signal_blocked=held==1,.kernel_stopped=held==2,.interrupt_pending=held==3};
+        pending_signal_interrupts=0;
+        assert(!signal_pending_wake(&t));
+        assert(pending_signal_interrupts==(unsigned)(state!=3 && !held));
+        assert(!signal_pending_wake(&t));
+        assert(pending_signal_interrupts==(unsigned)(state!=3 && !held));
+    }
+    checkpoints.trace=checkpoint_native_trace;
+    puts("PASS pending signal wake: native execution, entry/return packets, borrowed owner and duplicate suppression");
 }
 static void notification_signal_entry(void) {
     for (unsigned reset=0;reset<2;++reset) {
@@ -4082,6 +4156,7 @@ int main(void) {
     parked_checkpoint_ownership();
     native_signal_entry();
     notification_signal_entry();
+    pending_signal_wakeup();
     exclusive_signal_entry();
     native_signal_query();
     logical_signal_frame();

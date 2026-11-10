@@ -346,7 +346,7 @@ int main(int argc,char **argv) {
     void *code=mmap((void *)0x3000000,page,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0); assert(code==(void *)0x3000000);
     plan=(struct md_svc_direct_context){(uintptr_t)md_svc_lab_call,(uintptr_t)code,MD_SVC_POOL_BASE,
-        map_guard ? SYS_mmap : SYS_getpid};
+        map_guard ? SYS_mmap : SYS_getpid,0};
     uintptr_t cold=(uintptr_t)code+2048;
     assert(!md_svc_direct_kernel(plan.svc,cold,(uint32_t *)cold));
     struct md_svc_direct_fallback exits={cold,cold,cold}; uint32_t branch;

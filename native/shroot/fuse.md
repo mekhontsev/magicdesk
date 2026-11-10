@@ -254,7 +254,10 @@ files.
 The Snap fixture uses stock Ubuntu and snap-owned libraries. Default lazy entry
 and explicit `--base` share the same filesystem and FUSE owners;
 `--machine-entry` additionally requires measured accelerated completions.
-Application filters retain Base admission, regardless of the caller's libc.
+Application filters retain original-call admission, regardless of the caller's
+libc. Eligible IP-independent inherited chains can retain lazy entry after exec;
+other chains use Base. An installed filter alone is not evidence of direct-entry
+completions.
 
 `--user-session` starts stock `user@0.service`, uses its session bus and requires
 a successful transient user unit before invoking Snap. It also works with

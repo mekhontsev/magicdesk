@@ -4,18 +4,20 @@
 #include "spin_policy.h"
 #include "file_open.h"
 #include "fs_syscall_strings.h"
+#include "seccomp_program.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
+#include <linux/audit.h>
 #include <sys/mman.h>
 #include <time.h>
 
 extern long md_guest_entry_kernel(long,const uint64_t *);
 static unsigned char offers[512];
 static unsigned char strings[512];
-static uintptr_t registration_allowed=1;
+uintptr_t md_cooperative_registration=1;
 void md_cooperative_revoke(void) {
-    __atomic_store_n(&registration_allowed,0,__ATOMIC_RELEASE);
+    __atomic_store_n(&md_cooperative_registration,0,__ATOMIC_RELEASE);
 }
 void md_cooperative_init(void) {
     for (unsigned i=0;i<sizeof(offers);++i) {
@@ -98,7 +100,24 @@ static enum md_entry_outcome resume_native(struct md_entry_client *client,struct
     return progress(client,call);
 }
 static void native_effect(void *context) { md_cooperative_native(context); }
-static int native_memory(struct md_entry_client *client,long tid,long number,const uint64_t *args,int64_t *result) {
+enum { POLICY_FALLBACK, POLICY_ALLOW, POLICY_RESULT };
+static int admit(const struct md_entry_channel *c,long number,const uint64_t *args,
+        uintptr_t pc,int64_t *result) {
+    const struct md_seccomp_view *view=(const void *)atomic_load_explicit(&c->policy,memory_order_acquire);
+    if (!view) return POLICY_ALLOW;
+    if (!pc) return POLICY_FALLBACK;
+    struct seccomp_data call={.nr=number,.arch=AUDIT_ARCH_AARCH64,.instruction_pointer=pc};
+    for (unsigned i=0;i<6;++i) call.args[i]=args[i];
+    uint32_t decision;
+    if (md_seccomp_view_eval(view,&call,&decision)) return POLICY_FALLBACK;
+    switch (decision&SECCOMP_RET_ACTION_FULL) {
+    case SECCOMP_RET_ALLOW: return POLICY_ALLOW;
+    case SECCOMP_RET_ERRNO: *result=md_seccomp_policy_error(decision); return POLICY_RESULT;
+    default: return POLICY_FALLBACK;
+    }
+}
+static int native_memory(struct md_entry_client *client,long tid,long number,const uint64_t *args,int64_t *result,
+        uintptr_t pc) {
     if (tid<=0 || (uintptr_t)tid!=client->opaque[MD_ENTRY_CLIENT_OWNER]) return 0;
     /* Growth flags can affect pages outside the supplied range. Such calls
      * need the ordinary memory owner, as do unknown protection semantics. */
@@ -106,6 +125,8 @@ static int native_memory(struct md_entry_client *client,long tid,long number,con
     struct md_entry_channel *c=(void *)client->opaque[MD_ENTRY_CLIENT_CHANNEL];
     if (!c || !atomic_load_explicit(&c->enabled,memory_order_acquire)
             || !md_memory_admission_allows(&c->memory,args[0],args[1],md_page_size)) return 0;
+    int policy=admit(c,number,args,pc,result);
+    if (policy!=POLICY_ALLOW) return policy==POLICY_RESULT;
     /* Anonymous replacement/remap creates no backing provenance. The same
      * exclusion proof as unmap owns the old range; Linux validates all args. */
     *result=number==SYS_mmap ? RAW6(mmap,args[0],args[1],args[2],args[3],args[4],args[5])
@@ -130,9 +151,38 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
     call->continuation[CONT_CHANNEL]=0;
     struct md_entry_channel *c=(void *)client->opaque[MD_ENTRY_CLIENT_CHANNEL];
     enum md_entry_outcome outcome=MD_ENTRY_DECLINED;
+    int admitted=0;
     if (c && !atomic_load_explicit(&c->enabled,memory_order_acquire)) goto kernel;
+    if (!c) {
+        uintptr_t registration=__atomic_load_n(&md_cooperative_registration,__ATOMIC_ACQUIRE);
+        if (!registration) { control=(uintptr_t)UINT32_MAX<<1; goto kernel; }
+        /* Unfiltered task routes need no channel. Filtered probes need the
+         * original policy even when this is the thread's first offered call. */
+        if (registration==1 && (md_entry_route(call->number)==MD_ENTRY_TASK
+                || md_entry_route(call->number)==MD_ENTRY_READINESS)) goto kernel;
+        uint32_t retry=(uint32_t)(control>>1);
+        if (retry) {
+            if (retry!=UINT32_MAX) control=(uintptr_t)(retry-1)<<1;
+            goto kernel;
+        }
+        long address=md_guest_buffer_admit(MD_ENTRY_BIND);
+        if (address<0) {
+            control=(uintptr_t)(address==-EAGAIN || address==-ENOMEM || address==-EINTR ? 128 : UINT32_MAX)<<1;
+            goto kernel;
+        }
+        c=(void *)address;
+        client->opaque[MD_ENTRY_CLIENT_CHANNEL]=(uintptr_t)c;
+        client->opaque[MD_ENTRY_CLIENT_OWNER]=(uintptr_t)c->owner;
+    }
+    if (c) {
+        if ((uintptr_t)(tid>0 ? tid : RAW0(gettid))!=client->opaque[MD_ENTRY_CLIENT_OWNER]) goto done;
+        int policy=admit(c,call->number,call->args,call->instruction_pointer,&call->result);
+        if (policy==POLICY_FALLBACK) goto done;
+        if (policy==POLICY_RESULT) return finish(client,call,MD_ENTRY_COMPLETED);
+        admitted=1;
+    }
     int probe=0,immediate=0;
-    if (md_entry_route(call->number)==MD_ENTRY_READINESS && tid>0 && !call->args[4]) {
+    if (c && md_entry_route(call->number)==MD_ENTRY_READINESS && tid>0 && !call->args[4]) {
         probe=(call->number==SYS_epoll_pwait && (int)call->args[3]<0)
             || (call->number==SYS_epoll_pwait2 && !call->args[3]);
         if (c && (uintptr_t)tid==client->opaque[MD_ENTRY_CLIENT_OWNER]
@@ -153,8 +203,9 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
     if (probe) {
         /* Infinite or zero-time unmasked waits need no deadline adjustment.
          * Both ABIs use the scalar zero-time kernel probe. Dynamic queue
-         * selectors still collect virtual events; application filters revoke
-         * this entry before installation. No raw gate or FD cache is used. */
+         * selectors still collect virtual events. The original call has passed
+         * policy admission; the owned probe is not a second guest request.
+         * No raw gate or FD cache is used. */
         uint64_t args[6];
         for (unsigned i=0;i<6;++i) args[i]=call->args[i];
         args[3]=0;
@@ -165,31 +216,6 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
         }
     }
     if (md_entry_route(call->number)==MD_ENTRY_TASK || md_entry_route(call->number)==MD_ENTRY_READINESS) goto kernel;
-    if (!c) {
-        /* Monotonic per-image hint, revoked before an application filter can
-         * forbid helpers. Existing channels retain their per-task eligibility;
-         * this flag never grants authority to the supervisor or worker. */
-        if (!__atomic_load_n(&registration_allowed,__ATOMIC_ACQUIRE)) {
-            control=(uintptr_t)UINT32_MAX<<1;
-            goto kernel;
-        }
-        uint32_t retry=(uint32_t)(control>>1);
-        if (retry) {
-            if (retry!=UINT32_MAX) control=(uintptr_t)(retry-1)<<1;
-            goto kernel;
-        }
-        /* This entry has the application's signal mask. A synchronous BRK
-         * would unblock a blocked SIGTRAP and reset its disposition in Linux,
-         * even when ptrace consumes the stop. Admission uses the syscall gate. */
-        long address=md_guest_buffer_admit(MD_ENTRY_BIND);
-        if (address<0) {
-            control=(uintptr_t)(address==-EAGAIN || address==-ENOMEM || address==-EINTR ? 128 : UINT32_MAX)<<1;
-            goto kernel;
-        }
-        c=(void *)address;
-        client->opaque[MD_ENTRY_CLIENT_CHANNEL]=(uintptr_t)c;
-        client->opaque[MD_ENTRY_CLIENT_OWNER]=(uintptr_t)c->owner;
-    } else if ((uintptr_t)(tid>0 ? tid : RAW0(gettid))!=client->opaque[MD_ENTRY_CLIENT_OWNER]) goto done;
     if (!atomic_load_explicit(&c->enabled,memory_order_acquire)) goto kernel;
     /* Different entry adapters in one thread share the channel. The client
      * guard alone cannot exclude a signal handler using another adapter. */
@@ -236,6 +262,7 @@ done:
     call->continuation[CONT_CONTROL]=control;
     return finish(client,call,outcome);
 kernel:
+    if (!admitted && __atomic_load_n(&md_cooperative_registration,__ATOMIC_ACQUIRE)!=1) goto done;
     outcome=kernel_call(call);
     goto done;
 }
@@ -284,8 +311,8 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
             if (budget) md_spin_result(&policy,!parked);
             c->feedback[kind]=policy;
             if (atomic_load_explicit(&c->native.state,memory_order_acquire)==MD_NATIVE_READY) {
-                /* Reenter libc's cancellation check before the effect, never
-                 * after a successful open. Filtered callers cannot get a plan. */
+                /* Reenter the caller's cancellation check before the effect,
+                 * never after a successful open. Policy admission is retained. */
                 if (md_entry_open(call->number) && call->cancel) {
                     call->next=offer_native;
                     return MD_ENTRY_CHECK_CANCEL;

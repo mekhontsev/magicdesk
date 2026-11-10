@@ -9,6 +9,7 @@ SIGSYS handlers and alternate stacks belong to the application. See the
 
 - [Reproduction](#reproduction)
 - [Policy Boundaries](#policy-boundaries)
+- [Userspace Policy Cost](#userspace-policy-cost)
 - [Selective Ptrace Hybrid](#selective-ptrace-hybrid)
 - [Signal-Neutral Checkpoints](#signal-neutral-checkpoints)
 - [Real Browser Boundaries](#real-browser-boundaries)
@@ -52,6 +53,138 @@ semantics matter independently. A guest-writable secret or caller-supplied
 syscall/PC is not trusted authorization. An external broker must also account
 for alternate RPC paths, inherited descriptors and raw host access; successful
 filter installation alone does not establish complete confinement.
+
+## Userspace Policy Cost
+
+`test_seccomp_entry` compares installed kernel policies with workload-scoped
+userspace evaluation through the shared `seccomp_program` interpreter and
+read-only `md_seccomp_view`. The installed-policy mode exercises production
+publication and lazy SVC; the explicit userspace mode is a prototype limited to
+the measured calls, not a process-wide sandbox. Neither measures browser speed.
+
+Build with `MAGICDESK_GUEST_FIXTURES=ON`, then supply two raw AArch64
+`sock_filter` arrays captured from guest `seccomp`/`prctl` installation:
+
+```sh
+cmake --build BUILD --target test_seccomp_entry
+python native/guest-exec-lab/test_seccomp_entry.py BUILD FILE_FILTER FD_FILTER \
+  --rounds 5 --executor shell
+python native/guest-exec-lab/test_seccomp_entry.py APK_BUILD FILE_FILTER FD_FILTER \
+  --rounds 5 --executor app
+```
+
+The App executor requires a fixture APK containing the exact helpers in
+`APK_BUILD`. Inputs must permit the measured operations: `FILE_FILTER` allows
+`newfstatat`, `openat` and `close`; `FD_FILTER` allows `fstat` and `close`.
+Both must deny `renameat` with ERRNO. The runner records their SHA-256 hashes.
+Do not infer a browser process role from a filter's filename.
+
+Each launch installs the exact filter in a disposable child as a kernel oracle.
+The child checks ERRNO and, when selected by the input policy, TRAP from
+`process_vm_readv`, including original PC, syscall number, architecture and
+data. The userspace path independently checks the rename denial without
+executing it. Unsupported userspace actions fail explicitly, never become ALLOW.
+
+The same timed loops compare native/kernel-filter, Base/kernel-filter,
+lazy/kernel-filter, lazy/userspace-policy and lazy/no-policy modes. The last
+two are deliberately limited to the measured calls and the denial control;
+libc startup and unrelated calls are **not** covered by a virtual guest filter.
+Kernel-filter modes install the real policy and exercise production admission,
+including eligible direct entry after publication.
+Separate instrumented controls check actual cooperative completions; timing
+runs omit instrumentation. Rounds alternate forward/reverse mode order,
+with CPU-frequency evidence outside each command and no affinity/frequency lock.
+Native here means an Android native fixture, not a prepared chroot benchmark.
+
+Measured on NX809J, Android 16 / Linux 6.12, with Chromium 149.0.7827.53
+filters captured from a stock headless Alpine launch: `2520a873c204` (627
+instructions, file operations) and `6fb69b9aeec5` (655 instructions, FD-only
+workload). Values are three-round medians in milliseconds; CPU frequencies varied
+and the raw reports retain the observations. Do not infer small executor or
+policy-overhead differences from these samples.
+
+| Executor | Workload | Native + kernel filter | Base + kernel filter | Lazy + installed policy | Lazy without guest filter | Userspace prototype |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Shell | 32768 path stats | 67.4 | 1475.5 | 150.9 | 154.8 | 155.7 |
+| Shell | 4096 open/close pairs | 19.0 | 669.0 | 63.0 | 65.9 | 69.7 |
+| Shell | 32768 FD stats | 21.5 | 1219.5 | 76.5 | 78.5 | 78.0 |
+| User | 32768 path stats | 69.2 | 1454.0 | 145.2 | 121.0 | 171.4 |
+| User | 4096 open/close pairs | 15.3 | 600.3 | 83.8 | 44.0 | 68.0 |
+| User | 32768 FD stats | 10.9 | 1281.3 | 74.5 | 88.5 | 81.7 |
+
+Both identities passed 12 routing controls and 45 timed samples, including
+lazy/no-policy controls. Reports live under `build/seccomp-entry-results`;
+their IDs are `495f84bfa6af4c05aa15ea8d9b66d538` (Shell) and
+`4bf747776a154aba97e113b6511d274b` (User). No other test or build ran alongside
+these series. The installed-policy path is 7.2-17.2 times faster than Base in
+these samples. This supports a large reduction in interception overhead, not
+a claim about browser page speed or negligible filter cost for every operation.
+Device timing variation remains visible in the unfiltered and prototype controls;
+these are not isolated measurements of interpreter cost.
+
+### Integration Boundary
+
+The prototype excludes policy publication, per-thread chain lookup, TSYNC,
+filter inheritance across exec and userspace delivery of TRAP/KILL/TRACE/USER_NOTIF.
+It establishes the cost of evaluating real cBPF alongside a complete accelerated
+file operation, not the correctness or final speed of integrated browser entry.
+Production separately publishes those views to live channels after installation.
+
+The shared policy core exports immutable entry views without coordinator or
+listener pointers. Unit controls compare full-chain and shared-ancestor views
+against coordinator decisions for every input word and action precedence.
+The service-gate emitter handles exact PCs and 64-bit ranges through the same
+matcher. IP-dependent filters route aliases before evaluation, including ALLOW
+results, so recovery uses the original instruction address. IP-independent
+chains with an admitted inert checkpoint can rearm after exec; IP-sensitive
+inherited chains retain Base. Non-ALLOW/non-ERRNO actions use original-site
+kernel fallback. The installation fence remains required.
+
+`test_seccomp_policy` installs generated exact-PC/range gates in native children:
+the owned call is admitted while an ordinary call with the same number retains
+ERRNO. Full filter sections pass under Shell and App UID on the 6.12 device
+(`4379905bd5964c8f92b3982087bf690d`, `590cf56103944f9e852369a4fd0dc262`
+under `build/svc-patch-results`). Coverage includes original-PC decisions,
+original readiness arguments, TRAP/KILL/LOG/TRACE/USER_NOTIF fallback, inherited
+exec, fork, 24-cycle TSYNC races, waiting peers and cleanup. Deterministic
+instruction-boundary and queued-signal controls pass under Shell
+(`build/svc-direct-signals/oci-services-ff8d4dec68c2466fa3aafe58695dc789.json`).
+Guest TRACE tests cover the existing no-tracer ENOSYS contract, not guest
+`PTRACE_O_TRACESECCOMP` support.
+
+Stock Alpine Chromium passes four software-rendered, sandbox-enabled App UID
+launches, JavaScript and PNG checks, with owned profiles cleaned up
+(`app/build/shroot/browser-stage-results-6cae35d3f5fc44448a3cba1708187d8f.json`).
+Each launch verifies `filteredCompleted > 0` in a process that published its
+policy and rearmed entry. This proves actual post-filter acceleration, not just
+a successful sandboxed launch; the small completion counts do not measure
+browser throughput. Production statistics reuse the optional completed-call
+counter and a cold publication baseline, without a new per-call counter.
+
+The complete guest-policy runner passes 258 cases in each identity, combining
+Base and lazy entry: `e0a81d781add4a7ebd998435cbcd108e` (User) and
+`a5b7ba7a772542ff80b06033f9bdaa86` (Shell) under `build/guest-policy`.
+This covers TSYNC, notification CONTINUE, listeners, signal masks, signalfd,
+epoll and repeated PID-init delivery. The state and memory suites additionally
+check packet wake ownership, read-only views, fork retention and invalidation.
+
+The integration shares the existing owners and retains these constraints:
+
+- Publish an immutable original-policy view through the entry ownership model;
+  preserve chain precedence and original nr/arch/args/IP before any native or
+  worker effect, including memory, readiness and descriptor shortcuts.
+- Use the existing installation fence to publish per-thread/TSYNC policy only
+  after successful validation, and retain the correct view for admitted calls,
+  fork and exec. Hash-based deduplication is optional, not an admission rule.
+- Preserve kernel policy on ordinary native and cold calls. Replacing it with
+  a catch-all interception filter must not silently admit previously unintercepted
+  operations or introduce per-read/write stops into native IO.
+- Give internal helpers and original-site fallback explicit ownership. A patched
+  site's kernel alias has a different PC: an IP-sensitive filter can reject it
+  before the supervisor can reconstruct the original call. Reuse the owned
+  checkpoint and original-site retry, not an unchecked alias.
+- Keep Android's inherited filters effective. An in-process policy evaluator
+  does not establish hostile-code confinement or remove host restrictions.
 
 ## Selective Ptrace Hybrid
 

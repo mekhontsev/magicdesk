@@ -1410,8 +1410,11 @@ CLONE_FILES replacement, asynchronous signals and seccomp revocation.
 
 The integrated cooperative suite, stock Go with and without seccomp, glibc
 signal/churn fixtures and deterministic instruction-boundary fixture cover it.
-Application filters revoke admission; passing their fallback tests does not
-prove continued acceleration in a sandbox.
+Application filters fence admission before publication. Eligible calls then
+evaluate a read-only policy view; original-site fallback retains other actions.
+The views use the existing sealed memfd/private-table mapping owner and add no
+post-5.15 dependency. Passing fallback tests alone does not prove acceleration;
+the policy-cost and SVC filter fixtures separately assert direct completions.
 
 Interrupted native aliases use baseline PTRACE_INTERRUPT at a signal-delivery
 stop. `svc_machine` translates the continuation only after ARM64 `do_signal`

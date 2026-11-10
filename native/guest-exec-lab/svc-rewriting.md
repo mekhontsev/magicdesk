@@ -79,7 +79,8 @@ these boundaries.
 Private untracked `munmap` uses the same discovery ordering and an admitted
 native-memory callback. The sole address-space owner validates a snapshot of
 excluded mappings; it does not send a request to the filesystem worker. Shared,
-exposed, filtered or tracked cases retain ordinary interception. The mapping
+exposed or tracked cases retain ordinary interception; eligible filtered calls
+also check their original policy before the native effect. The mapping
 fixture verifies actual accelerated completions, page-rounded unmapping,
 misaligned-address rejection, signal-handler reentry and a subsequent seccomp
 denial. The ownership and revocation contract is described in
@@ -136,6 +137,13 @@ Before an application filter commits, machine admission
 is revoked. The existing cold task barrier, scoped to the affected address
 space, recovers resident entries or requests their return checkpoint. Peers
 then run to complete admitted calls under the old filter.
+After successful installation, a read-only policy view and owned kernel gates
+allow eligible entries to rearm. Original nr/args/IP admission precedes effects;
+ERRNO can complete locally, while other non-ALLOW actions retain original-site
+fallback. Fork shares immutable views. Exec publishes new views for portable
+IP-independent chains with an unconditionally allowed checkpoint; other
+inherited chains retain Base. Filter suspension preserves warm sites for lazy
+re-admission, while mapping retirement remains permanent.
 The original event is replayed only after those machine entries
 and their syscall-exit continuations have drained. This barrier is for these
 kernel transitions, not patch publication or ordinary accelerated calls.
@@ -228,8 +236,9 @@ CPU affinity and rotated launch order. `--workload opens` measures 4,096
 open/close pairs; `--workload metadata` measures 32,768 metadata calls.
 Completion counters are verified in a separate untimed run. Timed runs all
 disable runtime statistics, whose clocks would otherwise bias the comparison.
-`--threaded` first enters libc's threaded mode. `--sandbox` measures the
-current original-SVC fallback after a filter, not acceleration inside it.
+`--threaded` first enters libc's threaded mode. `--sandbox` installs an actual
+guest filter; completion counters must establish whether its workload retains
+lazy entry or uses the original-site fallback.
 
 `test_cooperative_libc.py` also includes optional PRoot and reference-build
 controls. Explicit API callers belong to the separate correctness suite, not

@@ -299,7 +299,13 @@ static int task_call_event(struct md_task_call *f,int status) {
          * seccomp evaluates the entry. The source instruction may have been
          * patched or unmapped while its syscall was stopped. */
         struct user_pt_regs entry=f->entry;
-        if (f->admitted_entry && f->stage==REENTERING) entry.pc=f->returned;
+        if (f->admitted_entry && f->stage==REENTERING) {
+            /* gettid at this gate belongs to the notification transport.
+             * Reconstitute an admitted boundary with an inert TRACE carrier;
+             * restore the real number only after that carrier stops. */
+            entry.pc=f->returned; entry.regs[8]=SYS_getpid;
+            error=number(f,SYS_getpid); if (error) return error;
+        }
         error=regs(f,PTRACE_SETREGSET,&entry); if (error) return error;
         if (f->stage==EXIT_REENTERING) {
             /* SYSEMU captured this entry before seccomp. Its exit restores
@@ -316,9 +322,11 @@ static int task_call_event(struct md_task_call *f,int status) {
         unsigned long cookie;
         error=trace(f,PTRACE_GETEVENTMSG,NULL,&cookie); if (error) return error;
         if (f->stage==RESTORING) {
-            if (current.pc!=(f->admitted_entry ? f->returned : f->saved.pc) || current.regs[8]!=f->saved.regs[8]
+            if (current.pc!=(f->admitted_entry ? f->returned : f->saved.pc)
+                    || current.regs[8]!=(f->admitted_entry ? SYS_getpid : f->saved.regs[8])
                     || memcmp(current.regs,f->saved.regs,6*sizeof(current.regs[0]))) return -EPROTO;
             if (f->admitted_entry && cookie!=MD_INTERCEPT_TASK) return -EPROTO;
+            if (f->admitted_entry) { error=number(f,(int)f->saved.regs[8]); if (error) return error; }
             f->cookie=cookie; return finish(f,f->admitted_entry);
         }
         if (f->stage!=CALLING || cookie!=MD_INTERCEPT_TASK || current.pc!=f->returned

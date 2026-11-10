@@ -1,6 +1,7 @@
 #include "seccomp_policy.h"
 #include "fd_weak.h"
 #include <errno.h>
+#include <linux/audit.h>
 #include <assert.h>
 #include <stddef.h>
 #include <stdatomic.h>
@@ -8,101 +9,59 @@
 #include <string.h>
 #include <sys/syscall.h>
 
-int md_seccomp_program_eval(const struct sock_fprog *p, const struct seccomp_data *call, uint32_t *result) {
-    if (!p || !p->len || p->len > BPF_MAXINSNS || !p->filter || !call || !result) return -EINVAL;
-    uint32_t a = 0, x = 0, memory[BPF_MEMWORDS] = {0};
-    unsigned initialized = 0;
-    for (unsigned pc = 0; pc < p->len; ++pc) {
-        struct sock_filter i = p->filter[pc];
-        uint32_t operand = BPF_SRC(i.code) == BPF_X ? x : i.k;
-        unsigned jump = 0;
-        switch (BPF_CLASS(i.code)) {
-        case BPF_LD:
-        case BPF_LDX: {
-            uint32_t value;
-            switch (BPF_MODE(i.code)) {
-            case BPF_IMM: value = i.k; break;
-            case BPF_MEM:
-                if (i.k >= BPF_MEMWORDS || !(initialized & (1U << i.k))) return -EINVAL;
-                value = memory[i.k]; break;
-            case BPF_LEN: value = sizeof(*call); break;
-            case BPF_ABS:
-                if (i.code != (BPF_LD | BPF_W | BPF_ABS) || i.k % 4 || i.k > sizeof(*call) - 4)
-                    return -EINVAL;
-                memcpy(&value, (const char *)call + i.k, sizeof(value)); break;
-            default: return -EOPNOTSUPP;
-            }
-            if (BPF_CLASS(i.code) == BPF_LD) a = value; else x = value;
-            break;
-        }
-        case BPF_ST:
-        case BPF_STX:
-            if (i.k >= BPF_MEMWORDS) return -EINVAL;
-            memory[i.k] = BPF_CLASS(i.code) == BPF_ST ? a : x;
-            initialized |= 1U << i.k; break;
-        case BPF_ALU:
-            switch (BPF_OP(i.code)) {
-            case BPF_ADD: a += operand; break;
-            case BPF_SUB: a -= operand; break;
-            case BPF_MUL: a *= operand; break;
-            case BPF_DIV:
-                if (!operand) { *result = 0; return 0; }
-                a /= operand; break;
-            case BPF_OR: a |= operand; break;
-            case BPF_AND: a &= operand; break;
-            case BPF_XOR: a ^= operand; break;
-            case BPF_LSH: a <<= operand & 31; break;
-            case BPF_RSH: a >>= operand & 31; break;
-            case BPF_NEG: a = 0U - a; break;
-            default: return -EOPNOTSUPP;
-            }
-            break;
-        case BPF_JMP: {
-            int yes;
-            switch (BPF_OP(i.code)) {
-            case BPF_JA: jump = i.k; goto branch;
-            case BPF_JEQ: yes = a == operand; break;
-            case BPF_JGT: yes = a > operand; break;
-            case BPF_JGE: yes = a >= operand; break;
-            case BPF_JSET: yes = !!(a & operand); break;
-            default: return -EOPNOTSUPP;
-            }
-            jump = yes ? i.jt : i.jf;
-        branch:
-            if (jump >= (unsigned)p->len - pc - 1) return -EINVAL;
-            pc += jump; break;
-        }
-        case BPF_RET:
-            if (i.code != (BPF_RET | BPF_K) && i.code != (BPF_RET | BPF_A)) return -EINVAL;
-            *result = BPF_RVAL(i.code) == BPF_A ? a : i.k; return 0;
-        case BPF_MISC:
-            if (i.code == (BPF_MISC | BPF_TAX)) x = a;
-            else if (i.code == (BPF_MISC | BPF_TXA)) a = x;
-            else return -EOPNOTSUPP;
-            break;
-        default: return -EOPNOTSUPP;
-        }
-    }
-    return -EINVAL;
-}
-
-uint32_t md_seccomp_policy_merge(uint32_t older, uint32_t newer) {
-    /* Linux compares signed actions; KILL_PROCESS sorts before KILL_THREAD.
-     * With equal precedence the most recently installed filter supplies data. */
-    return (int32_t)(newer & SECCOMP_RET_ACTION_FULL) <= (int32_t)(older & SECCOMP_RET_ACTION_FULL)
-        ? newer : older;
-}
-
 struct md_seccomp_policy {
     struct md_seccomp_policy *parent;
+    uint64_t identity,entry_image;
+    struct md_seccomp_cache cache;
     struct md_fd_weak *listener;
     atomic_size_t references;
     size_t users;
     void (*activity)(struct md_fd_object *,int);
     unsigned short count;
-    unsigned char may_trace,may_notify;
+    unsigned char may_trace,may_notify,uses_ip,entry_portable;
     struct sock_filter code[];
 };
+
+static uint64_t next_identity;
+uint64_t md_seccomp_policy_identity(const struct md_seccomp_policy *p) { return p ? p->identity : 0; }
+const struct md_seccomp_policy *md_seccomp_policy_parent(const struct md_seccomp_policy *p) {
+    return p ? p->parent : NULL;
+}
+static size_t view_size(const struct md_seccomp_policy *p) {
+    return sizeof(struct md_seccomp_view)+p->count*sizeof(*p->code);
+}
+int md_seccomp_policy_view_size(const struct md_seccomp_policy *p,uint64_t ancestor,size_t *out) {
+    if (!out) return -EINVAL;
+    size_t size=0;
+    for (;p && p->identity!=ancestor;p=p->parent) {
+        size_t bytes=view_size(p);
+        if (bytes>SIZE_MAX-size) return -EOVERFLOW;
+        size+=bytes;
+    }
+    if (ancestor && !p) return -ENOENT;
+    *out=size;
+    return 0;
+}
+int md_seccomp_policy_view_write(const struct md_seccomp_policy *p,uint64_t ancestor,
+        void *out,size_t capacity,uintptr_t peer,uintptr_t parent) {
+    size_t bytes;
+    int error=md_seccomp_policy_view_size(p,ancestor,&bytes);
+    if (error) return error;
+    if (capacity<bytes) return -ENOSPC;
+    if ((bytes && (!out || !peer)) || peer>UINTPTR_MAX-bytes
+            || (uintptr_t)out%_Alignof(struct md_seccomp_view)
+            || peer%_Alignof(struct md_seccomp_view) || parent%_Alignof(struct md_seccomp_view)
+            || (!!ancestor!=!!parent)) return -EINVAL;
+    size_t offset=0;
+    for (;p && p->identity!=ancestor;p=p->parent) {
+        struct md_seccomp_view *view=(void *)((char *)out+offset);
+        offset+=view_size(p);
+        *view=(struct md_seccomp_view){.count=p->count,.cache=p->cache,
+            .parent=(const void *)(offset<bytes ? peer+offset : parent)};
+        memcpy(view->code,p->code,p->count*sizeof(*p->code));
+    }
+    return 0;
+}
 
 struct md_seccomp_policy *md_seccomp_policy_retain(struct md_seccomp_policy *p) {
     if (p) atomic_fetch_add_explicit(&p->references,1,memory_order_relaxed);
@@ -141,13 +100,20 @@ void md_seccomp_policy_replace(struct md_seccomp_policy **slot,struct md_seccomp
 int md_seccomp_policy_capture(struct md_seccomp_policy *parent, const struct sock_fprog *source,
         struct md_seccomp_policy **out) {
     if (!source || !source->filter || !source->len || source->len > BPF_MAXINSNS || !out) return -EINVAL;
+    if (next_identity==UINT64_MAX) return -EOVERFLOW;
     struct md_seccomp_policy *p = malloc(sizeof(*p) + source->len * sizeof(*p->code));
     if (!p) return -ENOMEM;
-    *p = (struct md_seccomp_policy){.parent = md_seccomp_policy_retain(parent), .references = 1, .count = source->len};
+    *p = (struct md_seccomp_policy){.parent = md_seccomp_policy_retain(parent),
+        .identity=++next_identity, .references = 1, .count = source->len};
     memcpy(p->code, source->filter, p->count * sizeof(*p->code));
+    struct sock_fprog snapshot={p->count,p->code};
+    md_seccomp_cache_build(&p->cache,&snapshot,parent ? &parent->cache : NULL);
     p->may_trace=parent && parent->may_trace;
     p->may_notify=parent && parent->may_notify;
-    for (unsigned i=0;i<p->count && (!p->may_trace || !p->may_notify);++i) {
+    for (unsigned i=0;i<p->count;++i) {
+        if (p->code[i].code==(BPF_LD|BPF_W|BPF_ABS)
+                && (p->code[i].k==offsetof(struct seccomp_data,instruction_pointer)
+                    || p->code[i].k==offsetof(struct seccomp_data,instruction_pointer)+4)) p->uses_ip=1;
         if (p->code[i].code==(BPF_RET|BPF_A)) p->may_trace=p->may_notify=1;
         else if (p->code[i].code==(BPF_RET|BPF_K)) {
             uint32_t action=p->code[i].k&SECCOMP_RET_ACTION_FULL;
@@ -160,9 +126,32 @@ int md_seccomp_policy_capture(struct md_seccomp_policy *parent, const struct soc
 }
 int md_seccomp_policy_may_trace(const struct md_seccomp_policy *p) { return p && p->may_trace; }
 int md_seccomp_policy_may_notify(const struct md_seccomp_policy *p) { return p && p->may_notify; }
+uint64_t md_seccomp_policy_entry_image(const struct md_seccomp_policy *p) { return p ? p->entry_image : 0; }
+void md_seccomp_policy_bind_entry(struct md_seccomp_policy *p,uint64_t image) {
+    assert(p && !p->users && !p->entry_image);
+    if (!p->parent || md_seccomp_policy_entry_compatible(p->parent,image)) p->entry_image=image;
+    p->entry_portable=p->entry_image && !p->uses_ip && (!p->parent || p->parent->entry_portable);
+}
+int md_seccomp_policy_entry_checkpoint(const struct md_seccomp_policy *p) {
+    if (!p || !p->entry_portable) return -1;
+    static const int candidates[]={SYS_gettid,SYS_getpid,SYS_getuid,SYS_geteuid,SYS_getgid,SYS_getegid,SYS_getppid};
+    for (unsigned i=0;i<sizeof(candidates)/sizeof(*candidates);++i) {
+        struct seccomp_data call={.nr=candidates[i],.arch=AUDIT_ARCH_AARCH64};
+        if (md_seccomp_cache_allows(&p->cache,&call)) return candidates[i];
+    }
+    return -1;
+}
+int md_seccomp_policy_entry_compatible(const struct md_seccomp_policy *p,uint64_t image) {
+    return p && image && (p->entry_image==image || md_seccomp_policy_entry_checkpoint(p)>=0);
+}
 int md_seccomp_policy_decide(const struct md_seccomp_policy *p, const struct seccomp_data *call,
         uint32_t *result, const struct md_seccomp_policy **winner) {
     if (!call || !result) return -EINVAL;
+    if (p && md_seccomp_cache_allows(&p->cache,call)) {
+        *result=SECCOMP_RET_ALLOW;
+        if (winner) *winner=NULL;
+        return 0;
+    }
     uint32_t decision = SECCOMP_RET_ALLOW;
     const struct md_seccomp_policy *match = NULL;
     for (; p; p = p->parent) {
@@ -204,7 +193,7 @@ static int policy_route(const struct md_seccomp_policy *p, const uint32_t *calls
     uint64_t pc=route ? route->delegation_pc : 0;
     unsigned notify=route ? route->notify_cookie : 0;
     size_t tail=0;
-    if (notify || (route && route->owned_admission)) {
+    if (notify || (route && route->gate_count)) {
         /* Appending an epilogue must not make a formerly out-of-range jump or
          * fallthrough valid. Leave all other validation to the native verifier. */
         if (BPF_CLASS(p->code[p->count-1].code)!=BPF_RET) return -EINVAL;
@@ -293,10 +282,57 @@ static int policy_route(const struct md_seccomp_policy *p, const uint32_t *calls
     return (int)(prefix + p->count + tail);
 }
 
+static unsigned gate_size(const struct md_seccomp_gate *gate) {
+    return (gate->number>=0 ? 2 : 0)+(gate->first==gate->end ? 5 : 11);
+}
+static unsigned gate_write(struct sock_filter *code,const struct md_seccomp_gate *gate) {
+    unsigned size=gate_size(gate),used=0;
+    if (gate->number>=0) {
+        code[used++]=(struct sock_filter)BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr));
+        code[used++]=(struct sock_filter)BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)gate->number,0,size-2);
+    }
+    const unsigned ip=offsetof(struct seccomp_data,instruction_pointer);
+    if (gate->first==gate->end) {
+        const struct sock_filter match[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,ip+4),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(gate->first>>32),0,3),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,ip),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)gate->first,0,1),
+            BPF_STMT(BPF_RET|BPF_K,gate->decision)};
+        memcpy(code+used,match,sizeof(match));
+    } else {
+        /* Lexicographic unsigned halves also handle ranges crossing 4 GiB.
+         * Keep X intact: dynamic original returns retain their result there. */
+        const struct sock_filter match[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,ip+4),
+            BPF_JUMP(BPF_JMP|BPF_JGT|BPF_K,(uint32_t)(gate->first>>32),3,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(gate->first>>32),0,8),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,ip),
+            BPF_JUMP(BPF_JMP|BPF_JGE|BPF_K,(uint32_t)gate->first,0,6),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,ip+4),
+            BPF_JUMP(BPF_JMP|BPF_JGT|BPF_K,(uint32_t)(gate->end>>32),4,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(gate->end>>32),0,2),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,ip),
+            BPF_JUMP(BPF_JMP|BPF_JGE|BPF_K,(uint32_t)gate->end,1,0),
+            BPF_STMT(BPF_RET|BPF_K,gate->decision)};
+        memcpy(code+used,match,sizeof(match));
+    }
+    return size;
+}
 int md_seccomp_policy_route(const struct md_seccomp_policy *p,const uint32_t *calls,size_t count,
         uint16_t cookie,struct sock_filter *out,size_t capacity,const struct md_seccomp_route *route) {
-    if (!route || !route->owned_admission) return policy_route(p,calls,count,cookie,out,capacity,route);
-    if (!out || !route->delegation_pc || route->instruction_pointer) return -EINVAL;
+    if (!route || !route->gate_count) return policy_route(p,calls,count,cookie,out,capacity,route);
+    if (!out || !route->gates || route->instruction_pointer) return -EINVAL;
+    unsigned gates=0;
+    for (size_t i=0;i<route->gate_count;++i) {
+        const struct md_seccomp_gate *gate=route->gates+i;
+        unsigned action=gate->decision&SECCOMP_RET_ACTION_FULL;
+        if (!gate->first || gate->end<gate->first || gate->number>UINT32_MAX
+                || (action!=SECCOMP_RET_ALLOW && action!=SECCOMP_RET_TRACE)) return -EINVAL;
+        unsigned size=gate_size(gate);
+        if (size>BPF_MAXINSNS-gates) return -E2BIG;
+        gates+=size;
+    }
     struct sock_filter *code=calloc(BPF_MAXINSNS,sizeof(*code));
     if (!code) return -ENOMEM;
     int length=policy_route(p,calls,count,cookie,code,BPF_MAXINSNS,route);
@@ -307,60 +343,31 @@ int md_seccomp_policy_route(const struct md_seccomp_policy *p,const uint32_t *ca
         if (BPF_CLASS(ret.code)!=BPF_RET || (ret.code==(BPF_RET|BPF_K)
                 && ((ret.k&SECCOMP_RET_ACTION_FULL)==SECCOMP_RET_ALLOW
                     || ret.k==(SECCOMP_RET_TRACE|cookie)))) continue;
-        unsigned target=used;
+        unsigned target=used,size=gates+1+(ret.code==(BPF_RET|BPF_A) ? 2 : 0);
         /* Share identical exits without expanding the original branch graph. */
         for (unsigned n=0;n<i;++n) if (code[n].code==(BPF_JMP|BPF_JA)) {
             unsigned at=n+1+code[n].k;
             if (at<(unsigned)length || at>=used) continue;
-            unsigned size=(ret.code==(BPF_RET|BPF_A) ? 8 : 6)
-                +(route->admission_pc ? 7 : 0)+(route->substitution_pc ? 7 : 0);
             if (at+size<=used && code[at+size-1].code==ret.code && code[at+size-1].k==ret.k) {
                 target=at; break;
             }
         }
         if (target==used) {
-            int dynamic=ret.code==(BPF_RET|BPF_A);
-            unsigned size=(dynamic ? 8 : 6)+(route->admission_pc ? 7 : 0)
-                +(route->substitution_pc ? 7 : 0);
-            if (used+size>BPF_MAXINSNS) { free(code); return -E2BIG; }
-            if (dynamic) code[used++]=(struct sock_filter)BPF_STMT(BPF_MISC|BPF_TAX,0);
-            if (route->substitution_pc) {
-                uint64_t pc=route->substitution_pc;
-                const struct sock_filter substitution[]={
-                    BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-                    BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,route->substitution_number,0,5),
-                    BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
-                    BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(pc>>32),0,3),
-                    BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
-                    BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)pc,0,1),
-                    BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|cookie)};
-                memcpy(code+used,substitution,sizeof(substitution)); used+=sizeof(substitution)/sizeof(*substitution);
-            }
-            if (route->admission_pc) {
-                uint64_t pc=route->admission_pc;
-                const struct sock_filter admission[]={
-                    BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-                    BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,5),
-                    BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
-                    BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(pc>>32),0,3),
-                    BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
-                    BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)pc,0,1),
-                    BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|cookie)};
-                memcpy(code+used,admission,sizeof(admission)); used+=sizeof(admission)/sizeof(*admission);
-            }
-            uint64_t pc=route->delegation_pc;
-            const struct sock_filter gate[]={
-                BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
-                BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(pc>>32),0,3),
-                BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
-                BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)pc,0,1),
-                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|cookie)};
-            memcpy(code+used,gate,sizeof(gate)); used+=sizeof(gate)/sizeof(*gate);
-            if (dynamic) code[used++]=(struct sock_filter)BPF_STMT(BPF_MISC|BPF_TXA,0);
+            if (size>BPF_MAXINSNS-used) { free(code); return -E2BIG; }
+            if (ret.code==(BPF_RET|BPF_A)) code[used++]=(struct sock_filter)BPF_STMT(BPF_MISC|BPF_TAX,0);
+            for (size_t n=0;n<route->gate_count;++n) used+=gate_write(code+used,route->gates+n);
+            if (ret.code==(BPF_RET|BPF_A)) code[used++]=(struct sock_filter)BPF_STMT(BPF_MISC|BPF_TXA,0);
             code[used++]=ret;
         }
         code[i]=(struct sock_filter)BPF_STMT(BPF_JMP|BPF_JA,target-i-1);
     }
-    if (used>capacity) { free(code); return -ENOSPC; }
-    memcpy(out,code,used*sizeof(*code)); free(code); return (int)used;
+    unsigned prefix=route->guard_ip && p->uses_ip ? gates+1 : 0;
+    if (prefix>BPF_MAXINSNS-used) { free(code); return -E2BIG; }
+    if (used+prefix>capacity) { free(code); return -ENOSPC; }
+    unsigned at=0;
+    if (prefix) {
+        for (size_t n=0;n<route->gate_count;++n) at+=gate_write(out+at,route->gates+n);
+        out[at++]=(struct sock_filter)BPF_STMT(BPF_ALU|BPF_AND|BPF_K,0);
+    }
+    memcpy(out+at,code,used*sizeof(*code)); free(code); return (int)(used+prefix);
 }

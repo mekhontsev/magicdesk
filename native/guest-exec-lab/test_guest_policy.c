@@ -533,7 +533,9 @@ static int init_signal_pipe[2],init_release_pipe[2];
 static void init_handler(int signal) {
     char event=signal==SIGUSR1 ? 'U' : 'S';
     assert(signal==SIGUSR1 || signal==SIGSYS);
-    assert(write(init_signal_pipe[1],&event,1)==1);
+    ssize_t count=write(init_signal_pipe[1],&event,1);
+    if (count!=1) dprintf(2,"init handler signal=%d write=%zd errno=%d\n",signal,count,errno);
+    assert(count==1);
 }
 static int protected_init(void *unused) {
     (void)unused;
@@ -545,13 +547,14 @@ static int protected_init(void *unused) {
     assert(!sigaction(SIGTERM,&action,NULL));
     assert(!prctl(PR_SET_DUMPABLE,0));
     assert(write(init_signal_pipe[1],"R",1)==1);
-    char event;
-    assert(read(init_release_pipe[0],&event,1)==1 && event=='Q');
+    char event=0;
+    ssize_t count=read(init_release_pipe[0],&event,1);
+    if (count!=1 || event!='Q') dprintf(2,"init release read=%zd errno=%d event=%d\n",count,errno,event);
+    assert(count==1 && event=='Q');
     assert(!prctl(PR_GET_DUMPABLE));
     return 0;
 }
-static int pid_init_signals(void) {
-    alarm(20);
+static void pid_init_signal_round(void) {
     sigset_t mask; sigemptyset(&mask);
     assert(!sigprocmask(SIG_SETMASK,&mask,NULL));
     assert(!pipe2(init_signal_pipe,O_CLOEXEC) && !pipe2(init_release_pipe,O_CLOEXEC));
@@ -567,7 +570,12 @@ static int pid_init_signals(void) {
     assert(write(init_release_pipe[1],"Q",1)==1);
     int status;
     assert(waitpid(child,&status,0)==child && !status);
-    close(init_signal_pipe[0]); close(init_release_pipe[1]); alarm(0);
+    close(init_signal_pipe[0]); close(init_release_pipe[1]);
+}
+static int pid_init_signals(void) {
+    alarm(20);
+    for (unsigned round=0;round<32;++round) pid_init_signal_round();
+    alarm(0);
     puts("PASS protected PID init: default suppression and caught ordinary/SIGSYS delivery");
     return 0;
 }

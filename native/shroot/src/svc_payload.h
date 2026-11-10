@@ -16,5 +16,5 @@ struct md_svc_payload_state {
     struct { uint64_t tid; struct md_entry_client client; } clients[MD_SVC_PAYLOAD_CLIENTS];
 };
 extern unsigned char __start_md_svc_payload[],__stop_md_svc_payload[];
-int md_svc_payload_dispatch(uint64_t *registers,struct md_svc_payload_state *);
+int md_svc_payload_dispatch(uint64_t *registers,struct md_svc_payload_state *,uintptr_t original_pc);
 #endif

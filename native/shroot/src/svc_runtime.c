@@ -2,6 +2,7 @@
 #include "svc_payload.h"
 #include "raw.h"
 #include <asm/hwcap.h>
+#include <errno.h>
 #include <stddef.h>
 #include <sys/mman.h>
 
@@ -16,17 +17,27 @@ static uintptr_t code_pool(uintptr_t entry) {
         if (result==(long)address) return address;
         if (result>=0) RAW2(munmap,result,MD_SVC_CODE_BYTES);
     }
-    return 0;
+    /* Large ELF mappings can cover every nearby fixed candidate. A hint lets
+     * the kernel select a free gap without replacing guest pages. Admission
+     * still checks branch reach for each SVC; a distant pool grants nothing. */
+    long result=RAW6(mmap,entry&~(uintptr_t)(MD_SVC_CODE_BYTES-1),2*MD_SVC_CODE_BYTES,
+        PROT_READ|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    if (result<0) return 0;
+    uintptr_t address=((uintptr_t)result+MD_SVC_CODE_BYTES-1)&~(uintptr_t)(MD_SVC_CODE_BYTES-1);
+    if (address>(uintptr_t)result) RAW2(munmap,result,address-(uintptr_t)result);
+    RAW2(munmap,address+MD_SVC_CODE_BYTES,(uintptr_t)result+MD_SVC_CODE_BYTES-address);
+    return address;
 }
 void md_svc_runtime_prepare(uintptr_t program,uintptr_t loader,unsigned long capabilities,int statistics) {
+    md_svc_runtime.error=-EOPNOTSUPP;
     if (!(capabilities&HWCAP_ATOMICS) || md_page_size>MD_SVC_GUARD_SIZE) return;
     size_t length=2*MD_SVC_POOL_SIZE+MD_SVC_PAYLOAD_SIZE;
     long allocation=RAW6(mmap,0,length,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
-    if (allocation<0) return;
+    if (allocation<0) { md_svc_runtime.error=(int)allocation; return; }
     uintptr_t frames=((uintptr_t)allocation+MD_SVC_POOL_SIZE-1)&~(uintptr_t)(MD_SVC_POOL_SIZE-1);
     uintptr_t first=code_pool(program),second=0;
-    if (loader && (loader>program ? loader-program : program-loader)>0x2000000) second=code_pool(loader);
-    if (!first && !second) { RAW2(munmap,allocation,length); return; }
+    if (loader && (!first || (loader>first ? loader-first : first-loader)>0x2000000)) second=code_pool(loader);
+    if (!first && !second) { RAW2(munmap,allocation,length); md_svc_runtime.error=-ERANGE; return; }
     if (frames>(uintptr_t)allocation) RAW2(munmap,allocation,frames-(uintptr_t)allocation);
     uintptr_t end=frames+MD_SVC_POOL_SIZE+MD_SVC_PAYLOAD_SIZE;
     RAW2(munmap,end,(uintptr_t)allocation+length-end);

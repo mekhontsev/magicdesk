@@ -86,6 +86,7 @@ def main():
         # Neither deadline is a startup settling delay or evidence of readiness.
         launch = shlex.join(["timeout", "-k", "5", str(args.deadline_seconds + 10), runner,
                              "--diagnostics",
+                             *(['--statistics'] if args.machine_entry else []),
                              *([] if args.machine_entry is None else
                                ['--env', 'SHROOT_MACHINE_ENTRY=' + str(int(args.machine_entry))]),
                              "--deadline-seconds", str(args.deadline_seconds),

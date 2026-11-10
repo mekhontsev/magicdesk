@@ -111,7 +111,8 @@ static int extend(struct md_svc_registry *r,pid_t pid,int memory_fd,uintptr_t sv
         struct md_svc_code_pool *pool=&r->pools[i];
         if (pool->used+size+8>MD_SVC_CODE_BYTES) continue;
         uintptr_t gate=pool->address+pool->used,alias=gate+size;
-        struct md_svc_direct_context context={svc,gate,r->frames,number};
+        struct md_svc_direct_context context={.svc=svc,.gate=gate,.frames=r->frames,
+            .number=number,.checkpoint_number=r->checkpoint_number};
         struct md_svc_direct_fallback exits={previous_gate ? previous_gate : alias,alias,alias};
         uint32_t replacement;
         int error=md_svc_direct_signal_plan(&context,r->dispatch,exits,code,sizeof(code),&replacement);
@@ -214,7 +215,7 @@ uint32_t md_svc_registry_instruction(const struct md_svc_registry *r,uintptr_t p
     return word;
 }
 int md_svc_registry_retire(struct md_svc_registry *r,struct md_svc_site *s,pid_t pid) {
-    if (!r || !s || s->state!=MD_SVC_PUBLISHED) return 0;
+    if (!r || !s || s->state==MD_SVC_RETIRED) return 0;
     uint32_t current;
     int error=md_svc_registry_read(pid,s->direct.svc,&current,4);
     if (!error && current==s->replacement)
@@ -254,8 +255,32 @@ int md_svc_registry_revoke(struct md_svc_registry *r,pid_t pid) {
     uint64_t zero=0;
     int error=md_svc_registry_write(pid,r->frames+MD_SVC_POOL_SIZE+
         offsetof(struct md_svc_payload_state,admitted),&zero,8);
-    for (unsigned i=0;!error && i<r->count;++i) error=md_svc_registry_retire(r,&r->sites[i],pid);
+    for (unsigned i=0;!error && i<r->count;++i) {
+        struct md_svc_site *site=&r->sites[i];
+        if (r->filter_paused && site->state==MD_SVC_FILTER_PAUSED) continue;
+        int paused=r->filter_paused && site->state==MD_SVC_PUBLISHED;
+        error=md_svc_registry_retire(r,site,pid);
+        if (!error && paused) site->state=MD_SVC_FILTER_PAUSED;
+    }
     if (!error) r->revoke_pending=0;
+    return error;
+}
+int md_svc_registry_pause_filter(struct md_svc_registry *r,pid_t pid) {
+    if (r && !r->disabled) r->filter_paused=1;
+    return md_svc_registry_revoke(r,pid);
+}
+int md_svc_registry_rearm_filter(struct md_svc_registry *r,pid_t pid) {
+    if (!r || !r->filter_paused || !r->entry_fence_drained || r->revoke_pending) return -EBUSY;
+    uint64_t one=1;
+    int error=md_svc_registry_write(pid,r->frames+MD_SVC_POOL_SIZE+
+        offsetof(struct md_svc_payload_state,admitted),&one,sizeof(one));
+    if (!error) {
+        /* The policy fence suspended these exact sites, not their mappings.
+         * Re-admission remains lazy; unmap/protection retirement is permanent. */
+        for (unsigned i=0;i<r->count;++i)
+            if (r->sites[i].state==MD_SVC_FILTER_PAUSED) r->sites[i].state=MD_SVC_PUBLISHED;
+        r->disabled=0; r->filter_paused=0; r->entry_fence_drained=0;
+    }
     return error;
 }
 int md_svc_registry_unpatch(struct md_svc_registry *r,pid_t pid,uintptr_t start,size_t size) {
@@ -336,11 +361,12 @@ int md_svc_registry_collect_clients(struct md_svc_registry *r,pid_t pid,int memo
     return 0;
 }
 struct md_svc_registry *md_svc_registry_new(uintptr_t frames,uintptr_t dispatch) {
+    static uint64_t next_image;
     if (!frames || (frames&(MD_SVC_POOL_SIZE-1)) || !dispatch || (dispatch&3)
-            || frames>UINTPTR_MAX-MD_SVC_POOL_SIZE-MD_SVC_PAYLOAD_SIZE) return NULL;
+            || frames>UINTPTR_MAX-MD_SVC_POOL_SIZE-MD_SVC_PAYLOAD_SIZE || next_image==UINT64_MAX) return NULL;
     struct md_svc_registry *r=calloc(1,sizeof(*r));
     if (r) {
-        r->frames=frames; r->dispatch=dispatch;
+        r->image=++next_image; r->frames=frames; r->dispatch=dispatch;
         if (reserve_site(r)) { free(r); return NULL; }
     }
     return r;

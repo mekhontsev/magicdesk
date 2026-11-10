@@ -216,6 +216,7 @@ static struct md_interception_abi abi = {
     .signal_entry_committed=(uintptr_t)md_guest_signal_entry_committed,
     .signal_entry_end=(uintptr_t)md_guest_signal_entry_end,
     .svc_runtime=(uintptr_t)&md_svc_runtime,
+    .cooperative_registration=(uintptr_t)&md_cooperative_registration,
     .native_begin=(uintptr_t)md_cooperative_native,
     .native_call=(uintptr_t)md_cooperative_native_call,
     .native_return=(uintptr_t)md_cooperative_native_return,

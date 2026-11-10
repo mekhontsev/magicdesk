@@ -69,6 +69,37 @@ def main():
                 output = suite.command(command, quiet=True)
                 assert 'PASS SVC fault: original instruction PC' in output
         if args.section in ('all', 'filters'):
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                output = suite.command([*command, 'filter-exec'], quiet=True, timeout=90)
+                assert 'PASS SVC filter exec:' in output
+                if '--statistics' in command and '--env' not in command:
+                    assert any(row['completed'] >= 1000 for row in records(output, 'SVC_RUNTIME_STATS ')), output
+            print('Integrated exec filter PASS', flush=True)
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                for case in ('filter-readiness', 'filter-readiness-trace', 'filter-readiness-notify'):
+                    output = suite.command([*command, case], quiet=True, timeout=60)
+                    assert 'PASS SVC filter readiness:' in output
+                    if '--statistics' in command and '--env' not in command:
+                        assert any(row['completed'] >= 1000 for row in records(output, 'SVC_RUNTIME_STATS ')), output
+            print('Integrated original-timeout filter PASS', flush=True)
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                output = suite.command([*command, 'filter-actions'], quiet=True, timeout=90)
+                assert 'PASS SVC filter actions:' in output
+            print('Integrated filter actions PASS', flush=True)
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                output = suite.command([*command, 'filter-origin'], quiet=True, timeout=60)
+                assert 'PASS SVC filter origin:' in output
+                if '--statistics' in command and '--env' not in command:
+                    assert any(row['completed'] >= 256 for row in records(output, 'SVC_RUNTIME_STATS ')), output
+            print('Integrated original-PC filter PASS', flush=True)
             native_filter = suite.command([root + '/bin/mapping', 'filter-race'], quiet=True, timeout=180)
             assert 'PASS SVC filter race:' in native_filter
             for command in ([root + '/bin/mapping'], [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/mapping']):
@@ -82,7 +113,8 @@ def main():
             assert fences == 24 and drains > 0, filter_output
             suite.report['filterFence'] = dict(installs=fences, drains=drains)
             suite.report['filterRace'] = records(filter_output, 'SVC_RUNTIME_STATS ')
-            assert any(item['completed'] > 128 and item['revoked'] for item in suite.report['filterRace'])
+            assert any(item['completed'] > 128 for item in suite.report['filterRace'])
+            assert all(not item['revoked'] for item in suite.report['filterRace'])
             print('Integrated filter race PASS', flush=True)
             for command in ([root + '/bin/mapping', 'filter-wait'],
                             [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping', 'filter-wait-provider'],

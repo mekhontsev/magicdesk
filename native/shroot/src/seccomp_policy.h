@@ -1,9 +1,6 @@
 #ifndef MD_SECCOMP_POLICY_H
 #define MD_SECCOMP_POLICY_H
-#include <linux/filter.h>
-#include <linux/seccomp.h>
-#include <stddef.h>
-#include <stdint.h>
+#include "seccomp_program.h"
 
 /* A single coordinator owns publication; immutable chains have thread-safe
  * references so descriptor providers can retire them. Capture copies local
@@ -21,10 +18,26 @@ void md_seccomp_policy_release(struct md_seccomp_policy *);
 void md_seccomp_policy_replace(struct md_seccomp_policy **slot,struct md_seccomp_policy *);
 int md_seccomp_policy_capture(struct md_seccomp_policy *parent, const struct sock_fprog *, struct md_seccomp_policy **out);
 int md_seccomp_policy_eval(const struct md_seccomp_policy *, const struct seccomp_data *, uint32_t *);
+/* Coordinator-local identities are never reused. Export only the suffix above
+ * a retained ancestor (zero means the entire chain), avoiding repeated copies
+ * on installation. The caller publishes the completed read-only mapping. */
+uint64_t md_seccomp_policy_identity(const struct md_seccomp_policy *);
+const struct md_seccomp_policy *md_seccomp_policy_parent(const struct md_seccomp_policy *);
+int md_seccomp_policy_view_size(const struct md_seccomp_policy *,uint64_t ancestor,size_t *);
+int md_seccomp_policy_view_write(const struct md_seccomp_policy *,uint64_t ancestor,
+    void *out,size_t capacity,uintptr_t peer,uintptr_t parent);
 /* Immutable admission hint: false proves that no captured return can be TRACE.
  * Dynamic returns remain conservative. No BPF walk on ordinary selector stops. */
 int md_seccomp_policy_may_trace(const struct md_seccomp_policy *);
 int md_seccomp_policy_may_notify(const struct md_seccomp_policy *);
+/* Nonzero only when every ancestor was routed for this entry image. Fork
+ * retains the identity; exec must not reuse permissions for old code pools. */
+uint64_t md_seccomp_policy_entry_image(const struct md_seccomp_policy *);
+void md_seccomp_policy_bind_entry(struct md_seccomp_policy *,uint64_t image);
+int md_seccomp_policy_entry_compatible(const struct md_seccomp_policy *,uint64_t image);
+/* An inherited image may reuse stable bootstrap gates only with PC-independent
+ * policies and a natively admitted, inert rendezvous syscall. */
+int md_seccomp_policy_entry_checkpoint(const struct md_seccomp_policy *);
 /* The winning node is borrowed from the retained chain. Equal actions use the
  * newest node, including listeners; ALLOW has no winning node. */
 int md_seccomp_policy_decide(const struct md_seccomp_policy *, const struct seccomp_data *,
@@ -37,17 +50,17 @@ int md_seccomp_policy_bind_listener(struct md_seccomp_policy *,struct md_fd_obje
 /* Owned strong reference for the exact winning node, or NULL after close or
  * when that node has no listener. Never searches ancestors for a substitute. */
 struct md_fd_object *md_seccomp_policy_listener(const struct md_seccomp_policy *);
-int md_seccomp_program_eval(const struct sock_fprog *, const struct seccomp_data *, uint32_t *);
-uint32_t md_seccomp_policy_merge(uint32_t older, uint32_t newer);
-/* For a selected RET_ERRNO decision, including data zero. */
-static inline long md_seccomp_policy_error(uint32_t decision) {
-    unsigned error=decision&SECCOMP_RET_DATA;
-    return -(long)(error>4095 ? 4095 : error);
-}
 
 /* Emit a copy for kernel validation with selective TRACE delegation. Callers retain
  * original-argument admission for delegated calls and own all guest storage.
  * Failure leaves output unchanged; returned instruction count is positive. */
+struct md_seccomp_gate {
+    /* first==end selects one exact PC; otherwise [first,end). A negative
+     * number selects all numbers. Gate decisions are ALLOW or TRACE only. */
+    uint64_t first,end;
+    int64_t number;
+    uint32_t decision;
+};
 struct md_seccomp_route {
     /* Nonzero routes USER_NOTIF returns to this TRACE selector. Original
      * decisions and winning-listener ownership remain in the captured chain.
@@ -56,17 +69,15 @@ struct md_seccomp_route {
     /* Zero delegates selected numbers at every PC. An owned service gate
      * leaves the original filter authoritative at application call sites. */
     uint64_t delegation_pc;
-    /* Route non-ALLOW outcomes at the owned task gate too. The coordinator
-     * validates the exact in-flight operation; an application cannot enter
-     * this gate independently. Constant ALLOW paths remain cacheable. */
-    int owned_admission;
-    /* Exact gettid notification carrier for a retained adapter operation.
-     * Other numbers and arbitrary guest entry remain under original policy. */
-    uint64_t admission_pc;
-    /* One native substitution at the adapter gate. Only denied outcomes
-     * delegate; the coordinator must match an already-admitted operation. */
-    uint64_t substitution_pc;
-    uint32_t substitution_number;
+    /* Only non-ALLOW exits consult these owned service gates. Ordinary
+     * constant-ALLOW paths stay cacheable by the kernel. The caller must own
+     * every supplied gate and validate admission before any guest effect. */
+    const struct md_seccomp_gate *gates;
+    size_t gate_count;
+    /* IP-sensitive programs require gates before evaluation, including ALLOW
+     * exits: an alias has a different PC from the original application SVC. */
+    int guard_ip;
+    uint64_t entry_image;
     /* Zero instruction_pointer disables the optional notification carrier. */
     uint32_t number;
     uint64_t instruction_pointer;

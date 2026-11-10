@@ -28,7 +28,7 @@ static int memory(void *opaque,uintptr_t at,void *data,size_t size,int write) {
 struct md_svc_registry *md_svc_machine_admit(pid_t pid,uintptr_t descriptor) {
     struct md_svc_runtime runtime;
     if (!descriptor || md_svc_registry_read(pid,descriptor,&runtime,sizeof(runtime))
-            || !runtime.count || runtime.count>MD_SVC_CODE_POOLS || runtime.reserved) return NULL;
+            || !runtime.count || runtime.count>MD_SVC_CODE_POOLS || runtime.error) return NULL;
     struct md_svc_registry *r=md_svc_registry_new(runtime.frames,runtime.dispatch);
     if (!r) return NULL;
     uintptr_t cursor[MD_SVC_CODE_POOLS];
@@ -191,6 +191,23 @@ int md_svc_machine_signal(struct md_svc_registry *r,struct md_svc_machine_thread
     if (recovery==1 && (error=regs(pid,PTRACE_SETREGSET,&registers))) return error;
     if (recovery) { *deliver=signal; return 1; }
     return 0;
+}
+int md_svc_machine_seccomp(struct md_svc_registry *r,pid_t pid,struct md_task_signal_stop *stop) {
+    if (!r) return 0;
+    int error=md_task_signal_info(pid,stop);
+    if (error) return error;
+    if (stop->info.si_signo!=SIGSYS || stop->info.si_code!=SYS_SECCOMP) return 0;
+    uintptr_t pc=(uintptr_t)stop->info.si_call_addr;
+    uintptr_t origin=md_svc_registry_call_origin(r,pc);
+    if (origin==pc) return 0;
+    error=md_task_signal_registers(pid,stop);
+    if (error) return error;
+    if (stop->regs.pc!=pc) return -EPROTO;
+    stop->regs.pc=origin;
+    stop->info.si_call_addr=(void *)origin;
+    error=regs(pid,PTRACE_SETREGSET,&stop->regs);
+    if (!error && ptrace(PTRACE_SETSIGINFO,pid,NULL,&stop->info)<0) error=-errno;
+    return error;
 }
 int md_svc_machine_signal_committed(struct md_svc_registry *r,struct md_svc_machine_thread *s,
         pid_t pid,int status) {

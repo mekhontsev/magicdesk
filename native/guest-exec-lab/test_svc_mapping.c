@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/inotify.h>
 #include <sys/prctl.h>
 #include <sys/select.h>
@@ -23,11 +24,13 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <ucontext.h>
 
 static long (*call)(void);
 static unsigned number;
 extern long image_uid(void);
 extern long live_uid(void);
+extern long filtered_uid(long);
 extern long live_open(long,const char *,long,long);
 extern long live_unmap(void *,size_t);
 extern long live_protect(void *,size_t,int);
@@ -36,12 +39,166 @@ extern long live_remap(void *,size_t,size_t,int,void *);
 __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     "image_uid:\nmov x8,#174\nsvc #0\nret\n.p2align 16\n"
     ".global live_uid\nlive_uid:\nmov x8,#174\nsvc #0\nret\n"
+    ".global filtered_uid\nfiltered_uid:\nmov x8,#174\nsvc #0\nret\n"
     ".global live_open\nlive_open:\nmov x8,#56\nsvc #0\nret\n"
     ".global live_unmap\nlive_unmap:\nmov x8,#215\nsvc #0\nret\n"
     ".global live_protect\nlive_protect:\nmov x8,#226\nsvc #0\nret\n"
     ".global live_map\nlive_map:\nmov x8,#222\nsvc #0\nret\n"
     ".global live_remap\nlive_remap:\nmov x8,#216\nsvc #0\nret\n.popsection");
 static size_t unmap_page;
+static volatile sig_atomic_t policy_traps;
+static void policy_trap(int number,siginfo_t *info,void *opaque) {
+    ucontext_t *context=opaque;
+    assert(number==SIGSYS && info->si_code==SYS_SECCOMP && info->si_syscall==SYS_getuid
+        && info->si_errno==7 && context->uc_mcontext.pc==(uintptr_t)filtered_uid+8);
+    ++policy_traps; context->uc_mcontext.regs[0]=(uint64_t)-777L;
+}
+static void policy_loop(long uid) {
+    for (unsigned i=0;i<256;++i) {
+        assert(filtered_uid(0)==uid);
+        assert(filtered_uid(1)==-EACCES);
+        assert(filtered_uid(2)==-777);
+        assert(live_uid()==uid);
+    }
+}
+static void filter_origin(void) {
+    long uid=getuid();
+    for (unsigned i=0;i<64;++i) assert(filtered_uid(0)==uid);
+    struct sigaction action={.sa_sigaction=policy_trap,.sa_flags=SA_SIGINFO};
+    assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGSYS,&action,NULL));
+    uintptr_t pc=(uintptr_t)filtered_uid+8;
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getuid,0,10),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)pc,0,8),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(pc>>32),0,6),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,4,0),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,1,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRAP|7),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_KILL_PROCESS),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    policy_loop(uid); assert(policy_traps==256);
+    pid_t child=fork(); assert(child>=0);
+    if (!child) { policy_loop(uid); assert(policy_traps==512); _exit(0); }
+    int status;
+    assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    puts("PASS SVC filter origin: original PC and arguments, ALLOW/ERRNO/TRAP, signal context and fork");
+}
+static void filter_readiness(uint32_t denial) {
+    int fd=eventfd(1,EFD_CLOEXEC|EFD_NONBLOCK),epoll=epoll_create1(EPOLL_CLOEXEC);
+    assert(fd>=0 && epoll>=0);
+    struct epoll_event event={.events=EPOLLIN,.data.u64=73};
+    assert(!epoll_ctl(epoll,EPOLL_CTL_ADD,fd,&event));
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait,0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[3])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    code[4].k=denial;
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    for (unsigned i=0;i<512;++i) {
+        assert(syscall(SYS_epoll_pwait,epoll,&event,1,-1,NULL,8)==1 && event.data.u64==73);
+        assert(syscall(SYS_epoll_pwait2,epoll,&event,1,NULL,NULL,8)==1 && event.data.u64==73);
+    }
+    errno=0;
+    assert(syscall(SYS_epoll_pwait,epoll,&event,1,0,NULL,8)==-1
+        && errno==((denial&SECCOMP_RET_ACTION_FULL)==SECCOMP_RET_ERRNO ? EACCES : ENOSYS));
+    assert(!close(epoll) && !close(fd));
+    puts("PASS SVC filter readiness: original timeout admission, native ready probe, denied guest probe");
+}
+static void action_filter(uint32_t decision) {
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getuid,0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,9,0,1),
+        BPF_STMT(BPF_RET|BPF_K,decision),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+}
+static void *killed_thread(void *unused) {
+    (void)unused;
+    long uid=getuid();
+    for (unsigned i=0;i<64;++i) assert(filtered_uid(0)==uid);
+    action_filter(SECCOMP_RET_KILL_THREAD);
+    for (unsigned i=0;i<64;++i) assert(filtered_uid(0)==uid);
+    filtered_uid(9);
+    _exit(99);
+}
+static void filter_actions(void) {
+    const uint32_t actions[]={SECCOMP_RET_LOG,SECCOMP_RET_TRACE|123,
+        SECCOMP_RET_USER_NOTIF,SECCOMP_RET_TRAP|7,SECCOMP_RET_KILL_PROCESS};
+    for (unsigned i=0;i<sizeof(actions)/sizeof(*actions);++i) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            long uid=getuid();
+            for (unsigned n=0;n<64;++n) assert(filtered_uid(0)==uid);
+            struct sigaction handler={.sa_sigaction=policy_trap,.sa_flags=SA_SIGINFO};
+            assert(!sigemptyset(&handler.sa_mask) && !sigaction(SIGSYS,&handler,NULL));
+            action_filter(actions[i]);
+            for (unsigned n=0;n<64;++n) assert(filtered_uid(0)==uid);
+            unsigned action=actions[i]&SECCOMP_RET_ACTION_FULL;
+            long value=filtered_uid(9);
+            assert(action!=SECCOMP_RET_KILL_PROCESS);
+            assert(value==(action==SECCOMP_RET_LOG ? uid : action==SECCOMP_RET_TRAP ? -777 : -ENOSYS));
+            assert(policy_traps==(action==SECCOMP_RET_TRAP));
+            for (unsigned n=0;n<64;++n) assert(filtered_uid(0)==uid);
+            _exit(0);
+        }
+        int status; assert(waitpid(child,&status,0)==child);
+        if ((actions[i]&SECCOMP_RET_ACTION_FULL)==SECCOMP_RET_KILL_PROCESS)
+            assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
+        else assert(WIFEXITED(status) && !WEXITSTATUS(status));
+    }
+    pthread_t peer; assert(!pthread_create(&peer,NULL,killed_thread,NULL));
+    assert(!pthread_join(peer,NULL));
+    puts("PASS SVC filter actions: LOG, TRACE, USER_NOTIF, TRAP, KILL_PROCESS and KILL_THREAD");
+}
+static void filter_exec(const char *path,int child) {
+    if (!child) {
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getuid,0,5),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,1,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,2,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRAP|7),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+        char *argv[]={(char *)path,"filter-exec-child",NULL};
+        execv(path,argv);
+        assert(!"exec with inherited filter failed");
+    }
+    assert(prctl(PR_GET_SECCOMP,0,0,0,0)==SECCOMP_MODE_FILTER);
+    struct sigaction action={.sa_sigaction=policy_trap,.sa_flags=SA_SIGINFO};
+    assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGSYS,&action,NULL));
+    long uid=filtered_uid(0);
+    for (unsigned i=0;i<512;++i) {
+        assert(filtered_uid(0)==uid);
+        assert(filtered_uid(1)==-EACCES);
+        assert(filtered_uid(2)==-777);
+        struct stat value;
+        assert(!stat(path,&value) && value.st_size>0);
+    }
+    assert(policy_traps==512);
+    puts("PASS SVC filter exec: inherited policy, new image entry, original SIGSYS context");
+}
 static volatile sig_atomic_t unmap_signals;
 static void unmap_signal(int signal) {
     (void)signal;
@@ -537,6 +694,13 @@ static void entry_transition_race(void) {
         : "PASS SVC filter race: 24 TSYNC installs, live peers, forbidden helper and post-filter denial");
 }
 int main(int argc,char **argv) {
+    if (argc>1 && !strcmp(argv[1],"filter-origin")) { filter_origin(); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-readiness")) { filter_readiness(SECCOMP_RET_ERRNO|EACCES); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-readiness-trace")) { filter_readiness(SECCOMP_RET_TRACE|13); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-readiness-notify")) { filter_readiness(SECCOMP_RET_USER_NOTIF); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-actions")) { filter_actions(); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-exec")) { filter_exec(argv[0],0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-exec-child")) { filter_exec(argv[0],1); return 0; }
     image_path=argv[0];
     if (argc>1 && !strcmp(argv[1],"native-unmap")) { native_unmap(); return 0; }
     if (argc>1 && !strcmp(argv[1],"native-protect")) { native_protect(); return 0; }

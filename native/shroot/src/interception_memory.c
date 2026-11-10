@@ -18,6 +18,12 @@
 struct slot { uintptr_t top; int used; struct slot *next; };
 struct md_memory_page { uintptr_t address; int used; struct md_memory_page *next; };
 struct policy_range { uintptr_t first, end; unsigned restrictions; };
+struct entry_snapshot {
+    uint64_t identity;
+    uintptr_t base;
+    struct md_interception_buffers *buffers;
+    struct entry_snapshot *next;
+};
 enum { BACKING_BUCKETS = 127 };
 struct backing_pool {
     size_t references;
@@ -44,6 +50,8 @@ struct md_interception_memory {
     uintptr_t buffer_base;
     struct md_interception_buffers *readonly_buffers;
     uintptr_t readonly_base;
+    struct entry_snapshot *snapshots;
+    int snapshots_invalid;
     struct md_resource_queue mappings;
     struct policy_range *restrictions;
     size_t ranges, capacity;
@@ -164,6 +172,14 @@ struct md_interception_memory *md_memory_fork(struct md_interception_memory *s, 
         md_memory_release(copy); return NULL;
     }
     copy->readonly_base=s->readonly_base;
+    for (const struct entry_snapshot *p=s->snapshots;p;p=p->next) {
+        struct entry_snapshot *node=malloc(sizeof(*node));
+        if (!node) { md_memory_release(copy); return NULL; }
+        *node=*p; node->buffers=md_buffers_retain(p->buffers);
+        if (!node->buffers) { free(node); md_memory_release(copy); return NULL; }
+        node->next=copy->snapshots; copy->snapshots=node;
+    }
+    copy->snapshots_invalid=s->snapshots_invalid;
     if (s->ranges) {
         copy->restrictions=malloc(s->ranges*sizeof(*copy->restrictions));
         if (!copy->restrictions) { md_memory_release(copy); return NULL; }
@@ -188,6 +204,10 @@ void md_memory_release(struct md_interception_memory *s) {
     while (s->pages) { struct md_memory_page *next=s->pages->next; free(s->pages); s->pages=next; }
     md_buffers_release(s->buffers); md_resource_queue_destroy(&s->mappings); free(s->restrictions);
     md_buffers_release(s->readonly_buffers);
+    while (s->snapshots) {
+        struct entry_snapshot *next=s->snapshots->next;
+        md_buffers_release(s->snapshots->buffers); free(s->snapshots); s->snapshots=next;
+    }
     if (s->access_ready) { close(s->access.maps); close(s->access.memory); close(s->access.pagemap); }
     file_ranges_release(s->files,s->file_count); pool_release(s->backings); md_svc_registry_free(s->svc); free(s);
 }
@@ -244,14 +264,54 @@ int md_memory_readonly_mapped(struct md_interception_memory *s,uintptr_t base,si
 uintptr_t md_memory_readonly_base(const struct md_interception_memory *s) {
     return s ? s->readonly_base : 0;
 }
+uintptr_t md_memory_snapshot_address(const struct md_interception_memory *s,uint64_t identity) {
+    if (!s || !identity || s->snapshots_invalid) return 0;
+    for (const struct entry_snapshot *p=s->snapshots;p;p=p->next)
+        if (p->identity==identity) return p->base;
+    return 0;
+}
+int md_memory_snapshots_valid(const struct md_interception_memory *s) {
+    return s && !s->snapshots_invalid;
+}
+void md_memory_snapshots_invalidate(struct md_interception_memory *s) {
+    if (s) { s->snapshots_invalid=1; s->admission_valid=0; }
+}
+int md_memory_snapshot_publish(struct md_interception_memory *s,uint64_t identity,
+        struct md_interception_buffers *buffers,uintptr_t base) {
+    size_t size=md_buffers_size(buffers);
+    if (!s || !identity || !base || base%(size_t)getpagesize() || !size
+            || base>UINTPTR_MAX-size || !md_buffers_peer_readonly(buffers)) return -EINVAL;
+    if (s->snapshots_invalid) return -ESTALE;
+    if (md_memory_snapshot_address(s,identity)) return -EALREADY;
+    if (md_memory_readonly_intersects(s,base,size)) return -EEXIST;
+    struct entry_snapshot *node=malloc(sizeof(*node));
+    if (!node) return -ENOMEM;
+    struct md_interception_buffers *retained=md_buffers_retain(buffers);
+    if (!retained) { free(node); return -ENOMEM; }
+    *node=(struct entry_snapshot){identity,base,retained,s->snapshots};
+    s->snapshots=node; s->admission_valid=0;
+    return 0;
+}
+static int range_intersects(uintptr_t base,size_t length,uintptr_t first,size_t size) {
+    return size && first<base+length && (size>UINTPTR_MAX-first || first+size>base);
+}
+int md_memory_snapshot_intersects(const struct md_interception_memory *s,uintptr_t first,size_t size) {
+    for (const struct entry_snapshot *p=s ? s->snapshots : NULL;p;p=p->next)
+        if (range_intersects(p->base,md_buffers_size(p->buffers),first,size)) return 1;
+    return 0;
+}
 int md_memory_readonly_intersects(const struct md_interception_memory *s,uintptr_t first,size_t size) {
-    if (!s || !s->readonly_base || !size) return 0;
-    return first<s->readonly_base+md_buffers_size(s->readonly_buffers)
-        && (size>UINTPTR_MAX-first || first+size>s->readonly_base);
+    if (!s) return 0;
+    return (s->readonly_base && range_intersects(s->readonly_base,md_buffers_size(s->readonly_buffers),first,size))
+        || md_memory_snapshot_intersects(s,first,size);
 }
 void md_memory_readonly_invalidate(struct md_interception_memory *s,uintptr_t first,size_t size) {
-    if (md_memory_readonly_intersects(s,first,size)) {
+    if (!s) return;
+    if (s->readonly_base && range_intersects(s->readonly_base,md_buffers_size(s->readonly_buffers),first,size)) {
         s->readonly_base=0; s->admission_valid=0;
+    }
+    if (md_memory_snapshot_intersects(s,first,size)) {
+        s->snapshots_invalid=1; s->admission_valid=0;
     }
 }
 int md_memory_buffers_mapped(struct md_interception_memory *s, uintptr_t base, size_t size) {
@@ -306,7 +366,7 @@ int md_memory_private_access_capture(struct md_interception_memory *s, pid_t tas
     s->access_ready=1; return 0;
 }
 int md_memory_has_policy(const struct md_interception_memory *s) {
-    return s->ranges || s->policy_unknown || s->file_count || s->readonly_base;
+    return s->ranges || s->policy_unknown || s->file_count || s->readonly_base || s->snapshots;
 }
 static int rounded(size_t length, size_t *out) {
     size_t page=(size_t)getpagesize();
@@ -371,6 +431,8 @@ void md_memory_admission_publish(struct md_interception_memory *s,struct md_memo
         if (admission_range(p,s->files[i].first,s->files[i].end)) return;
     if (s->buffer_base && admission_range(p,s->buffer_base,s->buffer_base+md_buffers_size(s->buffers))) return;
     if (s->readonly_base && admission_range(p,s->readonly_base,s->readonly_base+md_buffers_size(s->readonly_buffers))) return;
+    for (const struct entry_snapshot *view=s->snapshots;view;view=view->next)
+        if (admission_range(p,view->base,view->base+md_buffers_size(view->buffers))) return;
     if (admission_range(p,r->native_begin,r->native_end)
             || admission_range(p,r->frames,r->frames+MD_SVC_POOL_SIZE+MD_SVC_PAYLOAD_SIZE)) return;
     for (unsigned i=0;i<r->pool_count;++i)

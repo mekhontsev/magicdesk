@@ -13,7 +13,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <linux/audit.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static void actions(void) {
@@ -429,9 +432,12 @@ static void virtual_notification_routing(void) {
 static void owned_admission(void) {
     const uint32_t actions[]={SECCOMP_RET_ALLOW,SECCOMP_RET_ERRNO|EACCES,SECCOMP_RET_TRAP|3,
         SECCOMP_RET_USER_NOTIF,SECCOMP_RET_TRACE|42,SECCOMP_RET_KILL_PROCESS};
-    const struct md_seccomp_route route={.delegation_pc=UINT64_C(0x123456780004),
-        .owned_admission=1,.notify_cookie=219,.admission_pc=UINT64_C(0x123456780104),
-        .substitution_pc=UINT64_C(0x123456780204),.substitution_number=SYS_getppid};
+    const struct md_seccomp_gate gates[]={
+        {UINT64_C(0x123456780204),UINT64_C(0x123456780204),SYS_getppid,SECCOMP_RET_TRACE|201},
+        {UINT64_C(0x123456780104),UINT64_C(0x123456780104),SYS_gettid,SECCOMP_RET_TRACE|201},
+        {UINT64_C(0x123456780004),UINT64_C(0x123456780004),-1,SECCOMP_RET_TRACE|201}};
+    const struct md_seccomp_route route={.delegation_pc=gates[2].first,
+        .notify_cookie=219,.gates=gates,.gate_count=3};
     for (unsigned a=0;a<sizeof(actions)/sizeof(*actions);++a) for (int dynamic=0;dynamic<2;++dynamic) {
         struct sock_filter source[]={BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getppid,0,2),
@@ -446,7 +452,7 @@ static void owned_admission(void) {
         int size=md_seccomp_policy_route(policy,NULL,0,201,out,64,&route); assert(size>0);
         struct sock_fprog program={size,out}; uint32_t result;
         for (unsigned gate=0;gate<2;++gate) for (unsigned pc=0;pc<3;++pc) {
-            struct seccomp_data call={.nr=SYS_getppid,.instruction_pointer=(gate ? route.substitution_pc : route.delegation_pc)
+            struct seccomp_data call={.nr=SYS_getppid,.instruction_pointer=(gate ? gates[0].first : route.delegation_pc)
                 +(pc==1 ? 4 : pc==2 ? UINT64_C(1)<<32 : 0)};
             uint32_t expected=actions[a];
             if (!pc && (dynamic || expected!=SECCOMP_RET_ALLOW)) expected=SECCOMP_RET_TRACE|201;
@@ -465,19 +471,265 @@ static void owned_admission(void) {
     assert(!md_seccomp_policy_capture(NULL,&original,&policy));
     int size=md_seccomp_policy_route(policy,NULL,0,201,out,64,&route); assert(size>0);
     struct sock_fprog program={size,out}; uint32_t result;
-    struct seccomp_data call={.nr=SYS_gettid,.instruction_pointer=route.admission_pc};
+    struct seccomp_data call={.nr=SYS_gettid,.instruction_pointer=gates[1].first};
     assert(!md_seccomp_program_eval(&program,&call,&result) && result==(SECCOMP_RET_TRACE|201));
     call.nr=SYS_openat;
     assert(!md_seccomp_program_eval(&program,&call,&result) && result==(SECCOMP_RET_ERRNO|EACCES));
     call.nr=SYS_gettid; call.instruction_pointer+=4;
     assert(!md_seccomp_program_eval(&program,&call,&result) && result==(SECCOMP_RET_ERRNO|EACCES));
-    call.nr=route.substitution_number; call.instruction_pointer=route.substitution_pc;
+    call.nr=gates[0].number; call.instruction_pointer=gates[0].first;
     assert(!md_seccomp_program_eval(&program,&call,&result) && result==(SECCOMP_RET_TRACE|201));
     call.nr=SYS_accept4;
     assert(!md_seccomp_program_eval(&program,&call,&result) && result==(SECCOMP_RET_ERRNO|EACCES));
     md_seccomp_policy_release(policy);
 }
+extern char policy_test_svc[];
+static __attribute__((noinline)) long policy_test_call(long number) {
+    register long x0 __asm__("x0")=0;
+    register long x8 __asm__("x8")=number;
+    __asm__ volatile(".global policy_test_svc\npolicy_test_svc:\nsvc #0"
+        : "+r"(x0) : "r"(x8) : "memory","cc");
+    return x0;
+}
+static void ip_guards(void) {
+    const uint64_t original=UINT64_C(0x123400004),alias=UINT64_C(0x234500004);
+    struct md_seccomp_gate gate={alias-4,alias+4,-1,SECCOMP_RET_TRACE|201};
+    struct md_seccomp_route route={.gates=&gate,.gate_count=1,.guard_ip=1};
+    for (unsigned half=0;half<2;++half) for (unsigned invert=0;invert<2;++invert) {
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4*half),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(original>>(32*half)),0,1),
+            BPF_STMT(BPF_RET|BPF_K,invert ? SECCOMP_RET_ALLOW : SECCOMP_RET_TRAP|7),
+            BPF_STMT(BPF_RET|BPF_K,invert ? SECCOMP_RET_TRAP|7 : SECCOMP_RET_ALLOW)};
+        struct sock_fprog source={4,code};
+        struct md_seccomp_policy *policy=NULL;
+        assert(!md_seccomp_policy_capture(NULL,&source,&policy));
+        struct sock_filter out[128],saved[128]; memset(out,0x5a,sizeof(out)); memcpy(saved,out,sizeof(out));
+        assert(md_seccomp_policy_route(policy,NULL,0,201,out,4,&route)==-ENOSPC);
+        assert(!memcmp(out,saved,sizeof(out)));
+        int count=md_seccomp_policy_route(policy,NULL,0,201,out,128,&route);
+        assert(count>4);
+        struct sock_fprog routed={count,out};
+        for (unsigned i=0;i<3;++i) {
+            struct seccomp_data call={.nr=SYS_read,.instruction_pointer=i==0 ? original : i==1 ? alias : alias+16};
+            uint32_t expected,value;
+            assert(!md_seccomp_policy_eval(policy,&call,&expected));
+            if (i==1) expected=gate.decision;
+            assert(!md_seccomp_program_eval(&routed,&call,&value) && value==expected);
+        }
+        md_seccomp_policy_bind_entry(policy,17);
+        assert(md_seccomp_policy_entry_image(policy)==17);
+        struct md_seccomp_policy *child=NULL;
+        assert(!md_seccomp_policy_capture(policy,&source,&child));
+        md_seccomp_policy_bind_entry(child,invert ? 18 : 17);
+        assert(md_seccomp_policy_entry_image(child)==(invert ? 0 : 17));
+        md_seccomp_policy_release(child); md_seccomp_policy_release(policy);
+    }
+    puts("PASS IP-sensitive gates: both PC halves, ALLOW alias interception, original actions and image ancestry");
+}
+static void kernel_gates(void) {
+    uid_t uid=getuid();
+    for (int range=0;range<2;++range) {
+        uintptr_t pc=(uintptr_t)policy_test_svc+4;
+        struct md_seccomp_gate gate={pc-(range ? 4 : 0),pc+(range ? 4 : 0),SYS_getuid,SECCOMP_RET_ALLOW};
+        struct md_seccomp_route route={.gates=&gate,.gate_count=1};
+        struct sock_filter original[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getuid,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog source={4,original}; struct md_seccomp_policy *policy=NULL;
+        assert(!md_seccomp_policy_capture(NULL,&source,&policy));
+        struct sock_filter code[64];
+        int count=md_seccomp_policy_route(policy,NULL,0,201,code,64,&route); assert(count>0);
+        struct sock_fprog program={count,code};
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+            assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+            assert(policy_test_call(SYS_getuid)==(long)uid);
+            assert(policy_test_call(SYS_getpid)==getpid());
+            errno=0;
+            assert(syscall(SYS_getuid)==-1 && errno==EACCES);
+            _exit(0);
+        }
+        int status;
+        assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+        md_seccomp_policy_release(policy);
+    }
+    puts("PASS kernel gate admission: exact/range helper allowed, original caller denied, native calls unchanged");
+}
+static void gate_ranges(void) {
+    const uint64_t bounds[][2]={
+        {0x1000,0x2000},{UINT64_C(0xfffffffc),UINT64_C(0x100000004)},
+        {UINT64_C(0x123400000000),UINT64_C(0x123600000000)},
+        {UINT64_MAX-0x1000,UINT64_MAX}};
+    const uint32_t actions[]={SECCOMP_RET_ERRNO|EACCES,SECCOMP_RET_TRAP|3,
+        SECCOMP_RET_TRACE|42,SECCOMP_RET_KILL_PROCESS,SECCOMP_RET_ALLOW};
+    for (unsigned b=0;b<sizeof(bounds)/sizeof(*bounds);++b)
+    for (unsigned a=0;a<sizeof(actions)/sizeof(*actions);++a)
+    for (int dynamic=0;dynamic<2;++dynamic) for (int numbered=0;numbered<2;++numbered) {
+        struct sock_filter source[]={BPF_STMT(BPF_LD|BPF_W|BPF_IMM,actions[a]),
+            BPF_STMT(BPF_RET|BPF_A,0)};
+        if (!dynamic) source[1]=(struct sock_filter)BPF_STMT(BPF_RET|BPF_K,actions[a]);
+        struct sock_fprog original={2,source}; struct md_seccomp_policy *policy=NULL;
+        assert(!md_seccomp_policy_capture(NULL,&original,&policy));
+        struct md_seccomp_gate gate={bounds[b][0],bounds[b][1],numbered ? SYS_getpid : -1,
+            numbered ? SECCOMP_RET_ALLOW : SECCOMP_RET_TRACE|201};
+        struct md_seccomp_route route={.gates=&gate,.gate_count=1};
+        struct sock_filter output[64];
+        int n=md_seccomp_policy_route(policy,NULL,0,201,output,64,&route); assert(n>0);
+        struct sock_fprog program={n,output};
+        const uint64_t pcs[]={0,gate.first-1,gate.first,gate.first+1,gate.end-1,gate.end,UINT64_MAX};
+        for (unsigned i=0;i<sizeof(pcs)/sizeof(*pcs);++i) for (int nr=0;nr<2;++nr) {
+            struct seccomp_data call={.nr=nr ? SYS_getpid : SYS_getppid,.instruction_pointer=pcs[i]};
+            uint32_t result,expected=actions[a];
+            if ((dynamic || actions[a]!=SECCOMP_RET_ALLOW) && (!numbered || nr)
+                    && pcs[i]>=gate.first && pcs[i]<gate.end) expected=gate.decision;
+            assert(!md_seccomp_program_eval(&program,&call,&result) && result==expected);
+        }
+        if (!dynamic && actions[a]==SECCOMP_RET_ALLOW) assert(n==2);
+        memset(output,0xa5,sizeof(output));
+        gate.end=gate.first-1;
+        assert(md_seccomp_policy_route(policy,NULL,0,201,output,64,&route)==-EINVAL);
+        for (size_t i=0;i<sizeof(output);++i) assert(((unsigned char *)output)[i]==0xa5);
+        md_seccomp_policy_release(policy);
+    }
+    puts("PASS owned gate ranges: 64-bit boundaries, syscall scope, dynamic results and native ALLOW cache");
+}
+static void views(void) {
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_openat,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={4,code};
+    struct md_seccomp_policy *root=NULL,*head=NULL;
+    assert(!md_seccomp_policy_capture(NULL,&program,&root));
+    size_t bytes;
+    assert(!md_seccomp_policy_view_size(root,0,&bytes));
+    struct md_seccomp_view *parent=malloc(bytes); assert(parent);
+    assert(!md_seccomp_policy_view_write(root,0,parent,bytes,(uintptr_t)parent,0));
+    uint64_t id=md_seccomp_policy_identity(root);
+    assert(id && !md_seccomp_policy_identity(NULL) && !md_seccomp_policy_parent(root));
+    const uint32_t actions[]={SECCOMP_RET_KILL_THREAD,SECCOMP_RET_KILL_PROCESS,
+        SECCOMP_RET_ERRNO|EPERM,SECCOMP_RET_ERRNO,SECCOMP_RET_TRAP|7,
+        SECCOMP_RET_TRACE|9,SECCOMP_RET_USER_NOTIF,SECCOMP_RET_LOG,SECCOMP_RET_ALLOW};
+    for (unsigned field=0;field<sizeof(struct seccomp_data);field+=4) {
+        for (unsigned a=0;a<sizeof(actions)/sizeof(*actions);++a) {
+            code[0].k=field; code[1].k=SYS_openat; code[2].k=actions[a];
+            assert(!md_seccomp_policy_capture(root,&program,&head));
+            assert(md_seccomp_policy_parent(head)==root && md_seccomp_policy_identity(head)>id);
+            size_t part,whole;
+            assert(!md_seccomp_policy_view_size(head,id,&part));
+            assert(!md_seccomp_policy_view_size(head,0,&whole) && whole==part+bytes);
+            struct md_seccomp_view *view=malloc(whole),*flat=malloc(whole);
+            assert(view && flat); memset(view,0xa5,whole);
+            assert(md_seccomp_policy_view_write(head,id,view,part-1,(uintptr_t)view,(uintptr_t)parent)==-ENOSPC);
+            for (size_t i=0;i<whole;++i) assert(((unsigned char *)view)[i]==0xa5);
+            assert(md_seccomp_policy_view_size(head,UINT64_MAX,&part)==-ENOENT);
+            assert(md_seccomp_policy_view_write(head,id,view,whole,(uintptr_t)view,0)==-EINVAL);
+            assert(!md_seccomp_policy_view_write(head,id,view,whole,(uintptr_t)view,(uintptr_t)parent));
+            assert(view->parent==parent);
+            assert(!md_seccomp_policy_view_write(head,0,flat,whole,(uintptr_t)flat,0));
+            for (unsigned match=0;match<2;++match) {
+                struct seccomp_data call={0};
+                uint32_t input=match ? SYS_openat : SYS_read,result,linked,linear;
+                memcpy((char *)&call+field,&input,sizeof(input));
+                assert(!md_seccomp_policy_eval(head,&call,&result));
+                assert(!md_seccomp_view_eval(view,&call,&linked) && linked==result);
+                assert(!md_seccomp_view_eval(flat,&call,&linear) && linear==result);
+            }
+            free(view); free(flat); md_seccomp_policy_release(head);
+        }
+    }
+    /* The exported view owns bytes, not a borrowed coordinator allocation. */
+    md_seccomp_policy_release(root);
+    struct seccomp_data call={.nr=SYS_openat}; uint32_t result;
+    assert(!md_seccomp_view_eval(parent,&call,&result) && result==(SECCOMP_RET_ERRNO|EACCES));
+    assert(!md_seccomp_view_eval(NULL,&call,&result) && result==SECCOMP_RET_ALLOW);
+    free(parent);
+    puts("PASS immutable policy views: shared ancestry, all call fields, actions and independent lifetime");
+}
+static void constant_admission(void) {
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getuid,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    struct md_seccomp_cache cache,child;
+    md_seccomp_cache_build(&cache,&program,NULL);
+    for (unsigned number=0;number<1024;++number) {
+        struct seccomp_data call={.arch=AUDIT_ARCH_AARCH64,.nr=(int)number};
+        assert(md_seccomp_cache_allows(&cache,&call)==(number==SYS_getuid));
+        for (unsigned value=0;value<4;++value) {
+            call.args[0]=value; call.instruction_pointer=UINT64_MAX-value;
+            uint32_t decision;
+            assert(!md_seccomp_program_eval(&program,&call,&decision));
+            if (md_seccomp_cache_allows(&cache,&call)) assert(decision==SECCOMP_RET_ALLOW);
+        }
+        call.arch=AUDIT_ARCH_ARM;
+        assert(!md_seccomp_cache_allows(&cache,&call));
+    }
+    code[1].k=SYS_getgid;
+    md_seccomp_cache_build(&child,&program,&cache);
+    for (unsigned i=0;i<MD_SECCOMP_CACHE_WORDS;++i) assert(!child.allow[i]);
+    code[1].k=SYS_getuid;
+    code[2]=(struct sock_filter)BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES);
+    md_seccomp_cache_build(&child,&program,&cache);
+    for (unsigned i=0;i<MD_SECCOMP_CACHE_WORDS;++i) assert(!child.allow[i]);
+    for (unsigned offset=offsetof(struct seccomp_data,instruction_pointer);
+            offset<sizeof(struct seccomp_data);offset+=4) {
+        code[0]=(struct sock_filter)BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offset);
+        uint32_t result=123;
+        assert(md_seccomp_program_constant(&program,SYS_getuid,AUDIT_ARCH_AARCH64,&result)==-EAGAIN);
+        assert(result==123);
+    }
+    puts("PASS constant admission: nr/arch proof, unknown fields, bounds and ancestor intersection");
+}
+static void inherited_entry(void) {
+    struct sock_filter allow[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={1,allow};
+    struct md_seccomp_policy *parent=NULL,*child=NULL;
+    assert(!md_seccomp_policy_capture(NULL,&program,&parent));
+    assert(!md_seccomp_policy_entry_compatible(parent,17));
+    md_seccomp_policy_bind_entry(parent,17);
+    assert(md_seccomp_policy_entry_compatible(parent,17) && md_seccomp_policy_entry_compatible(parent,18));
+    assert(md_seccomp_policy_entry_checkpoint(parent)==SYS_gettid);
+    assert(!md_seccomp_policy_capture(parent,&program,&child));
+    md_seccomp_policy_bind_entry(child,18);
+    assert(md_seccomp_policy_entry_image(child)==18 && md_seccomp_policy_entry_compatible(child,19));
+    md_seccomp_policy_release(child); child=NULL;
+    struct sock_filter denied[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EPERM),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    program=(struct sock_fprog){4,denied};
+    assert(!md_seccomp_policy_capture(parent,&program,&child));
+    md_seccomp_policy_bind_entry(child,18);
+    assert(md_seccomp_policy_entry_checkpoint(child)==SYS_getpid);
+    md_seccomp_policy_release(child); child=NULL;
+    allow[0].k=SECCOMP_RET_ERRNO|EPERM;
+    program=(struct sock_fprog){1,allow};
+    assert(!md_seccomp_policy_capture(parent,&program,&child));
+    md_seccomp_policy_bind_entry(child,18);
+    assert(md_seccomp_policy_entry_compatible(child,18) && !md_seccomp_policy_entry_compatible(child,19));
+    assert(md_seccomp_policy_entry_checkpoint(child)<0);
+    md_seccomp_policy_release(child); md_seccomp_policy_release(parent);
+    puts("PASS inherited entry: stable gates, policy ancestry and admitted checkpoint selection");
+}
 int main(void) {
+    constant_admission();
+    inherited_entry();
+    ip_guards();
+    kernel_gates();
+    gate_ranges();
+    views();
     owned_admission();
     actions();
     policy_users();

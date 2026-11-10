@@ -15,7 +15,7 @@ need no hooks: observed, eligible syscall sites enter the same provider.
 ## Call Contract
 
 `cooperative_entry.h` accepts a syscall number and six original 64-bit arguments,
-with one zero-initialized opaque handle per thread. ABI version 9 supplies a
+with one zero-initialized opaque handle per thread. ABI version 10 supplies a
 runtime-owned syscall-offer table and a caller-compiled action driver,
 `md_entry_invoke`, with these terminal results:
 
@@ -27,7 +27,8 @@ runtime-owned syscall-offer table and a caller-compiled action driver,
 
 The size-checked descriptor also supplies `thread_identity` for callers without
 libc TLS. It returns the runtime's native thread key, not a guest PID namespace
-number. It must not run after helper admission has been revoked by a filter.
+number. It must not run while helper admission is revoked. Filtered offers carry
+the original post-SVC instruction pointer; a missing pointer declines.
 The lazy machine-entry frontend uses this callback to avoid collisions
 between separate PID-1 processes.
 
@@ -85,13 +86,14 @@ threads run. The implementation routes offered calls as follows:
 The task route, failed registration and a worker's explicit pre-execution decline
 invoke the kernel continuation and return `COMPLETED`. The callback receives the
 original number and arguments for that continuation; the broker never calls a
-guest function pointer. An unfiltered native-open plan invokes the optional
+guest function pointer. An admitted native-open plan invokes the optional
 cancellation checkpoint in the guest before publication and before the effect,
 never after a successful open. Ordinary wrappers leave it NULL; cancellation
 wrappers supply libc's own check. No synthetic futex or other kernel call is
 needed for this checkpoint. The kernel continuation receives only actual calls.
-The lazy frontend falls back to the original SVC and revokes entry before an
-application filter is installed, preserving instruction-pointer-sensitive policy.
+The lazy frontend fences entry before application filter installation and can
+rearm after publishing the original policy. Unadmitted calls fall back to the
+original SVC, preserving instruction-pointer-sensitive policy.
 Protocol fixtures may supply an explicit continuation; callers that omit it use
 the adapter's ordinary SVC, not its privileged raw gate, and must not assume
 their own instruction address is preserved.
@@ -208,6 +210,10 @@ Handler entry retains its packet until the veneer acknowledges the kernel-built
 frame. Failed frame construction cancels that packet, preserves the pre-handler
 mask and retains the kernel's SIGSEGV and one-shot disposition semantics. It does
 not fail the supervisor or another guest process.
+Entry and native-return packets retain a mapping turn, not a borrowed syscall.
+A newly deliverable logical signal requests their acknowledgement through the
+same targeted wake owner; it must not wait for unrelated IO or another signal.
+Without pending work these packets need no additional stop.
 
 At an unfiltered seccomp-entry stop, a known native fallback transfers the
 still-unexecuted call to the ordinary syscall owner without rewriting the PC.
@@ -277,8 +283,9 @@ the existing caller-owned copy context validates that argument without adding a
 descriptor or memory cache. A ready result completes without a worker
 exchange or descriptor cache; an empty result enters the blocking owner. Dynamic
 queue selectors still collect virtual events. Positive finite waits and temporary signal
-masks retain ordinary admission, and application filters revoke lazy entry as for
-other syscalls.
+masks retain ordinary admission. Filtered readiness calls first admit the
+original timeout and mask; the owned probe is an implementation operation,
+not another application request with substituted arguments.
 See [protocol coverage](../guest-exec-lab/sandbox-research.md#signal-neutral-checkpoints).
 
 Known separate limitation: a fault in a fallback userspace memory copy can
@@ -372,8 +379,8 @@ A leaf assembly gate executes `openat`, ordinary-file `close`, `dup`, `dup3`,
 regular-file `lseek` or admitted `fcntl` commands and
 publishes a native-result journal. Shroot's filter admits those numbers only at
 that exact instruction; this is still a real kernel syscall, without its ordinary
-notification/ptrace round trip. Application filters are not bypassed: their
-installation revokes eligibility as described below. Known FD flags can be read,
+notification/ptrace round trip. Application filters are evaluated against the
+original call before offering this plan. Known FD flags can be read,
 or set to their current value, under the file-table turn without another kernel
 effect. F_GETFL/F_SETFL use the kernel's actual open description, and
 F_DUPFD/F_DUPFD_CLOEXEC use the common FD-mutation owner. Directory seeks retain
@@ -399,8 +406,8 @@ ordinary kernel notification, task stop/resume or borrowed execution revokes
 the lease. Shared tables never receive it. The explicit entry API does not use
 this shortcut: only the resident private frame defers signal handlers until the
 call completes. No descriptor bitmap, cached offset, or predicted future close
-is involved. Direct cursor calls use the existing raw service gate; application
-filter installation revokes the channel before that gate can be used.
+is involved. Direct cursor calls use the existing raw service gate after the
+same original-call policy check as other admitted effects.
 
 The original file-table turn owns the operation until result bookkeeping and pin
 retirement complete. The journal distinguishes not-started, executing, completed,
@@ -631,9 +638,7 @@ pathname result. Unknown/imported provenance uses the ordinary resolution path.
 
 ## Sandboxes And Debuggers
 
-An installed application seccomp filter disables **shared-memory execution**, not
-the entry API. Before
-attempting a filter installation, the supervisor revokes the relevant task or
+Before attempting a filter installation, the supervisor revokes the relevant task or
 TSYNC thread group's authoritative eligibility. A failed installation leaves it
 disabled conservatively. Already admitted operations complete before kernel
 filter installation. Revocation disables discovery immediately and retains
@@ -653,24 +658,42 @@ its completion owner across TSYNC; filter installation does not wait for the
 application event that may itself depend on the installer. Logical dumpability
 does not revoke runtime memory access. At a terminal task stop, the same context decoder
 releases that task's frame without touching live peers. New public admissions
-remain held through filter
-commit or failure. Native sleeping threads are not interrupted. Later requests
-use the kernel continuation. A monotonic per-image hint disables new channel
-registration before any application filter, including inherited policy after
-exec. Fresh clients therefore do not issue a potentially forbidden helper.
-Existing channels retain per-task eligibility; unfiltered siblings need not lose
-their registered channels. The hint grants no authority, and the registration
-notification still passes the kernel filter if a caller ignores it.
-The existing guest filter preflight writes the hint locally, before replaying
-the application's filter syscall; the image handshake returns inherited policy
-in a register. Neither path needs to write a protected child's memory remotely.
-Debugger tracing and protected native-root
-restrictions also select the existing kernel-admitted route.
+remain held through filter commit or failure. Native sleeping threads are not
+interrupted. Registration remains disabled until publication completes.
+Successful installation maps an immutable original-policy view through the
+existing private-table mapping helper. Views share retained ancestors and belong
+to the address-space owner. Fork retains them; exec creates a new owner.
+The coordinator publishes each channel's policy before rearming entry. TSYNC
+uses the same installation barrier and retained old-policy admission snapshots.
+Replacing or protecting a policy mapping drains direct entries before
+invalidating the view graph; unavailable views retain Base.
 
-Thus the entry contract works in sandboxed programs, but **their filtered calls
-still cross kernel seccomp at the caller-supplied SVC**. Already-queued calls can
-share a bounded worker operation window, but they do not acquire the direct-entry
-speedup. The shared seccomp owner retains each original classic-BPF policy and
+The pure cBPF interpreter evaluates original nr/arch/args/IP before worker,
+native FD, cached-result or memory effects. ALLOW uses the existing route; ERRNO
+returns directly. TRAP/KILL/TRACE/USER_NOTIF and LOG retain original-site fallback.
+An immutable per-chain bitmap proves argument/IP-independent ALLOW decisions
+at installation; other decisions use the same interpreter. A miss is not a
+rejection. Readiness probes admit the original timeout and signal mask before
+issuing an owned nonblocking probe; helper arguments are not a new guest call.
+Kernel mirrors retain ordinary cold-call admission and route owned helper/alias
+gates separately. IP-independent filters preserve constant-ALLOW exits; filters
+which read either IP word guard aliases before evaluation, even when an alias
+would otherwise receive ALLOW. This does not intercept every native read/write.
+
+All ancestors must cover the current entry image or be portable across exec
+before rearming. Portability requires IP-independent policies and a provably
+unconditional-ALLOW inert checkpoint. New images publish new policy views and
+never reuse former code-pool addresses. Other inherited policies and excessive
+mirror size retain Base. The image registration hint grants no policy authority.
+Debugger tracing selects Base. Restricted native roots decline worker path
+operations but can retain pathless value, native FD and readiness entry.
+
+Filter suspension preserves eligible sites for lazy re-admission after the
+policy fence. Mapping retirement remains permanent. Already admitted work,
+including listener CONTINUE and retained pre-TSYNC calls, finishes through its
+existing owner rather than re-entering an accelerated gate under a newer policy.
+
+The shared seccomp owner retains each original classic-BPF policy and
 its native validation. Owned service gates are routed separately so that
 implementation syscalls do not acquire a second application admission. Original
 guest calls retain their policy and denial actions; inherited Android filters
@@ -807,4 +830,4 @@ and completion ownership. See the
 
 No storage-format change, runtime dependency, ART integration or kernel newer
 than 5.15 is required. Extending SVC-free execution to more syscall families and
-to filtered tasks remains separate from this complete routing contract.
+delivering additional policy actions in userspace remain separate work.

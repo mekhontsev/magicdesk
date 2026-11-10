@@ -52,6 +52,15 @@ int md_memory_readonly_prepare(struct md_interception_memory *,unsigned slots,si
 struct md_interception_buffers *md_memory_readonly_buffers(struct md_interception_memory *);
 int md_memory_readonly_mapped(struct md_interception_memory *,uintptr_t,size_t);
 uintptr_t md_memory_readonly_base(const struct md_interception_memory *);
+/* Immutable entry snapshots have independent sealed buffers and identities.
+ * Publish only after filling the peer view. Fork retains mappings; exec drops
+ * them. Destructive replacement invalidates the whole dependent view graph. */
+int md_memory_snapshot_publish(struct md_interception_memory *,uint64_t identity,
+    struct md_interception_buffers *,uintptr_t base);
+uintptr_t md_memory_snapshot_address(const struct md_interception_memory *,uint64_t identity);
+int md_memory_snapshot_intersects(const struct md_interception_memory *,uintptr_t,size_t);
+int md_memory_snapshots_valid(const struct md_interception_memory *);
+void md_memory_snapshots_invalidate(struct md_interception_memory *);
 int md_memory_readonly_intersects(const struct md_interception_memory *,uintptr_t,size_t);
 /* Successful or outcome-unknown destructive replacement retires admission. */
 void md_memory_readonly_invalidate(struct md_interception_memory *,uintptr_t,size_t);

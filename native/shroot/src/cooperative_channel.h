@@ -54,6 +54,8 @@ static inline enum md_entry_wait md_entry_wait_kind(int number,int native_sent) 
 struct md_entry_channel {
     _Alignas(64) atomic_uint state;
     atomic_uint enabled, awake, sleeping;
+    /* Published by the coordinator before enabling this thread's channel. */
+    atomic_uintptr_t policy;
     /* fd+1 or MD_ENTRY_RESULT_FD, issued under an exclusive table turn.
      * Only the identified resident
      * entry may use it: its signal delivery is deferred until entry completes.

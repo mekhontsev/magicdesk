@@ -135,6 +135,32 @@ static void entry_revocation(void) {
         assert(!md_svc_registry_revoke(&r,INT_MAX) && before==reads+writes);
     }
     puts("PASS SVC revocation: lost stop, partial retirement, peer retry and disabled discovery");
+    struct md_svc_site sites[2];
+    struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE,.sites=sites,.count=2};
+    for (unsigned i=0;i<2;++i) {
+        revocation_code[i]=UINT64_C(0xd503201f14000000);
+        sites[i]=(struct md_svc_site){.direct={.svc=(uintptr_t)(revocation_code+i),.gate=1},
+            .original=0xd4000001,.replacement=0x14000000,.state=MD_SVC_PUBLISHED};
+    }
+    payload.admitted=1;
+    assert(!md_svc_registry_pause_filter(&r,111) && r.filter_paused && !payload.admitted);
+    assert(sites[0].state==MD_SVC_FILTER_PAUSED && sites[1].state==MD_SVC_FILTER_PAUSED);
+    assert(!md_svc_registry_unpatch(&r,111,sites[1].direct.svc,4) && sites[1].state==MD_SVC_RETIRED);
+    assert(md_svc_registry_rearm_filter(&r,111)==-EBUSY);
+    r.entry_fence_drained=1; fail_write=writes;
+    assert(md_svc_registry_rearm_filter(&r,111)==-ESRCH && r.disabled && r.filter_paused);
+    fail_write=-1;
+    assert(!md_svc_registry_rearm_filter(&r,222) && payload.admitted && !r.disabled
+        && !r.filter_paused && !r.entry_fence_drained);
+    assert(sites[0].state==MD_SVC_PUBLISHED && sites[1].state==MD_SVC_RETIRED);
+    assert(revocation_code[0]==UINT64_C(0xd503201fd4000001));
+    assert(!md_svc_registry_resume(&r,222,sites[0].direct.svc));
+    assert(revocation_code[0]==UINT64_C(0xd503201f14000000));
+    assert(!md_svc_registry_revoke(&r,111));
+    assert(!md_svc_registry_pause_filter(&r,111) && !r.filter_paused);
+    r.entry_fence_drained=1;
+    assert(md_svc_registry_rearm_filter(&r,111)==-EBUSY);
+    puts("PASS SVC filter rearm: drained fence, retry, warm-site resumption and permanent mapping retirement");
 }
 
 static void code_staging(void) {
@@ -337,12 +363,13 @@ static int protection_at(uintptr_t address) {
 static long payload_identity(void) { return 123; }
 static enum md_entry_outcome payload_call(struct md_entry_client *client,struct md_entry_call *call) {
     (void)client;
+    assert(call->instruction_pointer==0x1234);
     call->result=321;
     return call->args[0] ? MD_ENTRY_COMPLETED : MD_ENTRY_DECLINED;
 }
-static int payload_memory(struct md_entry_client *client,long tid,long number,const uint64_t *args,int64_t *result) {
+static int payload_memory(struct md_entry_client *client,long tid,long number,const uint64_t *args,int64_t *result,uintptr_t pc) {
     (void)client;
-    assert(tid==123 && number==1 && args[0]==0);
+    assert(tid==123 && number==1 && args[0]==0 && pc==0x1234);
     *result=456;
     return 1;
 }
@@ -354,14 +381,14 @@ static void payload_statistics(uint64_t *registers) {
     for (unsigned enabled=0;enabled<2;++enabled) {
         struct md_svc_payload_state state={.api=&api,.admitted=1,.statistics=enabled};
         registers[8]=0; registers[0]=1;
-        assert(md_svc_payload_dispatch(registers,&state)==1 && registers[0]==321);
+        assert(md_svc_payload_dispatch(registers,&state,0x1234)==1 && registers[0]==321);
         registers[0]=0;
-        assert(!md_svc_payload_dispatch(registers,&state));
+        assert(!md_svc_payload_dispatch(registers,&state,0x1234));
         registers[8]=1;
-        assert(md_svc_payload_dispatch(registers,&state)==1 && registers[0]==456);
+        assert(md_svc_payload_dispatch(registers,&state,0x1234)==1 && registers[0]==456);
         assert(state.completed==2*enabled && state.declined==enabled && !state.unknown);
         state.admitted=0;
-        assert(!md_svc_payload_dispatch(registers,&state));
+        assert(!md_svc_payload_dispatch(registers,&state,0x1234));
         assert(state.completed==2*enabled && state.declined==enabled);
     }
     puts("PASS SVC optional statistics: completed, native, declined and revoked entry");
@@ -374,10 +401,10 @@ static void lazy_stack_guards(void) {
     struct md_svc_payload_state state={0};
     uint64_t *registers=(void *)(frames+MD_SVC_FRAME_OFFSET);
     int64_t *ready=(void *)(frames+MD_SVC_GUARD_STATE);
-    assert(!md_svc_payload_dispatch(registers,&state) && !*ready);
+    assert(!md_svc_payload_dispatch(registers,&state,0x1234) && !*ready);
     assert(protection_at((uintptr_t)frames+MD_SVC_GUARD_OFFSET)==(PROT_READ|PROT_WRITE));
     state.admitted=1;
-    assert(!md_svc_payload_dispatch(registers,&state) && *ready==1);
+    assert(!md_svc_payload_dispatch(registers,&state,0x1234) && *ready==1);
     assert(protection_at((uintptr_t)frames+MD_SVC_GUARD_OFFSET)==PROT_NONE);
     assert(protection_at((uintptr_t)frames)==(PROT_READ|PROT_WRITE));
     assert(protection_at((uintptr_t)frames+MD_SVC_GUARD_OFFSET+MD_SVC_GUARD_SIZE)==(PROT_READ|PROT_WRITE));
@@ -392,12 +419,12 @@ static void lazy_stack_guards(void) {
         struct sock_fprog program={.len=sizeof(filter)/sizeof(*filter),.filter=filter};
         assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
         assert(!prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,&program));
-        assert(!md_svc_payload_dispatch(registers,&state) && *ready==1);
+        assert(!md_svc_payload_dispatch(registers,&state,0x1234) && *ready==1);
         assert(protection_at((uintptr_t)frames+MD_SVC_GUARD_OFFSET)==PROT_NONE);
         registers=(void *)(frames+MD_SVC_SLOT_SIZE+MD_SVC_FRAME_OFFSET);
         ready=(void *)(frames+MD_SVC_SLOT_SIZE+MD_SVC_GUARD_STATE);
-        assert(!md_svc_payload_dispatch(registers,&state) && *ready==-1);
-        assert(!md_svc_payload_dispatch(registers,&state) && *ready==-1);
+        assert(!md_svc_payload_dispatch(registers,&state,0x1234) && *ready==-1);
+        assert(!md_svc_payload_dispatch(registers,&state,0x1234) && *ready==-1);
         assert(protection_at((uintptr_t)frames+MD_SVC_SLOT_SIZE+MD_SVC_GUARD_OFFSET)==(PROT_READ|PROT_WRITE));
         _exit(0);
     }

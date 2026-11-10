@@ -33,8 +33,9 @@ Lazy machine-code entry admits observed AArch64 SVC sites in unmodified programs
 including stock libc and Go, by default for inode-store launches. It shares the
 [cooperative channel](cooperative-entry.md) and syscall owners, not a second
 implementation.
-Application filters, protected-state transitions and debugger ownership revoke
-entry through the common admission boundary. Unavailable capabilities and
+Application filters fence entry and publish immutable original-policy views
+before eligible calls resume acceleration. Debugger ownership and unavailable
+policy views retain the common fallback. Unavailable capabilities and
 unsupported sites retain Base interception; `--env SHROOT_MACHINE_ENTRY=0`
 selects Base explicitly. See
 [integration evidence](../guest-exec-lab/svc-rewriting.md#product-boundary).
@@ -238,7 +239,20 @@ incomplete. Use trusted inputs.
 for the shared supervisor: listener FDs are successful results, while a
 positive-TID TSYNC failure does not publish a new filter. Both host identities
 reuse that contract. `seccomp_policy` supplies immutable snapshots,
-chain references and selective cBPF routing/evaluation. Application-UID
+chain references and selective cBPF routing. `seccomp_program` is the shared
+allocation-free evaluator for coordinator objects and read-only entry views;
+it has no syscall, listener or scheduler ownership. View export can retain an
+existing ancestor mapping instead of copying the whole chain on each install.
+Each immutable chain caches only proven argument/IP-independent ALLOW decisions;
+all other inputs retain interpretation. This cache is built at installation,
+not in ordinary syscall handling. IP-independent chains with an allowed inert
+checkpoint can publish fresh entry views after exec. IP-sensitive inherited
+chains retain Base; old code-pool addresses never authorize a new image.
+Owned service gates use one exact-PC/range matcher with optional syscall scope;
+IP-independent constant-ALLOW exits retain the kernel's cacheable path.
+IP-dependent policies route owned aliases before evaluation so original-site
+recovery cannot be bypassed by a different ALLOW decision at the alias.
+Application-UID
 execution uses it to admit cold Android-denied calls against original guest policy;
 the ordinary UID-2000 path does not enable host-SIGSYS translation.
 `seccomp_capture` lends the exact routed image from a peer-read-only

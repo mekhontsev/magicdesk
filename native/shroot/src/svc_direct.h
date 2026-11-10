@@ -18,6 +18,7 @@ int md_svc_direct_kernel(uintptr_t svc,uintptr_t destination,uint32_t output[2])
 struct md_svc_direct_context {
     uintptr_t svc,gate,frames;
     uint64_t number;
+    unsigned checkpoint_number;
 };
 typedef int (*md_svc_direct_memory)(void *,uintptr_t,void *,size_t,int write);
 /* Optional signal rendezvous after the dispatcher returns. No private TRAP. */

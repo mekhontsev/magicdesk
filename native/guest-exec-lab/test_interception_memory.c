@@ -137,7 +137,49 @@ static void readonly_inputs(void) {
     assert(span.size==page && !md_buffer_release(&loan));
     puts("PASS immutable input mappings: fork/exec, replacement, failed unmap, DONTUNMAP and outstanding loan");
 }
+static void entry_snapshots(void) {
+    size_t page=(size_t)getpagesize();
+    struct md_interception_memory *memory=md_memory_new(); assert(memory);
+    struct md_interception_buffers *pool=NULL,*ordinary=NULL;
+    assert(!md_buffers_create_readonly(1,page,&pool));
+    assert(!md_buffers_create(1,page,0,0,&ordinary));
+    assert(md_memory_snapshot_publish(memory,1,ordinary,0x100000)==-EINVAL);
+    assert(md_memory_snapshot_publish(memory,0,pool,0x100000)==-EINVAL);
+    assert(md_memory_snapshot_publish(memory,1,pool,1)==-EINVAL);
+    fail_malloc=1;
+    assert(md_memory_snapshot_publish(memory,1,pool,0x100000)==-ENOMEM);
+    fail_malloc=0;
+    assert(!md_memory_snapshot_address(memory,1));
+    for (unsigned i=1;i<=32;++i)
+        assert(!md_memory_snapshot_publish(memory,i,pool,0x100000+i*page));
+    assert(md_memory_snapshot_publish(memory,1,pool,0x200000)==-EALREADY);
+    assert(md_memory_snapshot_publish(memory,33,pool,0x100000+page)==-EEXIST);
+    assert(md_memory_snapshot_address(memory,32)==0x100000+32*page);
+    assert(md_memory_has_policy(memory));
+    assert(md_memory_mapping_observe(memory,0x100000+page,page));
+    assert(!md_memory_snapshot_intersects(memory,0x100000,page));
+    fail_malloc=1;
+    assert(!md_memory_fork(memory,0));
+    fail_malloc=0;
+    struct md_interception_memory *child=md_memory_fork(memory,0),*exec=md_memory_new_image(memory);
+    assert(child && exec && md_memory_snapshot_address(child,32)==0x100000+32*page);
+    assert(!md_memory_snapshot_address(exec,32) && !md_memory_has_policy(exec));
+    struct md_mapping_change change={0};
+    assert(!md_memory_mapping_prepare(memory,&change,MD_MAPPING_UNMAP,0x100000+page,page,0,0,0));
+    md_memory_mapping_finish(memory,&change,-EINVAL);
+    assert(md_memory_snapshots_valid(memory) && md_memory_snapshot_address(memory,1));
+    assert(!md_memory_mapping_prepare(memory,&change,MD_MAPPING_UNMAP,0x100000+page,page,0,0,0));
+    md_memory_mapping_finish(memory,&change,0);
+    assert(!md_memory_snapshots_valid(memory) && !md_memory_snapshot_address(memory,32));
+    assert(md_memory_snapshot_publish(memory,33,pool,0x300000)==-ESTALE);
+    assert(md_memory_snapshots_valid(child) && md_memory_snapshot_address(child,32));
+    md_memory_release(memory); md_buffers_release(pool); md_buffers_release(ordinary);
+    assert(md_memory_snapshot_address(child,1));
+    md_memory_release(child); md_memory_release(exec);
+    puts("PASS entry snapshots: retained read-only views, unbounded identities, fork/exec and dependent invalidation");
+}
 int main(void) {
+    entry_snapshots();
     readonly_inputs();
     file_custody();
     backing_reuse();

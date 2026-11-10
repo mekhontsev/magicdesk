@@ -7,6 +7,7 @@
 .global md_svc_single_dispatch,md_svc_single_done_branch,md_svc_single_kernel_branch
 .global md_svc_single_state
 .global md_svc_single_owner
+.global md_svc_single_origin
 .global md_svc_single_busy_branch,md_svc_single_done_replay,md_svc_single_kernel_replay,md_svc_single_busy_replay
 .macro single_mark name
 .global md_svc_single_\name
@@ -40,6 +41,7 @@ md_svc_single_prefix:
     add sp,x30,#(MD_SVC_SLOT_SIZE >> 12),lsl#12
     ldr x16,single_dispatch_8
     ldr x1,single_state_8
+    ldr x2,single_origin_8
     single_mark invoke
     blr x16
     single_mark returned
@@ -89,6 +91,9 @@ single_state_8:
     .quad 0
 md_svc_single_owner:
 single_owner_8:
+    .quad 0
+md_svc_single_origin:
+single_origin_8:
     .quad 0
 md_svc_single_end:
 .section .note.GNU-stack,"",%progbits

@@ -8,6 +8,7 @@
 
 extern const unsigned char md_svc_single_begin[],md_svc_single_prefix[],md_svc_single_dispatch[];
 extern const unsigned char md_svc_single_state[],md_svc_single_owner[];
+extern const unsigned char md_svc_single_origin[];
 extern const unsigned char md_svc_single_done_replay[],md_svc_single_kernel_replay[],md_svc_single_busy_replay[];
 extern const unsigned char md_svc_single_done_branch[],md_svc_single_kernel_branch[],md_svc_single_busy_branch[];
 extern const unsigned char md_svc_single_claim[],md_svc_single_claimed[],md_svc_single_owned[];
@@ -45,6 +46,8 @@ int md_svc_direct_plan(uintptr_t svc,uint64_t number,uintptr_t destination,
     uintptr_t state=frames+MD_SVC_POOL_SIZE;
     memcpy(body+at(md_svc_single_state),&state,8);
     memcpy(body+at(md_svc_single_owner),&destination,8);
+    uintptr_t original_pc=svc+4;
+    memcpy(body+at(md_svc_single_origin),&original_pc,8);
     memcpy(body+body_size,&number,8);
     uint32_t miss_branch;
     error=md_svc_branch(body_pc+body_size+8,exits.mismatch,&miss_branch);
@@ -121,7 +124,9 @@ int md_svc_direct_signal_plan(const struct md_svc_direct_context *c,uintptr_t di
     tail[2]=UINT32_C(0xb5000000)|(2u<<5)|30;
     error=md_svc_branch(c->gate+size+12,c->gate+returned+4,tail+3);
     if (error) return error;
-    tail[4]=UINT32_C(0xd2800008)|((uint32_t)SYS_getuid<<5);
+    unsigned checkpoint=c->checkpoint_number ? c->checkpoint_number : SYS_getuid;
+    if (checkpoint>65535) return -EINVAL;
+    tail[4]=UINT32_C(0xd2800008)|(checkpoint<<5);
     tail[5]=UINT32_C(0xd4000001);
     tail[6]=UINT32_C(0xd4200000);
     tail[7]=UINT32_C(0x14000000);

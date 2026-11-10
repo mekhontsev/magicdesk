@@ -24,10 +24,10 @@ static __attribute__((always_inline)) inline int prepare_stack(uint64_t *r) {
  * SIMD or external helper calls. The private-stack guard is the only internal
  * syscall; application operations use the supplied cooperative API.
  * Shared by the bootstrap and copied laboratory fixtures. The supervisor
- * revokes admission for the address space before an application filter commits,
- * so even gettid is skipped on the filtered fallback. */
+ * revokes admission before filter installation; no helper runs until the
+ * original policy view and owned gates are ready for re-admission. */
 __attribute__((section("md_svc_payload"),noinline))
-int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s) {
+int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s,uintptr_t original_pc) {
     if (!__atomic_load_n(&s->admitted,__ATOMIC_ACQUIRE)) return 0;
     if (!prepare_stack(r)) return 0;
     const struct md_entry_api *api=s->api;
@@ -49,12 +49,13 @@ int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s) {
     if (!client) return 0;
     int64_t result;
     if (md_entry_offered(api,(long)r[8],MD_ENTRY_NATIVE_MEMORY)
-            && api->native_memory && api->native_memory(client,tid,(long)r[8],r,&result)) {
+            && api->native_memory && api->native_memory(client,tid,(long)r[8],r,&result,original_pc)) {
         r[0]=(uint64_t)result;
         if (s->statistics) __atomic_fetch_add(&s->completed,1,__ATOMIC_RELAXED);
         return 1;
     }
-    struct md_entry_call call={.number=(int)r[8],.args={r[0],r[1],r[2],r[3],r[4],r[5]}};
+    struct md_entry_call call={.number=(int)r[8],.args={r[0],r[1],r[2],r[3],r[4],r[5]},
+        .instruction_pointer=original_pc};
     enum md_entry_outcome outcome=api->try_identified
         ? api->try_identified(client,tid,&call) : api->try_syscall(client,&call);
     for (;;) {

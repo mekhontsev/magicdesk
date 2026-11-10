@@ -220,7 +220,7 @@ enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
     MEMORY_WAIT, RESULT_REPLAY_ENTRY, RESULT_REPLAY_EXIT, PROCESS_OBSERVING, PROCESS_TID_STORE,
     PROCESS_INFO_LOAD, PROCESS_INFO_STORE, PROCESS_VALUE_STORE, PROCESS_INIT_ENTRY, PROCESS_INIT_EXIT, PROC_LOOKUP,
     CLONE_ENTRY, CLONE_ADMISSION, FILTER_CAPTURE, SIGNAL_CONTROL, SIGNAL_ENTRY, SIGNAL_NATIVE_EXIT,
-    GUEST_NOTIFICATION };
+    GUEST_NOTIFICATION, FILTER_MAPPING };
 enum memory_action { MEMORY_NONE, MEMORY_KERNEL, MEMORY_DETACH, MEMORY_FORK };
 enum call_restart { RESTART_SIGNAL=-4105, RESTART_PREPARATION=-4106 };
 struct metadata_operation {
@@ -330,6 +330,10 @@ struct readonly_mapping {
     pid_t caller;
     struct user_pt_regs continuation;
     struct md_interception_buffer scratch;
+    struct md_interception_buffers *buffers;
+    struct md_seccomp_policy *policy;
+    uint64_t ancestor;
+    uintptr_t parent_view;
 };
 enum metadata_restart_stage { METADATA_CHECK, METADATA_ENTRY, METADATA_WAIT };
 struct metadata_restart {
@@ -877,6 +881,8 @@ static int signal_control_begin(struct thread *,const struct user_pt_regs *,int,
     const siginfo_t *);
 static int signal_logical_enqueue(struct thread *,enum md_signal_scope,const siginfo_t *);
 static void filter_install_progress(struct thread *);
+static void filter_entry_complete(struct thread *,const struct user_pt_regs *);
+static int filter_entry_eligible(const struct thread *);
 static void policy_sync_progress(void);
 static void policy_sync_release(struct thread *);
 static void metadata_restart_return(struct thread *t,long value);
@@ -1773,8 +1779,17 @@ static int image_enter(struct thread *t,uintptr_t image,uintptr_t address,size_t
     CHECK(!md_task_registry_publish(tasks,t->pid,t->tgid,&next->value,&t->resources));
     /* The loader has closed its copies, but these exact published images
      * still authenticate the actual mappings. */
-    t->image_backings_ready=machine && t->exec_backings[0]>=0
-        && !md_memory_image_backings(t->memory,t->pid,t->exec_backings,t->exec_backings[1]>=0 ? 2 : 1);
+    int backings=machine && t->exec_backings[0]>=0
+        ? md_memory_image_backings(t->memory,t->pid,t->exec_backings,t->exec_backings[1]>=0 ? 2 : 1) : -ENODEV;
+    t->image_backings_ready=!backings;
+    TRACE("PROBE entry-image pid=%d prepared=%lu backings=%d filter=%d blocked=%d exposed=%d\n",
+        t->pid,machine,backings,t->application_filter,t->cooperative_blocked,md_memory_exposed(t->memory));
+    if (diagnostics && !machine) {
+        struct md_svc_runtime runtime={0};
+        int error=md_svc_registry_read(t->pid,abi.svc_runtime,&runtime,sizeof(runtime));
+        TRACE("PROBE entry-preparation pid=%d read=%d error=%d pools=%u\n",
+            t->pid,error,runtime.error,runtime.count);
+    }
     exec_backings_release(t);
     t->identity=next->value; t->mapped_image=0; t->entered=1;
     CHECK(!md_process_set_dumpable(t->resources.access,!next->secure));
@@ -1956,8 +1971,9 @@ static void delegate_begin(struct thread *t, const struct seccomp_notif *q) {
 }
 static int machine_discovery(struct thread *t) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
-    return registry && !registry->disabled && t->entered && !t->application_filter
-        && !t->cooperative_blocked && !t->debug_options && !md_memory_exposed(t->memory);
+    return registry && !registry->disabled && t->entered && filter_entry_eligible(t)
+        && !t->cooperative_blocked && !t->debug_options && !md_memory_exposed(t->memory)
+        && !t->notification_continued && !t->admission_policy_valid;
 }
 static int machine_context(struct thread *t,const struct ptrace_syscall_info *info) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
@@ -2034,6 +2050,8 @@ static void cooperative_memory_publish(struct thread *t,int eligible) {
     struct md_buffer_span span;
     CHECK(!md_buffer_span(&t->cooperative_buffer,&span) && span.size>=sizeof(struct md_entry_channel));
     struct md_entry_channel *c=span.data;
+    atomic_store_explicit(&c->policy,md_memory_snapshot_address(t->memory,
+        md_seccomp_policy_identity(t->policy)),memory_order_release);
     md_memory_admission_publish(t->memory,&c->memory,eligible && !md_shm_space_used(t->shm_space));
 }
 static void buffer_setup(struct thread *t, const struct seccomp_notif *q) {
@@ -2647,7 +2665,7 @@ static _Noreturn void notification_conflict(struct thread *t,const char *reason,
 }
 static long cooperative_bind(struct thread *t) {
     if (!buffer_service || !broker || !t->entered || t->phase!=IDLE
-            || t->application_filter || t->cooperative_blocked) return -EOPNOTSUPP;
+            || t->cooperative_blocked || !filter_entry_eligible(t)) return -EOPNOTSUPP;
     if (t->cooperative_buffer.pool)
         return (long)md_memory_buffer_address(t->memory,&t->cooperative_buffer);
     int error=md_buffers_take_channel(md_memory_buffers(t->memory),&t->cooperative_buffer);
@@ -2656,6 +2674,7 @@ static long cooperative_bind(struct thread *t) {
     error=md_buffer_span(&t->cooperative_buffer,&span);
     if (!error && span.size<sizeof(struct md_entry_channel)) error=-ENOBUFS;
     if (!error) error=md_broker_cooperative_bind(broker,t->pid,span.data,abi.buffer_admit);
+    if (!error) cooperative_memory_publish(t,machine_discovery(t));
     if (error) {
         cooperative_buffer_release(t);
         return error;
@@ -2674,10 +2693,15 @@ static unsigned readiness_admission_purpose(const struct thread *t,const struct 
 static struct md_seccomp_policy *admission_policy(const struct thread *t) {
     return t->admission_policy_valid ? t->admission_policy : t->policy;
 }
+static int guest_policy_boundary(const struct thread *t,const struct seccomp_data *call) {
+    /* Helpers execute an already admitted original call. Their scratch
+     * arguments and service PC are not another application policy request. */
+    uintptr_t pc=call->instruction_pointer;
+    return t->entered && t->phase==IDLE && pc!=RAW_GATE && pc!=abi.task_return
+        && !(pc>=abi.code_begin && pc<abi.code_end);
+}
 static int guest_trace_rejected(struct thread *t,const struct seccomp_data *call) {
-    if (!t->entered || t->phase!=IDLE
-            || !md_seccomp_policy_may_trace(admission_policy(t))
-            || call->instruction_pointer==RAW_GATE || call->instruction_pointer==abi.task_return) return 0;
+    if (!guest_policy_boundary(t,call) || !md_seccomp_policy_may_trace(admission_policy(t))) return 0;
     uint32_t decision;
     CHECK(!md_seccomp_policy_eval(admission_policy(t),call,&decision));
     /* Guest TRACE cookies are not service selectors. USER_NOTIF also outranks
@@ -2708,8 +2732,7 @@ static int guest_notification_publish(struct thread *t,const struct seccomp_noti
 }
 static int guest_notification_begin(struct thread *t,const struct seccomp_data *data,
         const struct user_pt_regs *regs,const struct seccomp_notif *kernel,const siginfo_t *host_signal) {
-    if (!t->entered || t->phase!=IDLE || !md_seccomp_policy_may_notify(admission_policy(t))
-            || data->instruction_pointer==RAW_GATE || data->instruction_pointer==abi.task_return) return 0;
+    if (!guest_policy_boundary(t,data) || !md_seccomp_policy_may_notify(admission_policy(t))) return 0;
     uint32_t decision; const struct md_seccomp_policy *winner=NULL;
     CHECK(!md_seccomp_policy_decide(admission_policy(t),data,&decision,&winner));
     if ((decision&SECCOMP_RET_ACTION_FULL)!=SECCOMP_RET_USER_NOTIF) return 0;
@@ -6266,28 +6289,43 @@ static void readonly_mapping_complete(void *context,struct md_task_helper_result
     CHECK(result.descriptor<0 && !result.received);
     if (t && t->readonly_mapping==owner) {
         long error=result.value;
-        if (error>=0) error=md_memory_readonly_mapped(t->memory,(uintptr_t)error,
-            md_buffers_size(md_memory_readonly_buffers(t->memory)));
+        if (error>=0 && owner->policy) {
+            uintptr_t base=(uintptr_t)error;
+            struct md_interception_buffer buffer={0};
+            struct md_buffer_span span;
+            error=md_buffers_take(owner->buffers,&buffer);
+            if (!error) error=md_buffer_span(&buffer,&span);
+            if (!error) error=md_seccomp_policy_view_write(owner->policy,owner->ancestor,
+                span.data,span.size,base,owner->parent_view);
+            if (!error) error=md_memory_snapshot_publish(t->memory,
+                md_seccomp_policy_identity(owner->policy),owner->buffers,base);
+            CHECK(!md_buffer_release(&buffer));
+        } else if (error>=0) error=md_memory_readonly_mapped(t->memory,(uintptr_t)error,
+            md_buffers_size(owner->buffers));
         t->readonly_mapping=NULL; t->kernel_stopped=1;
-        t->buffer_registers=owner->continuation;
-        buffer_reply(t,error);
+        if (owner->policy) {
+            TRACE("PROBE filter-entry-mapped pid=%d result=%ld\n",t->pid,error);
+            filter_entry_complete(t,&owner->continuation);
+        } else {
+            t->buffer_registers=owner->continuation;
+            buffer_reply(t,error);
+        }
     }
     CHECK(!md_buffer_release(&owner->scratch));
+    md_buffers_release(owner->buffers);
+    md_seccomp_policy_release(owner->policy);
     free(owner);
 }
-static void readonly_mapping_begin(struct thread *t,const struct user_pt_regs *regs) {
-    struct readonly_mapping *owner=calloc(1,sizeof(*owner));
-    int error=owner ? 0 : -ENOMEM;
-    if (!error) {
-        owner->caller=t->pid; owner->continuation=*regs;
-        error=md_buffers_take(md_memory_buffers(t->memory),&owner->scratch);
-    }
+static int readonly_mapping_start(struct thread *t,const struct user_pt_regs *regs,
+        struct readonly_mapping *owner) {
+    owner->caller=t->pid; owner->continuation=*regs;
+    int error=md_buffers_take(md_memory_buffers(t->memory),&owner->scratch);
     if (!error) {
         t->terminal_observation=1; t->trace_options_dirty=1;
         error=debugger_options(t->pid,t->debug_options);
     }
     if (!error) {
-        struct md_interception_buffers *buffers=md_memory_readonly_buffers(t->memory);
+        struct md_interception_buffers *buffers=owner->buffers;
         const struct md_task_helper_request request={.kind=MD_TASK_HELPER_MAP,
             .mapping={.source=md_buffers_fd(buffers),.size=md_buffers_size(buffers),
                 .protection=PROT_READ,.flags=MAP_SHARED}};
@@ -6297,9 +6335,22 @@ static void readonly_mapping_begin(struct thread *t,const struct user_pt_regs *r
             &request,readonly_mapping_complete,owner);
     }
     if (error) {
-        if (owner) { CHECK(!md_buffer_release(&owner->scratch)); free(owner); }
-        buffer_reply(t,error);
-    } else { t->readonly_mapping=owner; t->kernel_stopped=0; }
+        CHECK(!md_buffer_release(&owner->scratch));
+        md_buffers_release(owner->buffers); md_seccomp_policy_release(owner->policy); free(owner);
+    } else {
+        t->readonly_mapping=owner; t->kernel_stopped=0;
+        if (owner->policy) t->phase=FILTER_MAPPING;
+    }
+    return error;
+}
+static void readonly_mapping_begin(struct thread *t,const struct user_pt_regs *regs) {
+    struct readonly_mapping *owner=calloc(1,sizeof(*owner));
+    int error=owner ? 0 : -ENOMEM;
+    if (!error) {
+        owner->buffers=md_buffers_retain(md_memory_readonly_buffers(t->memory));
+        error=readonly_mapping_start(t,regs,owner);
+    }
+    if (error) buffer_reply(t,error);
 }
 static void outgoing_complete(void *context, struct md_task_helper_result result) {
     struct outgoing_owner *owner=context;
@@ -8408,6 +8459,20 @@ static void task_readiness_changed(struct thread *t) {
         tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"task-readiness");
     }
 }
+static int signal_pending_wake(struct thread *t) {
+    struct signal_control *owner=t->signal_control;
+    if (owner && !owner->returning && !owner->entry_packet)
+        return md_task_signal_control_wake(&owner->control);
+    /* Published entry/return packets may be followed only by native IO. They
+     * hold a mapping turn, not an interruptible borrowed syscall: require an
+     * acknowledgement for newly deliverable signals as for mapping contention. */
+    if (!t->host_signal_blocked && !t->kernel_stopped && !t->interrupt_pending) {
+        if (native_trace(PTRACE_INTERRUPT,t->pid,NULL,NULL)<0)
+            return errno==ESRCH ? 0 : -errno;
+        t->interrupt_pending=1;
+    }
+    return 0;
+}
 static int signal_logical_enqueue(struct thread *to,enum md_signal_scope scope,const siginfo_t *info) {
     struct md_kernel_action action;
     int error=md_signal_actions_read(to->signal_actions,SIGSYS,&action);
@@ -8418,14 +8483,8 @@ static int signal_logical_enqueue(struct thread *to,enum md_signal_scope scope,c
     for (struct thread *peer=threads;peer;peer=peer->next) {
         if (!peer->pid || !peer->born || (scope==MD_SIGNAL_PRIVATE ? peer!=to : peer->tgid!=to->tgid)) continue;
         task_readiness_changed(peer);
-        if (peer->signal_control) {
-            error=md_task_signal_control_wake(&peer->signal_control->control);
-            if (error && error!=-ESRCH) return error;
-        } else if (!peer->host_signal_blocked && !peer->kernel_stopped && !peer->interrupt_pending) {
-            if (native_trace(PTRACE_INTERRUPT,peer->pid,NULL,NULL)<0) {
-                if (errno!=ESRCH) return -errno;
-            } else peer->interrupt_pending=1;
-        }
+        error=signal_pending_wake(peer);
+        if (error && error!=-ESRCH) return error;
     }
     return 0;
 }
@@ -8717,7 +8776,11 @@ static void signal_entries_progress(void) {
     for (struct signal_control *owner=signal_entries,*next;owner;owner=next) {
         next=owner->entry_next;
         struct thread *t=owner->entry_thread;
-        if (signal_entry_committed(t)) continue;
+        int committed=signal_entry_committed(t);
+        if (md_signal_pending_has(t->signal_pending,MD_SIGNAL_PRIVATE)
+                || md_signal_pending_has(t->signal_pending,MD_SIGNAL_SHARED))
+            CHECK(!signal_pending_wake(t));
+        if (committed) continue;
         if (!t->kernel_stopped && !t->interrupt_pending) {
             struct md_resource_queue *queue=owner->memory.queue;
             pthread_mutex_lock(&queue->lock);
@@ -9410,20 +9473,78 @@ static int host_policy_signal(struct thread *t,struct md_task_signal_stop *stop)
     return host_policy_dispatch(t,&regs,&call);
 }
 static int svc_revoke_entry(struct thread *t) {
-    int error=md_svc_registry_revoke(md_memory_svc(t->memory),t->pid);
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    if (registry) registry->filter_paused=0;
+    int error=md_svc_registry_revoke(registry,t->pid);
     if (error==-ESRCH) { t->resume_lost=1; return 0; }
     CHECK(!error);
     return 1;
 }
 static int filter_revoke_entry(struct thread *t,const struct user_pt_regs *r) {
     int group=md_seccomp_filter_flags(r->regs[8],r->regs[1])&SECCOMP_FILTER_FLAG_TSYNC;
-    if (!svc_revoke_entry(t)) return 0;
+    int error=md_svc_registry_pause_filter(md_memory_svc(t->memory),t->pid);
+    if (error==-ESRCH) { t->resume_lost=1; return 0; }
+    CHECK(!error);
     for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid
             && (peer==t || (group && peer->tgid==t->tgid))) {
         peer->cooperative_blocked=1;
         md_broker_cooperative_revoke(broker,peer->pid);
     }
     return 1;
+}
+static int filter_entry_eligible(const struct thread *t) {
+    if (!t->application_filter) return 1;
+    const struct md_svc_registry *registry=md_memory_svc(t->memory);
+    return registry && md_seccomp_policy_entry_compatible(t->policy,registry->image)
+        && md_memory_snapshot_address(t->memory,md_seccomp_policy_identity(t->policy));
+}
+static void filter_entry_rearm(struct thread *t) {
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    if (!registry || !registry->filter_paused || !registry->entry_fence_drained
+            || md_memory_exposed(t->memory) || !md_memory_snapshots_valid(t->memory)) return;
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
+        if (!filter_entry_eligible(p) || p->debug_options || md_debugger_traced(debugger,p->pid)) return;
+    }
+    if (statistics && !registry->filter_statistics) {
+        struct md_svc_payload_state state;
+        if (!md_svc_registry_read(t->pid,registry->frames+MD_SVC_POOL_SIZE,&state,sizeof(state))) {
+            registry->filter_completed_start=state.completed;
+            registry->filter_statistics=1;
+        }
+    }
+    uintptr_t mode=2;
+    int error=md_svc_registry_write(t->pid,abi.cooperative_registration,&mode,sizeof(mode));
+    if (!error) error=md_svc_registry_rearm_filter(registry,t->pid);
+    if (error) { TRACE("PROBE filter-entry-rearm pid=%d error=%d\n",t->pid,error); return; }
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
+        p->cooperative_blocked=0; p->registration_revoked=0;
+        cooperative_memory_publish(p,0);
+    }
+    TRACE("PROBE filter-entry-ready pid=%d\n",t->pid);
+}
+static void filter_entry_complete(struct thread *t,const struct user_pt_regs *regs) {
+    filter_entry_rearm(t);
+    filter_install_discard(t); t->phase=IDLE;
+    struct user_pt_regs continuation=*regs;
+    if (set_registers(t->pid,&continuation)) resume(t->pid,0);
+}
+static int filter_entry_map(struct thread *t,const struct user_pt_regs *regs) {
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    if (!registry || !registry->filter_paused || !t->policy
+            || !md_seccomp_policy_entry_compatible(t->policy,registry->image)
+            || !md_memory_snapshots_valid(t->memory)) return 0;
+    struct readonly_mapping *owner=calloc(1,sizeof(*owner));
+    if (!owner) return 0;
+    for (const struct md_seccomp_policy *p=md_seccomp_policy_parent(t->policy);p;p=md_seccomp_policy_parent(p)) {
+        owner->parent_view=md_memory_snapshot_address(t->memory,md_seccomp_policy_identity(p));
+        if (owner->parent_view) { owner->ancestor=md_seccomp_policy_identity(p); break; }
+    }
+    size_t size=0;
+    int error=md_seccomp_policy_view_size(t->policy,owner->ancestor,&size);
+    if (!error) error=md_buffers_create_readonly(1,size,&owner->buffers);
+    if (error) { free(owner); return 0; }
+    owner->policy=md_seccomp_policy_retain(t->policy);
+    return !readonly_mapping_start(t,regs,owner);
 }
 static void filter_install_discard(struct thread *t) {
     retry_clear(t,RETRY_FILTER);
@@ -9656,13 +9777,32 @@ static void filter_install_progress(struct thread *t) {
         const uint32_t delegated[]={SYS_gettid,SYS_seccomp,SYS_prctl,SYS_rt_sigaction,SYS_rt_sigprocmask,
             SYS_rt_sigreturn,SYS_rt_sigpending,SYS_rt_sigtimedwait,SYS_process_vm_readv,SYS_process_vm_writev,
             SYS_ppoll,SYS_pselect6,SYS_epoll_pwait,SYS_epoll_pwait2,SYS_signalfd4,SYS_fcntl,SYS_mmap};
+        struct md_seccomp_gate gates[4+MD_SVC_CODE_POOLS]={
+            {abi.socket_return,abi.socket_return,SYS_accept4,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK},
+            {abi.buffer_admit,abi.buffer_admit,SYS_gettid,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK},
+            {abi.task_return,abi.task_return,-1,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK}};
+        struct md_svc_registry *registry=md_memory_svc(t->memory);
+        size_t gate_count=3;
+        if (registry) {
+            gates[gate_count++]=(struct md_seccomp_gate){abi.code_begin,abi.code_end,-1,SECCOMP_RET_ALLOW};
+            for (unsigned i=0;i<registry->pool_count;++i)
+                gates[gate_count++]=(struct md_seccomp_gate){registry->pools[i].address,
+                    registry->pools[i].address+MD_SVC_CODE_BYTES,-1,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
+        }
         const struct md_seccomp_route route={.delegation_pc=abi.task_return,.notify_cookie=MD_INTERCEPT_NOTIFY,
-            .owned_admission=1,.admission_pc=abi.buffer_admit,
-            .substitution_pc=abi.socket_return,.substitution_number=SYS_accept4};
+            .gates=gates,.gate_count=gate_count,.guard_ip=1,.entry_image=registry ? registry->image : 0};
         int error=md_seccomp_capture_prepare(&install->capture,md_memory_readonly_buffers(t->memory),
             md_memory_readonly_base(t->memory),t->policy,&program,
             delegated,t->host_signals ? sizeof(delegated)/sizeof(*delegated) : 3,
             MD_INTERCEPT_TASK,&route);
+        if (error==-E2BIG && registry) {
+            struct md_seccomp_route fallback=route;
+            fallback.gate_count=3; fallback.guard_ip=0; fallback.entry_image=0;
+            error=md_seccomp_capture_prepare(&install->capture,md_memory_readonly_buffers(t->memory),
+                md_memory_readonly_base(t->memory),t->policy,&program,
+                delegated,t->host_signals ? sizeof(delegated)/sizeof(*delegated) : 3,
+                MD_INTERCEPT_TASK,&fallback);
+        }
         if (error==-EAGAIN) { retry_wait(t,RETRY_FILTER); return; }
         if (error) { filter_install_fail(t,error); return; }
         ++install->stage;
@@ -9727,9 +9867,10 @@ static void filter_install_begin(struct thread *t,const struct user_pt_regs *r) 
     if (error<0) filter_install_fail(t,error);
     else filter_install_progress(t);
 }
-static void filter_observed(struct thread *t,long result) {
+static int filter_observed(struct thread *t,const struct user_pt_regs *regs) {
+    long result=(long)regs->regs[0];
     const struct user_pt_regs *r=&t->original;
-    if (!t->entered || !md_seccomp_filter_call(r->regs[8],r->regs[0],r->regs[1])) return;
+    if (!t->entered || !md_seccomp_filter_call(r->regs[8],r->regs[0],r->regs[1])) return 0;
     unsigned flags=md_seccomp_filter_flags(r->regs[8],r->regs[1]);
     unsigned length=t->filter_install ? t->filter_install->program.len : (unsigned)t->filter_length;
     struct md_seccomp_policy *published=NULL;
@@ -9746,7 +9887,7 @@ static void filter_observed(struct thread *t,long result) {
         CHECK(complete>=0);
         md_fd_origins_finish(&t->filter_install->listener,complete ? (int)result : -1);
     }
-    if (!md_seccomp_filter_committed(flags,result)) { filter_install_discard(t); return; }
+    if (!md_seccomp_filter_committed(flags,result)) { filter_install_discard(t); return 0; }
     if (published) {
         md_seccomp_policy_replace(&t->policy,published);
         if (flags&SECCOMP_FILTER_FLAG_TSYNC)
@@ -9760,8 +9901,10 @@ static void filter_observed(struct thread *t,long result) {
     if (flags&SECCOMP_FILTER_FLAG_TSYNC)
         for (struct thread *peer=threads;peer;peer=peer->next)
             if (peer->pid && peer->tgid==t->tgid) peer->application_filter=1;
-    filter_install_discard(t);
     TRACE("PROBE installed-filter pid=%d instructions=%u\n",t->pid,length);
+    if (filter_entry_map(t,regs)) return 1;
+    filter_install_discard(t);
+    return 0;
 }
 static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) {
     long nr = r->regs[8];
@@ -10181,9 +10324,14 @@ static void resume(pid_t pid, int sig) {
     }
     struct md_svc_registry *machine=md_memory_svc(t->memory);
     if (!svc_clients_prepare(t)) return;
-    if (machine && (machine->revoke_pending || (!machine->disabled && (md_memory_exposed(t->memory)
-            || t->debug_options || md_debugger_traced(debugger,pid)))))
+    if (machine && !machine->disabled && (md_memory_exposed(t->memory)
+            || t->debug_options || md_debugger_traced(debugger,pid)))
         if (!svc_revoke_entry(t)) return;
+    if (machine && machine->revoke_pending) {
+        int error=md_svc_registry_revoke(machine,pid);
+        if (error==-ESRCH) { t->resume_lost=1; return; }
+        CHECK(!error);
+    }
     if (t->trace_options_dirty && debugger_options(pid,t->debug_options)) return;
     if (phase!=IDLE && t->debug_call_active) t->debug_adapter=1;
     if (debugger_at_boundary(t) && t->entered && t->process_image) {
@@ -10200,13 +10348,14 @@ static void resume(pid_t pid, int sig) {
         if (md_debugger_stop(debugger,pid,(SIGTRAP<<8)|0x7f,&info,0)) return;
     }
     if (broker) {
-        int eligible=t->ready && phase==IDLE && t->endpoint[0] && !md_domain_restricted(t->resources.fs)
-            && !md_seccomp_policy_may_trace(t->policy)
-            && !md_seccomp_policy_may_notify(t->policy);
-        int opens=eligible && !t->application_filter && !t->debug_options
+        int eligible=t->ready && phase==IDLE && t->endpoint[0];
+        int paths=!md_domain_restricted(t->resources.fs);
+        int raw=eligible && paths && !md_seccomp_policy_may_trace(t->policy) && !md_seccomp_policy_may_notify(t->policy);
+        int direct=eligible && filter_entry_eligible(t) && !t->debug_options
             && !t->debug_call_active && !t->debug_step_call && !md_debugger_traced(debugger,pid);
+        int opens=direct && paths && !t->application_filter;
         struct md_svc_registry *registry=md_memory_svc(t->memory);
-        int discovery=opens && registry && !registry->disabled && !md_memory_exposed(t->memory);
+        int discovery=direct && registry && !registry->disabled && !md_memory_exposed(t->memory);
         cooperative_memory_publish(t,discovery && !t->cooperative_blocked);
         struct md_broker_code_ranges ranges={.size=MD_SVC_CODE_BYTES};
         _Static_assert(MD_SVC_CODE_POOLS<=8,"broker code range capacity");
@@ -10214,9 +10363,9 @@ static void resume(pid_t pid, int sig) {
             ranges.count=registry->pool_count;
             for (unsigned i=0;i<ranges.count;++i) ranges.starts[i]=registry->pools[i].address;
         }
-        CHECK(!md_broker_task(broker,pid,eligible ? MD_BROKER_READ|(opens ? MD_BROKER_OPEN : 0)
+        CHECK(!md_broker_task(broker,pid,eligible ? (raw ? MD_BROKER_READ : 0)|(opens ? MD_BROKER_OPEN : 0)
             |(discovery ? MD_BROKER_DISCOVERY : 0)
-            |(opens && !t->cooperative_blocked ? MD_BROKER_COOPERATIVE : 0) : 0,
+            |(direct && !t->cooperative_blocked ? MD_BROKER_COOPERATIVE : 0) : 0,
             RAW_GATE,abi.watch_return,&ranges));
     }
     int publish_signal=md_signal_delivery_pending(&t->signal_delivery) && !t->signal_delivery.active
@@ -11540,6 +11689,16 @@ static void memory_begin(struct thread *t, const struct user_pt_regs *regs, enum
      * task exit cancels its queued turn. fd_ready drives progress, not polling. */
     memory_start(t);
 }
+static int entry_snapshot_change(const struct thread *t,long nr,const __u64 *args) {
+    if (!md_memory_snapshots_valid(t->memory)) return 0;
+    if (nr==SYS_shmat && (args[2]&SHM_REMAP))
+        return md_memory_snapshot_intersects(t->memory,0,SIZE_MAX);
+    if (nr!=SYS_mmap && nr!=SYS_munmap && nr!=SYS_mprotect && nr!=SYS_mremap) return 0;
+    if ((nr!=SYS_mmap || (args[3]&MAP_FIXED))
+            && md_memory_snapshot_intersects(t->memory,args[0],args[1])) return 1;
+    return nr==SYS_mremap && (args[3]&MREMAP_FIXED)
+        && md_memory_snapshot_intersects(t->memory,args[4],args[2]);
+}
 static int memory_observation(struct thread *t,const struct ptrace_syscall_info *info,
         struct user_pt_regs *observed,int *native_entry) {
     long nr=(long)info->seccomp.nr;
@@ -11553,6 +11712,7 @@ static int memory_observation(struct thread *t,const struct ptrace_syscall_info 
     observed->regs[8]=nr;
     for (unsigned i=0;i<6;++i) observed->regs[i]=info->seccomp.args[i];
     *native_entry=0;
+    if (entry_snapshot_change(t,nr,info->seccomp.args)) return 0;
     if (md_svc_registry_context(machine,observed->pc,observed->sp)) {
         /* The exact kernel alias has already restored the caller's context.
          * A private stack or any other resident PC still needs full recovery. */
@@ -12286,8 +12446,19 @@ static int entry_fence_adapt(const struct thread *t) {
 static int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,int status,const struct rusage *usage) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
     int filter=md_seccomp_filter_call(r->regs[8],r->regs[0],r->regs[1]);
-    if (!t->entered || t->phase!=IDLE || r->pc==RAW_GATE || t==entry_fence_owner
-            || !filter) return 0;
+    if (!t->entered || t->phase!=IDLE || r->pc==RAW_GATE) return 0;
+    int snapshot=entry_snapshot_change(t,r->regs[8],r->regs);
+    if (!filter && !snapshot) return 0;
+    if (snapshot && (t==entry_fence_owner || !registry || registry->entry_fence_drained
+            || !md_svc_registry_resident(registry))) {
+        md_memory_snapshots_invalidate(t->memory);
+        if (!svc_revoke_entry(t)) return 1;
+        for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
+            p->cooperative_blocked=1; md_broker_cooperative_revoke(broker,p->pid);
+        }
+        return 0;
+    }
+    if (t==entry_fence_owner) return 0;
     int unrestricted=0;
     if (filter) {
         int group=md_seccomp_filter_flags(r->regs[8],r->regs[1])&SECCOMP_FILTER_FLAG_TSYNC;
@@ -12299,7 +12470,12 @@ static int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,i
     if ((!registry || registry->entry_fence_drained) && !unrestricted) return 0;
     /* Revoked entries drain before the new filter commits. No thread-stop
      * barrier is needed for the logical dumpability policy. */
-    if (!filter_revoke_entry(t,r)) return 1;
+    if (snapshot) {
+        if (!svc_revoke_entry(t)) return 1;
+        for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
+            p->cooperative_blocked=1; md_broker_cooperative_revoke(broker,p->pid);
+        }
+    } else if (!filter_revoke_entry(t,r)) return 1;
     if (!md_svc_registry_resident(registry) && !unrestricted) {
         if (registry) registry->entry_fence_drained=1;
         return 0;
@@ -13520,10 +13696,13 @@ int main(int argc, char **argv) {
                 struct md_svc_payload_state state;
                 if (!md_svc_registry_read(pid,machine->frames+MD_SVC_POOL_SIZE,&state,sizeof(state)))
                     fprintf(stderr,"SVC_RUNTIME_STATS {\"pid\":%d,\"sites\":%u,\"completed\":%llu,"
-                        "\"declined\":%llu,\"unknown\":%llu,\"retiredClients\":%llu,\"revoked\":%u}\n",
+                        "\"declined\":%llu,\"unknown\":%llu,\"retiredClients\":%llu,\"revoked\":%u,"
+                        "\"filteredCompleted\":%llu}\n",
                         pid,machine->count,(unsigned long long)state.completed,
                         (unsigned long long)state.declined,(unsigned long long)state.unknown,
-                        (unsigned long long)state.retired_clients,machine->disabled);
+                        (unsigned long long)state.retired_clients,machine->disabled,
+                        (unsigned long long)(machine->filter_statistics && state.completed>=machine->filter_completed_start
+                            ? state.completed-machine->filter_completed_start : 0));
             }
             /* ESRCH invalidates the preceding stop, not this newly observed
              * terminal stop. Registers may be inspected here, never fabricated. */
@@ -13856,7 +14035,7 @@ int main(int argc, char **argv) {
                 else return_value(t,&regs,-EPERM);
                 continue;
             }
-            if (cookie==MD_INTERCEPT_OBSERVE && entry_fence_admission(t,&regs,status,&usage)) continue;
+            if (entry_fence_admission(t,&regs,status,&usage)) continue;
             if (fd_duplicate_prepared(t,&regs,cookie)) {
                 if (statistics) ++statistics->calls[regs.regs[8]].trace;
                 fd_begin(t,&regs,MD_INTERCEPT_FD); continue;
@@ -14389,7 +14568,7 @@ int main(int argc, char **argv) {
                     regs.regs[2]=t->original.regs[2];
                     if (!set_registers(pid,&regs)) continue;
                 }
-                filter_observed(t,(long)regs.regs[0]);
+                if (filter_observed(t,&regs)) continue;
                 if (t->memory_action==MEMORY_KERNEL) {
                     if (memory_capture_begin(t,&regs)) continue;
                     if (t->original.regs[8]==SYS_mprotect) {
@@ -14449,6 +14628,13 @@ int main(int argc, char **argv) {
                     struct md_svc_registry *registry=md_svc_machine_admit(pid,abi.svc_runtime);
                     if (registry) {
                         CHECK(!md_memory_svc_set(t->memory,registry));
+                        if (t->application_filter) {
+                            int number=md_seccomp_policy_entry_checkpoint(t->policy);
+                            CHECK(number>=0);
+                            registry->checkpoint_number=(unsigned)number;
+                            CHECK(!md_svc_registry_pause_filter(registry,pid));
+                            registry->entry_fence_drained=1;
+                        }
                         if (!t->terminal_observation) {
                             t->terminal_observation=1; t->trace_options_dirty=1;
                         }
@@ -14457,6 +14643,7 @@ int main(int argc, char **argv) {
                 t->process_image=regs.regs[2];
                 uint64_t entry=regs.regs[0], stack=regs.regs[1];
                 regs=md_task_registers_entry(entry,stack,regs.pstate);
+                if (t->application_filter && filter_entry_map(t,&regs)) continue;
                 if (!set_registers(pid,&regs)) continue;
                 if (!md_debugger_exec(debugger,pid,t->debug_exec_old ? t->debug_exec_old : pid)) resume(pid,0);
                 continue;
@@ -14560,7 +14747,8 @@ int main(int argc, char **argv) {
                 t->ready = 1;
                 t->registration_revoked=!!(t->application_filter || t->cooperative_blocked);
                 regs.regs[0]=t->registration_revoked ? 0 : MD_INTERCEPTION_COOPERATIVE;
-                if (broker && !t->entered && !t->registration_revoked
+                if (broker && !t->entered && (!t->registration_revoked
+                        || (t->application_filter && md_seccomp_policy_entry_checkpoint(t->policy)>=0))
                         && !t->debug_options && !md_memory_exposed(t->memory))
                     regs.regs[0]|=MD_INTERCEPTION_MACHINE;
                 if (statistics) regs.regs[0]|=MD_INTERCEPTION_STATISTICS;
@@ -14579,6 +14767,11 @@ int main(int argc, char **argv) {
             }
         } else {
             TRACE("PROBE signal stop pid=%d signal=%d phase=%d\n",pid,sig,t->phase);
+            if (sig==SIGSYS && !restored_signal) {
+                int error=md_svc_machine_seccomp(md_memory_svc(t->memory),pid,&signal_stop);
+                if (error==-ESRCH) { t->resume_lost=1; continue; }
+                CHECK(!error);
+            }
             if (sig==SIGSYS && !restored_signal && host_policy_signal(t,&signal_stop)) continue;
             if (sig==SIGSTOP && md_debugger_traced(debugger,pid) && !debugger_at_boundary(t)
                     && signal_observe(t,&signal_stop,0)

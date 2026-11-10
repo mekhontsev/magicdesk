@@ -12,13 +12,18 @@ struct md_svc_site {
     uint32_t original, replacement;
     unsigned state;
 };
-enum { MD_SVC_PUBLISHED, MD_SVC_RETIRED };
+enum { MD_SVC_PUBLISHED, MD_SVC_RETIRED, MD_SVC_FILTER_PAUSED };
 /* Owned by interception_memory. CLONE_VM shares the owner; fork copies it.
  * No guest-writable receipt is authority for code publication or retirement. */
 struct md_svc_registry {
+    uint64_t image;
     uintptr_t frames, dispatch, native_begin, native_end;
     struct md_svc_code_pool pools[MD_SVC_CODE_POOLS];
     unsigned pool_count, count, disabled, revoke_pending, entry_fence_drained, clients_dirty, frames_dirty;
+    unsigned checkpoint_number;
+    unsigned filter_paused;
+    unsigned filter_statistics;
+    uint64_t filter_completed_start;
     pid_t sole_owner;
     unsigned identity_known;
     struct md_svc_site *sites;
@@ -48,6 +53,8 @@ int md_svc_registry_retire(struct md_svc_registry *,struct md_svc_site *,pid_t);
 /* Disable discovery immediately; retry incomplete writes through a stopped
  * peer of this mm before admitting debugger/filter execution. */
 int md_svc_registry_revoke(struct md_svc_registry *,pid_t);
+int md_svc_registry_pause_filter(struct md_svc_registry *,pid_t);
+int md_svc_registry_rearm_filter(struct md_svc_registry *,pid_t);
 /* Retired source instructions can still have peers inside resident gates. */
 int md_svc_registry_resident(const struct md_svc_registry *);
 /* After revocation, occupied frames bound pre-revocation API execution.

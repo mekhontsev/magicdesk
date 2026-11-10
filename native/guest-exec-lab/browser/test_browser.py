@@ -131,6 +131,13 @@ def main():
                 assert re.search(r"PROBE pid-namespace init=\d+ visible=1 depth=1", output)
                 assert re.search(r"PROBE identity admittedImages=0 changes=\d+ hostUid=" + str(run['uid']), output)
             assert "PROBE installed-filter" in output
+            if args.machine_entry:
+                ready = {int(pid) for pid in re.findall(r"PROBE filter-entry-ready pid=(\d+)", output)}
+                counters = [json.loads(value) for value in re.findall(r"^SVC_RUNTIME_STATS (.+)$", output, re.MULTILINE)]
+                accelerated = [value for value in counters
+                               if value['pid'] in ready and value['filteredCompleted'] > 0]
+                assert accelerated, "no completed accelerated calls after Chromium's filter installation"
+                entry['filteredEntry'] = accelerated
             entry.update(verified=True, rendered=expected,
                          filtersInstalled=len(re.findall(r"PROBE installed-filter", output)),
                          childSignalExits=re.findall(r"PROBE exit pid=\d+ status=1(?:3[1-9]|[4-9]\d).*", output),

@@ -632,6 +632,9 @@ static int prepare_call(struct md_filesystem *fs, struct operation *op, size_t c
     }
     int error=md_fs_context_begin(fs,(int)q->pid,0,&op->context);
     if (error) return error;
+    /* Pathless identity, readiness and native FD operations remain usable
+     * inside a restricted root; filesystem requests retain their domain owner. */
+    if (md_domain_restricted(op->context.task.fs)) return 0;
     return 1;
 }
 static int prepare(struct md_filesystem *fs, struct operation *op, size_t capacity) {
@@ -993,6 +996,7 @@ int md_broker_cooperative_bind(struct md_namespace_broker *b,pid_t pid,struct md
          * an unrelated future stop to enable its first request. */
         atomic_init(&channel->enabled,!!(t->eligible&MD_BROKER_COOPERATIVE));
         atomic_init(&channel->awake,0); atomic_init(&channel->sleeping,0);
+        atomic_init(&channel->policy,0);
         atomic_init(&channel->copying,0);
         atomic_init(&channel->native_regular,0);
         channel->owner=pid;
@@ -1561,7 +1565,7 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
     struct counters *count = b->counts && (unsigned)q.data.nr < 512 ? &b->counts[q.data.nr] : NULL;
     if (count) count->received++;
     pthread_mutex_lock(&b->lock);
-    int eligible = 0, watch = 0;
+    int eligible = 0, available = 0, watch = 0;
     struct task *task = find_task(b, (int)q.pid);
     if (task && task->native_signal_query && !task->stopped && !task->recovering
             && q.data.nr==SYS_rt_sigprocmask && !q.data.args[1]
@@ -1602,13 +1606,13 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
         return delivered<0 ? delivered : closed;
     }
     if (task) {
-        eligible = task->eligible && !task->stopped && !task->recovering && q.data.instruction_pointer != task->gate;
-        for (unsigned i=0;eligible && i<task->machine.count;++i)
-            if (q.data.instruction_pointer-task->machine.starts[i]<task->machine.size) eligible=0;
-        if (eligible && (task->eligible&MD_BROKER_DISCOVERY) && md_entry_supported(q.data.nr)) {
+        available = task->eligible && !task->stopped && !task->recovering && q.data.instruction_pointer != task->gate;
+        for (unsigned i=0;available && i<task->machine.count;++i)
+            if (q.data.instruction_pointer-task->machine.starts[i]<task->machine.size) available=0;
+        if (available && (task->eligible&MD_BROKER_DISCOVERY) && md_entry_supported(q.data.nr)) {
             /* Delegate an unexecuted request through the normal stop owner.
              * The worker never installs code or reads registers. */
-            if (discovery_sample(task,q.data.instruction_pointer)) eligible=0;
+            if (discovery_sample(task,q.data.instruction_pointer)) available=0;
         }
         watch = q.data.instruction_pointer == task->watch_gate;
         task->borrowed++;
@@ -1648,10 +1652,10 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
     op->owner=b; op->work.complete=complete;
     op->task=task;
     pthread_mutex_lock(&b->lock);
-    if (task && eligible) {
-        eligible=!task->stopped && !task->recovering && !task->operation;
-        if (eligible) {
-            task->operation=op;
+    if (task && available) {
+        available=!task->stopped && !task->recovering && !task->operation;
+        if (available) {
+            eligible=!!(task->eligible&MD_BROKER_READ);
             struct md_entry_channel *c=task->channel;
             if (c && (task->eligible&MD_BROKER_COOPERATIVE)
                     && atomic_load_explicit(&c->state,memory_order_acquire)==MD_ENTRY_FD_REQUEST
@@ -1659,6 +1663,7 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
                     && c->call.number==q.data.nr && !c->call.reserved
                     && !memcmp(c->call.args,q.data.args,sizeof(c->call.args))
                     && task->sequence!=UINT64_MAX && c->sequence==task->sequence+1) {
+                eligible=1;
                 op->sequence=c->sequence; task->sequence=c->sequence;
                 memcpy(op->notification.data.args,c->call.args,sizeof(c->call.args));
                 /* Copy before releasing the channel record. A signal or next
@@ -1673,6 +1678,7 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
                 channel_reply(b,c,op->sequence,MD_ENTRY_COMPLETED,0);
                 if (b->counts) ++b->cooperative_descriptors;
             }
+            if (eligible) task->operation=op;
         }
     }
     pthread_mutex_unlock(&b->lock);

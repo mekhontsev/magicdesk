@@ -96,6 +96,7 @@ struct md_interception_abi {
     uintptr_t buffer_enter;
     uintptr_t native_begin, native_call, native_return, native_end;
     uintptr_t svc_runtime;
+    uintptr_t cooperative_registration;
     uintptr_t code_begin,code_end;
     uintptr_t task_completed,watch_completed;
     uintptr_t task_abort_return;
@@ -107,6 +108,7 @@ long md_guest_buffer_admit(unsigned purpose);
 struct md_task_call_arguments;
 long md_guest_buffer_replay(const struct md_task_call_arguments *);
 void md_cooperative_revoke(void);
+extern uintptr_t md_cooperative_registration;
 
 enum { MD_INTERCEPTION_COOPERATIVE=1, MD_INTERCEPTION_MACHINE=2, MD_INTERCEPTION_STATISTICS=4,
     MD_INTERCEPTION_HOST_POLICY=8 };

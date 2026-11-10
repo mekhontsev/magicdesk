@@ -37,6 +37,9 @@ int md_svc_machine_redirect(struct md_svc_machine_thread *,pid_t,const struct us
 int md_svc_machine_exit(struct md_svc_machine_thread *,pid_t);
 int md_svc_machine_signal(struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,
     struct md_signal_delivery *,struct md_task_signal_stop *,int *deliver);
+/* Kernel denial at a native alias: retain its action, but publish the original
+ * application PC to both the signal owner and a guest debugger. */
+int md_svc_machine_seccomp(struct md_svc_registry *,pid_t,struct md_task_signal_stop *);
 /* Complete kernel signal delivery before another stop owner borrows registers. */
 int md_svc_machine_signal_committed(struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,int status);
 /* Reconstruct the guest continuation before publishing queued signals.
