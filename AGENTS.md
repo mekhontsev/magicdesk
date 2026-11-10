@@ -69,6 +69,10 @@ Keep profile-scoped application identities and storage boundaries intact.
 
 Experimental guest execution lives in native-only `native/shroot`;
 app-side launch adapters use the existing shell, PTY and graphics services.
+User (MagicDesk app UID) and Shell are first-class executors of the same
+Shroot engine. Adapt to each executor's host capabilities through shared owners,
+preserving native fast paths where available. User execution must not require
+the privileged service.
 Read `docs/shroot.md` before changing that boundary. Never load its
 syscall adapter into ART or make its kernel capabilities a shared-startup
 requirement. Each launch retains its selected identity and environment;
@@ -82,8 +86,8 @@ explicit failure, and coverage. Do not silently raise that minimum. Kernel
 version and available NDK headers do not prove capability or firmware permission;
 guest-only probes must leave other MagicDesk services independent.
 
-Embedded X11 and Wayland are shared services. An explicitly selected Termux or
-shell executor supplies programs; protocol runtimes own the X server or Wayland
+Embedded X11 and Wayland are shared services. An explicitly selected User, Shell
+or Termux executor supplies programs; protocol runtimes own the X server or Wayland
 compositor, while `hosted-runtime` owns shared graphics and frame presentation.
 Shell-hosted display servers run as MagicDesk's app UID; a prepared chroot is entered
 by the already-authorized command service, never by elevating the renderer.
@@ -118,7 +122,8 @@ grants. Keep the full MCP tool catalog discoverable; unavailable operations
 must fail explicitly without disabling independent services or changing system
 state. On API 34, reject Desktop and its self-tests before display preparation
 or HOME changes. Prefer ordinary app APIs when sufficient; use the shared
-privileged service otherwise. UID 2000 remains the baseline. Shizuku and direct
+privileged service otherwise. UID 2000 is the baseline identity for that
+privileged service, not a requirement for User execution. Shizuku and direct
 `su` are startup transports, not alternative feature implementations. Keep
 backend selection and the independent RuntimeLimits access ceiling at startup; never
 silently elevate or switch identity for an individual operation. Root is not
