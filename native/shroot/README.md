@@ -84,7 +84,8 @@ Android kernel: actual task lifetime, descriptors, data IO and native checks
 | Inode/image owners | SQLite namespace, metadata, shared bodies, overlays, import and maintenance | Android mount privileges or kernel hardlinks |
 | `fs_continuation.c`, provider continuations | Captured asynchronous filesystem stages and cancellation | Blocking the filesystem worker while a guest daemon runs |
 | `fuse_device.c`, `fuse_session.c`, `fuse_view.c`, `fuse_file.c` | Guest FUSE transport, mount protocol, names and open descriptions | Native Android FUSE permission or a coherent shared page cache |
-| Guest adapter | Task-affine operations and protected-memory copying | SQLite, a libc dependency or app-side services |
+| `guest_execution.c` and operation handlers | Admitted task-affine operations, shared by ingress adapters | Register ABI, tracee resume or a second resource model |
+| `interception.c`, `cooperative_entry.h`, resident SVC driver | Register adaptation, caller actions and continuation delivery | Duplicated syscall semantics, SQLite or app-side services |
 
 `GuestEnvironmentLibrary` and `GuestOciRegistry` are app-side management, not
 part of this native module. Their Java command helper is short-lived; the

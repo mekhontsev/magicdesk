@@ -106,7 +106,7 @@ guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c ${src}/
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/proc_image.c ${src}/proc_control.c ${src}/program_files.c ${src}/task_status.c
     ${src}/namespace.c ${src}/namespace_proc.c ${src}/namespace_mount.c ${src}/namespace_mount_fd.c ${src}/namespace_bpf.c ${src}/namespace_landlock.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_identity.c ${src}/socket_ancillary.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/task_receive.c ${src}/fs_client.c ${src}/fs_buffer_client.c ${src}/adapter_buffer.c ${src}/file_open.c ${wire} ${src}/raw.c ${src}/raw.S)
-target_sources(bootstrap PRIVATE ${src}/descriptor_calls.c ${src}/epoll_calls.c ${src}/descriptor_capture.c ${src}/freestanding_memory.c)
+target_sources(bootstrap PRIVATE ${src}/guest_execution.c ${src}/descriptor_calls.c ${src}/epoll_calls.c ${src}/descriptor_capture.c ${src}/freestanding_memory.c)
 target_sources(bootstrap PRIVATE ${src}/host_open.c)
 target_sources(bootstrap PRIVATE ${src}/task_atomic.S)
 target_sources(bootstrap PRIVATE ${src}/pid_filter_program.c)

@@ -408,7 +408,77 @@ static int payload_memory(struct md_entry_client *client,long tid,long number,co
     *result=456;
     return 1;
 }
+static unsigned action_effects,action_kernels,action_steps,action_cancels;
+static void action_cancel(void) { ++action_cancels; }
+static void action_effect(void *context) { assert(context==&action_effects); ++action_effects; }
+static long action_kernel(long number,const uint64_t *args) {
+    assert(number==0 && args[0]==42); ++action_kernels; return -EACCES;
+}
+static enum md_entry_outcome action_complete(struct md_entry_client *client,struct md_entry_call *call) {
+    (void)client;
+    assert(action_effects==1 && action_kernels==1 && call->result==-EACCES);
+    ++action_steps;
+    return MD_ENTRY_COMPLETED;
+}
+static enum md_entry_outcome action_next(struct md_entry_client *client,struct md_entry_call *call) {
+    (void)client;
+    assert(action_effects==1 && !action_kernels);
+    ++action_steps; call->kernel=action_kernel; call->next=action_complete;
+    return MD_ENTRY_KERNEL_CALL;
+}
+static enum md_entry_outcome action_begin(struct md_entry_client *client,struct md_entry_call *call) {
+    (void)client;
+    call->effect=action_effect; call->effect_context=&action_effects; call->next=action_next;
+    return MD_ENTRY_NATIVE_EFFECT;
+}
+static enum md_entry_outcome action_terminal(struct md_entry_client *client,struct md_entry_call *call) {
+    (void)client;
+    call->next=NULL; call->kernel=action_kernel;
+    return MD_ENTRY_KERNEL_CALL;
+}
+static enum md_entry_outcome action_cancelled(struct md_entry_client *client,struct md_entry_call *call) {
+    (void)client; (void)call;
+    assert(action_cancels==1); ++action_steps;
+    return MD_ENTRY_COMPLETED;
+}
+static void payload_actions(uint64_t *registers) {
+    unsigned char offers[]={MD_ENTRY_ORDINARY};
+    struct md_entry_api api={.version=MD_ENTRY_VERSION,.size=sizeof(api),
+        .try_syscall=action_begin,.offers=offers,.syscall_count=1,.thread_identity=payload_identity};
+    for (unsigned resident=0;resident<2;++resident) {
+        action_effects=action_kernels=action_steps=0;
+        struct md_entry_client client={0};
+        struct md_entry_call call={.number=0,.args={42},.instruction_pointer=0x1234};
+        struct md_svc_payload_state state={.api=&api,.admitted=1};
+        registers[8]=0; registers[0]=42;
+        if (resident) assert(md_svc_payload_dispatch(registers,&state,0x1234)==1
+            && (int64_t)registers[0]==-EACCES);
+        else assert(md_entry_invoke(&api,&client,&call)==MD_ENTRY_COMPLETED && call.result==-EACCES);
+        assert(action_effects==1 && action_kernels==1 && action_steps==2);
+    }
+    api.try_syscall=action_terminal; action_kernels=0;
+    struct md_entry_client client={0};
+    struct md_entry_call call={.number=0,.args={42}};
+    assert(md_entry_invoke(&api,&client,&call)==MD_ENTRY_COMPLETED && action_kernels==1);
+    struct md_svc_payload_state state={.api=&api,.admitted=1};
+    registers[8]=0; registers[0]=42;
+    assert(!md_svc_payload_dispatch(registers,&state,0x1234) && registers[0]==42 && action_kernels==1);
+    /* A resident terminal fallback retains the original instruction; ordinary
+     * clients execute their explicit continuation. Neither executes it twice. */
+    action_effects=action_kernels=action_steps=action_cancels=0;
+    call=(struct md_entry_call){.effect=action_effect,.effect_context=&action_effects};
+    assert(md_entry_advance(&client,&call,MD_ENTRY_NATIVE_EFFECT)==MD_ENTRY_UNKNOWN && !action_effects);
+    call.next=action_complete; call.effect=NULL;
+    assert(md_entry_advance(&client,&call,MD_ENTRY_NATIVE_EFFECT)==MD_ENTRY_UNKNOWN && !action_steps);
+    assert(md_entry_advance(&client,&call,MD_ENTRY_KERNEL_CALL)==MD_ENTRY_UNKNOWN && !action_kernels);
+    assert(md_entry_advance(&client,&call,MD_ENTRY_CHECK_CANCEL)==MD_ENTRY_UNKNOWN && !action_cancels);
+    call.cancel=action_cancel; call.next=action_cancelled;
+    assert(md_entry_advance(&client,&call,MD_ENTRY_CHECK_CANCEL)==MD_ENTRY_COMPLETED);
+    assert(action_cancels==1 && action_steps==1);
+    puts("PASS shared entry actions: exact effects, continuations, terminal fallback and invalid-action rejection");
+}
 static void payload_statistics(uint64_t *registers) {
+    payload_actions(registers);
     unsigned char offers[]={MD_ENTRY_ORDINARY,MD_ENTRY_ORDINARY|MD_ENTRY_NATIVE_MEMORY};
     const struct md_entry_api api={.version=MD_ENTRY_VERSION,.size=sizeof(api),
         .try_syscall=payload_call,.offers=offers,.syscall_count=2,

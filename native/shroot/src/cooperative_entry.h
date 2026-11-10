@@ -69,29 +69,36 @@ static inline int md_entry_api_valid(const struct md_entry_api *api) {
 static inline int md_entry_offered(const struct md_entry_api *api,long number,unsigned kind) {
     return api && (unsigned long)number<api->syscall_count && (api->offers[number]&kind);
 }
-/* Compiled in libc/the caller, with its unwind metadata. In particular a
- * cancellation or forced unwind never crosses an opaque runtime C frame. */
+/* One caller-owned action, shared by the ordinary API and resident driver.
+ * Inline even in the relocation-free resident payload. Neither transport
+ * duplicates effect execution or the exactly-once continuation handshake. */
+static __attribute__((always_inline)) inline enum md_entry_outcome md_entry_advance(
+        struct md_entry_client *client,struct md_entry_call *call,enum md_entry_outcome action) {
+    md_entry_step_fn next=call->next;
+    switch (action) {
+    case MD_ENTRY_CHECK_CANCEL:
+        if (!call->cancel || !next) return MD_ENTRY_UNKNOWN;
+        call->cancel(); break;
+    case MD_ENTRY_KERNEL_CALL:
+        if (!call->kernel) return MD_ENTRY_UNKNOWN;
+        call->result=call->kernel(call->number,call->args);
+        if (!next) return MD_ENTRY_COMPLETED;
+        break;
+    case MD_ENTRY_NATIVE_EFFECT:
+        if (!call->effect || !next) return MD_ENTRY_UNKNOWN;
+        call->effect(call->effect_context); break;
+    default: return MD_ENTRY_UNKNOWN;
+    }
+    return next(client,call);
+}
+/* Compiled in the caller, with its unwind metadata. In particular cancellation
+ * or forced unwind never crosses an opaque runtime C frame. */
 static inline enum md_entry_outcome md_entry_invoke(const struct md_entry_api *api,
         struct md_entry_client *client,struct md_entry_call *call) {
     enum md_entry_outcome outcome=api->try_syscall(client,call);
-    for (;;) {
-        md_entry_step_fn next=call->next;
-        switch (outcome) {
-        case MD_ENTRY_CHECK_CANCEL:
-            if (!call->cancel || !next) return MD_ENTRY_UNKNOWN;
-            call->cancel(); break;
-        case MD_ENTRY_KERNEL_CALL:
-            if (!call->kernel) return MD_ENTRY_UNKNOWN;
-            call->result=call->kernel(call->number,call->args);
-            if (!next) return MD_ENTRY_COMPLETED;
-            break;
-        case MD_ENTRY_NATIVE_EFFECT:
-            if (!call->effect || !next) return MD_ENTRY_UNKNOWN;
-            call->effect(call->effect_context); break;
-        default: return outcome;
-        }
-        outcome=next(client,call);
-    }
+    while (outcome==MD_ENTRY_CHECK_CANCEL || outcome==MD_ENTRY_KERNEL_CALL || outcome==MD_ENTRY_NATIVE_EFFECT)
+        outcome=md_entry_advance(client,call,outcome);
+    return outcome;
 }
 extern const struct md_entry_api md_cooperative_entry;
 #endif

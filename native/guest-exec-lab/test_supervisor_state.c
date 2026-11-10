@@ -4142,7 +4142,64 @@ static void socket_wait_selection(void) {
     assert(!md_socket_wait_call(SYS_bind,args[2],args[3]));
     puts("PASS native socket waits: per-call nonblocking flags and independent accept4 flags");
 }
+static void execution_completion(void) {
+    const struct { long value; enum execution_continuation next; } cases[]={
+        {0,EXECUTION_RETURN},{123,EXECUTION_RETURN},{-EFAULT,EXECUTION_RETURN},
+        {RESTART_SIGNAL,EXECUTION_RESTART},{RESTART_PREPARATION,EXECUTION_RESTART},
+        {MD_IPC_WAIT,EXECUTION_IPC_WAIT},{MD_WATCH_WAIT,EXECUTION_WATCH_WAIT},
+        {MD_CALL_NATIVE,EXECUTION_NATIVE}};
+    for (unsigned i=0;i<sizeof(cases)/sizeof(*cases);++i) {
+        struct thread t={.pid=123,.phase=DISPATCHING,.stack=0x8000,.mask=0x400,
+            .original={.pc=0x1004,.sp=0x2000,.regs={[8]=SYS_uname}},.epoll_started=1};
+        struct user_pt_regs original=t.original;
+        assert(execution_complete(&t,cases[i].value)==cases[i].next);
+        assert(!t.epoll_started && !t.resume_lost && t.phase==DISPATCHING);
+        assert(t.stack==0x8000 && t.mask==0x400);
+        assert(!memcmp(&original,&t.original,sizeof(original)));
+    }
+    for (int filter=0;filter<2;++filter) for (int error=0;error<2;++error) {
+        struct thread t={.pid=123,.phase=DISPATCHING,.pid_preflight=!filter,.filter_preflight=filter,
+            .debug_call_active=1,.debug_adapter=1,.stack=0x8000};
+        assert(execution_complete(&t,error ? -EINVAL : 0)
+            ==(error ? EXECUTION_PREFLIGHT_RETURN : EXECUTION_PREFLIGHT_REPLAY));
+        assert(!t.pid_preflight && !t.filter_preflight && t.registration_revoked==filter);
+        assert(t.debug_replay_entry==!error && t.debug_adapter==error);
+        assert(!t.resume_lost && t.phase==DISPATCHING && t.stack==0x8000);
+    }
+    struct thread clone={.pid=123,.phase=DISPATCHING,.original={.regs={[8]=SYS_clone3}},
+        .memory=md_memory_new(),.stack=0x8000};
+    assert(clone.memory && !md_memory_buffers_prepare(clone.memory,1,4096,0,0));
+    assert(!md_buffers_take(md_memory_buffers(clone.memory),&clone.buffer));
+    assert(execution_complete(&clone,MD_CALL_CLONE)==EXECUTION_CLONE);
+    assert(clone.clone_prepared && clone.buffer.pool && clone.stack==0x8000 && !clone.resume_lost);
+    assert(!md_buffer_release(&clone.buffer)); md_memory_release(clone.memory);
+    puts("PASS execution completion: resource retirement and continuations without register or resume transport");
+}
+static void execution_register_boundary(void) {
+    struct thread t={.stack=0x8000,.original={.pc=0x1004,.sp=0x2000,.pstate=0xa0000000}};
+    for (unsigned i=0;i<31;++i) t.original.regs[i]=UINT64_C(0xf000000000000000)+i;
+    struct md_interception_abi saved=abi;
+    abi.dispatch=0x4000; abi.done_entry=0x5000;
+    struct md_guest_execution call={.number=SYS_recvmsg,.policy=MD_DISPATCH_PATHS|MD_DISPATCH_NETWORK_SCOPED,
+        .prepared=0x9000};
+    for (unsigned i=0;i<6;++i) call.args[i]=UINT64_C(0xe000000000000000)+i;
+    for (int kind=-1;kind<8;++kind) {
+        call.control=kind;
+        struct user_pt_regs r=dispatch_registers(&t,&call);
+        assert(r.pc==abi.dispatch && r.sp==t.stack && r.regs[30]==abi.done_entry);
+        assert(r.regs[0]==(unsigned long)call.number && r.regs[10]==call.prepared);
+        assert(md_dispatch_control_kind(r.regs[9])==kind && (r.regs[9]&0xffffU)==call.policy);
+        for (unsigned i=0;i<6;++i) assert(r.regs[i+1]==call.args[i]);
+        assert(r.regs[7]==t.original.regs[7] && r.regs[8]==t.original.regs[8]);
+        for (unsigned i=11;i<30;++i) assert(r.regs[i]==t.original.regs[i]);
+        assert(r.pstate==t.original.pstate && t.original.pc==0x1004 && t.original.sp==0x2000);
+    }
+    abi=saved;
+    puts("PASS execution register boundary: full-width arguments, typed control, prepared input and preserved caller");
+}
 int main(void) {
+    execution_completion();
+    execution_register_boundary();
     retained_continuation_custody();
     repair_late_terminal();
     socket_wait_selection();

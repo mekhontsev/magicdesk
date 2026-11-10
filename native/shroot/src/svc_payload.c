@@ -96,14 +96,11 @@ int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s,uintptr_t
             if (s->statistics) __atomic_fetch_add(&s->declined,1,__ATOMIC_RELAXED);
             return 0;
         }
-        if (outcome==MD_ENTRY_NATIVE_EFFECT && call.effect && next) call.effect(call.effect_context);
-        else if (outcome==MD_ENTRY_KERNEL_CALL && call.kernel && next)
-            call.result=call.kernel(call.number,call.args);
-        else {
+        if (outcome!=MD_ENTRY_NATIVE_EFFECT && outcome!=MD_ENTRY_KERNEL_CALL) {
             if (s->statistics) __atomic_fetch_add(&s->unknown,1,__ATOMIC_RELAXED);
             /* Never replay an operation with an unknown committed effect. */
             __builtin_trap();
         }
-        outcome=next(client,&call);
+        outcome=md_entry_advance(client,&call,outcome);
     }
 }

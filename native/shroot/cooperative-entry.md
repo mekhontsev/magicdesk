@@ -128,6 +128,32 @@ replaces the descriptor and pool.
 
 ## Execution Ownership
 
+### Execution And Transport
+
+`guest_execution` owns the task-affine C dispatcher. Its admitted operation
+contains the syscall number, original arguments, selected policy, retained
+control-file kind and optional prepared input. It does not encode ARM64 register
+positions or resume a tracee. `interception` adapts the Base register ABI to this
+executor; existing file, network, IPC and readiness handlers remain its owners.
+
+The supervisor separates operation retirement from continuation delivery.
+`execution_complete` releases operation-owned resources and chooses return,
+preflight replay, clone, restart, IPC wait or native execution. The Base adapter
+then publishes registers, restores the application mask and resumes at the
+selected boundary. A native wait is not a completed result, and an interrupted
+operation is not permission to repeat an already committed effect.
+
+The ordinary cooperative API and resident SVC driver share `md_entry_advance`
+for caller actions and their continuation handshake. A terminal kernel fallback
+remains transport-specific: an ordinary client invokes its supplied callback;
+the resident driver restores the original instruction site. Worker operations
+and admitted native plans keep their direct paths without a supervisor hop.
+
+Task-affine execution still uses Base entry and internal control checkpoints.
+Separating its executor and retirement does not itself remove those ptrace
+exchanges. Shared-memory transport must preserve the same control owners,
+signal boundaries and completion rules before it can replace them.
+
 ### Native Memory Effects
 
 `interception_memory` publishes the memory admission snapshot only while the

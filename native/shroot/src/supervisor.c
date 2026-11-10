@@ -7197,13 +7197,16 @@ static int buffer_cleanup(struct thread *t) {
     t->buffer_rights_delivered=0;
     return buffer_release(t);
 }
-static void dispatch_complete(struct thread *t,long value) {
-    pid_t pid=t->pid;
-    struct user_pt_regs regs;
+enum execution_continuation { EXECUTION_RETURN, EXECUTION_CLONE, EXECUTION_PREFLIGHT_RETURN,
+    EXECUTION_PREFLIGHT_REPLAY, EXECUTION_RESTART, EXECUTION_IPC_WAIT, EXECUTION_WATCH_WAIT,
+    EXECUTION_NATIVE };
+/* Retire operation ownership and choose the next action without touching the
+ * caller's registers, signal mask or execution transport. */
+static enum execution_continuation execution_complete(struct thread *t,long value) {
     CHECK(t->phase==DISPATCHING && !t->control_pending);
     if (t->original.regs[8]==SYS_chroot && !value) {
         root_changes++;
-        TRACE("PROBE root-change pid=%d result=0\n",pid);
+        TRACE("PROBE root-change pid=%d result=0\n",t->pid);
     }
     t->epoll_started=0;
     if (t->dispatch_prepared) {
@@ -7213,10 +7216,7 @@ static void dispatch_complete(struct thread *t,long value) {
     if (value==MD_CALL_CLONE && t->original.regs[8]==SYS_clone3) {
         CHECK(!t->clone_prepared && t->buffer.pool);
         t->clone_prepared=1;
-        regs=t->original; regs.pc-=4;
-        if (!set_registers(pid,&regs)) return;
-        md_memory_stack_return(t->memory,t->stack); t->stack=0;
-        t->phase=CLONE_ENTRY; resume(pid,0); return;
+        return EXECUTION_CLONE;
     }
     if (t->direct==DIRECT_RESULT) {
         CHECK(!buffer_cleanup(t)); t->direct=DIRECT_NONE;
@@ -7236,31 +7236,52 @@ static void dispatch_complete(struct thread *t,long value) {
          * before the next filter entry. Never retain its memory turn there. */
         if (t->filter_preflight) filter_install_discard(t);
         t->pid_preflight=t->filter_preflight=0;
-        regs=t->original;
         if (!value) {
-            regs.pc-=4;
             t->debug_replay_entry=t->debug_call_active;
             t->debug_adapter=0;
         }
+        return value ? EXECUTION_PREFLIGHT_RETURN : EXECUTION_PREFLIGHT_REPLAY;
+    }
+    if (value==RESTART_SIGNAL || value==RESTART_PREPARATION) return EXECUTION_RESTART;
+    if (t->memory_action==MEMORY_DETACH) {
+        CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
+    }
+    if (value==MD_IPC_WAIT) return EXECUTION_IPC_WAIT;
+    if (value==MD_WATCH_WAIT) return EXECUTION_WATCH_WAIT;
+    if (value==MD_CALL_NATIVE) return EXECUTION_NATIVE;
+    if (value<0 && t->original.regs[8]==SYS_fstat) {
+        if (++fstat_failures<=8)
+            TRACE("PROBE fstat failed pid=%d fd=%llu result=%ld\n",t->pid,t->original.regs[0],value);
+    }
+    return EXECUTION_RETURN;
+}
+static void dispatch_complete(struct thread *t,long value) {
+    enum execution_continuation next=execution_complete(t,value);
+    pid_t pid=t->pid;
+    struct user_pt_regs regs=t->original;
+    switch (next) {
+    case EXECUTION_CLONE:
+        regs.pc-=4;
+        if (!set_registers(pid,&regs)) return;
+        md_memory_stack_return(t->memory,t->stack); t->stack=0;
+        t->phase=CLONE_ENTRY; resume(pid,0); return;
+    case EXECUTION_PREFLIGHT_RETURN:
+    case EXECUTION_PREFLIGHT_REPLAY:
+        if (next==EXECUTION_PREFLIGHT_REPLAY) regs.pc-=4;
         else regs.regs[0]=value;
         if (!set_registers(pid,&regs) || !restore_mask(t)) return;
         md_memory_stack_return(t->memory,t->stack); t->stack=0;
         t->phase=IDLE; resume(pid,0); return;
-    }
-    if (value==RESTART_SIGNAL || value==RESTART_PREPARATION) {
+    case EXECUTION_RESTART:
         restart_call(t,&t->original,t->mask,(enum call_restart)value); return;
-    }
-    if (t->memory_action==MEMORY_DETACH) {
-        CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
-    }
-    if (value==MD_IPC_WAIT) {
+    case EXECUTION_IPC_WAIT: {
         int64_t deadline=md_ipc_deadline(t->ipc_pending);
         int64_t remaining=0;
         if (deadline!=INT64_MAX) {
             int64_t now=md_event_now(); CHECK(now>=0);
             remaining=deadline>now ? deadline-now : 0;
         }
-        regs=t->original; regs.pc=abi.ipc_wait; regs.sp=t->stack;
+        regs.pc=abi.ipc_wait; regs.sp=t->stack;
         regs.regs[30]=abi.done_entry;
         regs.regs[1]=remaining/1000000000LL; regs.regs[2]=remaining%1000000000LL;
         regs.regs[3]=deadline!=INT64_MAX;
@@ -7269,9 +7290,10 @@ static void dispatch_complete(struct thread *t,long value) {
          * returns EAGAIN. Signals interrupt without restarting the operation. */
         t->phase=IPC_WAIT_ENTRY; resume(pid,0); return;
     }
-    if (value==MD_WATCH_WAIT || value==MD_CALL_NATIVE) {
-        regs=t->original; regs.pc=RAW_GATE-4;
-        t->watch_wait=value==MD_WATCH_WAIT ? 1 : 2;
+    case EXECUTION_WATCH_WAIT:
+    case EXECUTION_NATIVE:
+        regs.pc=RAW_GATE-4;
+        t->watch_wait=next==EXECUTION_WATCH_WAIT ? 1 : 2;
         if (t->watch_wait==1) {
             /* EVENT_WAIT: native MSG_PEEK waits without consuming queue data.
              * Original signals/restart policy apply; the worker stays runnable. */
@@ -7281,12 +7303,10 @@ static void dispatch_complete(struct thread *t,long value) {
         }
         if (!set_registers(pid,&regs)) return;
         t->phase=WATCH_ENTRY; resume(pid,0); return;
+    case EXECUTION_RETURN:
+        break;
     }
-    if (value<0 && t->original.regs[8]==SYS_fstat) {
-        if (++fstat_failures<=8)
-            TRACE("PROBE fstat failed pid=%d fd=%llu result=%ld\n",pid,t->original.regs[0],value);
-    }
-    regs=t->original; regs.regs[0]=value;
+    regs.regs[0]=value;
     if (!set_registers(pid,&regs) || !restore_mask(t)) return;
     md_memory_stack_return(t->memory,t->stack); t->stack=0;
     if (completed_event_resume(t)) return;
@@ -10745,6 +10765,22 @@ static int receive_entry(struct thread *t) {
     CHECK(!buffer_cleanup(t));
     return 0;
 }
+static struct md_guest_execution execution_prepare(struct thread *t) {
+    struct md_guest_execution call={.number=(long)t->original.regs[8],.policy=dispatch_policy(t),
+        .control=t->proc_file ? (int)md_proc_file_kind(t->proc_file) : -1};
+    for (unsigned i=0;i<6;++i) call.args[i]=t->original.regs[i];
+    call.prepared=dispatch_input(t,call.policy);
+    return call;
+}
+static struct user_pt_regs dispatch_registers(const struct thread *t,const struct md_guest_execution *call) {
+    struct user_pt_regs regs=t->original;
+    regs.pc=DISPATCH; regs.sp=t->stack; regs.regs[30]=abi.done_entry;
+    regs.regs[0]=call->number;
+    for (unsigned i=0;i<6;++i) regs.regs[i+1]=call->args[i];
+    regs.regs[9]=md_dispatch_control(call->policy,call->control);
+    regs.regs[10]=call->prepared;
+    return regs;
+}
 static void dispatch(struct thread *t) {
     if (t->direct==DIRECT_PREPARE_RESULT) {
         struct md_buffer_span span;
@@ -10761,14 +10797,9 @@ static void dispatch(struct thread *t) {
         if (set_registers(t->pid,&regs)) resume(t->pid,0);
         return;
     }
-    struct user_pt_regs regs = t->original;
-    regs.pc = DISPATCH; regs.sp = t->stack; regs.regs[30] = abi.done_entry;
-    regs.regs[0] = t->original.regs[8];
-    for (unsigned i = 0; i < 6; i++) regs.regs[i + 1] = t->original.regs[i];
-    unsigned policy=dispatch_policy(t);
-    regs.regs[9] = md_dispatch_control(policy,t->proc_file ? (int)md_proc_file_kind(t->proc_file) : -1);
-    regs.regs[10]=dispatch_input(t,policy);
-    if (receive_prepared(t,&regs,policy)) return;
+    struct md_guest_execution call=execution_prepare(t);
+    struct user_pt_regs regs=dispatch_registers(t,&call);
+    if (receive_prepared(t,&regs,call.policy)) return;
     if (!set_registers(t->pid, &regs)) return;
     t->phase = DISPATCHING; resume(t->pid, 0);
 }

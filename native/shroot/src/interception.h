@@ -4,6 +4,7 @@
 #define MD_BUFFER_ADMIT_RETRY (-8192)
 #ifndef __ASSEMBLER__
 #include <stdint.h>
+#include "guest_execution.h"
 
 #define MD_INTERCEPTION_MAGIC UINT64_C(0x4d44494e54455231)
 #define MD_GUEST_MAP_IMAGE 0x4d440101
@@ -25,8 +26,6 @@ enum { MD_IMAGE_PROGRAM=0, MD_IMAGE_LOADER=1, MD_IMAGE_TAKE_PROGRAM=2, MD_IMAGE_
 #define MD_GUEST_TASK_HELPER 0x4d44010a
 #define MD_GUEST_TASK_MAPPING 0x4d44010f
 #define MD_GUEST_SECCOMP_LISTENER 0x4d440110
-enum md_dispatch_policy { MD_DISPATCH_PATHS=1, MD_DISPATCH_NETWORK_SCOPED=2, MD_DISPATCH_OFFLINE_SOCKET=4,
-    MD_DISPATCH_NETWORK_CONTROL=8, MD_DISPATCH_NETWORK_DATA=16, MD_DISPATCH_DEVICE_EVENTS=32 };
 /* Upper bits identify the already retained typed OFD; zero means no control.
  * This is call-local admission, never a cache indexed by a guest FD number. */
 static inline unsigned md_dispatch_control(unsigned policy,int kind) {
@@ -40,12 +39,6 @@ enum md_export_control { MD_EXPORT_BEGIN=1, MD_EXPORT_READY, MD_EXPORT_OBSERVED 
 #define MD_EXPORT_ADMIT (-4096L)
 /* Register-only control works before/inside a mapped filesystem request too. */
 struct md_export_reply { long endpoint; uint64_t token; };
-#define MD_WATCH_TASK_AFFINE (-INT64_C(0x4000000000000000))
-#define MD_WATCH_WAIT (MD_WATCH_TASK_AFFINE + 1)
-/* Finish adapter ownership before a native call can block or deliver signals. */
-#define MD_CALL_NATIVE (MD_WATCH_TASK_AFFINE + 2)
-#define MD_IPC_WAIT (MD_WATCH_TASK_AFFINE + 3)
-#define MD_CALL_CLONE (MD_WATCH_TASK_AFFINE + 4)
 
 enum md_interception_kind {
     MD_INTERCEPT_DISPATCH = 41,
