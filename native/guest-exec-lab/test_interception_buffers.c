@@ -433,6 +433,7 @@ static void native_memory_admission(void) {
     size_t page=(size_t)getpagesize(); uintptr_t base=0x4000000;
     struct md_interception_memory *m=md_memory_new(); assert(m);
     struct md_svc_registry *r=calloc(1,sizeof(*r)); assert(r);
+    r->capacity=2; r->sites=calloc(r->capacity,sizeof(*r->sites)); assert(r->sites);
     r->native_begin=base+300*page; r->native_end=r->native_begin+page;
     r->frames=base+400*page;
     r->pool_count=1; r->pools[0].address=base+10000*page;

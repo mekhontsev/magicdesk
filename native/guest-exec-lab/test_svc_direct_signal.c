@@ -341,7 +341,8 @@ int main(int argc,char **argv) {
     shared->action.handler=(uintptr_t)SIG_IGN;
     void *frames=mmap((void *)MD_SVC_POOL_BASE,MD_SVC_POOL_SIZE,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0); assert(frames==(void *)MD_SVC_POOL_BASE);
-    for (unsigned i=0;i<MD_SVC_SLOT_COUNT;++i) assert(!mprotect((char *)frames+i*MD_SVC_SLOT_SIZE+16384,16384,PROT_NONE));
+    for (unsigned i=0;i<MD_SVC_SLOT_COUNT;++i)
+        assert(!mprotect((char *)frames+i*MD_SVC_SLOT_SIZE+MD_SVC_GUARD_OFFSET,MD_SVC_GUARD_SIZE,PROT_NONE));
     void *code=mmap((void *)0x3000000,page,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0); assert(code==(void *)0x3000000);
     plan=(struct md_svc_direct_context){(uintptr_t)md_svc_lab_call,(uintptr_t)code,MD_SVC_POOL_BASE,

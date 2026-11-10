@@ -19,7 +19,7 @@ static uintptr_t code_pool(uintptr_t entry) {
     return 0;
 }
 void md_svc_runtime_prepare(uintptr_t program,uintptr_t loader,unsigned long capabilities,int statistics) {
-    if (!(capabilities&HWCAP_ATOMICS) || md_page_size>16384) return;
+    if (!(capabilities&HWCAP_ATOMICS) || md_page_size>MD_SVC_GUARD_SIZE) return;
     size_t length=2*MD_SVC_POOL_SIZE+MD_SVC_PAYLOAD_SIZE;
     long allocation=RAW6(mmap,0,length,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     if (allocation<0) return;

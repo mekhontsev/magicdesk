@@ -1360,7 +1360,7 @@ The default [lazy-entry owner](../guest-exec-lab/svc-rewriting.md)
 (`SHROOT_MACHINE_ENTRY=0` selects Base) uses no hardware-breakpoint experiment. `svc_runtime.c` prepares private frames and nearby RX pools;
 `svc_registry.c` publishes a single SVC replacement through baseline
 PTRACE_POKETEXT after actual syscall execution. It requires HWCAP_ATOMICS,
-4/16 KiB-compatible layout, MAP_FIXED_NOREPLACE (4.17) and firmware permission
+4/16/64 KiB-aligned frame/guard layout, MAP_FIXED_NOREPLACE (4.17) and firmware permission
 for private executable memory. Resource/preparation failure leaves Base entry
 available. Only 4 KiB pages have device coverage. Publication does not borrow
 hardware breakpoints or stop peer threads; no extra filter is installed per

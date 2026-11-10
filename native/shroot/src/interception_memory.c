@@ -189,7 +189,7 @@ void md_memory_release(struct md_interception_memory *s) {
     md_buffers_release(s->buffers); md_resource_queue_destroy(&s->mappings); free(s->restrictions);
     md_buffers_release(s->readonly_buffers);
     if (s->access_ready) { close(s->access.maps); close(s->access.memory); close(s->access.pagemap); }
-    file_ranges_release(s->files,s->file_count); pool_release(s->backings); free(s->svc); free(s);
+    file_ranges_release(s->files,s->file_count); pool_release(s->backings); md_svc_registry_free(s->svc); free(s);
 }
 uintptr_t md_memory_stack_take(struct md_interception_memory *s) {
     for (struct slot *p = s->slots; p; p = p->next)

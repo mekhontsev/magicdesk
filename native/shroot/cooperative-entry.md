@@ -41,7 +41,10 @@ Neither a cached guest PID nor thread-local libc layout is used. These changes
 do not enlarge worker bursts or spin budgets.
 
 The private frame pool reserves its address space at image entry, but protects
-each stack's 16 KiB guard on first use, under that slot's exclusive ownership.
+each stack's 64 KiB guard on first use, under that slot's exclusive ownership.
+The 64 slots reserve 16 MiB of virtual address space; metadata and stack pages
+are demand-zero, not eagerly populated. The fixed layout keeps slot selection
+and stack switching independent of the host page size on the hot path.
 The bootstrap uses only its small C frame before protection; no guest callback
 or recursive handler runs there. A failed `mprotect` permanently declines that
 slot to Base. Fork inherits both guards and their publication state. This avoids

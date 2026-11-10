@@ -114,7 +114,8 @@ static void run(unsigned selected,int timed) {
         assert(ptrace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info)>0);
         if (info.op==PTRACE_SYSCALL_INFO_ENTRY && info.instruction_pointer==(uintptr_t)alias_svc+4) break;
     }
-    struct md_svc_registry registry={.count=1,.pool_count=1,
+    struct md_svc_site sites[1];
+    struct md_svc_registry registry={.count=1,.pool_count=1,.sites=sites,
         .pools={{.address=(uintptr_t)alias_svc,.used=8}}};
     registry.sites[0]=(struct md_svc_site){.direct={.gate=(uintptr_t)alias_svc,
         .svc=(uintptr_t)original_svc,.number=timed ? SYS_futex : SYS_read},.kernel_alias=(uintptr_t)alias_svc,

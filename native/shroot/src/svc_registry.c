@@ -3,6 +3,7 @@
 #include "mapping_reader.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,18 +77,32 @@ static struct md_svc_site *head(struct md_svc_registry *r,uintptr_t svc) {
             return &r->sites[i-1];
     return NULL;
 }
+static int reserve_site(struct md_svc_registry *r) {
+    if (r->count<r->capacity) return 0;
+    if (r->capacity>UINT_MAX/2) return -EOVERFLOW;
+    unsigned capacity=r->capacity ? r->capacity*2 : 16;
+    size_t bytes;
+    if (__builtin_mul_overflow((size_t)capacity,sizeof(*r->sites),&bytes)) return -EOVERFLOW;
+    struct md_svc_site *sites=realloc(r->sites,bytes);
+    if (!sites) return -ENOMEM;
+    r->sites=sites; r->capacity=capacity; return 0;
+}
 static int extend(struct md_svc_registry *r,pid_t pid,int memory_fd,uintptr_t svc,uint64_t number,
         struct md_svc_site *previous) {
-    if (!r || r->disabled || (svc&3) || svc<4 || r->count==MD_SVC_SITES
+    if (!r || r->disabled || (svc&3) || svc<4
             || (svc>=r->native_begin && svc<r->native_end)) return 0;
     for (unsigned i=0;i<r->pool_count;++i)
         if (svc-r->pools[i].address<MD_SVC_CODE_BYTES) return 0;
+    /* Growth invalidates borrowed site pointers, including the chain head. */
+    uintptr_t previous_gate=previous ? previous->direct.gate : 0;
+    uint32_t previous_replacement=previous ? previous->replacement : 0;
+    int allocation=reserve_site(r);
+    if (allocation) return allocation;
     struct md_svc_site *s=&r->sites[r->count++];
-    s->state=MD_SVC_RETIRED;
-    s->direct.svc=svc;
+    *s=(struct md_svc_site){.state=MD_SVC_RETIRED,.direct.svc=svc};
     uint32_t original=UINT32_C(0xd4000001),current;
     if (md_svc_registry_read(pid,svc,&current,4)
-            || (current!=original && (!previous || current!=previous->replacement))
+            || (current!=original && (!previous_gate || current!=previous_replacement))
             || !md_svc_registry_executable(pid,svc,4)) return 0;
     size_t size=md_svc_direct_signal_size();
     unsigned char code[2048];
@@ -97,7 +112,7 @@ static int extend(struct md_svc_registry *r,pid_t pid,int memory_fd,uintptr_t sv
         if (pool->used+size+8>MD_SVC_CODE_BYTES) continue;
         uintptr_t gate=pool->address+pool->used,alias=gate+size;
         struct md_svc_direct_context context={svc,gate,r->frames,number};
-        struct md_svc_direct_fallback exits={previous ? previous->direct.gate : alias,alias,alias};
+        struct md_svc_direct_fallback exits={previous_gate ? previous_gate : alias,alias,alias};
         uint32_t replacement;
         int error=md_svc_direct_signal_plan(&context,r->dispatch,exits,code,sizeof(code),&replacement);
         if (!error) error=md_svc_direct_kernel(svc,alias,(void *)(code+size));
@@ -324,14 +339,28 @@ struct md_svc_registry *md_svc_registry_new(uintptr_t frames,uintptr_t dispatch)
     if (!frames || (frames&(MD_SVC_POOL_SIZE-1)) || !dispatch || (dispatch&3)
             || frames>UINTPTR_MAX-MD_SVC_POOL_SIZE-MD_SVC_PAYLOAD_SIZE) return NULL;
     struct md_svc_registry *r=calloc(1,sizeof(*r));
-    if (r) { r->frames=frames; r->dispatch=dispatch; }
+    if (r) {
+        r->frames=frames; r->dispatch=dispatch;
+        if (reserve_site(r)) { free(r); return NULL; }
+    }
     return r;
 }
 struct md_svc_registry *md_svc_registry_copy(const struct md_svc_registry *r) {
     if (!r) return NULL;
     struct md_svc_registry *copy=malloc(sizeof(*copy));
-    if (copy) { *copy=*r; copy->clients_dirty=1; copy->frames_dirty=1; copy->identity_known=0; }
+    if (copy) {
+        *copy=*r; copy->sites=NULL; copy->capacity=r->count;
+        if (r->count) {
+            copy->sites=malloc(r->count*sizeof(*r->sites));
+            if (!copy->sites) { free(copy); return NULL; }
+            memcpy(copy->sites,r->sites,r->count*sizeof(*r->sites));
+        }
+        copy->clients_dirty=1; copy->frames_dirty=1; copy->identity_known=0;
+    }
     return copy;
+}
+void md_svc_registry_free(struct md_svc_registry *r) {
+    if (r) { free(r->sites); free(r); }
 }
 int md_svc_registry_pool(struct md_svc_registry *r,uintptr_t address) {
     if (!r || !address || (address&65535) || address>UINTPTR_MAX-MD_SVC_CODE_BYTES) return -EINVAL;

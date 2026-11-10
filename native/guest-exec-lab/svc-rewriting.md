@@ -265,7 +265,10 @@ focused entry fixture does not certify those independent workflows.
 ## Admission Limits
 
 Arbitrary self-modifying code, externally writable aliases, simultaneous
-debugger ownership, 64 KiB pages and SVE/SME/MTE/PAC/BTI are not certified by
-these tests. The guard layout supports 4/16 KiB pages; device coverage is 4 KiB.
+debugger ownership and SVE/SME/MTE/PAC/BTI are not certified by these tests.
+Frame, guard and code-pool alignment covers 4/16/64 KiB pages; actual device
+execution coverage is 4 KiB, not proof of a complete 64 KiB host launch.
+Site metadata grows on publication and is independently copied on fork;
+allocation failure or exhaustion of reachable code pools retains Base entry.
 There is no claim of general instruction rewriting or unwind metadata.
 Unsupported sites retain Base without relaxing sandbox checks.

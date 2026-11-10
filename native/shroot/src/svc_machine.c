@@ -33,12 +33,12 @@ struct md_svc_registry *md_svc_machine_admit(pid_t pid,uintptr_t descriptor) {
     if (!r) return NULL;
     uintptr_t cursor[MD_SVC_CODE_POOLS];
     for (unsigned i=0;i<runtime.count;++i) {
-        if (md_svc_registry_pool(r,runtime.pools[i])) { free(r); return NULL; }
+        if (md_svc_registry_pool(r,runtime.pools[i])) { md_svc_registry_free(r); return NULL; }
         cursor[i]=runtime.pools[i];
     }
     char path[64]; snprintf(path,sizeof(path),"/proc/%d/maps",pid);
     int fd=open(path,O_RDONLY|O_CLOEXEC);
-    if (fd<0) { free(r); return NULL; }
+    if (fd<0) { md_svc_registry_free(r); return NULL; }
     struct md_mapping_reader reader={.fd=fd}; struct md_mapping_record v;
     int result;
     /* Admit all resident ranges from one walk, retaining neither a PID cache
@@ -56,8 +56,8 @@ struct md_svc_registry *md_svc_machine_admit(pid_t pid,uintptr_t descriptor) {
     }
     close(fd);
     for (unsigned i=0;i<runtime.count;++i)
-        if (cursor[i]!=runtime.pools[i]+MD_SVC_CODE_BYTES) { free(r); return NULL; }
-    if (result<0 || !r->native_end) { free(r); return NULL; }
+        if (cursor[i]!=runtime.pools[i]+MD_SVC_CODE_BYTES) { md_svc_registry_free(r); return NULL; }
+    if (result<0 || !r->native_end) { md_svc_registry_free(r); return NULL; }
     return r;
 }
 void md_svc_machine_forget(struct md_svc_machine_thread *s) {

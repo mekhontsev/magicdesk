@@ -22,13 +22,16 @@
 static struct md_svc_payload_state payload;
 static int reads,writes,fail_write=-1,fail_read;
 static void *publication_code;
+static size_t publication_size;
 static int publication_memory=-1;
 static uint64_t revocation_code[2];
 ssize_t __real_process_vm_readv(pid_t,const struct iovec *,unsigned long,const struct iovec *,unsigned long,unsigned long);
 ssize_t __wrap_process_vm_readv(pid_t pid,const struct iovec *local,unsigned long ln,
         const struct iovec *remote,unsigned long rn,unsigned long flags) {
     if (publication_code && pid==getpid()) {
-        assert(ln==1 && rn==1 && !flags && remote->iov_base==publication_code && remote->iov_len<=8);
+        assert(ln==1 && rn==1 && !flags && remote->iov_len<=8);
+        assert((uintptr_t)remote->iov_base>=(uintptr_t)publication_code
+            && (uintptr_t)remote->iov_base+remote->iov_len<=(uintptr_t)publication_code+publication_size);
         memcpy(local->iov_base,remote->iov_base,remote->iov_len); return remote->iov_len;
     }
     if (pid==getpid()) return __real_process_vm_readv(pid,local,ln,remote,rn,flags);
@@ -44,7 +47,8 @@ ssize_t __wrap_process_vm_readv(pid_t pid,const struct iovec *local,unsigned lon
 }
 long __wrap_ptrace(int request,pid_t pid,void *address,void *value) {
     if (publication_code && pid==getpid()) {
-        assert(request==PTRACE_POKETEXT && address==publication_code);
+        assert(request==PTRACE_POKETEXT && (uintptr_t)address>=(uintptr_t)publication_code
+            && (uintptr_t)address+8<=(uintptr_t)publication_code+publication_size);
         uint64_t word=(uintptr_t)value;
         assert(pwrite(publication_memory,&word,8,(off_t)(uintptr_t)address)==8);
         return 0;
@@ -94,7 +98,7 @@ static void client_retirement(void) {
     assert(payload.clients[1].tid==222 && payload.clients[1].client.opaque[0]==21);
     close(fd); fail_read=0; fail_write=-1;
     struct md_svc_registry *copy=md_svc_registry_copy(&r);
-    assert(copy && copy->clients_dirty && !r.clients_dirty); free(copy);
+    assert(copy && copy->clients_dirty && !r.clients_dirty); md_svc_registry_free(copy);
     r.disabled=1; r.clients_dirty=1; fail_read=1; fail_write=writes;
     int previous=reads+writes;
     assert(!md_svc_registry_collect_clients(&r,111,-1,alive,&payload));
@@ -107,7 +111,8 @@ static void entry_revocation(void) {
     for (int failure=0;failure<3;++failure) {
         payload.admitted=1;
         revocation_code[0]=revocation_code[1]=UINT64_C(0xd503201f14000000);
-        struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE,.count=2};
+        struct md_svc_site sites[2];
+        struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE,.count=2,.sites=sites};
         for (unsigned i=0;i<2;++i) r.sites[i]=(struct md_svc_site){
             .direct={.svc=(uintptr_t)(revocation_code+i),.gate=1},
             .original=0xd4000001,.replacement=0x14000000,.state=MD_SVC_PUBLISHED};
@@ -118,7 +123,7 @@ static void entry_revocation(void) {
         assert(payload.admitted==(failure==0));
         assert(!md_svc_registry_direct(&r,222,-1,0x10000,SYS_getpid));
         struct md_svc_registry *copy=md_svc_registry_copy(&r);
-        assert(copy && copy->disabled && copy->revoke_pending); free(copy);
+        assert(copy && copy->disabled && copy->revoke_pending); md_svc_registry_free(copy);
         fail_write=-1;
         assert(!md_svc_registry_revoke(&r,222) && r.disabled && !r.revoke_pending);
         assert(!payload.admitted);
@@ -165,7 +170,7 @@ static void sole_identity(void) {
     struct md_svc_registry *copy=md_svc_registry_copy(&r);
     assert(copy && !copy->identity_known);
     assert(!md_svc_registry_identity(copy,222,-1,222) && payload.sole_owner==222);
-    free(copy);
+    md_svc_registry_free(copy);
     fail_write=writes;
     assert(md_svc_registry_identity(&r,111,-1,0)==-ESRCH && r.sole_owner==111);
     fail_write=-1;
@@ -180,6 +185,7 @@ static void publication_admission(void) {
     size_t size=2*MD_SVC_CODE_BYTES;
     publication_code=mmap(NULL,size,PROT_READ|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert(publication_code!=MAP_FAILED);
+    publication_size=size;
     publication_memory=open("/proc/self/mem",O_RDWR|O_CLOEXEC); assert(publication_memory>=0);
     uintptr_t source=(uintptr_t)publication_code;
     uint32_t original[]={0xd4000001,0xd503201f};
@@ -213,9 +219,74 @@ static void publication_admission(void) {
     assert(!md_svc_registry_direct(&r,getpid(),publication_memory,source,SYS_newfstatat));
     assert(!md_svc_registry_resume(&r,getpid(),source));
     assert(r.count==3 && *(uint32_t *)publication_code==original[1]);
+    free(r.sites);
     assert(!close(publication_memory) && !munmap(publication_code,size));
     publication_code=NULL; publication_memory=-1;
     puts("PASS SVC admission: armed/suspended extension, restore-only rearm and replaced-code rejection");
+}
+static void registry_growth(void) {
+    enum { SITES=256 };
+    size_t size=(MD_SVC_CODE_POOLS+1)*MD_SVC_CODE_BYTES;
+    publication_code=mmap(NULL,size,PROT_READ|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(publication_code!=MAP_FAILED); publication_size=size;
+    publication_memory=open("/proc/self/mem",O_RDWR|O_CLOEXEC); assert(publication_memory>=0);
+    uintptr_t source=(uintptr_t)publication_code;
+    struct md_svc_registry r={.frames=MD_SVC_POOL_BASE,.dispatch=source+8,
+        .pool_count=MD_SVC_CODE_POOLS};
+    for (unsigned i=0;i<r.pool_count;++i)
+        r.pools[i].address=source+(i+1)*MD_SVC_CODE_BYTES;
+    uint32_t original[]={0xd4000001,0xd503201f};
+    for (unsigned i=0;i<SITES;++i) {
+        uintptr_t svc=source+i*8;
+        assert(pwrite(publication_memory,original,sizeof(original),(off_t)svc)==sizeof(original));
+        assert(md_svc_registry_direct(&r,getpid(),publication_memory,svc,SYS_getpid)==1);
+        assert(r.count==i+1 && r.sites[i].state==MD_SVC_PUBLISHED);
+        assert(md_svc_registry_call_origin(&r,r.sites[i].kernel_alias+4)==svc+4);
+        /* Fork owns an independent array even immediately before growth. */
+        if (r.count==r.capacity) {
+            struct md_svc_registry *copy=md_svc_registry_copy(&r);
+            assert(copy && copy->sites!=r.sites && copy->count==r.count);
+            assert(!memcmp(copy->sites,r.sites,r.count*sizeof(*r.sites)));
+            copy->sites[0].state=MD_SVC_RETIRED;
+            assert(r.sites[0].state==MD_SVC_PUBLISHED);
+            md_svc_registry_free(copy);
+        }
+    }
+    /* Extend an existing source exactly at a growth boundary: the prior
+     * chain head must survive realloc without a dangling site pointer. */
+    assert(r.capacity==r.count);
+    assert(!md_svc_registry_direct(&r,getpid(),publication_memory,source,SYS_getuid));
+    assert(r.count==SITES+1 && r.sites[SITES].direct.svc==source);
+    assert(!md_svc_registry_suspend(&r,getpid(),source));
+    assert(!memcmp(publication_code,original,sizeof(original)));
+    assert(!md_svc_registry_resume(&r,getpid(),source));
+    assert(*(uint32_t *)publication_code==r.sites[SITES].replacement);
+    assert(!md_svc_registry_unpatch(&r,getpid(),source,SITES*8));
+    for (unsigned i=0;i<SITES;++i)
+        assert(!memcmp((char *)publication_code+i*8,original,sizeof(original)));
+    free(r.sites);
+    assert(!close(publication_memory) && !munmap(publication_code,size));
+    publication_code=NULL; publication_memory=-1;
+    puts("PASS SVC growing registry: 257 sites, fork ownership, chain extension and retirement");
+}
+static void frame_layout(void) {
+    const size_t pages[]={4096,16384,65536};
+    for (unsigned i=0;i<sizeof(pages)/sizeof(*pages);++i) {
+        size_t page=pages[i];
+        assert(!(MD_SVC_POOL_BASE%page) && !(MD_SVC_SLOT_SIZE%page));
+        assert(!(MD_SVC_GUARD_OFFSET%page) && !(MD_SVC_GUARD_SIZE%page));
+        assert(!(MD_SVC_POOL_SIZE%page) && !(MD_SVC_PAYLOAD_SIZE%page));
+        assert(!(MD_SVC_CODE_BYTES%page));
+        assert(MD_SVC_SAVED_SP+8<=MD_SVC_GUARD_OFFSET);
+        assert(MD_SVC_SLOT_SIZE-MD_SVC_GUARD_OFFSET-MD_SVC_GUARD_SIZE>=32768);
+        for (unsigned slot=0;slot<MD_SVC_SLOT_COUNT;++slot) {
+            uintptr_t start=MD_SVC_POOL_BASE+slot*MD_SVC_SLOT_SIZE;
+            assert(((start+MD_SVC_SLOT_SIZE-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1))==start);
+            assert(!(start%page));
+        }
+    }
+    assert(sizeof(struct md_svc_payload_state)<=MD_SVC_PAYLOAD_SIZE);
+    puts("PASS SVC frame layout: 4/16/64 KiB alignment, guards, stacks and recovery slots");
 }
 static int no_memory(void *opaque,uintptr_t at,void *data,size_t size,int write) {
     (void)opaque; (void)at; (void)data; (void)size; (void)write;
@@ -341,7 +412,8 @@ static void lazy_stack_guards(void) {
 static void revoked_frames(void) {
     char *frames=mmap(NULL,MD_SVC_POOL_SIZE,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert(frames!=MAP_FAILED);
-    struct md_svc_registry r={.frames=(uintptr_t)frames,.count=1,.sites={{.direct={.gate=1}}}};
+    struct md_svc_registry r={.frames=(uintptr_t)frames,.count=1,
+        .sites=(struct md_svc_site[]){{.direct={.gate=1}}}};
     uint64_t occupied=UINT64_MAX;
     assert(md_svc_registry_occupied(&r,getpid(),&occupied)==-EINVAL);
     r.disabled=1;
@@ -366,7 +438,7 @@ static void revoked_frames(void) {
         assert(*(uint64_t *)(last+MD_SVC_GUARD_STATE)==1);
         assert(!close(fd) && !munmap(frames,MD_SVC_POOL_SIZE));
         assert(!md_svc_registry_prepare_fork(copy,getpid(),INT_MAX));
-        free(copy); _exit(0);
+        md_svc_registry_free(copy); _exit(0);
     }
     int status=0;
     assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
@@ -378,19 +450,21 @@ static void revoked_frames(void) {
     puts("PASS SVC revoked frames: occupied slots, fork reset, exact release and retired observation");
 }
 int main(void) {
+    frame_layout();
     client_retirement();
     entry_revocation();
     code_staging();
     sole_identity();
     publication_admission();
+    registry_growth();
     guard_recovery();
     lazy_stack_guards();
     revoked_frames();
-    struct md_svc_registry empty={.count=2,.disabled=1};
+    struct md_svc_registry empty={.count=2,.disabled=1,.sites=(struct md_svc_site[2]){0}};
     assert(!md_svc_registry_resident(NULL) && !md_svc_registry_resident(&empty));
     struct md_svc_registry registry={.frames=0x800000,.pool_count=1,.count=2,
         .pools={{.address=0x40000,.used=0x1000}},
-        .sites={{.direct={.svc=0x10000,.gate=0x40000},.kernel_alias=0x40100},
+        .sites=(struct md_svc_site[]){{.direct={.svc=0x10000,.gate=0x40000},.kernel_alias=0x40100},
                 {.state=MD_SVC_RETIRED,.direct={.svc=0x20000,.gate=0x40200},
                  .kernel_alias=0x40300}}};
     assert(md_svc_registry_resident(&registry));

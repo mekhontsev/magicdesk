@@ -5,7 +5,7 @@
     movk \reg,#0,lsl#16
     movk \reg,#MD_SVC_POOL_HIGH,lsl#32
     movk \reg,#0,lsl#48
-    bfi \reg,\reg,#16,#6
+    bfi \reg,\reg,#MD_SVC_SLOT_SHIFT,#6
     and \reg,\reg,#0xffffffffffffffc0
 .endm
 .macro md_svc_gpr_pair paired,single,base,lo,hi,omit=-1

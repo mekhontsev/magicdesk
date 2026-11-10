@@ -37,13 +37,13 @@ md_svc_single_prefix:
     single_mark saved_sp
     mov x0,x30
     sub x30,x30,#MD_SVC_FRAME_OFFSET
-    add sp,x30,#16,lsl#12
+    add sp,x30,#(MD_SVC_SLOT_SIZE >> 12),lsl#12
     ldr x16,single_dispatch_8
     ldr x1,single_state_8
     single_mark invoke
     blr x16
     single_mark returned
-    sub x8,sp,#16,lsl#12
+    sub x8,sp,#(MD_SVC_SLOT_SIZE >> 12),lsl#12
     add x8,x8,#MD_SVC_FRAME_OFFSET
     adr x30,single_done_8
     cbnz w0,1f

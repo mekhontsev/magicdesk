@@ -2,7 +2,7 @@
 #define MD_SVC_PAYLOAD_H
 #include "cooperative_entry.h"
 #include "svc_frame.h"
-#define MD_SVC_PAYLOAD_SIZE 16384
+#define MD_SVC_PAYLOAD_SIZE 65536
 #define MD_SVC_PAYLOAD_CLIENTS 128
 struct md_svc_payload_state {
     const struct md_entry_api *api;

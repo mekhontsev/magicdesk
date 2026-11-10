@@ -5,7 +5,6 @@
 #include "svc_direct.h"
 #include <sys/types.h>
 
-enum { MD_SVC_SITES=128 };
 struct md_svc_code_pool { uintptr_t address; size_t used; };
 struct md_svc_site {
     struct md_svc_direct_context direct;
@@ -22,10 +21,12 @@ struct md_svc_registry {
     unsigned pool_count, count, disabled, revoke_pending, entry_fence_drained, clients_dirty, frames_dirty;
     pid_t sole_owner;
     unsigned identity_known;
-    struct md_svc_site sites[MD_SVC_SITES];
+    struct md_svc_site *sites;
+    unsigned capacity;
 };
 struct md_svc_registry *md_svc_registry_new(uintptr_t frames,uintptr_t dispatch);
 struct md_svc_registry *md_svc_registry_copy(const struct md_svc_registry *);
+void md_svc_registry_free(struct md_svc_registry *);
 int md_svc_registry_pool(struct md_svc_registry *,uintptr_t);
 int md_svc_registry_read(pid_t,uintptr_t,void *,size_t);
 int md_svc_registry_write(pid_t,uintptr_t,const void *,size_t);
@@ -37,6 +38,7 @@ int md_svc_registry_direct(struct md_svc_registry *,pid_t,int memory_fd,uintptr_
 /* Conservative context test from an already captured PC/SP. Retired code and
  * private stacks still require recovery; ordinary caller code needs no GPR read. */
 int md_svc_registry_context(const struct md_svc_registry *,uintptr_t pc,uintptr_t sp);
+/* Site pointers are borrowed until the next publication can grow the array. */
 struct md_svc_site *md_svc_registry_direct_at(struct md_svc_registry *,pid_t,uintptr_t pc,uintptr_t sp);
 uintptr_t md_svc_registry_call_origin(const struct md_svc_registry *,uintptr_t pc);
 /* Decode a captured word for syscall replay, never arbitrary code at a former
