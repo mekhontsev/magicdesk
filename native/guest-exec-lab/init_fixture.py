@@ -113,10 +113,6 @@ unset XDG_DATA_DIRS XDG_CONFIG_DIRS XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
     if system is not None:
         if init != 'systemd' or not system.startswith('/nix/store/'):
             raise ValueError('Expected an installed NixOS system generation')
-        boot = boot.replace('export PATH=/usr/sbin:/usr/bin:/sbin:/bin',
-                            'export PATH=' + shlex.quote(binary + ':/usr/local/bin:/bin'))
-        boot = boot.replace('test "$$" = 1', 'test "$$" = 1\nmkdir -p /run /tmp /var/tmp')
-        boot += shlex.quote(system + '/activate') + '\n'
     if control_address == '0.0.0.0':
         # A published test controller needs an input exception, not a disabled
         # distribution firewall. The launch owns this private network namespace.

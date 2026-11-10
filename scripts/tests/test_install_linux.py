@@ -549,7 +549,8 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         helper = self.run_script('--print-init-session').stdout
         selection = helper[helper.index('init_command=\n'):
                            helper.index('if [ "${1:-}" != --namespace-init ]')]
-        paths = ('/sbin/openrc-init', '/usr/lib/systemd/systemd', '/lib/systemd/systemd', '/sbin/init')
+        paths = ('/sbin/openrc-init', '/usr/lib/systemd/systemd', '/lib/systemd/systemd',
+                 '/nix/var/nix/profiles/system/systemd/lib/systemd/systemd', '/sbin/init')
         for mask in range(1 << len(paths)):
             with self.subTest(mask=mask):
                 root = self.directory / ('init-' + str(mask))
@@ -562,7 +563,7 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                         target.parent.mkdir(parents=True, exist_ok=True)
                         target.write_text('#!/bin/sh\nexit 0\n')
                         target.chmod(0o755)
-                        if expected is None and index < 3:
+                        if expected is None and index < 4:
                             expected = str(target)
                 result = subprocess.run(['sh', '-eu', '-c', script + '\nprintf "%s" "$init_command"'],
                                         text=True, capture_output=True, timeout=5)
@@ -570,6 +571,20 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                 self.assertEqual(expected or '', result.stdout)
                 if expected is None:
                     self.assertIn('Install systemd or OpenRC', result.stderr)
+
+    def test_init_session_activates_installed_nixos_after_private_mounts(self):
+        helper = self.run_script('--print-init-session').stdout
+        prepare = self.run_script('--print-init-prepare').stdout
+        activation = '/nix/var/nix/profiles/system/activate'
+        self.assertLess(prepare.index('mount -t tmpfs -o mode=755 tmpfs /run'),
+                        prepare.index(activation))
+        self.assertLess(helper.index(activation), helper.index('mkdir -p /run/systemd/system/default.target.wants'))
+        self.assertIn(':/nix/var/nix/profiles/system/sw/bin', prepare)
+        self.assertNotIn('nixos-rebuild', helper)
+        module = self.run_script('--print-nixos-module').stdout
+        self.assertIn('${./magicdesk-files/magicdesk-init}', module)
+        self.assertIn('[ init bashInteractive', module)
+        self.assertIn(helper, self.run_script('--print-nixos-setup').stdout)
 
     def test_init_session_preserves_command_arguments(self):
         helper = self.run_script('--print-init-session').stdout
@@ -601,6 +616,7 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                 self.assertEqual(not arguments, 'supervisor=supervise-daemon' in openrc)
                 self.assertEqual(bool(arguments), 'command_background=yes' in openrc)
                 self.assertIn('Restart=' + ('no' if arguments else 'always'), systemd)
+                self.assertIn('Environment="PATH=' + os.environ['PATH'] + '"', systemd)
                 self.assertIn('command=$(command -v script)', openrc)
                 self.assertIn("-c 'exec /bin/sh /run/magicdesk-init-session'", openrc)
                 subprocess.run(['sh', '-n', str(service_path)], check=True, timeout=5)
@@ -609,7 +625,7 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         prepare = self.run_script('--print-init-prepare').stdout
         helper = self.run_script('--print-init-session').stdout
         start = prepare.index('if [ -f /usr/lib/initcpio/hooks/etc_overlay ]')
-        fragment = prepare[start:prepare.index('# The launch configures eth0')]
+        fragment = prepare[start:prepare.index("# Libvirt's host-wide AIO tuning")]
         self.assertLess(helper.index(fragment), helper.index('exec "$init_command"'))
         root = self.directory / 'recovery-init'
         root.mkdir()
@@ -664,6 +680,29 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                           'linklocaladdressing': 'no', 'keepconfiguration': 'static'},
                          dict(config['Network']))
         self.assertNotIn('/etc/systemd/network', fragment)
+
+    def test_init_makes_only_host_libvirt_aio_tuning_optional(self):
+        prepare = self.run_script('--print-init-prepare').stdout
+        fragment = prepare[prepare.index("# Libvirt's host-wide AIO tuning"):
+                           prepare.index('# The launch configures eth0')]
+        root = self.directory / 'sysctl-policy'
+        fragment = re.sub(r'/(?:usr/local/lib|usr/lib|lib|run)/sysctl\.d',
+                          lambda match: str(root) + match[0], fragment)
+        source = root / 'usr/lib/sysctl.d/60-libvirtd.conf'
+        source.parent.mkdir(parents=True)
+        original = '# Vendor tuning\n fs.aio-max-nr = 1048576\nfs/aio-max-nr=2097152\n' \
+                   '-fs.aio-max-nr = 8\nfs.aio-nr = 9\nnet.ipv4.ip_forward = 1\n'
+        source.write_text(original)
+        administrator = root / 'etc/sysctl.d/60-libvirtd.conf'
+        administrator.parent.mkdir(parents=True)
+        administrator.write_text('fs.aio-max-nr = 4096\n')
+        output = root / 'run/sysctl.d/60-libvirtd.conf'
+        for _ in range(2):
+            subprocess.run(['sh', '-eu', '-c', fragment], check=True, timeout=5)
+            self.assertEqual(original.replace(' fs.aio', '-fs.aio').replace('\nfs/aio', '\n-fs/aio'),
+                             output.read_text())
+            self.assertEqual(original, source.read_text())
+            self.assertEqual('fs.aio-max-nr = 4096\n', administrator.read_text())
 
     def test_arch_mirror_fallback_preserves_custom_lists_and_is_idempotent(self):
         setup = self.run_script('--print-system-setup').stdout
@@ -2065,7 +2104,9 @@ packages ninja meson pkgconf
         self.assertIn('sandbox = true;', script)
         self.assertNotIn('export NIX_CONFIG=', script)
         self.assertIn('patchShebangs --build .', script)
-        self.assertEqual(1, script.count('unshare --mount'))
+        init_helper = self.run_script('--print-init-session').stdout.strip()
+        self.assertEqual(1, script.count(init_helper))
+        self.assertEqual(1, script.replace(init_helper, '', 1).count('unshare --mount'))
         self.assertIn('"$system/sw/bin/bash" -s -- "$system" "$@"', script)
         pts = script.index('mount -t devpts -o newinstance,ptmxmode=0666,mode=0620 devpts /dev/pts')
         activate = script.index('\n/run/current-system/activate\n')

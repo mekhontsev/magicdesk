@@ -5110,6 +5110,12 @@ let
   selected = name: builtins.elem name settings.desktops;
   graphical = settings.desktops != [];
   turnip = settings.gpu == "turnip";
+  init = pkgs.runCommand "magicdesk-init" {} ''
+    mkdir -p $out/bin
+    cp ${./magicdesk-files/magicdesk-init} $out/bin/magicdesk-init
+    chmod +x $out/bin/magicdesk-init
+    patchShebangs $out/bin
+  '';
   tools = pkgs.runCommand "magicdesk-session-tools" {
     nativeBuildInputs = [ pkgs.bash pkgs.python3 ] ++ lib.optional turnip pkgs.stdenv.cc;
   } ''
@@ -5197,7 +5203,7 @@ in {
   services.openssh.enable = lib.mkOverride 900 false;
   system.stateVersion = lib.mkDefault "26.05";
   nix.settings = { max-jobs = 1; cores = settings.jobs; sandbox = true; };
-  environment.systemPackages = with pkgs; [ bashInteractive coreutils util-linux curl cacert git python3 iproute2 ]
+  environment.systemPackages = with pkgs; [ init bashInteractive coreutils util-linux curl cacert git python3 iproute2 ]
     ++ map (name: lib.attrByPath (lib.splitString "." name)
       (throw "Unknown Nix package attribute: ${name}") pkgs) settings.packages
     ++ lib.optionals graphical ([ tools mousepad thunar xfce4-terminal dbus
@@ -5450,6 +5456,11 @@ NIXOS_SETUP
     cat <<'NIXOS_SETUP'
 NIXOS_MODULE
 mv magicdesk.nix.new magicdesk.nix
+cat > magicdesk-files/magicdesk-init <<'NIXOS_INIT'
+NIXOS_SETUP
+    init_session
+    cat <<'NIXOS_SETUP'
+NIXOS_INIT
 cat > magicdesk-files/magicdesk-desktop-session <<'NIXOS_DESKTOP'
 NIXOS_SETUP
     desktop_session
@@ -5577,12 +5588,13 @@ NIXOS_SETUP
 init_prepare() {
     cat <<'MD_INIT_PREPARE'
 set -eu
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/nix/var/nix/profiles/system/sw/bin
 export container=shroot SYSTEMD_LOG_TARGET=console SYSTEMD_LOG_LEVEL=info
 export SYSTEMD_LOG_COLOR=0 SYSTEMD_PAGER=cat LANG=C.UTF-8
 test "$$" = 1
 # Init's shared API directories must not inherit Android's private app umask.
 umask 022
+mkdir -p /run /tmp /var/tmp
 # Preserve the launch-owned input provider across the private /run mount.
 udev_mount=
 if mountpoint -q /run/udev; then
@@ -5645,6 +5657,19 @@ if [ -f /usr/lib/initcpio/hooks/etc_overlay ] && ! mountpoint -q /etc; then
         rm "$resolver_mount"
     fi
 fi
+# Libvirt's host-wide AIO tuning is optional in a container. Keep the requested
+# value and every other setting; procps' '-' prefix tolerates only this write's
+# failure. Native AIO and the reported kernel limit remain unchanged. Runtime
+# policy never replaces an administrator's higher-priority /etc configuration.
+for directory in /usr/local/lib/sysctl.d /usr/lib/sysctl.d /lib/sysctl.d; do
+    [ -f "$directory/60-libvirtd.conf" ] || continue
+    mkdir -p /run/sysctl.d
+    awk '
+        /^[ \t]*fs[./]aio-max-nr[ \t]*=/ { sub(/^[ \t]*/, "-") }
+        { print }
+    ' "$directory/60-libvirtd.conf" > /run/sysctl.d/60-libvirtd.conf
+    break
+done
 # The launch configures eth0 without DHCP. Preserve that uplink when networkd
 # starts; earlier user profiles (or the same filename in /etc) can override it.
 mkdir -p /run/systemd/network
@@ -5657,6 +5682,11 @@ IPv6AcceptRA=no
 LinkLocalAddressing=no
 KeepConfiguration=static
 EOF
+# Activation owns NixOS /etc and service links. Select the existing generation;
+# boot does not rebuild it or replace the user's declarative configuration.
+if [ -x /nix/var/nix/profiles/system/activate ]; then
+    /nix/var/nix/profiles/system/activate
+fi
 MD_INIT_PREPARE
 }
 
@@ -5670,7 +5700,8 @@ if [ "${1:-}" = --help ]; then
     exit 0
 fi
 init_command=
-for candidate in /sbin/openrc-init /usr/lib/systemd/systemd /lib/systemd/systemd; do
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/nix/var/nix/profiles/system/sw/bin
+for candidate in /sbin/openrc-init /usr/lib/systemd/systemd /lib/systemd/systemd /nix/var/nix/profiles/system/systemd/lib/systemd/systemd; do
     if [ -x "$candidate" ]; then
         init_command=$candidate
         break
@@ -5756,6 +5787,7 @@ After=basic.target
 Conflicts=shutdown.target console-getty.service
 Before=shutdown.target
 [Service]
+Environment="PATH=$PATH"
 ExecStart=/bin/sh /run/magicdesk-init-console
 Restart=$console_restart
 EOF
