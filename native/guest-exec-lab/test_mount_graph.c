@@ -1058,7 +1058,9 @@ static void branch_reconciliation(const char *base) {
     /* A sibling operation does not visit unrelated placement targets. */
     assert(!mutation(&fs,MD_FS_MOUNT_REMOUNT,MS_REMOUNT|MS_BIND,NULL,"/alias"));
     assert(!fs.mounts->tree->mounts[1].detached);
-    assert(!md_view_mount_reconcile_branch(&peer,held->mount));
+    assert(!mutation(&fs,MD_FS_MOUNT_PROPAGATION,MS_PRIVATE|MS_REC,NULL,"/alias"));
+    assert(!fs.mounts->tree->mounts[1].detached);
+    assert(!md_view_mount_reconcile_subtree(&peer,&peer.mounts->tree->mounts[0]));
     assert(held->mount->detached && !peer.mounts->tree->mounts[2].detached);
     contents(&peer,"value",held,"value");
     /* A recursive source in another view must not turn target admission into
@@ -1091,6 +1093,34 @@ static void branch_reconciliation(const char *base) {
     close_filesystem(&peer); close_filesystem(&fs);
     assert(descriptors()==before);
     puts("PASS branch reconciliation: live rename, unrelated sibling, recursive bind target, foreign deletion, retained origin and child retirement");
+}
+static void subtree_ancestry(const char *base) {
+    unsigned before=descriptors();
+    char fixture[PATH_MAX],store[PATH_MAX];
+    path(fixture,base,"subtree-ancestry"); assert(!mkdir(fixture,0700));
+    struct md_filesystem fs=filesystem(fixture,1),peer=filesystem(fixture,0);
+    struct md_mount_graph_parcel parcel={0};
+    assert(!md_mount_graph_export(fs.mounts,fs.store->lifetime->root,&parcel));
+    assert(!md_mount_graph_import(&parcel,&peer.mounts));
+    struct md_fs_anchor *held=NULL;
+    struct md_fs_result opened=open_file(&peer,"/outer/nested",O_PATH|O_DIRECTORY,NULL,&held);
+    assert(!opened.error && held); close(opened.fd);
+    path(store,fixture,"store"); struct md_inode_store *writer=NULL;
+    assert(!md_inode_store_open(store,0,&writer));
+    assert(!md_inode_unlink(writer,-1,"/outer",AT_REMOVEDIR));
+    assert(!md_inode_unlink(writer,-1,"/alias",AT_REMOVEDIR));
+    md_inode_store_close(writer);
+    assert(!md_view_mount_reconcile_subtree(&peer,held->mount));
+    assert(peer.mounts->tree->mounts[0].detached && held->mount->detached);
+    assert(!peer.mounts->tree->mounts[2].detached);
+    contents(&peer,"value",held,"value");
+    int table=md_fs_mount_table(&peer,1,0); assert(table>=0); close(table);
+    assert(peer.mounts->tree->mounts[2].detached);
+    contents(&peer,"value",held,"value");
+    md_fs_anchor_release(held);
+    close_filesystem(&peer); close_filesystem(&fs);
+    assert(descriptors()==before);
+    puts("PASS subtree reconciliation: missing ancestor, retained origin, untouched sibling and complete table snapshot");
 }
 static void unlinked_propagation(const char *base) {
     unsigned before=descriptors();
@@ -1291,5 +1321,6 @@ void test_mount_graph(const char *base) {
     assert(!mkdir(model,0700) && !mkdir(peers,0700));
     models(model); deep_mount_paths(base); sizes(base); unordered(base); indexed_updates(base); updates(base); private_publication(base);
     retirement(base,0); retirement(base,1); processes(peers); host_projections(base);
-    initial_pivot(base); removed_points(base); branch_reconciliation(base); unlinked_propagation(base); propagation_stack(base); propagation(base); alarm(0);
+    initial_pivot(base); removed_points(base); branch_reconciliation(base); subtree_ancestry(base);
+    unlinked_propagation(base); propagation_stack(base); propagation(base); alarm(0);
 }

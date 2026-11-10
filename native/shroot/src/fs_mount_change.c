@@ -78,7 +78,7 @@ static int operand(struct md_filesystem *fs, const struct md_fs_request *q, unsi
             || ((q->flags&MS_REC) && (q->mode!=MD_FS_MOUNT_BIND || index==1));
     /* Recursive bind copies the source subtree. Its target is only an
      * attachment point; unrelated target-view mounts need no reconciliation. */
-    r=recursive ? md_view_mount_reconcile(&selected)
+    r=recursive ? md_view_mount_reconcile_subtree(&selected,out->mount)
         : md_view_mount_reconcile_branch(&selected,out->mount);
     if (r) md_view_location_close(out);
     return r;

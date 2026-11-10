@@ -85,8 +85,10 @@ when no origin, selected root or child placement retains them. Collection drops
 their object-cache records, policies and backing custody before slot reuse.
 A slot generation prevents stale snapshots from referring to its replacement.
 Nonrecursive topology changes check the selected operands' ancestry, not every
-unrelated attachment. Recursive operations, copying and table construction
-reconcile the complete graph. Recursive bind reconciles its source recursively,
+unrelated attachment. Recursive operations additionally reconcile the selected
+subtree; leaf mounts use the existing child index to avoid a graph walk.
+Namespace copying and table construction reconcile the complete graph.
+Recursive bind reconciles its source recursively,
 but only the target's ancestry: target admission does not copy its descendants.
 Logical link membership, or native
 link count for native targets, determines disconnection; rename retains the

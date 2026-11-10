@@ -210,6 +210,9 @@ int md_view_mount_reconcile(struct md_filesystem *);
 /* Revalidate only the selected placement's ancestry. A missing ancestor
  * detaches its complete subtree, including retained foreign origins. */
 int md_view_mount_reconcile_branch(struct md_filesystem *,struct md_view_mount *);
+/* Recursive operations retain the same ancestry check, then inspect only
+ * descendants. Namespace snapshots and copies still reconcile all mounts. */
+int md_view_mount_reconcile_subtree(struct md_filesystem *,struct md_view_mount *);
 int md_view_mount_detach(struct md_filesystem *, const struct md_view_mount *);
 struct md_view_object *md_view_object(struct md_filesystem *, const char *id);
 /* Internal lookup opt-in: report task-owned proc traversal to the adapter

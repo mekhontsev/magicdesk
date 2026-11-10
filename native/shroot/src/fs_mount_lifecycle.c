@@ -121,18 +121,22 @@ int md_view_mount_reconcile_branch(struct md_filesystem *fs,struct md_view_mount
     md_cost_end(cost,start);
     return r;
 }
-int md_view_mount_reconcile(struct md_filesystem *fs) {
+static int reconcile(struct md_filesystem *fs,const struct md_view_mount *root) {
     struct md_mount_namespace *view=fs->mounts;
     if (!view || !view->tree) return 0;
     struct md_cost *cost=fs->statistics ? &fs->statistics->mount_reconcile : NULL;
     int64_t start=md_cost_begin(cost);
     unsigned removed[view->tree->count+1], order[view->tree->count+1], changed=0;
+    unsigned char selected[view->tree->count+1];
     memset(removed,0,sizeof(removed));
+    memset(selected,0,sizeof(selected));
     int r=md_view_topology_order(view,order);
     struct md_fs_storage_scope scope={0};
     for (unsigned n=0;!r && n<=view->tree->count;++n) {
         unsigned i=order[n];
         const struct md_view_mount *m=md_view_mount_node(view,i);
+        selected[i]=!root || m==root || (m->parent && selected[node_index(view,m->parent)]);
+        if (!selected[i]) continue;
         if (!m->id || m->detached || !m->parent) continue;
         if (removed[node_index(view,m->parent)]) removed[i]=1;
         else {
@@ -148,4 +152,12 @@ int md_view_mount_reconcile(struct md_filesystem *fs) {
     if (!r && changed) r=detach(fs,removed);
     md_cost_end(cost,start);
     return r;
+}
+int md_view_mount_reconcile(struct md_filesystem *fs) {
+    return reconcile(fs,NULL);
+}
+int md_view_mount_reconcile_subtree(struct md_filesystem *fs,struct md_view_mount *root) {
+    int r=md_view_mount_reconcile_branch(fs,root);
+    if (r || (root && (root->detached || !md_view_mount_children(fs->mounts,root)))) return r;
+    return reconcile(fs,root);
 }
