@@ -20,7 +20,7 @@ def main():
     parser.add_argument('go', type=Path)
     parser.add_argument('--rounds', type=int, default=5)
     parser.add_argument('--condition', default='unspecified')
-    parser.add_argument('--section', choices=('all', 'entry', 'filters', 'protected', 'images', 'mappings', 'programs'), default='all')
+    parser.add_argument('--section', choices=('all', 'entry', 'channels', 'filters', 'protected', 'images', 'mappings', 'programs'), default='all')
     FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
     assert 1 <= args.rounds <= 20
@@ -56,6 +56,13 @@ def main():
         guest = [suite.runner, '--store', suite.base + '/store', '--user', '0:0']
         if args.section in ('all', 'entry'):
             suite.command([suite.base + '/planner'])
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--diagnostics', '--', '/bin/mapping']):
+                patched = 'patched' if '--statistics' in command else 'original'
+                for policy in ([], ['filtered']):
+                    output = suite.command([*command, 'first-encounter', patched, *policy], quiet=True)
+                    assert 'PASS SVC first encounter:' in output
             rejected = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY=invalid',
                                       '--', '/bin/raw'], quiet=True, expected=126)
             assert 'SHROOT_MACHINE_ENTRY must be 0 or 1' in rejected
@@ -68,14 +75,34 @@ def main():
                             [*guest, '--', '/bin/fault']):
                 output = suite.command(command, quiet=True)
                 assert 'PASS SVC fault: original instruction PC' in output
+        if args.section in ('all', 'channels'):
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                for case in ('channels', 'channels-filter', 'channels-many', 'channels-many-filter', 'channels-full-filter'):
+                    output = suite.command([*command, case], quiet=True, timeout=120)
+                    assert 'PASS SVC channels:' in output
+                    if '--statistics' in command and '--env' not in command:
+                        counter = 'filteredCompleted' if case.endswith('-filter') else 'completed'
+                        minimum = 350000 if 'many' in case else 80000
+                        # Fork inherits the cumulative counter; summing child
+                        # reports would count the parent's work more than once.
+                        assert max(row[counter] for row in records(output, 'SVC_RUNTIME_STATS ')) >= minimum, output
+            print('Integrated channel expansion PASS', flush=True)
         if args.section in ('all', 'filters'):
             for command in ([root + '/bin/mapping'],
                             [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
                             [*guest, '--statistics', '--', '/bin/mapping']):
-                output = suite.command([*command, 'filter-exec'], quiet=True, timeout=90)
-                assert 'PASS SVC filter exec:' in output
-                if '--statistics' in command and '--env' not in command:
-                    assert any(row['completed'] >= 1000 for row in records(output, 'SVC_RUNTIME_STATS ')), output
+                for case in ('filter-probe', 'filter-exec', 'filter-probe-exec', 'filter-probe-exec-thread'):
+                    output = suite.command([*command, case], quiet=True, timeout=90)
+                    assert ('PASS SVC filter probe:' if case == 'filter-probe'
+                            else 'PASS SVC filter exec:') in output
+                    if '--statistics' in command and '--env' not in command:
+                        rows = records(output, 'SVC_RUNTIME_STATS ')
+                        counter = 'completed' if case == 'filter-probe' else 'filteredCompleted'
+                        assert any(row[counter] >= 1000 for row in rows), output
+                        if case == 'filter-probe':
+                            assert not any(row['filteredCompleted'] for row in rows), output
             print('Integrated exec filter PASS', flush=True)
             for command in ([root + '/bin/mapping'],
                             [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],

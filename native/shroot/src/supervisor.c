@@ -326,7 +326,7 @@ struct memory_capture {
     struct md_interception_buffer buffer;
 };
 struct probe_owner { pid_t caller; struct user_pt_regs continuation; };
-struct readonly_mapping {
+struct buffer_mapping {
     pid_t caller;
     struct user_pt_regs continuation;
     struct md_interception_buffer scratch;
@@ -334,6 +334,11 @@ struct readonly_mapping {
     struct md_seccomp_policy *policy;
     uint64_t ancestor;
     uintptr_t parent_view;
+    struct md_interception_memory *memory;
+    struct md_resource_order turn;
+    int channels;
+    int clients;
+    unsigned client_bucket;
 };
 enum metadata_restart_stage { METADATA_CHECK, METADATA_ENTRY, METADATA_WAIT };
 struct metadata_restart {
@@ -510,7 +515,7 @@ struct thread {
     unsigned direct_flags, direct_mode;
     struct capture_owner *capture;
     struct probe_owner *probe;
-    struct readonly_mapping *readonly_mapping;
+    struct buffer_mapping *buffer_mapping;
     struct md_fd_capture pidfd_capture;
     struct outgoing_owner *outgoing;
     struct receive_owner *receive;
@@ -1178,8 +1183,8 @@ static void adapter_discard(struct thread *t) {
         t->probe->caller=0; t->probe=NULL;
         CHECK(!md_task_helper_detach(helpers,t->pid));
     }
-    if (t->readonly_mapping) {
-        t->readonly_mapping->caller=0; t->readonly_mapping=NULL;
+    if (t->buffer_mapping) {
+        t->buffer_mapping->caller=0; t->buffer_mapping=NULL;
         CHECK(!md_task_helper_detach(helpers,t->pid));
     }
     md_fd_capture_cancel(&t->pidfd_capture);
@@ -1987,18 +1992,39 @@ static int machine_observe(struct thread *t,const struct user_pt_regs *regs) {
     if (!machine_discovery(t) || !md_entry_supported((int)regs->regs[8])
             || regs->pc<4 || regs->pc==RAW_GATE) return 0;
     enum md_entry_route route=md_entry_route((int)regs->regs[8]);
-    if (route==MD_ENTRY_TASK) return 0;
-    /* This is only a profitability rejection. The guest-side snapshot still
-     * proves every execution; a file-backed/shared range cannot use it. */
-    if (route==MD_ENTRY_MEMORY && (!md_memory_native_arguments(regs->regs[8],regs->regs[2],regs->regs[3])
-            || md_memory_mapping_observe(t->memory,regs->regs[0],regs->regs[1])
-            || md_shm_space_used(t->shm_space))) return 0;
+    /* Publication belongs to the instruction, not this invocation's fast-path
+     * eligibility. The common entry checks arguments, policy and ownership on
+     * every call; TASK and tracked/shared memory retain their Base owners. */
     const struct md_private_memory_access *access=md_memory_private_access(t->memory);
+    unsigned sites=diagnostics ? registry->count : 0;
     int published=md_svc_registry_direct(registry,t->pid,access ? access->memory : -1,regs->pc-4,regs->regs[8]);
-    if (published) TRACE("PROBE machine-entry pid=%d svc=%#llx nr=%llu publication=%d\n",
-        t->pid,regs->pc-4,regs->regs[8],published);
+    if (diagnostics && registry->count>sites) {
+        const struct md_svc_site *site=&registry->sites[registry->count-1];
+        if (site->state==MD_SVC_PUBLISHED)
+            TRACE("PROBE machine-entry pid=%d svc=%#llx nr=%llu publication=%s\n",
+                t->pid,regs->pc-4,regs->regs[8],published==1 ? "first" : "extended");
+        else TRACE("PROBE machine-entry-unavailable pid=%d svc=%#llx nr=%llu pools=%u\n",
+                t->pid,regs->pc-4,regs->regs[8],registry->pool_count);
+    }
     return published==1 && (route==MD_ENTRY_WORKER || route==MD_ENTRY_FD || route==MD_ENTRY_VALUE
         || route==MD_ENTRY_READINESS);
+}
+static int machine_native_entry(struct thread *t,const struct user_pt_regs *regs,unsigned long cookie) {
+    if (t->cooperative_blocked || t->debug_options || md_memory_exposed(t->memory)) return 0;
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    int entry=md_svc_machine_native_entry(registry,regs);
+    if (!entry || !t->application_filter) return entry;
+    /* An ordinary selector has already admitted this alias in the kernel.
+     * Prove the original call too, then retain the same Base completion owner
+     * without cancelling and replaying the syscall. Policy-only gate stops and
+     * guest observation actions still need their original-site admission. */
+    if (cookie==MD_INTERCEPT_TASK || t->admission_policy_valid || !filter_entry_eligible(t)
+            || md_seccomp_policy_may_trace(t->policy) || md_seccomp_policy_may_notify(t->policy)) return 0;
+    struct seccomp_data call={.nr=regs->regs[8],.arch=AUDIT_ARCH_AARCH64,
+        .instruction_pointer=md_svc_registry_call_origin(registry,regs->pc)};
+    memcpy(call.args,regs->regs,sizeof(call.args));
+    uint32_t decision;
+    return !md_seccomp_policy_eval(t->policy,&call,&decision) && decision==SECCOMP_RET_ALLOW ? entry : 0;
 }
 static void notification_release(struct thread *t) {
     /* No operation was admitted. A signal or lazy-entry retry must discard
@@ -2668,7 +2694,7 @@ static long cooperative_bind(struct thread *t) {
             || t->cooperative_blocked || !filter_entry_eligible(t)) return -EOPNOTSUPP;
     if (t->cooperative_buffer.pool)
         return (long)md_memory_buffer_address(t->memory,&t->cooperative_buffer);
-    int error=md_buffers_take_channel(md_memory_buffers(t->memory),&t->cooperative_buffer);
+    int error=md_memory_channel_take(t->memory,&t->cooperative_buffer);
     if (error) return error;
     struct md_buffer_span span;
     error=md_buffer_span(&t->cooperative_buffer,&span);
@@ -2998,6 +3024,8 @@ static void handle_notification(const struct seccomp_notif *request) {
         if (buffer_admission) {
             if (purpose==MD_ENTRY_BIND) {
                 long address=cooperative_bind(t);
+                TRACE("PROBE entry-bind pid=%d result=%ld phase=%d blocked=%d filter=%d\n",
+                    t->pid,address,t->phase,t->cooperative_blocked,t->application_filter);
                 struct seccomp_notif_resp reply={.id=q.id,
                     .val=address<0 ? 0 : address,.error=address<0 ? (int)address : 0};
                 CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
@@ -6283,11 +6311,23 @@ static void probe_begin(struct thread *t, const struct user_pt_regs *regs) {
     if (error) { free(owner); buffer_reply(t,error); }
     else { t->probe=owner; t->kernel_stopped=0; }
 }
-static void readonly_mapping_complete(void *context,struct md_task_helper_result result) {
-    struct readonly_mapping *owner=context;
+static void buffer_mapping_turn_end(struct buffer_mapping *owner) {
+    if (owner->turn.queue && md_resource_order_cancel(&owner->turn)==1)
+        CHECK(!md_resource_order_complete(&owner->turn));
+    md_memory_release(owner->memory); owner->memory=NULL;
+}
+static void buffer_mapping_release(struct buffer_mapping *owner) {
+    buffer_mapping_turn_end(owner);
+    CHECK(!md_buffer_release(&owner->scratch));
+    md_buffers_release(owner->buffers);
+    md_seccomp_policy_release(owner->policy);
+    free(owner);
+}
+static void buffer_mapping_complete(void *context,struct md_task_helper_result result) {
+    struct buffer_mapping *owner=context;
     struct thread *t=owner->caller ? find_thread(owner->caller) : NULL;
     CHECK(result.descriptor<0 && !result.received);
-    if (t && t->readonly_mapping==owner) {
+    if (t && t->buffer_mapping==owner) {
         long error=result.value;
         if (error>=0 && owner->policy) {
             uintptr_t base=(uintptr_t)error;
@@ -6300,9 +6340,19 @@ static void readonly_mapping_complete(void *context,struct md_task_helper_result
             if (!error) error=md_memory_snapshot_publish(t->memory,
                 md_seccomp_policy_identity(owner->policy),owner->buffers,base);
             CHECK(!md_buffer_release(&buffer));
-        } else if (error>=0) error=md_memory_readonly_mapped(t->memory,(uintptr_t)error,
-            md_buffers_size(owner->buffers));
-        t->readonly_mapping=NULL; t->kernel_stopped=1;
+        } else if (error>=0 && owner->clients) {
+            uintptr_t base=(uintptr_t)error;
+            const struct md_private_memory_access *access=md_memory_private_access(t->memory);
+            error=md_svc_registry_client_publish(md_memory_svc(t->memory),t->pid,
+                access ? access->memory : -1,owner->client_bucket,base);
+            if (!error) error=(long)base;
+        } else if (error>=0 && owner->channels)
+            error=md_memory_channels_publish(t->memory,owner->buffers,(uintptr_t)error);
+        else if (error>=0) error=md_memory_readonly_mapped(t->memory,(uintptr_t)error,
+                md_buffers_size(owner->buffers));
+        t->buffer_mapping=NULL; t->kernel_stopped=1;
+        buffer_mapping_turn_end(owner);
+        if (error>=0 && owner->channels) error=cooperative_bind(t);
         if (owner->policy) {
             TRACE("PROBE filter-entry-mapped pid=%d result=%ld\n",t->pid,error);
             filter_entry_complete(t,&owner->continuation);
@@ -6311,13 +6361,10 @@ static void readonly_mapping_complete(void *context,struct md_task_helper_result
             buffer_reply(t,error);
         }
     }
-    CHECK(!md_buffer_release(&owner->scratch));
-    md_buffers_release(owner->buffers);
-    md_seccomp_policy_release(owner->policy);
-    free(owner);
+    buffer_mapping_release(owner);
 }
-static int readonly_mapping_start(struct thread *t,const struct user_pt_regs *regs,
-        struct readonly_mapping *owner) {
+static int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
+        struct buffer_mapping *owner) {
     owner->caller=t->pid; owner->continuation=*regs;
     int error=md_buffers_take(md_memory_buffers(t->memory),&owner->scratch);
     if (!error) {
@@ -6328,28 +6375,51 @@ static int readonly_mapping_start(struct thread *t,const struct user_pt_regs *re
         struct md_interception_buffers *buffers=owner->buffers;
         const struct md_task_helper_request request={.kind=MD_TASK_HELPER_MAP,
             .mapping={.source=md_buffers_fd(buffers),.size=md_buffers_size(buffers),
-                .protection=PROT_READ,.flags=MAP_SHARED}};
+                .protection=PROT_READ|((owner->channels || owner->clients) ? PROT_WRITE : 0),
+                .flags=owner->clients ? MAP_PRIVATE : MAP_SHARED}};
         /* The existing private-table mapper needs no application FD slot.
-         * The filter admission already owns the address-space turn. */
+         * Filter admission or channel expansion owns the address-space turn. */
         error=md_task_helper_begin(helpers,t->pid,t->tgid,regs,&abi,t->memory,&owner->scratch,
-            &request,readonly_mapping_complete,owner);
+            &request,buffer_mapping_complete,owner);
     }
     if (error) {
-        CHECK(!md_buffer_release(&owner->scratch));
-        md_buffers_release(owner->buffers); md_seccomp_policy_release(owner->policy); free(owner);
+        buffer_mapping_release(owner);
     } else {
-        t->readonly_mapping=owner; t->kernel_stopped=0;
+        t->buffer_mapping=owner; t->kernel_stopped=0;
         if (owner->policy) t->phase=FILTER_MAPPING;
     }
     return error;
 }
-static void readonly_mapping_begin(struct thread *t,const struct user_pt_regs *regs) {
-    struct readonly_mapping *owner=calloc(1,sizeof(*owner));
+static void buffer_mapping_begin(struct thread *t,const struct user_pt_regs *regs) {
+    struct buffer_mapping *owner=calloc(1,sizeof(*owner));
     int error=owner ? 0 : -ENOMEM;
     if (!error) {
         owner->buffers=md_buffers_retain(md_memory_readonly_buffers(t->memory));
-        error=readonly_mapping_start(t,regs,owner);
+        error=buffer_mapping_start(t,regs,owner);
     }
+    if (error) buffer_reply(t,error);
+}
+static void entry_mapping_begin(struct thread *t,const struct user_pt_regs *regs,int clients) {
+    const struct md_private_memory_access *access=md_memory_private_access(t->memory);
+    long result=clients ? md_svc_registry_client_space(md_memory_svc(t->memory),t->pid,
+        access ? access->memory : -1,(unsigned)regs->regs[1]) : cooperative_bind(t);
+    if (result!=-EAGAIN) { buffer_reply(t,result); return; }
+    struct buffer_mapping *owner=calloc(1,sizeof(*owner));
+    int error=owner ? 0 : -ENOMEM;
+    if (!error) {
+        owner->channels=!clients; owner->clients=clients; owner->client_bucket=(unsigned)regs->regs[1];
+        owner->memory=md_memory_fork(t->memory,1);
+        error=owner->memory ? md_memory_order_begin(owner->memory,&owner->turn,NULL) : -ENOMEM;
+        /* A busy mapping owner is not a failed registration. Retry through
+         * the entry's existing bounded backoff, without parking a new helper. */
+        if (!error) error=-EAGAIN;
+        else if (error==1) error=md_resource_order_start(&owner->turn);
+        if (!error) error=md_buffers_create(clients ? 1 : 16,
+            clients ? sizeof(struct md_svc_client_block) : sizeof(struct md_entry_channel),0,0,&owner->buffers);
+    }
+    if (error) {
+        if (owner) buffer_mapping_release(owner);
+    } else error=buffer_mapping_start(t,regs,owner);
     if (error) buffer_reply(t,error);
 }
 static void outgoing_complete(void *context, struct md_task_helper_result result) {
@@ -7802,11 +7872,18 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         result=md_memory_readonly_mapped(t->memory,r->regs[1],r->regs[2]);
         break;
     case MD_BUFFER_READONLY_INSTALL:
-        if (r->regs[1] || r->regs[2] || t->readonly_mapping || !t->filter_preflight
+        if (r->regs[1] || r->regs[2] || t->buffer_mapping || !t->filter_preflight
                 || t->phase!=DISPATCHING || !t->filter_install
                 || md_resource_order_state(&t->filter_install->memory)!=MD_RESOURCE_ORDER_RUNNING
                 || !md_memory_readonly_buffers(t->memory) || md_memory_readonly_base(t->memory)) break;
-        readonly_mapping_begin(t,r); return;
+        buffer_mapping_begin(t,r); return;
+    case MD_BUFFER_CHANNEL_INSTALL:
+        if (r->regs[1] || r->regs[2] || t->buffer_mapping) break;
+        entry_mapping_begin(t,r,0); return;
+    case MD_BUFFER_CLIENT_INSTALL:
+        if (r->regs[1]>=MD_SVC_CLIENT_BUCKETS || r->regs[2] || t->buffer_mapping
+                || !t->entered || t->phase!=IDLE || t->cooperative_blocked || !filter_entry_eligible(t)) break;
+        entry_mapping_begin(t,r,1); return;
     case MD_BUFFER_SIGNAL_ENABLE: {
         struct { struct md_kernel_action action; uint64_t mask; } initial;
         if (t->entered || t->phase!=IDLE || !md_memory_buffers(t->memory)
@@ -9502,23 +9579,27 @@ static void filter_entry_rearm(struct thread *t) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
     if (!registry || !registry->filter_paused || !registry->entry_fence_drained
             || md_memory_exposed(t->memory) || !md_memory_snapshots_valid(t->memory)) return;
+    int filtered=0;
     for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
         if (!filter_entry_eligible(p) || p->debug_options || md_debugger_traced(debugger,p->pid)) return;
+        filtered|=p->application_filter;
     }
-    if (statistics && !registry->filter_statistics) {
+    if (filtered && statistics && !registry->filter_statistics) {
         struct md_svc_payload_state state;
         if (!md_svc_registry_read(t->pid,registry->frames+MD_SVC_POOL_SIZE,&state,sizeof(state))) {
             registry->filter_completed_start=state.completed;
             registry->filter_statistics=1;
         }
     }
-    uintptr_t mode=2;
+    uintptr_t mode=filtered ? 2 : 1;
     int error=md_svc_registry_write(t->pid,abi.cooperative_registration,&mode,sizeof(mode));
     if (!error) error=md_svc_registry_rearm_filter(registry,t->pid);
     if (error) { TRACE("PROBE filter-entry-rearm pid=%d error=%d\n",t->pid,error); return; }
     for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
         p->cooperative_blocked=0; p->registration_revoked=0;
         cooperative_memory_publish(p,0);
+        /* Paused sites contain their original SVC until observed again. */
+        md_broker_resample(broker,p->pid,0);
     }
     TRACE("PROBE filter-entry-ready pid=%d\n",t->pid);
 }
@@ -9533,7 +9614,7 @@ static int filter_entry_map(struct thread *t,const struct user_pt_regs *regs) {
     if (!registry || !registry->filter_paused || !t->policy
             || !md_seccomp_policy_entry_compatible(t->policy,registry->image)
             || !md_memory_snapshots_valid(t->memory)) return 0;
-    struct readonly_mapping *owner=calloc(1,sizeof(*owner));
+    struct buffer_mapping *owner=calloc(1,sizeof(*owner));
     if (!owner) return 0;
     for (const struct md_seccomp_policy *p=md_seccomp_policy_parent(t->policy);p;p=md_seccomp_policy_parent(p)) {
         owner->parent_view=md_memory_snapshot_address(t->memory,md_seccomp_policy_identity(p));
@@ -9544,7 +9625,7 @@ static int filter_entry_map(struct thread *t,const struct user_pt_regs *regs) {
     if (!error) error=md_buffers_create_readonly(1,size,&owner->buffers);
     if (error) { free(owner); return 0; }
     owner->policy=md_seccomp_policy_retain(t->policy);
-    return !readonly_mapping_start(t,regs,owner);
+    return !buffer_mapping_start(t,regs,owner);
 }
 static void filter_install_discard(struct thread *t) {
     retry_clear(t,RETRY_FILTER);
@@ -9576,6 +9657,7 @@ static void filter_install_retired(struct thread *t,long result) {
     CHECK(!result);
     long error=t->filter_install->error;
     int completed=t->filter_install->native_completed;
+    filter_entry_rearm(t);
     filter_install_discard(t); t->phase=IDLE;
     struct user_pt_regs original=t->original;
     if (completed) {
@@ -9857,10 +9939,10 @@ static void filter_install_begin(struct thread *t,const struct user_pt_regs *r) 
     unsigned flags=md_seccomp_filter_flags(r->regs[8],r->regs[1]);
     if (flags&SECCOMP_FILTER_FLAG_NEW_LISTENER) {
         int error=md_seccomp_listener_flags(flags);
-        if (error) { struct user_pt_regs call=*r; return_value(t,&call,error); return; }
+        if (error) { filter_entry_rearm(t); struct user_pt_regs call=*r; return_value(t,&call,error); return; }
     }
     struct filter_install *install=calloc(1,sizeof(*install));
-    if (!install) { struct user_pt_regs call=*r; return_value(t,&call,-ENOMEM); return; }
+    if (!install) { filter_entry_rearm(t); struct user_pt_regs call=*r; return_value(t,&call,-ENOMEM); return; }
     install->source=-1; install->virtual_listener=!!(flags&SECCOMP_FILTER_FLAG_NEW_LISTENER);
     t->filter_install=install; t->original=*r; t->phase=FILTER_CAPTURE;
     int error=md_memory_order_begin(t->memory,&install->memory,fd_wakeup);
@@ -9887,7 +9969,9 @@ static int filter_observed(struct thread *t,const struct user_pt_regs *regs) {
         CHECK(complete>=0);
         md_fd_origins_finish(&t->filter_install->listener,complete ? (int)result : -1);
     }
-    if (!md_seccomp_filter_committed(flags,result)) { filter_install_discard(t); return 0; }
+    if (!md_seccomp_filter_committed(flags,result)) {
+        filter_entry_rearm(t); filter_install_discard(t); return 0;
+    }
     if (published) {
         md_seccomp_policy_replace(&t->policy,published);
         if (flags&SECCOMP_FILTER_FLAG_TSYNC)
@@ -11716,9 +11800,8 @@ static int memory_observation(struct thread *t,const struct ptrace_syscall_info 
     if (md_svc_registry_context(machine,observed->pc,observed->sp)) {
         /* The exact kernel alias has already restored the caller's context.
          * A private stack or any other resident PC still needs full recovery. */
-        if (t->application_filter || t->cooperative_blocked || md_memory_exposed(t->memory)
-                || (observed->sp>machine->frames && observed->sp-machine->frames<=MD_SVC_POOL_SIZE)) return 0;
-        *native_entry=md_svc_machine_native_entry(machine,observed);
+        if (observed->sp>machine->frames && observed->sp-machine->frames<=MD_SVC_POOL_SIZE) return 0;
+        *native_entry=machine_native_entry(t,observed,info->seccomp.ret_data);
         if (!*native_entry) return 0;
     }
     return 1;
@@ -13835,6 +13918,9 @@ int main(int argc, char **argv) {
             t->memory_access_pending=0;
             t->phase = IDLE; t->stack = 0; t->ready = 0; t->resume_lost = 0; t->terminal_stop=0; images++;
             t->mapped_image = 0; t->entered = 0; t->image_backings_ready=0;
+            /* Entry revocation belongs to the retired address space. Only
+             * inherited application policy still needs admission in this image. */
+            t->cooperative_blocked=!!t->application_filter;
             t->registration_revoked=0;
             t->pid_preflight=t->filter_preflight=0;
             t->process_image=0;
@@ -13901,10 +13987,7 @@ int main(int argc, char **argv) {
             int captured=machine_context(t,observed);
             if (captured) {
                 if (!registers(pid,&regs)) continue;
-                int native_entry=0;
-                if (!t->application_filter && !t->cooperative_blocked
-                        && !t->debug_options && !md_memory_exposed(t->memory))
-                    native_entry=md_svc_machine_native_entry(registry,&regs);
+                int native_entry=machine_native_entry(t,&regs,cookie);
                 int owned=native_entry ? 0 : md_svc_machine_syscall(md_memory_svc(t->memory),&t->machine,pid,&regs);
                 if (owned==-ESRCH) { t->resume_lost=1; continue; }
                 if (owned<0) errno=-owned;

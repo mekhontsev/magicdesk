@@ -6,6 +6,10 @@
 #include <sys/types.h>
 
 struct md_svc_code_pool { uintptr_t address; size_t used; };
+struct md_svc_client_mapping {
+    uintptr_t address;
+    unsigned bucket;
+};
 struct md_svc_site {
     struct md_svc_direct_context direct;
     uintptr_t kernel_alias;
@@ -28,6 +32,8 @@ struct md_svc_registry {
     unsigned identity_known;
     struct md_svc_site *sites;
     unsigned capacity;
+    struct md_svc_client_mapping *client_blocks;
+    size_t client_count, client_capacity;
 };
 struct md_svc_registry *md_svc_registry_new(uintptr_t frames,uintptr_t dispatch);
 struct md_svc_registry *md_svc_registry_copy(const struct md_svc_registry *);
@@ -68,6 +74,10 @@ int md_svc_registry_unpatch(struct md_svc_registry *,pid_t,uintptr_t,size_t);
  * Liveness comes from the supervisor, never from a guest-writable handle. */
 int md_svc_registry_collect_clients(struct md_svc_registry *,pid_t,int memory_fd,
     int (*alive)(pid_t,void *),void *);
+/* Private per-mm client blocks: publish only under the mapping turn. The
+ * supervisor owns the mapping inventory; guest links are not trusted metadata. */
+long md_svc_registry_client_space(const struct md_svc_registry *,pid_t,int memory_fd,unsigned bucket);
+int md_svc_registry_client_publish(struct md_svc_registry *,pid_t,int memory_fd,unsigned bucket,uintptr_t base);
 /* Update at an owned stop, before a newborn or its parent can enter userspace.
  * Zero removes the hint; shared address spaces always query the kernel. */
 int md_svc_registry_identity(struct md_svc_registry *,pid_t,int memory_fd,pid_t sole_owner);

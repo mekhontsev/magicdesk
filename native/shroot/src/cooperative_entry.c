@@ -1,4 +1,5 @@
 #include "cooperative_channel.h"
+#include "adapter_buffer.h"
 #include "interception.h"
 #include "raw.h"
 #include "spin_policy.h"
@@ -166,6 +167,7 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
             goto kernel;
         }
         long address=md_guest_buffer_admit(MD_ENTRY_BIND);
+        if (address==-EAGAIN) address=md_guest_buffer_control(MD_BUFFER_CHANNEL_INSTALL,0,0);
         if (address<0) {
             control=(uintptr_t)(address==-EAGAIN || address==-ENOMEM || address==-EINTR ? 128 : UINT32_MAX)<<1;
             goto kernel;
@@ -373,8 +375,12 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
     return finish(client,call,outcome);
 }
 static long thread_identity(void) { return RAW0(gettid); }
+static uintptr_t client_block(unsigned bucket) {
+    long result=md_guest_buffer_control(MD_BUFFER_CLIENT_INSTALL,bucket,0);
+    return result>0 ? (uintptr_t)result : 0;
+}
 const struct md_entry_api md_cooperative_entry={
     .version=MD_ENTRY_VERSION,.size=sizeof(struct md_entry_api),.try_syscall=invoke,
     .offers=offers,.syscall_count=sizeof(offers),.thread_identity=thread_identity,.native_memory=native_memory,
-    .try_identified=invoke_identified
+    .try_identified=invoke_identified,.client_block=client_block
 };

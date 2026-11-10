@@ -66,6 +66,11 @@ int md_memory_readonly_intersects(const struct md_interception_memory *,uintptr_
 void md_memory_readonly_invalidate(struct md_interception_memory *,uintptr_t,size_t);
 int md_memory_buffers_mapped(struct md_interception_memory *, uintptr_t base, size_t size);
 uintptr_t md_memory_buffer_address(struct md_interception_memory *, const struct md_interception_buffer *);
+/* Bootstrap channels are supplemented by small mapped blocks on demand.
+ * Fork retains their shared allocators; outstanding worker pins prevent reuse.
+ * Publication requires the mapping turn. Ordinary calls keep a direct pointer. */
+int md_memory_channel_take(struct md_interception_memory *,struct md_interception_buffer *);
+int md_memory_channels_publish(struct md_interception_memory *,struct md_interception_buffers *,uintptr_t base);
 /* Mapping commit and destructive memory calls share this address-space turn.
  * The caller retains the memory owner until completing/cancelling the turn. */
 int md_memory_order_begin(struct md_interception_memory *, struct md_resource_order *, struct md_resource_wakeup *);

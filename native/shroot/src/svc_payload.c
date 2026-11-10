@@ -19,6 +19,22 @@ static __attribute__((always_inline)) inline int prepare_stack(uint64_t *r) {
     }
     return *ready==1;
 }
+static __attribute__((always_inline)) inline struct md_entry_client *client_slot(
+        struct md_svc_client_slot *slots,unsigned count,unsigned probes,unsigned hash,uint64_t tid,int claim) {
+    struct md_svc_client_slot *available=0;
+    for (unsigned j=0;j<probes;++j) {
+        unsigned i=(hash+j)%count;
+        uint64_t owner=__atomic_load_n(&slots[i].tid,__ATOMIC_ACQUIRE);
+        if (!owner && !available) available=&slots[i];
+        if (owner==tid) return &slots[i].client;
+    }
+    if (claim && available) {
+        uint64_t empty=0;
+        if (__atomic_compare_exchange_n(&available->tid,&empty,tid,0,
+                __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) return &available->client;
+    }
+    return 0;
+}
 
 /* Relocation-free entry driver: no TLS, libc, stack protector,
  * SIMD or external helper calls. The private-stack guard is the only internal
@@ -34,17 +50,28 @@ int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s,uintptr_t
     if (!md_entry_api_valid(api) || !md_entry_offered(api,(long)r[8],MD_ENTRY_ORDINARY)) return 0;
     long tid=(long)__atomic_load_n(&s->sole_owner,__ATOMIC_ACQUIRE);
     if (!tid) tid=api->thread_identity();
-    struct md_entry_client *client=0;
     if (tid<=0) return 0;
-    for (unsigned j=0;j<MD_SVC_PAYLOAD_CLIENTS;++j) {
-        unsigned i=((unsigned long)tid+j)%MD_SVC_PAYLOAD_CLIENTS;
-        uint64_t owner=__atomic_load_n(&s->clients[i].tid,__ATOMIC_ACQUIRE);
-        if (!owner) {
-            uint64_t empty=0;
-            if (__atomic_compare_exchange_n(&s->clients[i].tid,&empty,(uint64_t)tid,0,
-                    __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) owner=tid;
+    struct md_entry_client *client=client_slot(s->clients,MD_SVC_INLINE_CLIENTS,
+        MD_SVC_CLIENT_PROBES,(unsigned)tid,(uint64_t)tid,0);
+    if (!client) {
+        unsigned bucket=(unsigned)tid%MD_SVC_CLIENT_BUCKETS;
+        struct md_svc_client_block *head=(void *)__atomic_load_n(&s->client_buckets[bucket],__ATOMIC_ACQUIRE);
+        struct md_svc_client_block *block=head;
+        for (;block;block=(void *)block->next) {
+            client=client_slot(block->slots,MD_SVC_CLIENT_BLOCK,MD_SVC_CLIENT_BLOCK,
+                (unsigned)tid/MD_SVC_CLIENT_BUCKETS,(uint64_t)tid,0);
+            if (client) break;
         }
-        if (owner==(uint64_t)tid) { client=&s->clients[i].client; break; }
+        if (!client) client=client_slot(s->clients,MD_SVC_INLINE_CLIENTS,
+            MD_SVC_CLIENT_PROBES,(unsigned)tid,(uint64_t)tid,1);
+        for (block=head;!client && block;block=(void *)block->next)
+            client=client_slot(block->slots,MD_SVC_CLIENT_BLOCK,MD_SVC_CLIENT_BLOCK,
+                (unsigned)tid/MD_SVC_CLIENT_BUCKETS,(uint64_t)tid,1);
+        if (!client && api->client_block) {
+            block=(void *)api->client_block(bucket);
+            if (block) client=client_slot(block->slots,MD_SVC_CLIENT_BLOCK,MD_SVC_CLIENT_BLOCK,
+                (unsigned)tid/MD_SVC_CLIENT_BUCKETS,(uint64_t)tid,1);
+        }
     }
     if (!client) return 0;
     int64_t result;

@@ -107,6 +107,41 @@ static void client_retirement(void) {
     puts("PASS SVC client retirement: lost stop, live peer, owner-last publication and idle fast path");
 }
 
+static void client_expansion(void) {
+    enum { COUNT=40 };
+    size_t page=(size_t)getpagesize();
+    void *memory=mmap(NULL,COUNT*page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(memory!=MAP_FAILED);
+    int fd=open("/proc/self/mem",O_RDWR|O_CLOEXEC); assert(fd>=0);
+    payload=(struct md_svc_payload_state){0};
+    struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE};
+    assert(md_svc_registry_client_space(&r,getpid(),fd,0)==-EAGAIN);
+    for (unsigned i=0;i<COUNT;++i) {
+        struct md_svc_client_block *block=(void *)((char *)memory+i*page);
+        unsigned bucket=i%MD_SVC_CLIENT_BUCKETS;
+        uintptr_t previous=payload.client_buckets[bucket];
+        assert(!md_svc_registry_client_publish(&r,getpid(),fd,bucket,(uintptr_t)block));
+        assert(block->next==previous && payload.client_buckets[bucket]==(uintptr_t)block);
+        assert(md_svc_registry_client_space(&r,getpid(),fd,bucket)==(long)block);
+        for (unsigned j=0;j<MD_SVC_CLIENT_BLOCK;++j)
+            block->slots[j]=(struct md_svc_client_slot){.tid=j ? 111 : 222,.client.opaque={1,2,3}};
+        assert(md_svc_registry_client_space(&r,getpid(),fd,bucket)==-EAGAIN);
+    }
+    struct md_svc_registry *copy=md_svc_registry_copy(&r);
+    assert(copy && copy->client_count==COUNT && copy->client_blocks!=r.client_blocks);
+    assert(!memcmp(copy->client_blocks,r.client_blocks,COUNT*sizeof(*r.client_blocks)));
+    r.clients_dirty=1;
+    assert(!md_svc_registry_collect_clients(&r,getpid(),fd,alive,&payload));
+    assert(payload.retired_clients==COUNT*(MD_SVC_CLIENT_BLOCK-1));
+    for (unsigned i=0;i<COUNT;++i) {
+        struct md_svc_client_block *block=(void *)((char *)memory+i*page);
+        assert(block->slots[0].tid==222 && block->slots[0].client.opaque[2]==3);
+        assert(!block->slots[1].tid && !block->slots[1].client.opaque[2]);
+    }
+    md_svc_registry_free(copy); free(r.client_blocks); close(fd);
+    assert(!munmap(memory,COUNT*page));
+    puts("PASS SVC client expansion: bucket publication, growth, fork inventory and common retirement");
+}
 static void entry_revocation(void) {
     for (int failure=0;failure<3;++failure) {
         payload.admitted=1;
@@ -479,6 +514,7 @@ static void revoked_frames(void) {
 int main(void) {
     frame_layout();
     client_retirement();
+    client_expansion();
     entry_revocation();
     code_staging();
     sole_identity();

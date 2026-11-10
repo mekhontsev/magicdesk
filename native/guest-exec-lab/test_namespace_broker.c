@@ -259,7 +259,7 @@ static void discovery(const char *store) {
             unsigned site=i<6 || i>=6+MD_TEST_SYSCALL_SITES*2 ? 0 : (i-6)/2;
             md_test_syscall_fn call=i<6 ? result_call : md_test_syscall_site(site);
             long result=call(AT_FDCWD,(uintptr_t)"/entries",F_OK,0,0,0,SYS_faccessat);
-            int cold=i>=6+MD_TEST_SYSCALL_SITES*2+4 || (i<6 ? i==0 || i==3 : !(i%2));
+            int cold=i>=6+MD_TEST_SYSCALL_SITES*2+4 || (i<6 ? i==0 || i==3 || i==4 : !(i%2));
             assert(result==(cold ? -EAGAIN : 0));
             assert(write(channel[1],"d",1)==1);
         }
@@ -283,6 +283,7 @@ static void discovery(const char *store) {
     for (unsigned i=0;i<6+MD_TEST_SYSCALL_SITES*2+6;++i) {
         if (i==2) md_broker_resample(broker,child,(uintptr_t)result_return+4);
         if (i==3) md_broker_resample(broker,child,(uintptr_t)result_return);
+        if (i==4) md_broker_resample(broker,child,0);
         if (i==5) assert(!md_broker_task(broker,child,eligible,0,0,NULL));
         if (i==6+MD_TEST_SYSCALL_SITES*2+2) {
             md_broker_forget(broker,child);
@@ -302,13 +303,13 @@ static void discovery(const char *store) {
         assert(read(channel[0],&byte,1)==1 && byte=='d');
     }
     int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
-    assert(atomic_load(&discovery_calls)==6+MD_TEST_SYSCALL_SITES && !md_fs_worker_error(worker));
+    assert(atomic_load(&discovery_calls)==7+MD_TEST_SYSCALL_SITES && !md_fs_worker_error(worker));
     md_broker_forget(broker,child);
     assert(!md_fs_worker_stop(worker)); md_broker_destroy(broker);
     md_task_registry_destroy(tasks); md_identity_release(&identity);
     md_domain_release(resources.fs); md_fd_origins_release(resources.files);
     assert(!close(discovery_listener) && !close(channel[0]) && descriptors()==before);
-    puts("PASS broker discovery: one cold delegation, exact-site resampling, warm calls and eligibility refresh");
+    puts("PASS broker discovery: one cold delegation, exact/all-site resampling, warm calls and eligibility refresh");
     puts("PASS broker discovery cache: 32 sites, bounded repeat suppression, evicted-site retry and new owner");
     puts("PASS broker admission: entry and discovery flags do not authorize raw notifications");
 }

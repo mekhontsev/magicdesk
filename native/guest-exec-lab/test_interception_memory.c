@@ -178,7 +178,40 @@ static void entry_snapshots(void) {
     md_memory_release(child); md_memory_release(exec);
     puts("PASS entry snapshots: retained read-only views, unbounded identities, fork/exec and dependent invalidation");
 }
+static void channel_blocks(void) {
+    struct md_interception_memory *parent=md_memory_new(); assert(parent);
+    assert(!md_memory_buffers_prepare(parent,3,4096,0,0));
+    struct md_interception_buffers *initial=md_memory_buffers(parent),*extra=NULL;
+    assert(!md_buffers_partition_channels(initial,2));
+    assert(!md_memory_buffers_mapped(parent,0x100000,md_buffers_size(initial)));
+    assert(!md_buffers_create(32,4096,0,0,&extra));
+    assert(!md_memory_channels_publish(parent,extra,0x200000));
+    assert(md_memory_channels_publish(parent,extra,0x200000)==-EEXIST);
+    md_buffers_release(extra);
+    struct md_interception_buffer slots[34]={0},pin={0},last={0};
+    for (unsigned i=0;i<34;++i) {
+        assert(!md_memory_channel_take(parent,&slots[i]));
+        assert(md_memory_buffer_address(parent,&slots[i]));
+    }
+    assert(md_memory_channel_take(parent,&last)==-EAGAIN);
+    struct md_interception_memory *child=md_memory_fork(parent,0),*image=md_memory_new_image(parent);
+    assert(child && image && md_memory_channel_take(child,&last)==-EAGAIN);
+    assert(!md_memory_buffer_address(image,&slots[33]));
+    uintptr_t address=md_memory_buffer_address(child,&slots[33]);
+    assert(address==md_memory_buffer_address(parent,&slots[33]));
+    assert(!md_buffer_pin(&slots[33],&pin));
+    assert(!md_buffer_release(&slots[33]));
+    assert(md_memory_channel_take(child,&last)==-EAGAIN);
+    assert(!md_buffer_release(&pin));
+    assert(!md_memory_channel_take(child,&last));
+    assert(md_memory_buffer_address(child,&last)==address);
+    md_memory_release(parent); md_memory_release(child); md_memory_release(image);
+    for (unsigned i=0;i<34;++i) assert(!md_buffer_release(&slots[i]));
+    assert(!md_buffer_release(&last));
+    puts("PASS channel blocks: expansion, fork custody, exec reset and worker pin retirement");
+}
 int main(void) {
+    channel_blocks();
     entry_snapshots();
     readonly_inputs();
     file_custody();

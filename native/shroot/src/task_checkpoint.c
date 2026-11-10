@@ -148,13 +148,11 @@ static int checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status)
     }
     if (c && c->suspended) return 0;
     if (event==PTRACE_EVENT_SECCOMP) {
-        if (m->begin && (!c || !c->scoped)) return 0;
         struct ptrace_syscall_info info={0};
         long size=m->trace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info);
         if (size<0) return -errno;
         if (info.op!=PTRACE_SYSCALL_INFO_SECCOMP) return -EPROTO;
         unsigned long cookie=info.seccomp.ret_data;
-        if (cookie!=MD_INTERCEPT_CHECKPOINT && (!c || !c->scoped)) return 0;
         if (!m->marker(info.instruction_pointer) && (m->begin || cookie!=MD_INTERCEPT_CHECKPOINT)) {
             /* Ordinary syscall owners may need only this entry record.
              * Do not eagerly capture full registers for compact handlers. */
@@ -168,6 +166,10 @@ static int checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status)
             return 0;
         }
         c=find(m,pid,1); if (!c) return -ENOMEM;
+        /* Resident entry reaches these gates through an ordinary C call, not
+         * SETREGSET. The observed owned PC establishes scope; the old hint
+         * must not prevent recognizing a thread's first checkpoint. */
+        if (m->begin) c->scoped=1;
         return marker(m,c,pid,info.instruction_pointer,info.seccomp.args[0],0,status);
     }
     if (!c || !c->stage) return 0;

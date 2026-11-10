@@ -24,6 +24,11 @@ struct entry_snapshot {
     struct md_interception_buffers *buffers;
     struct entry_snapshot *next;
 };
+struct channel_block {
+    uintptr_t base;
+    struct md_interception_buffers *buffers;
+    struct channel_block *next;
+};
 enum { BACKING_BUCKETS = 127 };
 struct backing_pool {
     size_t references;
@@ -48,6 +53,7 @@ struct md_interception_memory {
     struct md_memory_page *pages;
     struct md_interception_buffers *buffers;
     uintptr_t buffer_base;
+    struct channel_block *channels;
     struct md_interception_buffers *readonly_buffers;
     uintptr_t readonly_base;
     struct entry_snapshot *snapshots;
@@ -66,6 +72,7 @@ struct md_interception_memory {
     struct md_svc_registry *svc;
     struct md_memory_admission *admission;
     unsigned admission_valid, admission_sites, admission_pools;
+    size_t admission_clients;
 };
 static unsigned backing_bucket(dev_t device, ino_t inode) {
     return ((uint64_t)device ^ (uint64_t)inode) % BACKING_BUCKETS;
@@ -168,6 +175,11 @@ struct md_interception_memory *md_memory_fork(struct md_interception_memory *s, 
         md_memory_release(copy); return NULL;
     }
     copy->buffer_base=s->buffer_base;
+    for (const struct channel_block *p=s->channels;p;p=p->next) {
+        if (md_memory_channels_publish(copy,p->buffers,p->base)) {
+            md_memory_release(copy); return NULL;
+        }
+    }
     if (s->readonly_buffers && !(copy->readonly_buffers=md_buffers_retain(s->readonly_buffers))) {
         md_memory_release(copy); return NULL;
     }
@@ -204,6 +216,10 @@ void md_memory_release(struct md_interception_memory *s) {
     while (s->pages) { struct md_memory_page *next=s->pages->next; free(s->pages); s->pages=next; }
     md_buffers_release(s->buffers); md_resource_queue_destroy(&s->mappings); free(s->restrictions);
     md_buffers_release(s->readonly_buffers);
+    while (s->channels) {
+        struct channel_block *next=s->channels->next;
+        md_buffers_release(s->channels->buffers); free(s->channels); s->channels=next;
+    }
     while (s->snapshots) {
         struct entry_snapshot *next=s->snapshots->next;
         md_buffers_release(s->snapshots->buffers); free(s->snapshots); s->snapshots=next;
@@ -322,8 +338,33 @@ int md_memory_buffers_mapped(struct md_interception_memory *s, uintptr_t base, s
 }
 uintptr_t md_memory_buffer_address(struct md_interception_memory *s, const struct md_interception_buffer *b) {
     struct md_buffer_span span;
-    return s && s->buffer_base && b && b->pool==s->buffers && !md_buffer_span(b,&span)
-        ? s->buffer_base+span.offset : 0;
+    if (!s || md_buffer_span(b,&span)) return 0;
+    if (b->pool==s->buffers) return s->buffer_base ? s->buffer_base+span.offset : 0;
+    for (const struct channel_block *p=s->channels;p;p=p->next)
+        if (p->buffers==b->pool) return p->base+span.offset;
+    return 0;
+}
+int md_memory_channel_take(struct md_interception_memory *s,struct md_interception_buffer *out) {
+    if (!s || !s->buffer_base) return -EINVAL;
+    int error=md_buffers_take_channel(s->buffers,out);
+    for (const struct channel_block *p=s->channels;error==-EAGAIN && p;p=p->next)
+        error=md_buffers_take(p->buffers,out);
+    return error;
+}
+int md_memory_channels_publish(struct md_interception_memory *s,
+        struct md_interception_buffers *buffers,uintptr_t base) {
+    size_t size=md_buffers_size(buffers);
+    if (!s || !size || !base || base%(size_t)getpagesize() || base>UINTPTR_MAX-size
+            || md_buffers_peer_readonly(buffers)) return -EINVAL;
+    for (const struct channel_block *p=s->channels;p;p=p->next)
+        if (p->buffers==buffers || range_intersects(p->base,md_buffers_size(p->buffers),base,size)) return -EEXIST;
+    struct channel_block *node=malloc(sizeof(*node));
+    if (!node) return -ENOMEM;
+    struct md_interception_buffers *retained=md_buffers_retain(buffers);
+    if (!retained) { free(node); return -ENOMEM; }
+    *node=(struct channel_block){base,retained,s->channels}; s->channels=node;
+    s->admission_valid=0;
+    return 0;
 }
 int md_memory_order_begin(struct md_interception_memory *s, struct md_resource_order *order,
         struct md_resource_wakeup *wake) {
@@ -420,7 +461,8 @@ void md_memory_admission_publish(struct md_interception_memory *s,struct md_memo
      * Mapping commits invalidate the other exclusions. Eligibility is never
      * cached: sharing, exposure and filter fences still revoke each publish. */
     if (s->admission==p && s->admission_valid
-            && s->admission_sites==r->count && s->admission_pools==r->pool_count) {
+            && s->admission_sites==r->count && s->admission_pools==r->pool_count
+            && s->admission_clients==r->client_count) {
         atomic_store_explicit(&p->enabled,1,memory_order_release); return;
     }
     s->admission_valid=0;
@@ -430,6 +472,8 @@ void md_memory_admission_publish(struct md_interception_memory *s,struct md_memo
     for (size_t i=0;i<s->file_count;++i)
         if (admission_range(p,s->files[i].first,s->files[i].end)) return;
     if (s->buffer_base && admission_range(p,s->buffer_base,s->buffer_base+md_buffers_size(s->buffers))) return;
+    for (const struct channel_block *block=s->channels;block;block=block->next)
+        if (admission_range(p,block->base,block->base+md_buffers_size(block->buffers))) return;
     if (s->readonly_base && admission_range(p,s->readonly_base,s->readonly_base+md_buffers_size(s->readonly_buffers))) return;
     for (const struct entry_snapshot *view=s->snapshots;view;view=view->next)
         if (admission_range(p,view->base,view->base+md_buffers_size(view->buffers))) return;
@@ -437,9 +481,12 @@ void md_memory_admission_publish(struct md_interception_memory *s,struct md_memo
             || admission_range(p,r->frames,r->frames+MD_SVC_POOL_SIZE+MD_SVC_PAYLOAD_SIZE)) return;
     for (unsigned i=0;i<r->pool_count;++i)
         if (admission_range(p,r->pools[i].address,r->pools[i].address+MD_SVC_CODE_BYTES)) return;
+    for (size_t i=0;i<r->client_count;++i)
+        if (admission_range(p,r->client_blocks[i].address,r->client_blocks[i].address+(size_t)getpagesize())) return;
     for (unsigned i=0;i<r->count;++i)
         if (r->sites[i].direct.gate && admission_range(p,r->sites[i].direct.svc,r->sites[i].direct.svc+4)) return;
-    s->admission_sites=r->count; s->admission_pools=r->pool_count; s->admission_valid=1;
+    s->admission_sites=r->count; s->admission_pools=r->pool_count;
+    s->admission_clients=r->client_count; s->admission_valid=1;
     atomic_store_explicit(&p->enabled,1,memory_order_release);
 }
 int md_memory_protect_check(const struct md_interception_memory *s, uintptr_t first, size_t length,unsigned protection) {

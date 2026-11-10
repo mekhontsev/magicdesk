@@ -20,7 +20,8 @@ enum md_adapter_buffer_control { MD_BUFFER_MAPPED=1, MD_BUFFER_TAKE, MD_BUFFER_R
     MD_BUFFER_FINISH, MD_BUFFER_PROC_START, MD_BUFFER_PIDFD_SIGNAL,
     MD_BUFFER_PIDFD_READY, MD_BUFFER_PIDFD_SENT, MD_BUFFER_PIDFD_OBSERVED, MD_BUFFER_PIDFD_ADMIT,
     MD_BUFFER_CLONE_CGROUP, MD_BUFFER_READONLY_MAPPED, MD_BUFFER_SIGNAL_ENABLE,
-    MD_BUFFER_READONLY_INSTALL, MD_BUFFER_NATIVE_IDENTITY, MD_BUFFER_PROC_OPEN };
+    MD_BUFFER_READONLY_INSTALL, MD_BUFFER_NATIVE_IDENTITY, MD_BUFFER_PROC_OPEN,
+    MD_BUFFER_CHANNEL_INSTALL, MD_BUFFER_CLIENT_INSTALL };
 /* These operations always resume the C caller with a scalar return value.
  * They neither restore application registers nor inject task-context calls. */
 static inline int md_adapter_buffer_scalar(unsigned long command) {

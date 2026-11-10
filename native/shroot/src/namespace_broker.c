@@ -944,8 +944,11 @@ void md_broker_resample(struct md_namespace_broker *b,pid_t pid,uintptr_t pc) {
     if (!b) return;
     pthread_mutex_lock(&b->lock);
     struct task *t=find_task(b,pid);
-    if (t) for (unsigned i=0;i<DISCOVERY_RECENT;++i)
-        if (t->discovery.recent[i]==pc) { t->discovery.recent[i]=0; break; }
+    if (t) {
+        if (!pc) memset(&t->discovery,0,sizeof(t->discovery));
+        else for (unsigned i=0;i<DISCOVERY_RECENT;++i)
+            if (t->discovery.recent[i]==pc) { t->discovery.recent[i]=0; break; }
+    }
     pthread_mutex_unlock(&b->lock);
 }
 int md_broker_task(struct md_namespace_broker *b, int pid, int eligible, uintptr_t raw_gate, uintptr_t watch_gate,

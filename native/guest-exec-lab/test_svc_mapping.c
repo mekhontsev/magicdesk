@@ -18,10 +18,12 @@
 #include <sys/eventfd.h>
 #include <sys/inotify.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <ucontext.h>
@@ -36,6 +38,7 @@ extern long live_unmap(void *,size_t);
 extern long live_protect(void *,size_t,int);
 extern long live_map(void *,size_t,int,int,int,long);
 extern long live_remap(void *,size_t,size_t,int,void *);
+extern long live_uname(struct utsname *);
 __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     "image_uid:\nmov x8,#174\nsvc #0\nret\n.p2align 16\n"
     ".global live_uid\nlive_uid:\nmov x8,#174\nsvc #0\nret\n"
@@ -44,7 +47,45 @@ __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     ".global live_unmap\nlive_unmap:\nmov x8,#215\nsvc #0\nret\n"
     ".global live_protect\nlive_protect:\nmov x8,#226\nsvc #0\nret\n"
     ".global live_map\nlive_map:\nmov x8,#222\nsvc #0\nret\n"
-    ".global live_remap\nlive_remap:\nmov x8,#216\nsvc #0\nret\n.popsection");
+    ".global live_remap\nlive_remap:\nmov x8,#216\nsvc #0\nret\n"
+    ".global live_uname\nlive_uname:\nmov x8,#160\nsvc #0\nret\n.popsection");
+static void publication_check(uintptr_t function,int patched) {
+    uint32_t word=*(volatile const uint32_t *)(function+4);
+    assert(patched ? (word&0xfc000000)==0x14000000 : word==0xd4000001);
+}
+static void first_encounter(int patched,int filtered) {
+    if (filtered) {
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_uname,0,3),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,7,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    publication_check((uintptr_t)live_uname,0);
+    assert(live_uname((void *)1)==-EFAULT);
+    publication_check((uintptr_t)live_uname,patched);
+    struct utsname name;
+    for (unsigned i=0;i<32;++i) {
+        assert(!live_uname(&name) && !strcmp(name.sysname,"Linux"));
+        assert(live_uname((void *)7)==(filtered ? -EACCES : -EFAULT));
+    }
+    size_t page=(size_t)sysconf(_SC_PAGESIZE);
+    publication_check((uintptr_t)live_map,0);
+    int image=open("/proc/self/exe",O_RDONLY|O_CLOEXEC); assert(image>=0);
+    long mapped=live_map(NULL,page,PROT_READ,MAP_PRIVATE,image,0);
+    assert(mapped>0);
+    publication_check((uintptr_t)live_map,patched);
+    assert(*(const unsigned char *)mapped==0x7f && !close(image));
+    assert(live_map((void *)mapped,page,PROT_READ|PROT_WRITE,
+        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)==mapped);
+    assert(!munmap((void *)mapped,page));
+    puts("PASS SVC first encounter: Base task, failed arguments, file mmap and later fast eligibility");
+}
 static size_t unmap_page;
 static volatile sig_atomic_t policy_traps;
 static void policy_trap(int number,siginfo_t *info,void *opaque) {
@@ -167,6 +208,16 @@ static void filter_actions(void) {
     assert(!pthread_join(peer,NULL));
     puts("PASS SVC filter actions: LOG, TRACE, USER_NOTIF, TRAP, KILL_PROCESS and KILL_THREAD");
 }
+static void filter_probe_invalid(void) {
+    struct sock_filter allow[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={1,allow};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,NULL)<0 && errno==EFAULT);
+    assert(prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,NULL,0,0)<0 && errno==EFAULT);
+    assert(syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,1U<<31,&program)<0 && errno==EINVAL);
+    program.len=0;
+    assert(syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program)<0 && errno==EINVAL);
+}
 static void filter_exec(const char *path,int child) {
     if (!child) {
         struct sock_filter code[]={
@@ -186,6 +237,7 @@ static void filter_exec(const char *path,int child) {
         assert(!"exec with inherited filter failed");
     }
     assert(prctl(PR_GET_SECCOMP,0,0,0,0)==SECCOMP_MODE_FILTER);
+    filter_probe_invalid();
     struct sigaction action={.sa_sigaction=policy_trap,.sa_flags=SA_SIGINFO};
     assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGSYS,&action,NULL));
     long uid=filtered_uid(0);
@@ -199,7 +251,95 @@ static void filter_exec(const char *path,int child) {
     assert(policy_traps==512);
     puts("PASS SVC filter exec: inherited policy, new image entry, original SIGSYS context");
 }
+static void *filter_probe_exec(void *path) {
+    char *argv[]={path,"filter-probe-child",NULL};
+    execv(path,argv);
+    assert(!"exec after rejected filter failed");
+    return NULL;
+}
+static void filter_probe(const char *path,int exec_mode) {
+    filter_probe_invalid();
+    if (!exec_mode) {
+        for (unsigned i=0;i<2048;++i) {
+            struct stat value;
+            assert(!stat(path,&value) && value.st_size>0);
+        }
+        puts("PASS SVC filter probe: failed installation preserves entry");
+    } else if (exec_mode==2) {
+        pthread_t peer;
+        assert(!pthread_create(&peer,NULL,filter_probe_exec,(void *)path));
+        assert(!pthread_join(peer,NULL));
+        assert(!"nonleader exec returned");
+    } else filter_probe_exec((void *)path);
+}
 static volatile sig_atomic_t unmap_signals;
+static pthread_barrier_t channel_barrier;
+static pthread_mutex_t channel_turn=PTHREAD_MUTEX_INITIALIZER;
+static int channel_serial;
+static void channel_sync(void) {
+    int result=pthread_barrier_wait(&channel_barrier);
+    assert(!result || result==PTHREAD_BARRIER_SERIAL_THREAD);
+}
+static void *channel_thread(void *path) {
+    channel_sync();
+    if (channel_serial) assert(!pthread_mutex_lock(&channel_turn));
+    for (unsigned i=0;i<1024;++i) {
+        struct stat value;
+        assert(!stat(path,&value) && value.st_size>0);
+    }
+    if (channel_serial) assert(!pthread_mutex_unlock(&channel_turn));
+    /* Keep every registered channel alive until all peers finish. */
+    channel_sync();
+    channel_sync();
+    return NULL;
+}
+static void channel_threads(const char *path,int filtered,int many,int full) {
+    unsigned count=many ? 192 : 48;
+    channel_serial=many;
+    alarm(90);
+    if (filtered) {
+        struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={1,code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    assert(!pthread_barrier_init(&channel_barrier,NULL,count+1));
+    for (unsigned round=0;round<2;++round) {
+        pthread_t peers[192];
+        for (unsigned i=0;i<count;++i) assert(!pthread_create(&peers[i],NULL,channel_thread,(void *)path));
+        struct rlimit limit;
+        int fds[128],used=0;
+        if (full) {
+            assert(!getrlimit(RLIMIT_NOFILE,&limit));
+            struct rlimit restricted={128,limit.rlim_max};
+            assert(!setrlimit(RLIMIT_NOFILE,&restricted));
+            for (;;) {
+                int fd=dup(STDERR_FILENO);
+                if (fd<0) { assert(errno==EMFILE); break; }
+                assert(used<128); fds[used++]=fd;
+            }
+        }
+        channel_sync(); channel_sync();
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            for (unsigned i=0;i<1024;++i) {
+                struct stat value;
+                assert(!stat(path,&value) && value.st_size>0);
+            }
+            _exit(0);
+        }
+        int status;
+        assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+        if (full) {
+            while (used) assert(!close(fds[--used]));
+            assert(!setrlimit(RLIMIT_NOFILE,&limit));
+        }
+        channel_sync();
+        for (unsigned i=0;i<count;++i) assert(!pthread_join(peers[i],NULL));
+    }
+    assert(!pthread_barrier_destroy(&channel_barrier));
+    puts("PASS SVC channels: concurrent registration, filtered calls and reuse");
+}
 static void unmap_signal(int signal) {
     (void)signal;
     int saved=errno;
@@ -694,6 +834,9 @@ static void entry_transition_race(void) {
         : "PASS SVC filter race: 24 TSYNC installs, live peers, forbidden helper and post-filter denial");
 }
 int main(int argc,char **argv) {
+    if (argc>1 && !strcmp(argv[1],"first-encounter")) {
+        first_encounter(argc>2 && !strcmp(argv[2],"patched"),argc>3); return 0;
+    }
     if (argc>1 && !strcmp(argv[1],"filter-origin")) { filter_origin(); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-readiness")) { filter_readiness(SECCOMP_RET_ERRNO|EACCES); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-readiness-trace")) { filter_readiness(SECCOMP_RET_TRACE|13); return 0; }
@@ -701,6 +844,15 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"filter-actions")) { filter_actions(); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-exec")) { filter_exec(argv[0],0); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-exec-child")) { filter_exec(argv[0],1); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-probe")) { filter_probe(argv[0],0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"channels")) { channel_threads(argv[0],0,0,0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"channels-filter")) { channel_threads(argv[0],1,0,0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"channels-many")) { channel_threads(argv[0],0,1,0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"channels-many-filter")) { channel_threads(argv[0],1,1,0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"channels-full-filter")) { channel_threads(argv[0],1,0,1); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-probe-exec")) { filter_probe(argv[0],1); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-probe-exec-thread")) { filter_probe(argv[0],2); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-probe-child")) { filter_exec(argv[0],0); return 0; }
     image_path=argv[0];
     if (argc>1 && !strcmp(argv[1],"native-unmap")) { native_unmap(); return 0; }
     if (argc>1 && !strcmp(argv[1],"native-protect")) { native_protect(); return 0; }

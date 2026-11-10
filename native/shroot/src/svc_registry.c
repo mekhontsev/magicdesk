@@ -330,6 +330,24 @@ int md_svc_registry_identity(struct md_svc_registry *r,pid_t pid,int memory_fd,p
     if (!error) { r->sole_owner=owner; r->identity_known=1; }
     return error;
 }
+static int collect_client_slots(pid_t pid,int memory_fd,uintptr_t base,
+        const struct md_svc_client_slot *slots,unsigned count,
+        int (*alive)(pid_t,void *),void *context,unsigned *retired) {
+    for (unsigned i=0;i<count;++i) {
+        uint64_t owner=slots[i].tid;
+        if (!owner || (owner<=INT32_MAX && alive((pid_t)owner,context))) continue;
+        uintptr_t at=base+i*sizeof(*slots);
+        uint64_t zero=0;
+        /* Publish the empty owner last: another thread can then claim this
+         * slot without inheriting the retiring thread's opaque handle. */
+        for (size_t j=sizeof(*slots);j;j-=sizeof(zero)) {
+            int error=client_memory(pid,memory_fd,at+j-sizeof(zero),&zero,sizeof(zero),1);
+            if (error) return error;
+        }
+        ++*retired;
+    }
+    return 0;
+}
 int md_svc_registry_collect_clients(struct md_svc_registry *r,pid_t pid,int memory_fd,
         int (*alive)(pid_t,void *),void *context) {
     if (!r || r->disabled || !r->clients_dirty) return 0;
@@ -338,19 +356,16 @@ int md_svc_registry_collect_clients(struct md_svc_registry *r,pid_t pid,int memo
     int error=client_memory(pid,memory_fd,base,&state,sizeof(state),0);
     if (error) return error;
     unsigned retired=0;
-    for (unsigned i=0;i<MD_SVC_PAYLOAD_CLIENTS;++i) {
-        uint64_t owner=state.clients[i].tid;
-        if (!owner || (owner<=INT32_MAX && alive((pid_t)owner,context))) continue;
-        uintptr_t at=base+offsetof(struct md_svc_payload_state,clients)+i*sizeof(state.clients[0]);
-        uint64_t zero=0;
-        /* Publish the empty owner last: another thread can then claim this
-         * slot without inheriting the retiring thread's opaque handle. */
-        for (size_t j=sizeof(state.clients[0]);j;j-=sizeof(zero)) {
-            error=client_memory(pid,memory_fd,at+j-sizeof(zero),&zero,sizeof(zero),1);
-            if (error) return error;
-        }
-        ++retired;
+    error=collect_client_slots(pid,memory_fd,base+offsetof(struct md_svc_payload_state,clients),
+        state.clients,MD_SVC_INLINE_CLIENTS,alive,context,&retired);
+    for (size_t i=0;!error && i<r->client_count;++i) {
+        struct md_svc_client_block block;
+        uintptr_t address=r->client_blocks[i].address;
+        error=client_memory(pid,memory_fd,address,&block,sizeof(block),0);
+        if (!error) error=collect_client_slots(pid,memory_fd,address+offsetof(struct md_svc_client_block,slots),
+            block.slots,MD_SVC_CLIENT_BLOCK,alive,context,&retired);
     }
+    if (error) return error;
     if (retired) {
         state.retired_clients+=retired;
         error=client_memory(pid,memory_fd,base+offsetof(struct md_svc_payload_state,retired_clients),
@@ -359,6 +374,36 @@ int md_svc_registry_collect_clients(struct md_svc_registry *r,pid_t pid,int memo
     }
     r->clients_dirty=0;
     return 0;
+}
+long md_svc_registry_client_space(const struct md_svc_registry *r,pid_t pid,int fd,unsigned bucket) {
+    if (!r || r->disabled || bucket>=MD_SVC_CLIENT_BUCKETS) return -EINVAL;
+    for (size_t i=0;i<r->client_count;++i) if (r->client_blocks[i].bucket==bucket) {
+        struct md_svc_client_block block;
+        int error=client_memory(pid,fd,r->client_blocks[i].address,&block,sizeof(block),0);
+        if (error) return error;
+        for (unsigned j=0;j<MD_SVC_CLIENT_BLOCK;++j)
+            if (!block.slots[j].tid || block.slots[j].tid==(uint64_t)pid) return (long)r->client_blocks[i].address;
+    }
+    return -EAGAIN;
+}
+int md_svc_registry_client_publish(struct md_svc_registry *r,pid_t pid,int fd,unsigned bucket,uintptr_t base) {
+    if (!r || r->disabled || bucket>=MD_SVC_CLIENT_BUCKETS || !base
+            || base%(size_t)getpagesize() || base>UINTPTR_MAX-(size_t)getpagesize()) return -EINVAL;
+    if (r->client_count==r->client_capacity) {
+        size_t count=r->client_capacity ? r->client_capacity*2 : MD_SVC_CLIENT_BUCKETS;
+        if (count<=r->client_capacity || count>SIZE_MAX/sizeof(*r->client_blocks)) return -EOVERFLOW;
+        void *blocks=realloc(r->client_blocks,count*sizeof(*r->client_blocks));
+        if (!blocks) return -ENOMEM;
+        r->client_blocks=blocks; r->client_capacity=count;
+    }
+    uintptr_t next=0;
+    for (size_t i=r->client_count;i;--i)
+        if (r->client_blocks[i-1].bucket==bucket) { next=r->client_blocks[i-1].address; break; }
+    int error=client_memory(pid,fd,base,&next,sizeof(next),1);
+    if (!error) error=client_memory(pid,fd,r->frames+MD_SVC_POOL_SIZE
+        +offsetof(struct md_svc_payload_state,client_buckets)+bucket*sizeof(base),&base,sizeof(base),1);
+    if (!error) r->client_blocks[r->client_count++]=(struct md_svc_client_mapping){base,bucket};
+    return error;
 }
 struct md_svc_registry *md_svc_registry_new(uintptr_t frames,uintptr_t dispatch) {
     static uint64_t next_image;
@@ -376,9 +421,15 @@ struct md_svc_registry *md_svc_registry_copy(const struct md_svc_registry *r) {
     struct md_svc_registry *copy=malloc(sizeof(*copy));
     if (copy) {
         *copy=*r; copy->sites=NULL; copy->capacity=r->count;
+        copy->client_blocks=NULL; copy->client_capacity=r->client_count;
+        if (r->client_count) {
+            copy->client_blocks=malloc(r->client_count*sizeof(*r->client_blocks));
+            if (!copy->client_blocks) { free(copy); return NULL; }
+            memcpy(copy->client_blocks,r->client_blocks,r->client_count*sizeof(*r->client_blocks));
+        }
         if (r->count) {
             copy->sites=malloc(r->count*sizeof(*r->sites));
-            if (!copy->sites) { free(copy); return NULL; }
+            if (!copy->sites) { free(copy->client_blocks); free(copy); return NULL; }
             memcpy(copy->sites,r->sites,r->count*sizeof(*r->sites));
         }
         copy->clients_dirty=1; copy->frames_dirty=1; copy->identity_known=0;
@@ -386,7 +437,7 @@ struct md_svc_registry *md_svc_registry_copy(const struct md_svc_registry *r) {
     return copy;
 }
 void md_svc_registry_free(struct md_svc_registry *r) {
-    if (r) { free(r->sites); free(r); }
+    if (r) { free(r->client_blocks); free(r->sites); free(r); }
 }
 int md_svc_registry_pool(struct md_svc_registry *r,uintptr_t address) {
     if (!r || !address || (address&65535) || address>UINTPTR_MAX-MD_SVC_CODE_BYTES) return -EINVAL;

@@ -249,7 +249,10 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
             report['namedPeerExchangePassed'] = True
             outbound = observe(observer, operation='outbound')['url']
             for name in names:
+                assert client('exec', name, 'python3', '/fixture.py', '--files')
+                assert 'CONTAINER_FILES_OK' in report['commands'][-1]['output'], report['commands'][-1]
                 assert client('exec', name, 'python3', '/fixture.py', '--http', outbound, str(network_repeats))
+            report['fileOperationsPassed'] = True
             report['localOutboundPassed'] = True
             assert not client('run', '--rm', '--name', conflict, '--network', network,
                               '-p', f'{host}:{ports[0]}:8080', image, '/bin/true')
@@ -409,6 +412,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
 
 def main():
     from test_oci_services import Suite, add_machine_entry_argument
+    from fixture_executor import FixtureExecutor
     from kernel_profile import KernelProfile
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
@@ -439,6 +443,7 @@ def main():
     parser.add_argument('--exercise-ports', action='store_true',
                         help='Verify TCP/UDP publication from outside Shroot; use a Python image')
     add_machine_entry_argument(parser)
+    FixtureExecutor.add_argument(parser)
     KernelProfile.add_argument(parser)
     args = parser.parse_args()
     args.profile = args.profile or ('rootless' if args.rootless_user else 'rootless-no-network')
@@ -451,7 +456,7 @@ def main():
     if args.image is None:
         args.image = 'python:3.14-alpine' if args.exercise_ports else 'busybox:1.37.0'
     suite = Suite(args.build, args.build, machine_entry=args.machine_entry,
-                  kernel_profile=args.kernel_profile)
+                  kernel_profile=args.kernel_profile, executor=args.executor)
     suite.report.update(store=args.store, probe=True, profile=args.profile, cgroup=args.cgroup)
     target = '/tmp/md-docker-probe-' + suite.report['id']
     prefix = suite.guest(args.store, '--user', '0:0')
@@ -498,6 +503,9 @@ def main():
         if observer:
             assert suite.report['probeResult'].get('portPublicationPassed'), 'Port matrix failed; see ' + str(suite.output)
             assert suite.report['probeResult'].get('containerPeerExchangePassed'), suite.report['probeResult']
+            if args.machine_entry:
+                assert any(row.get('filteredCompleted', 0) for row in suite.report['machineEntry']['processes']), \
+                    'No post-filter lazy completions in container workload'
             assert suite.report['probeResult']['daemonExitCode'] == 0, suite.report['probeResult']
             assert suite.report['probeResult']['readerDrained'], suite.report['probeResult']
             if args.internet:

@@ -1082,6 +1082,10 @@ static int export_child(void *argument) {
         struct sock_fprog program={sizeof(code)/sizeof(*code),code};
         assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
         assert(lseek(c->directory,3,SEEK_SET)==3);
+        /* Deny an application operation, not an implementation-detail FD
+         * export used to complete the allowed lseek. */
+        syscall(SYS_sendmsg,-1,NULL,0);
+        assert(!"denied application sendmsg returned");
     } else if (c->mode==3) {
         char number[24]; snprintf(number,sizeof(number),"%d",c->channel);
         execl(executable,executable,"export-exec",number,(char *)NULL); return 99;
@@ -1141,8 +1145,7 @@ static void buffer_export(int guest) {
         pid_t child=clone(export_child,(char *)stack+1024*1024,CLONE_FILES|SIGCHLD,&c); assert(child>0);
         /* EVENT_WAIT: exact child exit; the fixture alarm bounds a stuck export. */
         int status; assert(waitpid(child,&status,0)==child);
-        if (guest) assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
-        else assert(WIFEXITED(status) && !WEXITSTATUS(status));
+        assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
         assert(lseek(directory,2,SEEK_SET)==2 && export_fds(NULL)==baseline+(unsigned)guest);
     }
     if (guest) {

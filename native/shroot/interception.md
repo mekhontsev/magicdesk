@@ -22,8 +22,11 @@ exec republishes the same immutable bundle's ABI. No generated address header,
 Java class name or environment-variable switch selects an implementation.
 The bootstrap also publishes the internal [cooperative entry](cooperative-entry.md)
 used by lazy SVC rewriting in unmodified programs. It reuses the same worker and
-execution context. Unsupported sites and application-filtered execution retain
-Base admission.
+execution context. Unsupported sites and calls without admitted application
+policy retain Base admission. Compatible filtered calls can use the cooperative
+entry with their original number, arguments and instruction pointer.
+The task-affine C executor and operation retirement are separate from register
+encoding and resumption; see [execution and transport](cooperative-entry.md#execution-and-transport).
 The dispatch gate receives policy and the retained typed-descriptor kind in x9
 and moves them to the C argument register in userspace. Descriptor classification
 belongs to the supervisor's ordered OFD capture; the adapter does not ask for

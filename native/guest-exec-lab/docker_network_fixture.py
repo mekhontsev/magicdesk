@@ -6,6 +6,7 @@ import ipaddress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+from pathlib import Path
 import queue
 import secrets
 import select
@@ -15,6 +16,7 @@ import ssl
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -361,6 +363,39 @@ def http_exchange(url, repeats=20):
     print('CONTAINER_OUTBOUND_OK', repeats, flush=True)
 
 
+def file_operations():
+    """Exercise the writable container layer and another exec under its policy."""
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix='md-container-files-') as directory:
+        root = Path(directory)
+        original, renamed, link = (root/name for name in ('original', 'renamed', 'link'))
+        data = bytes(range(256))*512
+        original.write_bytes(data)
+        with original.open('rb') as opened:
+            original.rename(renamed)
+            os.link(renamed, link)
+            assert os.stat(renamed).st_ino == os.stat(link).st_ino
+            assert os.fstat(opened.fileno()).st_nlink == 2
+            renamed.unlink()
+            assert opened.read() == data and os.fstat(opened.fileno()).st_nlink == 1
+        child = subprocess.run([sys.executable, __file__, '--files-child', str(link)],
+                               capture_output=True, text=True, timeout=30)
+        assert child.returncode == 0 and 'CONTAINER_FILES_CHILD_OK' in child.stdout, child
+        for _ in range(128):
+            original.write_bytes(b'cycle')
+            original.rename(renamed)
+            assert renamed.read_bytes() == b'cycle'
+            renamed.unlink()
+        for _ in range(4096):
+            with link.open('rb') as opened:
+                assert os.fstat(opened.fileno()).st_size == len(data)
+                assert opened.read(4) == data[:4]
+        link.unlink()
+        assert not list(root.iterdir())
+    print('CONTAINER_FILES_OK', json.dumps(dict(seconds=time.monotonic()-started,
+          cycles=128, opens=4096, child=child.stdout.strip())), flush=True)
+
+
 if __name__ == '__main__':
     if sys.argv[1] == '--http':
         http_exchange(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 20)
@@ -368,6 +403,12 @@ if __name__ == '__main__':
         internet()
     elif sys.argv[1] == '--internet-ipv6':
         internet_ipv6()
+    elif sys.argv[1] == '--files':
+        file_operations()
+    elif sys.argv[1] == '--files-child':
+        assert Path(sys.argv[2]).read_bytes() == bytes(range(256))*512
+        assert Path('/proc/self/status').read_text().split('Seccomp:')[1].split()[0] == '2'
+        print('CONTAINER_FILES_CHILD_OK', flush=True)
     elif sys.argv[1] == '--client':
         exchange(sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5]) if len(sys.argv)>5 else 1,
                  socket.AF_INET6 if '--ipv6' in sys.argv[6:] else socket.AF_INET)

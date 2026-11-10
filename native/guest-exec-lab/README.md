@@ -311,6 +311,14 @@ ordering failures independently of external connectivity. Podman's optional
 NOFILE/NPROC contract without explicit container limit overrides. The physical
 Android limits still apply.
 
+Both accept `--executor shell|app` through the shared fixture executor.
+`--exercise-ports` also runs the same writable-layer checks in both containers:
+rename, hardlink identity/link counts, open-after-unlink, a nested exec with an
+inherited seccomp filter, 128 create/rename/remove cycles and 4096 open/read/close
+operations. Temporary files are removed within each container. These are
+correctness checks, not isolated filesystem benchmarks. A launcher-level lazy
+completion count alone does not establish acceleration inside its containers.
+
 `--exercise-ports --ipv6` selects a dual-stack container bridge and checks IPv6
 TCP/UDP publication and named peers. `--ipv6-host ADDRESS` selects an address
 assigned to both the outer Shroot namespace and Android for publication and

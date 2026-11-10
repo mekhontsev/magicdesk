@@ -5,7 +5,7 @@
 /* Private auxv contract, independent of the libc ABI. The caller retains its
  * original SVC instruction, including clone/signal-return stack semantics. */
 #define MD_AT_COOPERATIVE 0x4d440001UL
-#define MD_ENTRY_VERSION 10
+#define MD_ENTRY_VERSION 11
 enum md_entry_outcome { MD_ENTRY_DECLINED, MD_ENTRY_COMPLETED, MD_ENTRY_UNKNOWN,
     MD_ENTRY_CHECK_CANCEL, MD_ENTRY_KERNEL_CALL, MD_ENTRY_NATIVE_EFFECT };
 struct md_entry_client;
@@ -58,6 +58,9 @@ struct md_entry_api {
     /* Resident driver has the native identity from thread_identity or the
      * supervisor's sole-mm-owner publication, never a guest namespace PID. */
     enum md_entry_outcome (*try_identified)(struct md_entry_client *,long,struct md_entry_call *);
+    /* Cold resident-driver allocation only. Returns a private per-mm block;
+     * existing client addresses remain stable across directory growth. */
+    uintptr_t (*client_block)(unsigned bucket);
 };
 static inline int md_entry_api_valid(const struct md_entry_api *api) {
     return api && api->version==MD_ENTRY_VERSION && api->size>=sizeof(*api)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stock Podman/crun in a disposable prepared Linux store under shell UID.
+"""Stock Podman/crun in a prepared Linux store under the selected executor.
 
 The default exercises bridge networking and native overlay. Alternative storage
 and network modes isolate failures; they do not certify the default workflow.
@@ -167,6 +167,10 @@ def guest(options):
                     run(prefix + ['exec', source, 'python3', '/fixture.py', '--client', target, '8080', target, '20', *family])
                 report['namedPeerExchangePassed'] = True
             outbound = observe(options['observer'], operation='outbound')['url']
+            for name in names:
+                result = run(prefix + ['exec', name, 'python3', '/fixture.py', '--files'])
+                assert 'CONTAINER_FILES_OK' in result['output'], result
+            report['fileOperationsPassed'] = True
             for _ in range(options['execRepeats']):
                 for name in names:
                     run(prefix + ['exec', name, 'python3', '/fixture.py', '--http', outbound])
@@ -272,6 +276,7 @@ def guest(options):
 
 def main():
     from test_oci_services import Suite, add_machine_entry_argument
+    from fixture_executor import FixtureExecutor
     from kernel_profile import KernelProfile
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
@@ -301,6 +306,7 @@ def main():
     parser.add_argument('--host-limits', action='store_true', help='Set nofile/nproc explicitly to inherited shell limits')
     parser.add_argument('--unlimited-pids', action='store_true', help='Explicitly disable the optional pids-controller limit')
     add_machine_entry_argument(parser)
+    FixtureExecutor.add_argument(parser)
     KernelProfile.add_argument(parser)
     args = parser.parse_args()
     args.network = args.network or ('default' if args.rootless_user else 'bridge')
@@ -317,7 +323,7 @@ def main():
     if not 1 <= args.exec_repeats <= 50:
         parser.error('--exec-repeats must be between 1 and 50')
     suite = Suite(Path('build/podman-results'), args.build, machine_entry=args.machine_entry,
-                  kernel_profile=args.kernel_profile)
+                  kernel_profile=args.kernel_profile, executor=args.executor)
     from docker_network_fixture import Observer
     observer = Observer(args.ipv6_host) if args.exercise_ports else None
     target = '/tmp/md-podman-probe-' + suite.report['id']
@@ -365,6 +371,9 @@ def main():
         assert len(reports) == 1, output[-2000:]
         report = json.loads(reports[0]); suite.report['podman'] = report
         assert report['passed'], report.get('failure', 'container cleanup failed')
+        if args.machine_entry and args.exercise_ports:
+            assert any(row.get('filteredCompleted', 0) for row in suite.report['machineEntry']['processes']), \
+                'No post-filter lazy completions in container workload'
         suite.report['passed'] = True
     finally:
         if observer:

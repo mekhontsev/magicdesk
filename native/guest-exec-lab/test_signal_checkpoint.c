@@ -1069,7 +1069,7 @@ static int scalar_entry(uintptr_t pc,unsigned long command) {
     if (pc==(uintptr_t)md_guest_fd_control_checkpoint+4) return md_fd_control_scalar(command);
     return checkpoint_site(pc) && (md_adapter_buffer_scalar(command) || md_fs_buffer_scalar(command));
 }
-static void scalar_checkpoint(int protected,int restricted,unsigned command,int descriptor) {
+static void scalar_checkpoint(int protected,int restricted,unsigned command,int descriptor,int resident) {
     extern struct md_fd_observation md_guest_fd_control(unsigned,uint64_t,long,long);
     volatile uint64_t *output=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(output!=MAP_FAILED);
@@ -1106,7 +1106,8 @@ static void scalar_checkpoint(int protected,int restricted,unsigned command,int 
     struct md_task_checkpoints runtime={.trace=checkpoint_trace,.restricted=checkpoint_policy,
         .marker=scalar_site,.entry_marker=scalar_entry,.begin=1,.end=UINTPTR_MAX};
     struct iovec io={&gate,sizeof(gate)};
-    assert(!md_task_checkpoint_trace(&runtime,PTRACE_SETREGSET,pid,(void *)NT_PRSTATUS,&io));
+    if (resident) assert(!ptrace(PTRACE_SETREGSET,pid,(void *)NT_PRSTATUS,&io));
+    else assert(!md_task_checkpoint_trace(&runtime,PTRACE_SETREGSET,pid,(void *)NT_PRSTATUS,&io));
     assert(!md_task_checkpoint_trace(&runtime,PTRACE_CONT,pid,NULL,NULL));
     unsigned seen=0,stops=0; int status;
     while (seen<2) {
@@ -1964,12 +1965,15 @@ int main(int argc,char **argv) {
     assert(!md_fs_buffer_scalar(MD_FS_BUFFER_RESULT_REPLAY) && !md_fs_buffer_scalar(MD_BUFFER_FINISH));
     for (unsigned i=0;i<sizeof(scalar_commands)/sizeof(*scalar_commands);++i)
         for (int protected=0;protected<2;++protected)
-            for (int restricted=0;restricted<2;++restricted) scalar_checkpoint(protected,restricted,scalar_commands[i],0);
+            for (int restricted=0;restricted<2;++restricted) scalar_checkpoint(protected,restricted,scalar_commands[i],0,0);
     for (unsigned i=0;i<sizeof(fd_commands)/sizeof(*fd_commands);++i)
         for (int protected=0;protected<2;++protected)
-            for (int restricted=0;restricted<2;++restricted) scalar_checkpoint(protected,restricted,fd_commands[i],1);
+            for (int restricted=0;restricted<2;++restricted) scalar_checkpoint(protected,restricted,fd_commands[i],1,0);
+    for (int protected=0;protected<2;++protected)
+        for (int descriptor=0;descriptor<2;++descriptor)
+            scalar_checkpoint(protected,0,descriptor ? fd_commands[0] : scalar_commands[0],descriptor,1);
     printf("PASS scalar checkpoint: %zu cases; entry-only C return, full-register completion, strict seccomp and blocked SIGTRAP\n",
-        4*(sizeof(scalar_commands)/sizeof(*scalar_commands)+sizeof(fd_commands)/sizeof(*fd_commands)));
+        4+4*(sizeof(scalar_commands)/sizeof(*scalar_commands)+sizeof(fd_commands)/sizeof(*fd_commands)));
     for (int protected=0;protected<2;++protected)
         for (int restricted=0;restricted<2;++restricted)
             for (int denied=0;denied<2;++denied) for (int invalid=0;invalid<2;++invalid)

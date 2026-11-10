@@ -15,7 +15,7 @@ need no hooks: observed, eligible syscall sites enter the same provider.
 ## Call Contract
 
 `cooperative_entry.h` accepts a syscall number and six original 64-bit arguments,
-with one zero-initialized opaque handle per thread. ABI version 10 supplies a
+with one zero-initialized opaque handle per thread. ABI version 11 supplies a
 runtime-owned syscall-offer table and a caller-compiled action driver,
 `md_entry_invoke`, with these terminal results:
 
@@ -67,6 +67,14 @@ allocation, extra mapping or thread destructor is needed. Extending that channel
 does not change libc's thread layout. An active handle must not be copied or
 shared across threads; fork resets the child handle before reuse.
 
+The resident driver indexes these handles by native TID. A small inline table
+uses bounded probing; collisions spill into demand-mapped bucket blocks rather
+than disabling entry at a fixed thread count. Blocks are private to the address
+space, so fork copies their data while `CLONE_VM` shares it. Existing handles
+never move. The supervisor inventories mappings and retires dead-thread records
+through the same owner-last publication as inline records. The private-frame
+pool still bounds simultaneous entries, not the number of registered threads.
+
 `syscall_catalog.h` and `entry_route.h` remain runtime-private. Bootstrap builds
 the per-image offer table before guest execution. The caller checks a bounded byte flag
 for ordinary or cancellation-point entry, without embedding syscall numbers or
@@ -105,13 +113,16 @@ implementation of every family.
 Registration uses the existing exact-site `gettid` notification gate; the
 supervisor selects the caller's channel, never a supplied task identity. It does
 not use a synchronous signal: Linux can unblock a blocked SIGTRAP and reset its
-disposition before ptrace observes a BRK. Eight persistent slots in the
-existing per-image buffer pool are separate from its 32 ordinary response slots
-and control reserve. Exhaustion, allocation failure and interrupted registration
-select the kernel route without waiting, with bounded retry backoff; unsupported
+disposition before ptrace observes a BRK. Eight bootstrap slots in the
+per-image buffer pool are separate from its 32 ordinary response slots and
+control reserve. Further channels use demand-mapped blocks sized for channel
+state, not full syscall frames. The shared private-table mapper installs a
+block under the address-space turn without consuming an application FD slot.
+Ordinary calls retain a direct pointer; neither allocation nor block lookup
+occurs per syscall. Allocation failure, a busy mapping turn and interrupted
+registration retain the kernel route with bounded retry backoff; unsupported
 admission is remembered by that client. The original syscall has not run yet.
-No guest socket,
-temporary FD or helper thread is created. Fork cannot reuse an inherited client;
+No guest socket or persistent helper thread is created. Fork cannot reuse an inherited client;
 a fresh client registers separately. Thread exit returns its slot, and exec
 replaces the descriptor and pool.
 
@@ -215,13 +226,16 @@ A newly deliverable logical signal requests their acknowledgement through the
 same targeted wake owner; it must not wait for unrelated IO or another signal.
 Without pending work these packets need no additional stop.
 
-At an unfiltered seccomp-entry stop, a known native fallback transfers the
+At an ordinary seccomp-entry stop, a known native fallback transfers the
 still-unexecuted call to the ordinary syscall owner without rewriting the PC.
 The resident alias executes the native SVC and branches to the original
 post-SVC instruction. This removes a redundant SETREGSET, not an admission
 check. It does not cancel the call, single-step, or repeat entry.
-Unknown syscall numbers retain original-site discovery; application filters,
-debuggers and exposed address spaces retain the conservative path. This is a
+With an application filter, the same transfer requires an ALLOW decision for
+the original instruction and arguments. Policy-only gate stops, guest
+TRACE/USER_NOTIF observation, pending policy admission, debuggers and exposed
+address spaces retain original-site replay. Unknown syscall numbers can extend
+the observed site's entry independently of its current Base completion. This is a
 continuation translation, not permission to bypass memory or FD admission.
 
 An interrupted native SVC alias retains its PC until the kernel has chosen
@@ -639,8 +653,11 @@ pathname result. Unknown/imported provenance uses the ordinary resolution path.
 ## Sandboxes And Debuggers
 
 Before attempting a filter installation, the supervisor revokes the relevant task or
-TSYNC thread group's authoritative eligibility. A failed installation leaves it
-disabled conservatively. Already admitted operations complete before kernel
+TSYNC thread group's authoritative eligibility. A rejected installation can rearm
+the unchanged policy through the same drained-entry and immutable-view checks;
+missing proofs retain Base. Unfiltered callers retain their unfiltered registration
+mode, including after capability probes with invalid programs or flags.
+Already admitted operations complete before kernel
 filter installation. Revocation disables discovery immediately and retains
 unfinished admission/code writes if a task's stop is lost to exit or exec.
 Another stopped member of that address space completes retirement before
@@ -685,6 +702,8 @@ before rearming. Portability requires IP-independent policies and a provably
 unconditional-ALLOW inert checkpoint. New images publish new policy views and
 never reuse former code-pool addresses. Other inherited policies and excessive
 mirror size retain Base. The image registration hint grants no policy authority.
+Exec discards the retired address space's entry-revocation state; inherited policy
+and debugger ownership still govern admission in the new image.
 Debugger tracing selects Base. Restricted native roots decline worker path
 operations but can retain pathless value, native FD and readiness entry.
 
@@ -735,6 +754,14 @@ single-SVC sites. Publication does not stop neighboring threads. Signal,
 mapping, fork/exec, debugger and filter transitions use the existing task and
 memory owners. The frontend supplies original registers and arguments to this
 protocol rather than a second syscall implementation.
+
+The first eligible observation publishes the entry independently of the
+invocation's fast-path eligibility. TASK routes, invalid arguments and tracked
+or shared memory are not publication exclusions. The entry selects a direct
+handler or the existing Base owner for each call using its number, arguments,
+policy and current resource ownership. Original-stack operations and native IO
+retain the Caller route. Code admission still requires a private executable
+source and a reachable resident gate; publication alone is not acceleration.
 
 The stock musl/glibc fixtures exercise cancellation, signal abandonment,
 FIFO restart, FD counts and static/dynamic linking. They compile only the small

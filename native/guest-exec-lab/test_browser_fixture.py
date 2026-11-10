@@ -10,6 +10,49 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+
+from browser import benchmark
+
+
+class BrowserBenchmark(unittest.TestCase):
+    def test_thread_counters_preserve_comm_spaces_and_parentheses(self):
+        fields = ['0'] * 37
+        fields[0], fields[11], fields[12], fields[19], fields[36] = 'S', '17', '23', '1000', '6'
+        row = '123 (worker ) name) ' + ' '.join(fields)
+        self.assertEqual(benchmark.thread_snapshot(row, 123),
+                         {123: dict(ticks=40, start=1000, cpu=6)})
+        with self.assertRaisesRegex(AssertionError, 'Supervisor exited'):
+            benchmark.thread_snapshot(row, 124)
+
+    def protocol(self, replies):
+        protocol = object.__new__(benchmark.Protocol)
+        protocol.serial = 0
+        protocol.socket = mock.Mock()
+        protocol.socket.recv.side_effect = [json.dumps(reply) for reply in replies]
+        return protocol
+
+    def test_cdp_events_do_not_replace_the_exact_reply(self):
+        protocol = self.protocol([dict(method='Page.loadEventFired'),
+                                  dict(id=99, result={}), dict(id=1, result=dict(value=7))])
+        self.assertEqual(protocol.call('test', session='page'), dict(value=7))
+        self.assertEqual(json.loads(protocol.socket.send.call_args.args[0]),
+                         dict(id=1, method='test', params={}, sessionId='page'))
+
+    def test_cdp_events_do_not_extend_the_reply_deadline(self):
+        protocol = self.protocol([dict(method='Page.loadEventFired')])
+        with mock.patch.object(benchmark.time, 'monotonic', side_effect=[0, 1, 31]):
+            with self.assertRaises(TimeoutError):
+                protocol.call('test')
+        protocol.socket.settimeout.assert_called_once_with(29)
+
+    def test_cdp_rejects_protocol_and_javascript_errors(self):
+        protocol = self.protocol([dict(id=1, error=dict(message='bad request'))])
+        with self.assertRaises(AssertionError):
+            protocol.call('test')
+        protocol = self.protocol([dict(id=1, result=dict(exceptionDetails=dict(text='error')))])
+        with self.assertRaises(AssertionError):
+            protocol.evaluate('test()', 'page')
 
 
 class BrowserFixture(unittest.TestCase):

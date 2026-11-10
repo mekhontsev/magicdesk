@@ -102,6 +102,33 @@ output, application-filter denial, nondumpable fallback and native procfs reads.
 and nonempty Mojo startup independently of a displayed page. Prepared stores
 supply these explicitly; they are not downloaded by the runtime.
 
+## Video And Input Measurement
+
+`benchmark.py` runs the installed Chromium in headless software mode with its
+ordinary sandbox. It serves a supplied local WebM, waits for actual video frames,
+then alternates Base/lazy runs with fresh owned profiles. It requires the host
+Python `websocket-client` package. Root observes host thread CPU counters only;
+browser execution retains the selected executor and guest UID 2000.
+
+```sh
+python native/guest-exec-lab/browser/benchmark.py --build BUILD --store DEVICE_GUEST_STORE --executor app --video LOCAL_VIDEO.webm --output build/browser-video --seconds 45 --rounds 2
+```
+
+`--chromium` selects the installed ELF. Use `--executor shell` with a Shell-owned
+store for the same workload. Reports retain the video hash, browser version,
+supervisor/thread CPU deltas, CPU-frequency samples, video frame/drop counters,
+input receipts and screenshots. Input latency is the DevTools insertion and
+next-animation-frame round trip, not a physical-keyboard-to-display measurement.
+CPU percentages use one core as 100%; they exclude the browser's own processes.
+Profiles and processes are removed after each run; images and reports remain.
+
+Run `--statistics --modes lazy --rounds 1` separately to require measured
+post-filter completions. `--diagnostics` adds detailed runtime transitions.
+Neither instrumented variant is a timing baseline. A few accelerated calls do
+not prove that video's hot path is accelerated. Do not overlap timing runs with
+builds or other tests. This fixture does not certify Wayland, hardware decoding,
+YouTube networking or desktop presentation.
+
 ## Coverage And Limits
 
 Device coverage is NX809J, Android 16, Linux 6.12.23, 4 KiB pages. The shell
