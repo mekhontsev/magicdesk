@@ -49,8 +49,12 @@ def main():
                         help='Attach to the rootless Docker daemon after its stock set-ID startup')
     parser.add_argument('--image-archive', default='',
                         help='Guest Docker image archive to load instead of pulling from a registry')
+    parser.add_argument('--network-repeats', type=int, default=20,
+                        help='Connections per Docker network exchange')
     parser.add_argument('--path-prefix', default='', help='Installed vendor command directory; no runtime option changes')
     args = parser.parse_args()
+    if args.network_repeats < 1 or (args.network_repeats != 20 and args.engine != 'docker'):
+        parser.error('--network-repeats requires Docker and a positive count')
     if args.trace and args.engine != 'podman':
         parser.error('--trace requires --engine podman')
     if args.image_archive and args.engine != 'docker':
@@ -75,7 +79,7 @@ def main():
     suite.report.update(engine=args.engine, session=state['id'], environment=state['environment'],
                         nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'),
                         pathPrefix=args.path_prefix, rootless=args.rootless,
-                        imageArchive=args.image_archive,
+                        imageArchive=args.image_archive, networkRepeats=args.network_repeats,
                         diagnostics=dict(podman=args.trace, runtime=args.trace_runtime, network=args.trace_network))
     try:
         for name in ('probe_docker_runtime.py', 'probe_podman_runtime.py', 'docker_network_fixture.py'):
@@ -85,7 +89,7 @@ def main():
         if args.engine == 'docker':
             options = dict(profile=args.docker_profile, image='python:3.14-alpine',
                            observer=observer.address, internet=args.internet,
-                           image_archive=args.image_archive)
+                           image_archive=args.image_archive, network_repeats=args.network_repeats)
             if args.docker_profile == 'service':
                 if args.rootless:
                     options.update(profile='rootless', cgroup='v2', storage_driver='overlay2',
@@ -129,21 +133,25 @@ def main():
         suite.download(state['directory'] + '/' + tag + '.log', local)
         output = local.read_text()
         suite.report['log'] = str(local)
+        marker = args.engine.upper() + '_REPORT '
+        reports = [json.loads(line.removeprefix(marker)) for line in output.splitlines() if line.startswith(marker)]
+        if len(reports) == 1:
+            suite.report['probe'] = reports[0]
         mount_reports = [json.loads(line.removeprefix('SYSTEM_MOUNTS_REPORT '))
                          for line in output.splitlines() if line.startswith('SYSTEM_MOUNTS_REPORT ')]
         assert len(mount_reports) == 1, output[-6000:]
         suite.report['systemMounts'] = mount_reports[0]
         assert mount_reports[0]['before'] == mount_reports[0]['after'], mount_reports[0]
         assert response['exitCode'] == 0, output[-6000:]
-        marker = args.engine.upper() + '_REPORT '
-        reports = [json.loads(line.removeprefix(marker)) for line in output.splitlines() if line.startswith(marker)]
         assert len(reports) == 1, output[-6000:]
         report = reports[0]
-        suite.report['probe'] = report
         if args.engine == 'podman':
             assert report['passed'], report.get('failure')
         else:
-            assert report.get('portPublicationPassed') and report.get('containerPeerExchangePassed'), report
+            assert report.get('portPublicationPassed') and report.get('containerPeerExchangePassed'), (
+                'Docker network acceptance failed', report.get('failure'),
+                {key: report.get(key) for key in ('portPublicationPassed',
+                    'containerPeerExchangePassed', 'localOutboundPassed')})
             if args.trace_network:
                 assert report.get('daemonTraceAttachment') and not report.get('daemonTraceForcedStop'), report
                 assert report.get('daemonTraceExitCode') in (0, -signal.SIGINT), report
@@ -162,6 +170,9 @@ def main():
                 assert item.get('exitCode') == 0, item
         suite.report['passed'] = True
         print('PASS ' + args.engine + ' in booted ' + state['name'], flush=True)
+    except Exception as error:
+        suite.report.update(passed=False, failure=repr(error))
+        raise
     finally:
         observer.close()
         suite.report['externalPortChecks'] = observer.records

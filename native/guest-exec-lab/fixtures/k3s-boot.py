@@ -10,7 +10,7 @@ import sys
 import time
 import traceback
 
-from k3s_fixture import Kubectl, command, kubelet_pods, pid1_command, prepare_images, wait_node_ready
+from k3s_fixture import Kubectl, command, kubelet_pods, network_diagnostics, pid1_command, prepare_images, wait_node_ready
 from systemd_ready import wait_systemd_unit
 
 
@@ -32,16 +32,19 @@ def backup_location(name, identity, index):
     return path.with_name(path.name + '.md-' + identity)
 
 
-def install(root, init):
-    owned = ['/usr/local/bin/k3s', '/usr/local/bin/k3s-killall.sh',
-             '/usr/local/bin/k3s-uninstall.sh', '/etc/rancher/k3s', '/etc/rancher/node',
+def install(root, init, provider='upstream'):
+    owned = ['/etc/rancher/k3s', '/etc/rancher/node',
              '/var/lib/rancher/k3s', '/var/log/k3s.log']
-    owned += (['/etc/systemd/system/k3s.service', '/etc/systemd/system/k3s.service.env',
+    if provider == 'upstream':
+        owned += ['/usr/local/bin/k3s', '/usr/local/bin/k3s-killall.sh',
+                  '/usr/local/bin/k3s-uninstall.sh']
+        owned += (['/etc/systemd/system/k3s.service', '/etc/systemd/system/k3s.service.env',
                '/etc/systemd/system/multi-user.target.wants/k3s.service'] if init == 'systemd' else
               ['/etc/init.d/k3s', '/etc/logrotate.d/k3s', '/etc/runlevels/default/k3s'])
     assert not any(os.path.lexists(p) for p in owned), 'An existing k3s installation must not be replaced'
-    owned += [p for p in ('/usr/local/bin/kubectl', '/usr/local/bin/crictl', '/usr/local/bin/ctr')
-              if not os.path.lexists(p)]
+    if provider == 'upstream':
+        owned += [p for p in ('/usr/local/bin/kubectl', '/usr/local/bin/crictl', '/usr/local/bin/ctr')
+                  if not os.path.lexists(p)]
     parents = [p for p in ('/etc/rancher', '/var/lib/rancher') if not Path(p).exists()]
     backups = {}
     backup_directories = set()
@@ -53,7 +56,7 @@ def install(root, init):
         if backups[name] and Path(saved).parent != Path(name).parent:
             backup_directories.add(str(Path(saved).parent))
     assert not any(os.path.lexists(path) for path in backup_directories)
-    manifest = dict(owned=owned, parents=parents, backups=backups,
+    manifest = dict(owned=owned, parents=parents, backups=backups, provider=provider,
                     backupDirectories=sorted(backup_directories))
     (root / 'installation.json').write_text(json.dumps(manifest))
     for path in backup_directories:
@@ -63,8 +66,9 @@ def install(root, init):
             os.rename(name, saved)
     for parent in parents:
         Path(parent).mkdir(parents=True)
-    shutil.copyfile(root / 'k3s', '/usr/local/bin/k3s')
-    os.chmod('/usr/local/bin/k3s', 0o755)
+    if provider == 'upstream':
+        shutil.copyfile(root / 'k3s', '/usr/local/bin/k3s')
+        os.chmod('/usr/local/bin/k3s', 0o755)
     prepare_images(root, '/var/lib/rancher/k3s')
 
 
@@ -123,13 +127,15 @@ def cleanup_boot(root, init):
         poweroff(init)
 
 
-def observe(root, init, phase, started):
+def observe(root, init, phase, started, provider='upstream'):
     report = dict(phase=phase, startedAfter=started, passed=False, checks=[])
-    kubectl = Kubectl('/usr/local/bin/k3s')
+    executable = shutil.which('k3s') if provider == 'nixos' else '/usr/local/bin/k3s'
+    kubectl = Kubectl(executable)
     try:
+        assert executable, 'k3s is absent from the activated console PATH: ' + os.environ.get('PATH', '')
         assert os.isatty(0) and os.tcgetpgrp(0) == os.getpgrp(), 'console lacks foreground PTY ownership'
         report['checks'].append('foreground-console-pty')
-        if phase == 0:
+        if phase == 0 and provider == 'upstream':
             install(root, init)
             env = dict(os.environ, INSTALL_K3S_SKIP_DOWNLOAD='true')
             subprocess.run(['/bin/sh', str(root / 'install.sh'), 'server'],
@@ -164,6 +170,10 @@ def observe(root, init, phase, started):
             command('rc-service', 'k3s', 'status')
             assert Path('/etc/runlevels/default/k3s').is_symlink()
         report['checks'].append('stock-enabled-service')
+        kubectl('wait', '-n', 'kube-system', 'deployment/local-path-provisioner',
+                '--for=create', '--timeout=90s')
+        kubectl('rollout', 'status', '-n', 'kube-system', 'deployment/local-path-provisioner',
+                '--timeout=' + str(pull_limit) + 's', timeout=pull_limit + 15)
         if phase == 0:
             resources = [dict(apiVersion='v1', kind='PersistentVolumeClaim', metadata=dict(name='md-boot'),
                 spec=dict(accessModes=['ReadWriteOnce'], storageClassName='local-path',
@@ -223,6 +233,7 @@ def observe(root, init, phase, started):
     except Exception as error:
         report['error'] = repr(error)
         traceback.print_exc()
+        network_diagnostics()
         try:
             if init == 'systemd':
                 command('systemctl', 'show', 'k3s', '-p', 'LoadState', '-p', 'ActiveState',
@@ -241,6 +252,20 @@ def observe(root, init, phase, started):
                 kubectl('--request-timeout=5s', *args, check=False, timeout=15)
             except Exception:
                 pass
+        try:
+            pods = json.loads(kubectl('--request-timeout=5s', 'get', 'pods', '-A', '-o=json', timeout=15))['items']
+            for pod in pods:
+                for container in pod.get('status', {}).get('containerStatuses', []):
+                    if container.get('ready') and not container.get('restartCount'):
+                        continue
+                    metadata = pod['metadata']
+                    args = ['--request-timeout=5s', 'logs', '-n', metadata['namespace'], metadata['name'],
+                            '-c', container['name'], '--tail=60']
+                    kubectl(*args, check=False, timeout=15)
+                    if container.get('restartCount'):
+                        kubectl(*args, '--previous', check=False, timeout=15)
+        except Exception as error:
+            print('POD_DIAGNOSTICS', repr(error), flush=True)
     (root / ('phase-' + str(phase) + '.json')).write_text(json.dumps(report))
     with open('/dev/console', 'w') as console:
         print('K3S_BOOT_RESULT', phase, report['passed'], file=console, flush=True)
@@ -262,6 +287,9 @@ if __name__ == '__main__':
         log = open(root / ('phase-' + arguments[0] + '.log'), 'w')
         os.dup2(log.fileno(), 1)
         os.dup2(log.fileno(), 2)
-        observe(root, init, int(arguments[0]), float(arguments[1]))
+        observe(root, init, int(arguments[0]), float(arguments[1]),
+                arguments[2] if len(arguments) > 2 else 'upstream')
+    elif mode == 'prepare':
+        install(root, init, arguments[0])
     else:
         raise ValueError(mode)

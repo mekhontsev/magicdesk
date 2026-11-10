@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.FutureTask;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -49,11 +50,11 @@ final class GuestFixtureRunner {
                     .put("status", new String(Files.readAllBytes(Path.of("/proc/self/status")), StandardCharsets.UTF_8))
                     .put("kernel", android.system.Os.uname().release);
             CommandShellEnvironment.configureLocal(context, request.getStringExtra("endpoint"));
-            ProcessBuilder builder = ShellExecutionEnvironment.command(context, command);
-            JSONObject record = new JSONObject().put("name", "shell").put("argv", new JSONArray(builder.command()));
+            JSONObject record = new JSONObject().put("name", "shell").put("argv",
+                    new JSONArray(new String[]{AndroidShell.path(context), "-c", command}));
             commands.put(record);
             save();
-            run(builder, deadline + 15, record);
+            run(command, deadline + 15, record);
             result.put("success", true);
         } catch (Exception | AssertionError error) {
             result.put("success", false).put("error", error.toString())
@@ -67,31 +68,32 @@ final class GuestFixtureRunner {
         }
     }
 
-    private void run(ProcessBuilder builder, int timeout, JSONObject record) throws Exception {
+    private void run(String command, int timeout, JSONObject record) throws Exception {
         Path log = output.resolve("shell.log");
-        builder.redirectErrorStream(true).redirectOutput(log.toFile());
-        builder.environment().remove("LD_PRELOAD");
-        builder.environment().remove("LD_LIBRARY_PATH");
+        Files.createFile(log);
+        var execution = new CommandExecution(context, DesktopExecBackend.APP);
+        var session = execution.session(null);
+        var completion = new FutureTask<>(() -> session.execute(
+                CommandExecution.invocation(execution.shell(), command, null)
+                        + " > " + ShellCommandLine.quote(log.toString()) + " 2>&1"));
+        var worker = new Thread(completion, "guest-fixture-command");
         long started = SystemClock.elapsedRealtime();
-        java.lang.Process child = builder.start();
         boolean complete = false;
+        int exitCode = -1;
+        worker.start();
         try {
-            // EVENT_WAIT: native owner exits; expiry cancels only this command.
-            complete = child.waitFor(timeout, TimeUnit.SECONDS);
+            // EVENT_WAIT: framed command completion; expiry cancels its owned relay.
+            exitCode = completion.get(timeout, TimeUnit.SECONDS).exitCode();
+            complete = true;
         } finally {
-            if (child.isAlive()) {
-                child.destroy();
-                // EVENT_WAIT: owned tree reaping; expiry escalates this process only.
-                if (!child.waitFor(5, TimeUnit.SECONDS)) {
-                    child.destroyForcibly();
-                    child.waitFor();
-                }
-            }
-            record.put("completed", complete).put("exitCode", child.exitValue())
+            session.close();
+            // EVENT_WAIT: relay EOF releases the command reader; expiry is a fixture failure.
+            worker.join(30_000);
+            record.put("completed", complete).put("exitCode", exitCode)
                     .put("millis", SystemClock.elapsedRealtime() - started).put("output", tail(log));
             save();
+            if (worker.isAlive()) throw new IOException("Fixture command reader did not stop");
         }
-        if (!complete) throw new IOException("Fixture deadline exceeded");
         // A command's exit code is test data, not a transport failure.
     }
 

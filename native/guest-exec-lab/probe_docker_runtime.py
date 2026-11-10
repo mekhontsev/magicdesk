@@ -60,7 +60,8 @@ def ensure_image(client, image, archive=''):
 def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_runtime=False,
           no_new_keyring=False, trace_filesystem=False, create_count=0, trace_network=False, observer='',
           storage_driver='vfs', data_root='', userland_proxy=True, internet=False, endpoint='', ipv6=False,
-          internet_ipv6=False, ipv6_host='::1', rootless_user='', image_archive=''):
+          internet_ipv6=False, ipv6_host='::1', rootless_user='', image_archive='', network_repeats=20):
+    assert network_repeats > 0
     if rootless_user and os.getuid() == 0:
         import pwd
         assert pwd.getpwnam(rootless_user).pw_uid != 0, 'Select an ordinary guest user'
@@ -237,18 +238,18 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
                               'type=bind,src=' + str(Path(__file__).with_name('docker_network_fixture.py'))
                               + ',dst=/fixture.py,readonly', image, 'python3', '/fixture.py', name, *family)
                 wait_service(['docker', '--host', endpoint, 'logs', '-f', name])
-                report.setdefault('portChecks', []).append(external(operation='exchange', port=port, token=name, repeats=20))
+                report.setdefault('portChecks', []).append(external(operation='exchange', port=port, token=name, repeats=network_repeats))
             for source, target in (names, tuple(reversed(names))):
                 field = 'GlobalIPv6Address' if ipv6 else 'IPAddress'
                 assert client('inspect', '--format', '{{range .NetworkSettings.Networks}}{{.' + field + '}}{{end}}', target)
                 address = str(ipaddress.ip_address(report['commands'][-1]['output'].strip()))
-                assert client('exec', source, 'python3', '/fixture.py', '--client', address, '8080', target, '20', *family)
-                assert client('exec', source, 'python3', '/fixture.py', '--client', target, '8080', target, '20', *family)
+                assert client('exec', source, 'python3', '/fixture.py', '--client', address, '8080', target, str(network_repeats), *family)
+                assert client('exec', source, 'python3', '/fixture.py', '--client', target, '8080', target, str(network_repeats), *family)
             report['containerPeerExchangePassed'] = True
             report['namedPeerExchangePassed'] = True
             outbound = observe(observer, operation='outbound')['url']
             for name in names:
-                assert client('exec', name, 'python3', '/fixture.py', '--http', outbound)
+                assert client('exec', name, 'python3', '/fixture.py', '--http', outbound, str(network_repeats))
             report['localOutboundPassed'] = True
             assert not client('run', '--rm', '--name', conflict, '--network', network,
                               '-p', f'{host}:{ports[0]}:8080', image, '/bin/true')
@@ -271,6 +272,13 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
                                                 capture_output=True, text=True, timeout=15)
                     report['containerDiagnostics'].append(dict(name=name, operation=operation,
                         exitCode=diagnostic.returncode, output=(diagnostic.stdout + diagnostic.stderr)[-12000:]))
+                diagnostic = subprocess.run(['docker', '--host', endpoint, 'exec', name, 'python3', '-c',
+                    'from pathlib import Path; '
+                    '[(print(p), print(Path(p).read_text())) for p in '
+                    '("/proc/net/tcp", "/proc/net/tcp6", "/proc/net/route", "/etc/resolv.conf")]'],
+                    capture_output=True, text=True, timeout=15)
+                report['containerDiagnostics'].append(dict(name=name, operation='network-state',
+                    exitCode=diagnostic.returncode, output=(diagnostic.stdout + diagnostic.stderr)[-12000:]))
             raise
         finally:
             removed = client('rm', '-f', *names, conflict)

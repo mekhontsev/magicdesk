@@ -92,7 +92,8 @@ class FixtureExecutor:
             self.active.add(identity)
         try:
             completed = subprocess.run([sys.executable, str(driver), '--run-id', identity,
-                '--command', command, '--deadline-seconds', str(timeout), '--output', str(directory)],
+                '--console-id', self.console, '--command', command,
+                '--deadline-seconds', str(timeout), '--output', str(directory)],
                 capture_output=True, text=True)
         finally:
             with self.lock:

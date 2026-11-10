@@ -33,6 +33,7 @@ def main():
     action.add_argument('--observe-run', help='Retrieve an exact existing run; never replay it')
     parser.add_argument('--deadline-seconds', type=deadline_seconds, default=60)
     parser.add_argument('--run-id', help='Caller-owned launch ID for targeted cancellation')
+    parser.add_argument('--console-id', help='Borrow the fixture owner\'s transport console')
     args = parser.parse_args()
     if args.run_id and args.observe_run:
         parser.error('--run-id applies only to a new command')
@@ -51,7 +52,7 @@ def main():
     if args.apk:
         transport.update(client, args.apk)
     before = client.call('get_state')
-    session = client.call('console.open')['sessionId']
+    session = args.console_id or client.call('console.open')['sessionId']
     staging = '/data/local/tmp/magicdesk/cache/tmp/fixture-artifacts-' + uuid.uuid4().hex
     remote = PRIVATE_DIRECTORY + '/runs/' + identity
 
@@ -118,7 +119,8 @@ def main():
         try:
             command(['rm', '-f', staging], False)
         finally:
-            client.call('console.close', dict(sessionId=session))
+            if not args.console_id:
+                client.call('console.close', dict(sessionId=session))
 
 
 if __name__ == '__main__':

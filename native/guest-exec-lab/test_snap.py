@@ -157,7 +157,7 @@ for attempt in range(count):
         start = time.monotonic()
         command = ['snap', 'run', '--shell', name, '-c', 'true']
         if @TRACE@:
-            command = ['strace', '-f', '-ttt', '-s', '256', '-o',
+            command = ['strace', '-f', '-ttt', '-T', '-s', '256', '-o',
                        str(directory / ('cold-trace-%d.log' % attempt)), '-e',
                        'trace=%file,mount,unshare,setns,pivot_root', *command]
         result = subprocess.run(command,
@@ -248,17 +248,21 @@ PY'''.replace('@SNAP@', args.snap).replace('@COUNT@', str(args.cold_launch_check
         suite.report['passed'] = True
     finally:
         try:
-            if args.profile:
-                profile = args.output / (suite.report['id'] + '-perf.data')
-                suite.download(suite.base + '/perf.data', profile, overwrite=True)
-                suite.report['profile'] = str(profile)
             for name in ('snap.log', 'daemon.log', 'journal.log', 'trace.log', 'daemon-trace.log',
                          'sandbox-features.log', 'apparmor.log', 'cold-launch.json', 'result',
+                         *(('perf.data',) if args.profile else ()),
                          *('app-%d.trace' % i for i in range(args.app_launches) if args.trace_app),
                          *('cold-trace-%d.log' % i for i in range(args.cold_launch_checks) if args.trace_cold),
                          *('cold-launch-%d.log' % i for i in range(args.cold_launch_checks))):
-                suite.command(['/system/bin/sh', '-c', 'test ! -f "$1" || tail -100 "$1"',
-                               'snap-log', suite.base + '/' + name])
+                remote = suite.base + '/' + name
+                exists = suite.command(['/system/bin/sh', '-c', 'test ! -f "$1" || printf yes',
+                                        'snap-log', remote], quiet=True)
+                if exists == 'yes':
+                    local = args.output / (suite.report['id'] + '-' + name)
+                    suite.download(remote, local, overwrite=True)
+                    suite.report.setdefault('artifacts', {})[name] = str(local)
+                    if name == 'perf.data':
+                        suite.report['profile'] = str(local)
         finally:
             try:
                 if created:

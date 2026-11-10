@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-launch networking through UID 2000, with independent native observers."""
+"""Per-launch networking through the selected executor, with native observers."""
 import argparse
 from contextlib import ExitStack
 from pathlib import Path
@@ -8,6 +8,7 @@ import socket
 import threading
 
 from test_oci_services import Suite, Server
+from fixture_executor import FixtureExecutor
 
 CUSTOM = ['--subnet', '172.23.8.0/24', '--ip', '172.23.8.42', '--gateway', '172.23.8.7',
           '--subnet', 'fd42:1234::/64', '--ip6', 'fd42:1234::42', '--gateway', 'fd42:1234::7']
@@ -170,6 +171,27 @@ else:
 print('OFFLINE_OK')
 '''
     command('--network', 'none', code=offline)
+    port, native_tcp, native_udp = reserve_pair()
+    try:
+        collision = '''
+import errno, socket
+for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+    with socket.socket(socket.AF_INET, kind) as stream:
+        try:
+            stream.bind(('127.0.0.1', @PORT@))
+        except OSError as error:
+            assert @SHARED@ and error.errno == errno.EADDRINUSE, error
+        else:
+            assert not @SHARED@, 'routed bind bypassed the native reservation'
+            assert stream.getsockname()[1] == @PORT@
+print('PORT_ISOLATION_OK')
+'''.replace('@PORT@', str(port))
+        for mode in ('routed', 'none', 'bridge'):
+            command('--network', mode, code=collision.replace('@SHARED@', str(mode == 'routed')))
+    finally:
+        native_tcp.close()
+        native_udp.close()
+    print('PASS explicit routed reservation and private guest TCP/UDP ports', flush=True)
     command('--network', 'bridge', '--dns', '192.0.2.53', code="""
 import errno
 assert open('/etc/resolv.conf').read() == 'nameserver 192.0.2.53\\n'
@@ -257,6 +279,9 @@ import socket, struct, threading
 server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server.settimeout(10)
 server.bind(('0.0.0.0', 53))
+tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+tcp.bind(('0.0.0.0', 53))
+tcp.listen()
 errors = []
 def serve():
     try:
@@ -277,6 +302,7 @@ assert socket.gethostbyname('launch.shroot.test') == '192.0.2.42'
 thread.join(12)
 assert not thread.is_alive() and not errors, errors
 server.close()
+tcp.close()
 print('DNS_QUERY_OK')
 '''
     command('--user', '0:0', '--network', 'bridge', '--dns', '10.88.0.2', code=dns)
@@ -307,8 +333,9 @@ def main():
     parser.add_argument('--output', type=Path, default=Path('build/launch-network'))
     parser.add_argument('--native-tests', action='store_true')
     parser.add_argument('--cli-only', action='store_true', help='Shell-only entrypoint matrix, no guest Python required')
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.output, args.build)
+    suite = Suite(args.output, args.build, executor=args.executor)
     try:
         if args.native_tests:
             assert args.build

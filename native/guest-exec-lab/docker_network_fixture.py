@@ -45,20 +45,28 @@ def wait_service(command):
 
 
 def exchange(host, port, token, repeats=1, family=socket.AF_INET):
-    if repeats > 1:
-        for _ in range(repeats):
-            exchange(host, port, token, family=family)
-        return
     host = socket.getaddrinfo(host, port, family, socket.SOCK_STREAM)[0][4][0]
-    with socket.create_connection((host, port), timeout=10) as connection:
-        connection.sendall(b'PING')
-        data = connection.recv(100).decode()
-        assert data == token, ('TCP reply', host, port, data, token)
-    with socket.socket(family, socket.SOCK_DGRAM) as connection:
-        connection.settimeout(10)
-        connection.sendto(b'PING', (host, port))
-        data, peer = connection.recvfrom(100)
-        assert data.decode() == token and peer[:2] == (host, port), (data, peer)
+    for index in range(repeats):
+        stage = 'tcp-connect'
+        local = None
+        try:
+            with socket.create_connection((host, port), timeout=10) as connection:
+                local = connection.getsockname()
+                stage = 'tcp-send'
+                connection.sendall(b'PING')
+                stage = 'tcp-receive'
+                data = connection.recv(100).decode()
+                assert data == token, ('TCP reply', host, port, data, token)
+            with socket.socket(family, socket.SOCK_DGRAM) as connection:
+                connection.settimeout(10)
+                stage = 'udp-send'
+                connection.sendto(b'PING', (host, port))
+                local = connection.getsockname()
+                stage = 'udp-receive'
+                data, peer = connection.recvfrom(100)
+                assert data.decode() == token and peer[:2] == (host, port), (data, peer)
+        except Exception as error:
+            raise AssertionError(f'{stage} {index + 1}/{repeats} from {local} at {host}:{port}: {error!r}') from error
 
 
 def container_service(token, family=socket.AF_INET):
@@ -326,7 +334,10 @@ class Observer:
 
 def observe(address, **request):
     port, token = address.split('/')
-    connection = http.client.HTTPConnection('127.0.0.1', int(port), timeout=30)
+    # The control request contains sequential TCP/UDP exchanges. Its deadline
+    # must cover their unchanged per-operation bounds, not cancel a busy peer.
+    timeout = 30 + 40 * request.get('repeats', 1) if request.get('operation') == 'exchange' else 30
+    connection = http.client.HTTPConnection('127.0.0.1', int(port), timeout=timeout)
     try:
         connection.request('POST', '/' + token, json.dumps(request))
         response = connection.getresponse()
@@ -352,7 +363,7 @@ def http_exchange(url, repeats=20):
 
 if __name__ == '__main__':
     if sys.argv[1] == '--http':
-        http_exchange(sys.argv[2])
+        http_exchange(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 20)
     elif sys.argv[1] == '--internet':
         internet()
     elif sys.argv[1] == '--internet-ipv6':

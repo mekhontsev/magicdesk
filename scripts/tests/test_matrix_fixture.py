@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, mock_open, patch
 
@@ -163,6 +164,51 @@ class MatrixFixtureTest(unittest.TestCase):
                 owner._app_command('true', 7201)
         launch.assert_not_called()
 
+    def test_app_command_borrows_its_owner_console(self):
+        owner = FixtureExecutor.__new__(FixtureExecutor)
+        owner.output = Path('/unused')
+        owner.console = 'console-owned'
+        owner.lock = threading.Lock()
+        owner.closed = False
+        owner.active = set()
+        with patch('fixture_executor.subprocess.run', side_effect=RuntimeError('driver reached')) as launch:
+            with self.assertRaisesRegex(RuntimeError, 'driver reached'):
+                owner._app_command('true', 60)
+        argv = launch.call_args.args[0]
+        self.assertEqual('console-owned', argv[argv.index('--console-id') + 1])
+        self.assertFalse(owner.active)
+
+    def test_app_driver_closes_only_its_owned_console(self):
+        for borrowed in (False, True):
+            with self.subTest(borrowed=borrowed), tempfile.TemporaryDirectory() as directory:
+                config = Path(directory) / 'config.toml'
+                config.write_text('[mcp_servers.magicdesk]\nurl="http://fixture"\n'
+                                  '[mcp_servers.magicdesk.http_headers]\nAuthorization="Bearer fixture"\n')
+                argv = ['fixture', '--command', 'true', '--config', str(config), '--output', directory]
+                if borrowed:
+                    argv += ['--console-id', 'console-borrowed']
+                client = Mock()
+                launched = False
+                def call(name, arguments=None):
+                    nonlocal launched
+                    if name == 'console.open':
+                        return {'sessionId': 'console-owned'}
+                    if name == 'console.execute' and not launched:
+                        launched = True
+                        raise RuntimeError('launch rejected')
+                    return {'exitCode': 0}
+                client.call.side_effect = call
+                transport = Mock()
+                transport.Client.return_value = client
+                with patch.object(sys, 'argv', argv), \
+                        patch.object(fixture_app.importlib.util, 'spec_from_file_location'), \
+                        patch.object(fixture_app.importlib.util, 'module_from_spec', return_value=transport):
+                    with self.assertRaisesRegex(RuntimeError, 'launch rejected'):
+                        fixture_app.main()
+                calls = [item.args[0] for item in client.call.call_args_list]
+                self.assertEqual(not borrowed, 'console.open' in calls)
+                self.assertEqual(not borrowed, 'console.close' in calls)
+
     def test_os_boot_retains_selected_executor(self):
         for executor in ('app', 'shell'):
             argv = ['fixture', '--executor', executor, '--store', '/selected/store',
@@ -246,6 +292,29 @@ class MatrixFixtureTest(unittest.TestCase):
             self.assertEqual(['/fixture with space/magicdesk-init', '/usr/bin/python3',
                               '/fixture with space/k3s-boot.py', mode, '/fixture with space',
                               'systemd', *arguments], shlex.split(script))
+
+    def test_k3s_nixos_uses_packaged_service_without_upstream_installer(self):
+        for executor in ('app', 'shell'):
+            argv = ['fixture', 'build/native', 'nixos', '--init', 'systemd',
+                    '--service-provider', 'nixos', '--executor', executor]
+            with self.subTest(executor=executor), patch.object(sys, 'argv', argv), \
+                    patch.object(test_k3s_boot, 'run') as run:
+                test_k3s_boot.main()
+            args = run.call_args.args[0]
+            self.assertEqual('nixos', args.service_provider)
+            self.assertIsNone(args.k3s)
+            self.assertIsNone(args.installer)
+            self.assertEqual(executor, args.executor)
+
+    def test_k3s_nixos_boot_and_cleanup_use_selected_generation(self):
+        binary = '/nix/store/selected-system/sw/bin'
+        for mode, arguments in (('observe', ('0', '1.0', 'nixos')), ('cleanup', ())):
+            command = test_k3s_boot.boot_command(['/runner'], '/fixture', 'systemd',
+                                               'owned', 240, mode, *arguments, binary=binary)
+            self.assertEqual(binary + '/script', command[command.index('--') + 1])
+            self.assertEqual(['/fixture/magicdesk-init', binary + '/python3',
+                              '/fixture/k3s-boot.py', mode, '/fixture', 'systemd', *arguments],
+                             shlex.split(command[command.index('-c') + 1]))
 
     def test_k3s_boot_cleanup_stops_services_before_restoring_files(self):
         for init, stop in (('systemd', ('systemctl', 'stop', 'k3s')),

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Protocol readiness checks for packaged services during the stock boot test."""
 import http.client
+import errno
 import ipaddress
 import json
+import os
 from pathlib import Path
 import shlex
 import socket
@@ -133,25 +135,35 @@ def cups():
     print('PASS CUPS IPP Get-Printers', hex(status), 'readySeconds=%.3f' % (time.monotonic() - started), flush=True)
 
 
+def firewalld_ports(protocol):
+    occupied = set()
+    for entry in command('firewall-cmd', '--zone=public', '--list-ports').split():
+        ports, kind = entry.split('/')
+        if kind == protocol:
+            limits = [int(value) for value in ports.split('-')]
+            occupied.update(range(limits[0], limits[-1] + 1))
+    return occupied
+
+
 def firewalld():
-    def handles():
+    def handles(port_range=None):
         rules = json.loads(command('nft', '-j', 'list', 'table', 'inet', 'firewalld'))
         return {(item['rule']['chain'], item['rule']['handle'])
-                for item in rules['nftables'] if 'rule' in item}
+                for item in rules['nftables'] if 'rule' in item and (port_range is None or
+                    any(expression.get('match', {}).get('left') ==
+                            {'payload': {'protocol': 'udp', 'field': 'dport'}} and
+                        expression['match'].get('right') == {'range': port_range}
+                        for expression in item['rule']['expr']))}
 
     assert command('firewall-cmd', '--state') == 'running'
     command('firewall-cmd', '--get-active-zones')
-    before = handles()
-    assert before, 'firewalld installed no rules'
-    occupied = set()
-    for entry in command('firewall-cmd', '--zone=public', '--list-ports').split():
-        ports, protocol = entry.split('/')
-        if protocol == 'udp':
-            limits = [int(value) for value in ports.split('-')]
-            occupied.update(range(limits[0], limits[-1] + 1))
+    assert handles(), 'firewalld installed no rules'
+    occupied = firewalld_ports('udp')
     first = next((value for value in range(1, 65535)
                   if value not in occupied and value + 1 not in occupied), None)
     assert first is not None, 'no unused UDP port range for the lifecycle check'
+    port_range = [first, first + 1]
+    assert not handles(port_range)
     port = '%d-%d/udp' % (first, first + 1)
     query = ['firewall-cmd', '--zone=public', '--query-port=' + port]
     result = subprocess.run(query, text=True, capture_output=True, timeout=10)
@@ -159,16 +171,157 @@ def firewalld():
     assert command('firewall-cmd', '--zone=public', '--add-port=' + port) == 'success'
     try:
         assert command(*query) == 'yes'
-        assert handles() > before, 'port addition did not install a new nft rule'
+        # NetworkManager may independently update interface/zone rules. Verify
+        # the exact rule we own, not equality of the entire changing table.
+        assert handles(port_range), 'port addition installed no matching nft rule'
     finally:
         assert command('firewall-cmd', '--zone=public', '--remove-port=' + port) == 'success'
     result = subprocess.run(query, text=True, capture_output=True, timeout=10)
     assert result.returncode == 1 and result.stdout.strip() == 'no', result
-    assert handles() == before, 'port removal left changed nft rules'
+    assert not handles(port_range), 'port removal left its nft rule installed'
     print('PASS firewalld control plane, rule addition/removal and installed rules', flush=True)
+    firewalld_traffic()
+
+
+def firewalld_peer(descriptor):
+    with socket.socket(fileno=descriptor) as channel:
+        channel.settimeout(30)
+        channel.send(b'namespace')
+        assert channel.recv(32) == b'linked'
+        command('ip', 'link', 'set', 'lo', 'up')
+        command('ip', 'addr', 'add', '192.0.2.2/30', 'dev', 'eth0')
+        command('ip', '-6', 'addr', 'add', 'fd92:32::2/64', 'dev', 'eth0')
+        command('ip', 'link', 'set', 'eth0', 'up')
+        channel.send(b'ready')
+        # Retain the ports until peer teardown: a new policy verdict must use a
+        # fresh conntrack tuple, not a previous accepted flow.
+        clients = []
+        try:
+            while data := channel.recv(256):
+                if data == b'stop':
+                    break
+                family, kind, address, port = json.loads(data)
+                client = socket.socket(family, kind)
+                clients.append(client)
+                client.settimeout(3)
+                client.bind(('192.0.2.2' if family == socket.AF_INET else 'fd92:32::2', 0))
+                stage = 'connect'
+                try:
+                    client.connect((address, port))
+                    stage = 'send'
+                    client.sendall(b'firewalld')
+                    stage = 'receive'
+                    assert client.recv(16) == b'reply'
+                    result = dict(ok=True)
+                except OSError as error:
+                    result = dict(ok=False, errno=error.errno, stage=stage,
+                                  address=address, port=port, local=client.getsockname())
+                channel.send(json.dumps(result).encode())
+        finally:
+            for client in clients:
+                client.close()
+
+
+def firewalld_traffic():
+    interface = 'mdfw' + str(os.getpid())
+    remote = interface + 'p'
+    channel, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    channel.settimeout(10)
+    peer = subprocess.Popen(['unshare', '--net', sys.executable, __file__, 'firewalld-peer',
+                             str(child.fileno())], pass_fds=(child.fileno(),))
+    child.close()
+    linked = assigned = False
+    try:
+        assert channel.recv(32) == b'namespace'
+        command('ip', 'link', 'add', interface, 'type', 'veth', 'peer', 'name', remote)
+        linked = True
+        command('ip', 'link', 'set', remote, 'netns', str(peer.pid), 'name', 'eth0')
+        command('ip', 'addr', 'add', '192.0.2.1/30', 'dev', interface)
+        command('ip', '-6', 'addr', 'add', 'fd92:32::1/64', 'dev', interface)
+        command('ip', 'link', 'set', interface, 'up')
+        channel.send(b'linked')
+        assert channel.recv(32) == b'ready'
+        assert command('firewall-cmd', '--zone=public', '--add-interface=' + interface) == 'success'
+        assigned = True
+        for family, address in ((socket.AF_INET, '192.0.2.1'), (socket.AF_INET6, 'fd92:32::1')):
+            for kind, protocol in ((socket.SOCK_STREAM, 'tcp'), (socket.SOCK_DGRAM, 'udp')):
+                with socket.socket(family, kind) as server:
+                    server.settimeout(5)
+                    occupied = firewalld_ports(protocol)
+                    # SteamOS opens high ports by default. Admission must be
+                    # tested on a port outside the distribution's allowlist.
+                    for candidate in range(1023, 511, -1):
+                        if candidate in occupied:
+                            continue
+                        try:
+                            server.bind((address, candidate))
+                            break
+                        except OSError as error:
+                            if error.errno != errno.EADDRINUSE:
+                                raise
+                    else:
+                        raise AssertionError('No unused port outside the zone allowlist')
+                    if kind == socket.SOCK_STREAM:
+                        server.listen()
+                    port = str(server.getsockname()[1]) + '/' + protocol
+                    opened = False
+                    try:
+                        for allowed in (False, True, False):
+                            if allowed:
+                                assert command('firewall-cmd', '--zone=public', '--add-port=' + port) == 'success'
+                                opened = True
+                            elif opened:
+                                assert command('firewall-cmd', '--zone=public', '--remove-port=' + port) == 'success'
+                                opened = False
+                            channel.send(json.dumps([family, kind, address, server.getsockname()[1]]).encode())
+                            if allowed:
+                                if kind == socket.SOCK_STREAM:
+                                    accepted, _ = server.accept()
+                                    with accepted:
+                                        accepted.settimeout(5)
+                                        assert accepted.recv(16) == b'firewalld'
+                                        accepted.sendall(b'reply')
+                                else:
+                                    data, sender = server.recvfrom(16)
+                                    assert data == b'firewalld'
+                                    server.sendto(b'reply', sender)
+                            result = json.loads(channel.recv(256))
+                            assert result['ok'] == allowed, (family, protocol, allowed, result)
+                            if not allowed:
+                                assert result['errno'] in (errno.ECONNREFUSED, errno.EHOSTUNREACH,
+                                    errno.ENETUNREACH, errno.EACCES, errno.EPERM), result
+                    finally:
+                        if opened:
+                            command('firewall-cmd', '--zone=public', '--remove-port=' + port)
+                print('PASS firewalld traffic', family, protocol, 'reject/accept/reject', flush=True)
+        channel.send(b'stop')
+        assert peer.wait(timeout=10) == 0
+    except Exception:
+        for args in [('ip', '-j', 'address'), ('ip', '-j', 'route', 'show', 'table', 'all'),
+                     ('firewall-cmd', '--get-active-zones'),
+                     ('nft', '-j', 'list', 'table', 'inet', 'firewalld')]:
+            try:
+                print('TRAFFIC_DIAGNOSTICS', args, command(*args), flush=True)
+            except Exception as error:
+                print('TRAFFIC_DIAGNOSTICS', args, repr(error), flush=True)
+        raise
+    finally:
+        try:
+            if assigned:
+                command('firewall-cmd', '--zone=public', '--remove-interface=' + interface)
+            if linked:
+                subprocess.run(['ip', 'link', 'del', interface], check=False, timeout=10)
+        finally:
+            channel.close()
+            if peer.poll() is None:
+                peer.kill()
+                peer.wait(timeout=10)
 
 
 if __name__ == '__main__':
+    if sys.argv[1] == 'firewalld-peer':
+        firewalld_peer(int(sys.argv[2]))
+        sys.exit(0)
     try:
         {'avahi': avahi, 'cups': cups, 'firewalld': firewalld}[sys.argv[1]]()
     except Exception:

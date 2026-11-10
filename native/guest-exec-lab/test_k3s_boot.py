@@ -11,7 +11,7 @@ import time
 
 from kernel_profile import KernelProfile
 from fixture_executor import FixtureExecutor, add_diagnostics_argument, diagnostic_options
-from init_fixture import stop_init_launch
+from init_fixture import prepare_init, stop_init_launch
 from test_oci_services import Suite, Server, add_machine_entry_argument
 
 
@@ -19,8 +19,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('environment')
-    parser.add_argument('k3s', type=Path)
-    parser.add_argument('installer', type=Path)
+    parser.add_argument('k3s', type=Path, nargs='?')
+    parser.add_argument('installer', type=Path, nargs='?')
+    parser.add_argument('--service-provider', choices=('upstream', 'nixos'), default='upstream')
     parser.add_argument('--store', help='Existing store accessible to the selected executor; no copy')
     parser.add_argument('--init', required=True, choices=('systemd', 'openrc'))
     parser.add_argument('--images', type=Path, action='append', default=[],
@@ -30,7 +31,12 @@ def main():
     add_machine_entry_argument(parser)
     KernelProfile.add_argument(parser)
     FixtureExecutor.add_argument(parser)
-    run(parser.parse_args())
+    args = parser.parse_args()
+    if args.service_provider == 'upstream' and (args.k3s is None or args.installer is None):
+        parser.error('The upstream provider requires k3s and installer paths')
+    if args.service_provider == 'nixos' and args.init != 'systemd':
+        parser.error('The NixOS provider requires systemd')
+    run(args)
 
 
 def run(args):
@@ -41,20 +47,29 @@ def run(args):
     created = False
     prepared = False
     owner = None
+    previous_system = None
+    selected_system = None
     try:
         environment = suite.installed_environment(args.environment, args.store)
         suite.report['environment'] = environment
         assert not environment['launches'], environment['launches']
         store = environment['store']
         prefix = suite.guest(store, '--user', '0:0')
-        suite.command(prefix + ['--', '/bin/mkdir', target])
+        system = suite.stdout(prefix + ['--', '/bin/sh', '-ec',
+            'if [ -e /nix/var/nix/profiles/system ]; then '
+            '/nix/var/nix/profiles/system/sw/bin/readlink -f /nix/var/nix/profiles/system; fi']).strip()
+        binary = system + '/sw/bin' if system else '/usr/bin'
+        prefix += ['--env', 'PATH=' + binary + ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin']
+        suite.command(prefix + ['--', binary + '/mkdir', target])
         created = True
         prefix += ['--bind', suite.base, target]
         source = Path(__file__).parent
-        inputs = {'k3s': args.k3s, 'install.sh': args.installer,
-                  'k3s-boot.py': source / 'fixtures/k3s-boot.py', 'k3s_fixture.py': source / 'k3s_fixture.py',
+        inputs = {'k3s-boot.py': source / 'fixtures/k3s-boot.py', 'k3s_fixture.py': source / 'k3s_fixture.py',
                   'systemd_ready.py': source / 'fixtures/systemd_ready.py',
                   'crash-launch': args.build / 'libmagicdesk_guest_test_launch_registry.so'}
+        if args.service_provider == 'upstream':
+            inputs.update(k3s=args.k3s, **{'install.sh': args.installer})
+        suite.report['serviceProvider'] = args.service_provider
         for index, archive in enumerate(args.images):
             inputs['images-' + str(index) + '.tar'] = archive
         suite.report['inputs'] = {}
@@ -73,13 +88,48 @@ def run(args):
             suite.upload(helper, suite.base + '/magicdesk-init')
             suite.chmod('700', suite.base + '/magicdesk-init')
             prepared = True
+            if args.service_provider == 'nixos':
+                assert system, 'NixOS requires an installed system generation'
+                suite.command(prefix + ['--', binary + '/python3', target + '/k3s-boot.py',
+                    'prepare', target, args.init, 'nixos'])
+                module = Path(directory) / 'k3s.nix'
+                module_text = '''{ config, lib, ... }: {
+  imports = [ /etc/nixos/configuration.nix ];
+  services.k3s = { enable = true; role = "server"; };
+  environment.systemPackages = [ config.services.k3s.package ];
+'''
+                # Retain the installed compositor binding, not a pending source
+                # rebuild unrelated to this service's declarative acceptance.
+                graphics = system + '/etc/magicdesk/plasma-kwin.sh'
+                if suite.stdout(prefix + ['--', '/bin/sh', '-ec',
+                        'if [ -f "$1" ]; then printf yes; fi', 'graphics', graphics]) == 'yes':
+                    module_text += ('  environment.etc."magicdesk/plasma-kwin.sh".text = '
+                                    'lib.mkForce (builtins.readFile ' + json.dumps(graphics) + ');\n')
+                    suite.report['retainedGraphicsBinding'] = graphics
+                module.write_text(module_text + '}\n')
+                suite.upload(module, suite.base + '/k3s.nix')
+                build = [binary + '/nix-build', '<nixpkgs/nixos>', '-A', 'system',
+                    '-I', 'nixpkgs=/nix/var/nix/profiles/per-user/root/channels/nixos',
+                    '-I', 'nixos-config=' + target + '/k3s.nix', '--max-jobs', '2', '--cores', '2',
+                    '-o', target + '/system']
+                preparation = [binary + '/unshare', '--mount', '--pid', '--fork', '--mount-proc',
+                    '--uts', '--ipc', '--cgroup', '/bin/sh', '-ec', prepare_init() + '\nexec "$@"',
+                    'nixos-build', *build]
+                suite.command(prefix + ['--network', 'bridge', '--env', 'NIX_REMOTE=local', '--', binary + '/script',
+                    '-q', '-e', '-c', shlex.join(preparation), '/dev/null'], timeout=600)
+                selected_system = suite.stdout(prefix + ['--', binary + '/readlink', '-f', target + '/system']).strip()
+                assert selected_system.startswith('/nix/store/') and '\n' not in selected_system
+                previous_system = system
+                suite.report['systemGenerations'] = dict(previous=system, selected=selected_system)
+                suite.command(prefix + ['--', binary + '/nix-env', '-p', '/nix/var/nix/profiles/system',
+                    '--set', selected_system])
             for phase in range(3):
                 label = suite.report['id'] + '-' + str(phase)
                 # Initial registry pulls are not recovery latency. Later boots
                 # retain downloaded images and use the shorter deadline.
                 limit = 1200 if phase == 0 else 600
                 launch = boot_command(prefix, target, args.init, label, limit, 'observe', str(phase), str(time.time()),
-                                      diagnostics=args.diagnostics)
+                                      args.service_provider, diagnostics=args.diagnostics, binary=binary)
                 owner = Server(suite, launch, timeout=limit + 30)
                 try:
                     owner.ready('K3S_BOOT_RESULT ' + str(phase), timeout=limit - 30)
@@ -130,17 +180,22 @@ def run(args):
                     stop_init_launch(suite, store, label)
                 finally:
                     owner.close()
+            if previous_system:
+                current = suite.stdout(prefix + ['--', binary + '/readlink', '-f', '/nix/var/nix/profiles/system']).strip()
+                assert current in (previous_system, selected_system), 'System generation changed outside this fixture'
+                suite.command(prefix + ['--', binary + '/nix-env', '-p', '/nix/var/nix/profiles/system',
+                    '--set', previous_system])
             if prepared and suite.command(['sh', '-c',
                     'if [ -f "$1/installation.json" ]; then printf yes; fi',
                     'manifest', suite.base], quiet=True) == 'yes':
                 # Installed init may mount /etc or /var differently from a plain
                 # store launch. Retire services and restore files in that same view.
                 output = suite.command(boot_command(prefix, target, args.init,
-                    suite.report['id'] + '-cleanup', 240, 'cleanup', diagnostics=args.diagnostics),
+                    suite.report['id'] + '-cleanup', 240, 'cleanup', diagnostics=args.diagnostics, binary=binary),
                     timeout=270, expected=130)
                 assert 'K3S_BOOT_CLEANUP True' in output, output
             if created:
-                suite.command(suite.guest(store, '--user', '0:0') + ['--', '/bin/rmdir', target])
+                suite.command(suite.guest(store, '--user', '0:0') + ['--', binary + '/rmdir', target])
             suite.command(['rm', '-rf', suite.base])
         except Exception as error:
             suite.report.update(passed=False, cleanupFailure=repr(error))
@@ -149,11 +204,11 @@ def run(args):
             suite.finish()
 
 
-def boot_command(prefix, target, init, label, limit, mode, *arguments, diagnostics=None):
+def boot_command(prefix, target, init, label, limit, mode, *arguments, diagnostics=None, binary='/usr/bin'):
     return prefix + diagnostic_options(diagnostics) + ['--network', 'bridge', '--statistics',
         '--env', 'MAGICDESK_GUEST_LABEL=' + label, '--deadline-seconds', str(limit), '--',
-        '/usr/bin/script', '-q', '-e', '-c',
-        shlex.join([target + '/magicdesk-init', '/usr/bin/python3', target + '/k3s-boot.py',
+        binary + '/script', '-q', '-e', '-c',
+        shlex.join([target + '/magicdesk-init', binary + '/python3', target + '/k3s-boot.py',
                     mode, target, init, *arguments]), '/dev/null']
 
 
