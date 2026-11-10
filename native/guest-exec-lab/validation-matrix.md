@@ -337,7 +337,7 @@ preserves the caller's mask, including Android's private app mask.
 | --- | --- | --- |
 | debian | P/N | P/N |
 | ubuntu | N/N | P/N |
-| alpine | P/N | F/N |
+| alpine | P/N | P/N |
 | fedora | N/N | P/N |
 | arch | N/N | P/N |
 | opensuse | N/N | P/N |
@@ -349,8 +349,8 @@ preserves the caller's mask, including Android's private app mask.
 | nixos | N/N | P/N |
 | steamos | N/N | P/N |
 
-Distribution-specific User acceptance, Alpine's unresolved workload shutdown
-failure, and separate persistent boot/recovery results are recorded in
+Distribution-specific User acceptance and separate persistent boot/recovery
+results are recorded in
 [host execution](host-execution.md#qualifying-evidence). A passing boot/recovery
 run does not replace workload lifecycle acceptance. The following receipts are
 Shell results; they do not certify User or another distribution.
@@ -615,6 +615,9 @@ This ledger retains current acceptance evidence and unresolved blockers, not
 the history of repaired defects. Replace a failed status after a qualifying
 rerun and remove its resolved explanation. Regression coverage belongs in the
 tests. Local report paths identify evidence, not durable public downloads.
+An older failure with an unknown cause does not by itself block a passing
+status after qualifying reruns of the same scenario; retain its logs in run
+artifacts, not as an active defect unless it recurs.
 
 User-executor coverage uses existing recipe stores through the borrowed-store
 fixture rather than creating copies. Per-distribution scope and remaining

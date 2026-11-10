@@ -52,6 +52,36 @@ The Alpine debugger run covers GDB, LLDB, gdbserver, strace and Callgrind.
 Its toolchain lacks gcrt1.o for gprof, and Android denies perf_event; those
 capabilities are recorded as unavailable, not passed debugger workflows.
 
+### Shared Mechanism Checks
+
+`mount-graph`, `mount-namespace`, `mount-flags`, `supervisor-state`,
+`private-memory` and `fs-dispatch` pass under both User and Shell with the native
+build bundled in APK
+`939cbff8652a1272176a2ba8eaf9724754522f91cc0c1f1a9a81d477b6f94204`.
+User runs use that installed APK; Shell stages the same native build directly.
+Receipts are `build/matrix-followup-20261110/CASE-{app,shell}-subtree5.json`.
+They cover subtree/ancestor retirement and complete namespace snapshots,
+retained memory actors, cancellation and exactly-once file completion across
+quiescence owners. Every fixture releases its executor and owned resources.
+
+The resource/network ownership model and guest cgroup suite also pass under
+both executors with the native build bundled in APK
+`e28f3820fcbba7d1540db8f6ac2c7c1b9c220b0e52323da7e5c7adcd54a20300`.
+Receipts are `build/matrix-followup-20261110/cgroup-{app,shell}-flow8.json`.
+Coverage includes 1152 distinct retained UDP clients for each address family,
+TCP admission while those UDP identities remain live, atomic conntrack flush
+and descriptor cleanup. Fourteen IPv4/IPv6 lifetime cases cross the real UDP
+idle deadline: private and published endpoints, connected reply-first traffic,
+explicit deletion and multicast. No packet is retried to hide failed delivery.
+Four further IPv4/IPv6 cases delete and recreate the peer namespace: an unbound
+client retains native connected IO, while an explicit interface binding must not
+silently follow the replacement link.
+These component checks do not substitute for nested container network workflows.
+
+Protected native-capture cases deliberately use an unadapted nondumpable child.
+Guest `PR_SET_DUMPABLE` remains virtualized under both executors; that fixture
+does not imply ordinary guest processes become natively unreadable.
+
 ## Signal And Policy Admission
 
 `seccomp_install.h` classifies both filter installation APIs and their native
@@ -81,7 +111,10 @@ state. `task_signal_control` performs fault-aware exchanges in the exact task.
 Installed handler veneers restore original siginfo and the logical mask in the
 kernel-built frame, then acknowledge their retained packet before entering the
 application handler. This needs no additional ptrace stop unless a competing
-memory mutation requires acknowledgement. Failed frame construction releases
+memory mutation requires acknowledgement. Admission of that task's next
+notification rechecks the packet acknowledgement, so a commit after the shared
+event-loop scan cannot leave the handler's syscall behind stale entry ownership.
+Failed frame construction releases
 the packet and preserves the kernel's SIGSEGV and disposition behavior. An
 unchanged exclusive native handler also needs no extra entry stop; untranslated
 handler frames use the bounded PTRACE_INTERRUPT commit when required.
@@ -450,9 +483,13 @@ service restarts. Shutdown includes successful resolver unmount beneath the
 recovery `/etc` overlay. Receipt:
 `build/matrix-close-steamos/boot-handles/oci-services-bf17fdb74ade4dfabbfa36dd79153142.json`,
 APK build `03ac501d7db1e1a8e49c4e96eddb2010798c489b874584b2f2d841ae727a4de2`.
-This is control-plane/lifecycle evidence, not acceptance of every firewalld
-dataplane policy. A separate startup reported missing nft echo `handle`;
-large-batch echo and subsequent service runs pass, but its cause is not established.
+Real TCP/UDP traffic in both IP families also passes denied/allowed/denied
+cycles across cold start and three firewalld restarts:
+`build/matrix-followup-20261110/steamos-firewalld/oci-services-403cb9e0642446a3aac1c960ab0ccb4f.json`,
+build `0a58faea397c009f1afdaf2e9cf7cc2bb854f47b7022fbd37d6e9d1d3eaeb9f7`.
+The shared nft tests separately check returned object handles, echo-before-ACK
+ordering and rollback for set creation/update and object deletion. These checks
+qualify the tested port policy, not every firewalld rule type.
 
 ### Debian User
 
@@ -638,7 +675,7 @@ Base results are independent, not inferred from lazy-entry passes.
 | Default-target boot | P/P | Stock services, binfmt and IPv6 networkd in a private bridge |
 | Podman and Docker | P/N | Overlay storage, TCP/UDP publication, peers, external IO and cleanup |
 | Rootless Docker | P/N | Guest UID 1000, stock rootless launcher, cgroup v2 and network IO |
-| Rootless Podman | I/N | Local TCP/UDP and a complete run pass; repeated external DNS can collide with an Android UDP port |
+| Rootless Podman | P/N | Guest UID 1000, stock network policy, local TCP/UDP, publication, repeated DNS/HTTP and cleanup; routed host ports remain shared with Android |
 | Libvirt/QEMU | P/N | Managed TCG boot, guest contract, IPv4/IPv6 DHCP/DNS, NAT return traffic, poweroff and TAP cleanup |
 | BuildKit | P/N | Build, cache, secret, export, execution and cancellation |
 | LXC | P/N | Repeated container boot/network/stop and forced cleanup |
@@ -663,12 +700,18 @@ Persistent recovery is
 As in Arch, systemd's HTTP container scope reaches its stop timeout during
 shutdown; successful state recovery does not certify prompt graceful teardown.
 
-Rootless Podman's uninstrumented complete pass is
-`gui/oci-services-e495feb51a8748deb5a8fad3f342cf40.json`. The failing capture
-`gui/native-conflict-18d01dbc4e0d4767b4d2db32aa0138cf.json` identifies a real
-Android UDP reservation outside Shroot. Routed root-namespace explicit binds
-share Android ports; a passing retry does not establish collision-free port
-isolation. Private bridges and explicit publication have a different contract.
+Rootless Podman passes two complete runs on build
+`9f7d9a47eebfe513026e7e376393f141760d85b9a5f379594c92579dbe2b7ecc`,
+with receipts under `build/matrix-followup-20261110/fedora-rootless/`:
+`oci-services-982d105622ee45c5beee618cf68da332.json` and
+`oci-services-0ce115ac38104831ab910cd57e7e9821.json`.
+The fixture retains the package's default rootless network and the selected
+routed parent, including external DNS/HTTP and daemon cleanup. Private guest
+DNS on port 53 also passes IPv4/IPv6 TCP/UDP while the corresponding host port
+is occupied: `build/matrix-followup-20261110/fedora-network3/oci-services-cb65fd7ae7d14cc5a044ec02c3cd5a51.json`.
+Routed root-namespace explicit binds share Android ports; these results do not
+claim collision-free host port isolation. Private bridges and explicit
+publication have a different contract.
 
 On APK `fe8e201c71c1d18b8f6a9c1153da71b13ff5679ed935d610fddb79099156851f`,
 Docker and rootless Podman pass their complete external-IO workflows again:
@@ -710,11 +753,17 @@ The shutdown qualification is the same stock-service behavior described in
 Container, LTP and GUI receipts under `gui/` use APK build
 `978f4b2775078762bb588897063c8340c516e29eb7a6de71578db7461f20aa2e`.
 GUI reports are `{chromium-gui,firefox-gui-retry,vscode-gui}/gui-report.json`
-and `portal.json`. Two namespace-only cold Firefox checks pass on APK
-`180f55949447c35c01d4024877f2442bca1bf7ac1449b7f7663ec8b938109fda`:
-`build/matrix-close-steamos/snap-mount-root/oci-services-c06baa518e404eb7842b2d65814bef66.json`.
-Snap's 30-second limit is unchanged; this does not establish sufficient
-headroom under load or replace the full browser workflow.
+and `portal.json`. Six namespace-only cold Firefox checks pass on APK
+`e28f3820fcbba7d1540db8f6ac2c7c1b9c220b0e52323da7e5c7adcd54a20300`.
+The three baseline attempts take 17.8-19.9 seconds to prepare the namespace:
+`build/matrix-followup-20261110/snap-flow8-baseline/oci-services-416f8ab3be104aa1a31972a6ecccba10.json`.
+Three attempts with two native `sha256sum /dev/zero` workers take 16.4-17.6 seconds:
+`build/matrix-followup-20261110/snap-flow8-loaded/oci-services-2b3e607ce3b04e84b9a1c828f2e97553.json`.
+Both series enable diagnostics and operation counters, retain CPU frequency
+residency and preserve Snap's 30-second limit. CPU limits rose during the loaded
+series, so these are not equal-frequency speed comparisons. The workloads are
+terminated after testing. This qualifies the stated load, not a twofold timeout
+margin under arbitrary load or full browser acceptance on this APK.
 
 Libvirt and nspawn pass on APK
 `dbaa14b88e8c89ddd7ba728ec058477a7cb745a477240c0bcfb3952f38547d67`:
@@ -858,7 +907,7 @@ Pairs are lazy/Base; unrun Base workflows remain N.
 | Full systemd boot | P/P | Default target, journal/D-Bus/logind IO, restart, binfmt, networkd IPv6 and shutdown |
 | Podman and Docker | P/N | Overlay storage, TCP/UDP publication, named peers, local outbound IO and cleanup |
 | Rootless Podman | P/N | Guest UID 1000, stock sandbox/cgroups, TCP/UDP, named peers and cleanup |
-| Rootless Docker | I/N | Complete local network reruns pass; an intermittent local outbound TCP timeout remains unattributed |
+| Rootless Docker | P/N | Local TCP/UDP publication, literal/named peers, outbound HTTP stress and clean daemon/session teardown |
 | containerd cleanup reporting | U/N | Packaged 1.7.13 shim has competing child reapers and can report status 255 after a successful child exit |
 | Libvirt/QEMU | P/N | Managed TCG boot, pause/resume, NAT bridge, IPv4/IPv6 DHCP/DNS, bidirectional IO, poweroff and TAP cleanup |
 | BuildKit | P/N | Build, cache, secrets, export/run and cancellation |
@@ -885,16 +934,15 @@ Rootless Docker uses packaged Docker 25.0.2, RootlessKit 1.1.1 and slirp4netns
 1.2.3. The distribution omits `dockerd-rootless.sh`; the matching official
 Moby v25.0.2 script is staged under `/opt/md-rootless-extras` for testing only
 (SHA-256 `935d017538ed780371f547f836abb57d8cd811225e40c3002326aa35b6b8f697`).
-The current local-only workflow passes on APK
-`180f55949447c35c01d4024877f2442bca1bf7ac1449b7f7663ec8b938109fda`:
-`build/matrix-close-manjaro/gui/oci-services-c28147f3e3de41d38f2899a644cccab5.json`.
-It loads the cached Python image, checks published TCP/UDP and named peers,
-then makes 40 new HTTP connections from two containers to the native phone
-observer; daemon exit 0 and port release pass. No failed connection is retried.
-The unresolved timeout remains in
-`gui/oci-services-b3c153847a4f4258b40e092fbb587256.json`: the second container
-cannot connect to the observer through the host interface, despite passing
-bidirectional container TCP/UDP. Successful rechecks do not establish its cause.
+The local-only stress workflow passes on APK
+`e207c197f4f147a71dae756b32aef8f248fbcf35295c99705825c489a7bd72cd`:
+`build/matrix-followup-20261110/manjaro-network21/oci-services-fd256228fd2047b5bae20ffaf01c8e15.json`.
+It loads the cached Python image and performs 1000 TCP/UDP exchanges through
+each of two published ports and in each direction between containers, using
+both addresses and names: 6000 exchanges per protocol. Two containers also make
+1000 new HTTP connections each to the native phone observer. Daemon exit 0,
+port release, unchanged system mounts and session cleanup pass. No failed
+connection is retried, and no syscall tracing is enabled.
 
 Cleanup warnings have separate U evidence. The unmodified containerd 1.7.13
 shim reports status 255 for `/bin/true` in 7/32 guest runs. The same shim outside
@@ -980,7 +1028,9 @@ Pairs are lazy/Base; unrun Base workflows remain N.
 | Libvirt and direct QEMU | P/N | TCG boot, serial IO, Landlock kernel contract, pause/resume, IPv4/IPv6 DHCP/DNS, NAT, poweroff and TAP cleanup |
 | Podman and Docker | P/N | Stock sandboxes, TCP/UDP publication, named peers, local outbound IO and cleanup |
 | Rootless Podman | P/N | Guest UID 1000, stock set-ID helpers and sandbox/cgroup policy, same network checks |
-| Rootless Docker | I/N | Network and daemon cleanup pass; intermittent cold archive-import ENOENT remains unattributed |
+| Rootless Docker | P/N | Cold archive import, local TCP/UDP publication, literal/named peers, outbound HTTP stress and daemon cleanup |
+| Single-node k3s | P/N | CoreDNS, pod/Service IO, NetworkPolicy, Deployment/PVC, ingress, server restart and cleanup |
+| Declarative init-managed k3s | P/N | Nix-packaged enabled service, initial activation, orderly reboot and supervisor SIGKILL/recovery; retained identities/PVC, DNS/Service IO and cleanup |
 | BuildKit | P/N | Build, cache, secrets, export/run and cancellation |
 | LXC and nspawn/machinectl | P/N | Nested Debian boot/network, orderly and forced stop, restart and cleanup |
 | Selected LTP | P/N | Seven shared tests as guest UID 1000 |
@@ -1010,18 +1060,25 @@ with ENOENT rather than fabricating cpuset availability. Evidence:
 `gui/oci-services-24d035eff54644429e73ff20ddc92c66.json` in that directory.
 Public internet is outside these local checks.
 
-Cold local-archive import remains intermittent: receipt
-`build/matrix-close-nixos/gui/oci-services-4c96926a158a4cd9ac62d886382a1891.json`
-records ENOENT while restoring the timestamp of an archived empty directory.
-Four sequential imports and full network/cleanup workflows pass under APK
-`13429b0a9677543638f4954e03d4d8d13faef593f33542c249a60e98c31969ff`, ending with
-`build/matrix-close-nixos/gui/oci-services-572d264e4ccf48ba8f77976aa3ab75d3.json`.
-This does not establish the cause of the failed import or close that defect.
+Cold import and the full rootless network workflow pass under APK
+`e207c197f4f147a71dae756b32aef8f248fbcf35295c99705825c489a7bd72cd`:
+`build/matrix-followup-20261110/nixos-network-flow7/oci-services-72922f21e6fe46e58b26ff89fb0b08bf.json`.
+Each published-port and literal/named peer path completes 1000 TCP/UDP exchanges;
+both containers also complete 1000 outbound HTTP requests each. The daemon
+exits normally and system mounts remain unchanged. The archive comes from the
+installed image cache, without registry access.
 
 Single-node k3s v1.37.1+k3s1 passes CoreDNS, pod/Service IO, NetworkPolicy,
 Deployment/PVC, Traefik/ServiceLB ingress, server restart and cleanup:
 `k3s/oci-services-f1086ad0518a4d48ac09bf47daa34b8b.json`.
 This process fixture does not qualify a persistent declarative NixOS service.
+The separate declarative boot fixture passes initial activation, orderly reboot
+and supervisor SIGKILL/recovery with Nix-packaged k3s 1.35.8+k3s1:
+`build/matrix-followup-20261110/nixos-k3s-boot15/oci-services-6d504415e0274a4ca907153effe7c60e.json`,
+APK `0bd7944570bafedad659919cc4ef6fb58f84277443967b98780f0b79f30fae2c`.
+All phases check enabled service ownership, pod DNS/Service IO and persistent
+identities/PVC data without syscall or signal tracing. The fixture restores the
+previous system generation and installation data and closes its executor.
 Managed VM boot is `gui/oci-services-8c9934b4a5504c60bd6135673e03034c.json`;
 direct QEMU is `gui/oci-services-3dacbe22158a45f993275b6773bb991c.json`.
 The full managed-network run is
@@ -1040,7 +1097,7 @@ workflows remain N. Unless specified below, receipts use APK
 
 | Workflow | Result | Checked scope |
 | --- | --- | --- |
-| Full runit boot | F/N | Init and services start; packaged Libvirt sysctl requests an unsupported write to Android's global `fs.aio-max-nr` |
+| Full runit boot | P/N | Init, service lifecycle and shutdown; optional vendor host-global AIO tuning does not claim to change Android |
 | Podman and Docker | P/N | Overlay storage, TCP/UDP publication, named peers, external IO and cleanup |
 | Rootless Podman and Docker | P/N | Guest UID 1001, pasta, cgroup v2, TCP/UDP, conflicts, DNS/HTTP and clean shutdown |
 | Libvirt/QEMU | P/N | Managed TCG boot, pause/resume, NAT bridge, IPv4/IPv6 DHCP/DNS, bidirectional IO, poweroff and TAP cleanup |
@@ -1071,6 +1128,13 @@ Docker's rootless launcher and RootlessKit 3.3.0 come from the official Docker
 packages. No installer source-build fallback is added.
 The common namespace suite passes under both executors, including mount-table
 enumeration and retained descriptors after a proc target's process exits.
+
+Full runit boot uses
+`build/matrix-followup-20261110/armtix-boot/oci-services-ac7b0032a23749198ed8ae8ceb82ec18.json`,
+build `0a58faea397c009f1afdaf2e9cf7cc2bb854f47b7022fbd37d6e9d1d3eaeb9f7`.
+The recipe marks only packaged `/usr/lib/sysctl.d` or `/run/sysctl.d`
+`fs.aio-max-nr` assignments optional. Administrator `/etc` policy and the
+host-global native value remain unchanged.
 
 ### Void User
 
@@ -1145,7 +1209,7 @@ Pairs are lazy/Base; unrun Base workflows remain N.
 | Native and Flatpak Chromium/Firefox | P/N | Input, download, file chooser, WebGL and normal application exit |
 | Flatpak VS Code | P/N | Editor, watch, terminal, reload, GDB breakpoint/step, hardware composition, renderer sandbox and normal exit |
 | Document portal | P/N | Export/read/write/revoke, two graceful stops, crash-triggered unmount and reactivation |
-| Single-node k3s | I/N | Full workload and five successive server restarts pass; an earlier intermittent shutdown SIGSEGV remains unattributed |
+| Single-node k3s | P/N | Full workload, five successive server restarts, retained workload identity/IO and all six clean server stops |
 | Persistent init-managed k3s | P/N | Stock OpenRC installation, orderly reboot and supervisor SIGKILL/recovery; retained identities and PVC, replacement containers, DNS/Service IO and cleanup |
 
 Receipts are under `build/matrix-alpine-user/`: `boot-lazy-fixed` and
@@ -1173,13 +1237,12 @@ and preserved system mounts.
 
 Single-node k3s v1.37.1+k3s1 passes the full workload, five successive server
 restarts and all six server stops on APK
-`e8bfe5295136a92a7c94d6e9725838e4aba50e26c6bb9902576c606c67862c14`:
-`build/matrix-close-alpine/k3s-table-policy/oci-services-1937eaac32414e0091f73d4b1cd43c96.json`.
+`e207c197f4f147a71dae756b32aef8f248fbcf35295c99705825c489a7bd72cd`:
+`build/matrix-followup-20261110/alpine-k3s-flow7/oci-services-5d63823aa1d9450db5b4096e6a925be6.json`.
+The run uses locally staged airgap images and fault-signal diagnostics, not
+successful-call tracing. Its executor and private service state are released.
 Each restart requires a fresh kubelet Ready heartbeat and retains workload
-identity and service connectivity. An earlier
-unattributed shutdown SIGSEGV remains in
-`build/matrix-alpine-user/k3s/oci-services-60bffc176df24ed5bc146367ebc2bc05.json`;
-the successful repeat does not establish its cause.
+identity and service connectivity.
 Stock runc passes split create/start with the containerd seccomp profile and
 guest UID 65535. These tests retain guest seccomp and guest dumpability checks.
 

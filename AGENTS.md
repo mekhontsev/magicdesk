@@ -4,6 +4,15 @@ Re-read this file after context compaction or session recovery before continuing
 repository work. Preserve unrelated uncommitted changes; Git history changes
 require the user's authorization.
 
+## Defect Follow-Through
+
+When fixing a defect, audit analogous paths across the owning mechanism and its
+callers, not only nearby code. Check other entry points, executors, lifecycle
+stages and failure paths that share the same assumption. Fix affected variants
+through their shared owner where appropriate, and add focused regression tests.
+Do not treat the original reproduction passing as proof that related paths are
+correct; report any applicable paths that remain unverified.
+
 ## Documentation
 
 Keep maintained Markdown focused on current behavior, ownership, limitations,
