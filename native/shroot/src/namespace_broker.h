@@ -58,9 +58,10 @@ struct md_broker_retirement {
     void *context;
 };
 void md_broker_retirement_handler(struct md_namespace_broker *,int (*)(const struct md_broker_retirement *));
-/* A cold cleanup action borrows a broker-held stop without delivering its
- * signal/lifecycle continuation. Its injected stops bypass normal admission;
- * take_event retains the original stop until native_return after restoration. */
+/* A cold cleanup action borrows only a syscall or synthetic interrupt stop.
+ * Signals, group stops and births must reach their normal dispatcher first;
+ * register restoration cannot recreate their kernel delivery context.
+ * take_event retains the borrowed stop until native_return after restoration. */
 int md_broker_native_borrow(struct md_namespace_broker *,pid_t,int *stopped);
 void md_broker_native_return(struct md_namespace_broker *,pid_t);
 /* Retain a real kernel event while its admitted worker operation retires.

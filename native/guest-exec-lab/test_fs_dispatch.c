@@ -748,7 +748,8 @@ static void buffer_completed(struct md_fs_buffer_request *request, pid_t actor, 
     assert(request && actor==(buffer_actor ? buffer_actor : getpid())); ++buffer_callbacks; buffer_error=error;
     buffer_pending=md_fs_buffer_ack_pending(request) || md_fs_buffer_snapshot_pending(request)
         || md_fs_buffer_export_pending(request) || md_fs_buffer_task_pending(request)
-        || md_fs_buffer_capture_pending(request) ? request : NULL;
+        || md_fs_buffer_capture_pending(request) || md_fs_buffer_open_waiting(request) ? request : NULL;
+    if (md_fs_buffer_open_waiting(request)) return;
     const struct md_fs_result *status=md_fs_buffer_status_result(request);
     if (status) { status_result=*status; return; }
     if (!error) assert(md_fs_buffer_open_take(request,&buffered_open)>=0);
@@ -1662,6 +1663,54 @@ static void buffer_received_inspection(struct md_fs_buffer_service *service,
     assert(!close(watch) && !close(sockets[0]) && !close(sockets[1]));
     puts("PASS received vector inspection: 253 ordered/repeated inputs, no FD duplication or table turns, captured context, rejected indices and cancellation EOF");
 }
+static int open_completion_admitted;
+static int open_completion_admit(pid_t actor) {
+    assert(actor==getpid()); return open_completion_admitted;
+}
+static void buffer_child_admission(struct md_fs_buffer_service *service,struct md_fs_worker *worker,
+        struct md_guest_domain *fs,struct md_task_wait *wait,
+        const struct md_interception_buffer *buffer,struct md_fs_buffer_frame *frame) {
+    const char path[]="/completion-fifo";
+    *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},.mode=S_IFIFO|0600,
+        .length={sizeof(path),0},.path={"/completion-fifo"}}};
+    assert(!buffer_request(service,worker,fs,buffer,MD_FS_MKNOD));
+    assert(!frame->reply.result.error);
+    for (int cancel=0;cancel<3;++cancel) {
+        open_completion_admitted=1;
+        md_fs_buffer_admission(service,open_completion_admit);
+        *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},.flags=O_RDWR|O_CLOEXEC,
+            .length={sizeof(path),0},.path={"/completion-fifo"}}};
+        struct md_fs_buffer_request *request=buffer_request(service,worker,fs,buffer,MD_FS_OPEN);
+        assert(request && md_fs_buffer_open_waiting(request) && wait->members==1);
+        pid_t child=wait->cursor->pid;
+        int callbacks=buffer_callbacks;
+        open_completion_admitted=0;
+        if (cancel==1) md_fs_buffer_cancel(&request);
+        int status=wait_child(child);
+        assert(md_fs_buffer_child(service,child,status)==1 && !wait->members);
+        assert(buffer_callbacks==callbacks && buffered_open.fd==-1);
+        assert(!md_fs_worker_dispatch(worker) && buffer_callbacks==callbacks);
+        if (cancel==2) md_fs_buffer_cancel(&request);
+        if (cancel) {
+            assert(!request && !md_fs_worker_dispatch(worker) && buffer_callbacks==callbacks);
+        } else {
+            open_completion_admitted=1;
+            assert(!md_fs_worker_dispatch(worker));
+            assert(buffer_callbacks==callbacks+1 && buffer_pending==request
+                && md_fs_buffer_open_ready(request) && buffered_open.fd==-1);
+            assert(!md_fs_buffer_open_resume(request)); request=NULL;
+            assert(buffer_callbacks==callbacks+2 && !buffer_pending && !buffer_error
+                && !frame->reply.result.error && buffered_open.fd>=0);
+            struct stat st; assert(!fstat(buffered_open.fd,&st) && S_ISFIFO(st.st_mode));
+            md_fs_buffer_open_release(&buffered_open);
+        }
+        buffer_pending=NULL;
+        md_fs_buffer_admission(service,NULL);
+    }
+    struct md_fs_request unlink={.operation=MD_FS_UNLINK,.directory={-1,-1},.path={path}};
+    assert(!status_call(service,worker,fs,&unlink));
+    puts("PASS asynchronous open admission: retained child result, exact wakeup and cancellation before/after publication");
+}
 static void buffer_service_lifetime(const char *store, unsigned cancelled_operation) {
     unsigned before=all_fds();
     struct md_task_registry *tasks=md_task_registry_create(); assert(tasks);
@@ -1819,6 +1868,7 @@ static void buffer_service_lifetime(const char *store, unsigned cancelled_operat
     buffer_channel_check(service,worker,tasks,&resources,&identity,&task,frame);
     buffer_received_inspection(service,worker,tasks,&resources,&identity,pool,&task,frame);
     buffer_watch_delivery(service,worker,resources.fs,pool,&task,frame,md_fs_anchor_fd(base));
+    buffer_child_admission(service,worker,resources.fs,&wait,&task,frame);
     md_fs_anchor_release(base);
     const unsigned operations[]={MD_FS_TEMPORARY,MD_FS_MOUNT_TABLE};
     for (unsigned i=0;i<sizeof(operations)/sizeof(*operations);++i) {
@@ -1834,10 +1884,12 @@ static void buffer_service_lifetime(const char *store, unsigned cancelled_operat
         if (operations[i]==MD_FS_MOUNT_TABLE) {
             struct md_proc_file *file=md_proc_file_from_object(buffered_open.object);
             assert(file && !md_proc_file_control_stat(file,&st) && S_ISREG(st.st_mode));
-            struct md_control_file control=md_proc_file_control(file);
-            char data[4096]; struct md_control_actor actor={.pid=getpid(),.identity=&identity,.resources=&resources};
-            long bytes=control.ops->read(control.context,&actor,data,sizeof(data)-1,0);
-            assert(bytes>0); data[bytes]=0; assert(strstr(data," / "));
+            char data[4096]; struct md_proc_file_io io={0};
+            assert(md_proc_file_io_begin(&io,file,MD_PROC_FILE_READ,0,0,0,sizeof(data)-1,token)==1);
+            io.actor=(struct md_control_actor){.pid=getpid(),.identity=&identity,.resources=&resources};
+            long bytes=md_proc_file_io_execute(&io,&identity,NULL,data,sizeof(data)-1,4096);
+            assert(bytes>0 && !io.pending); data[bytes]=0; assert(strstr(data," / "));
+            assert(!md_proc_file_io_offer(&io) && !md_proc_file_io_finish(&io,bytes));
             assert(frame->reply.result.selectors==md_fd_object_selectors(buffered_open.object));
         } else assert(!fstat(buffered_open.fd,&st) && S_ISREG(st.st_mode));
         md_fs_buffer_open_release(&buffered_open);

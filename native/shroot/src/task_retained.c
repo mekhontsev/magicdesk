@@ -18,8 +18,7 @@ static int trace(struct md_task_retained *r,int request,pid_t pid,void *address,
     return r->parent.trace(request,pid,address,data)<0 ? -errno : 0;
 }
 static int registers(struct md_task_retained *r,struct user_pt_regs *regs,int writing) {
-    struct iovec io={regs,sizeof(*regs)};
-    return trace(r,writing ? PTRACE_SETREGSET : PTRACE_GETREGSET,r->actor,(void *)NT_PRSTATUS,&io);
+    return md_task_registers_access(r->parent.trace,r->actor,regs,writing);
 }
 static int call(struct md_task_retained *r,long number,unsigned long first,unsigned long second) {
     struct user_pt_regs regs=md_task_registers_entry(r->abi.task_call,0,r->pstate);

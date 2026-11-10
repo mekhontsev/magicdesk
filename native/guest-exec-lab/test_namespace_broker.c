@@ -456,7 +456,7 @@ static void managed_proc_reads(const char *store) {
     assert(descriptors()==before);
     puts("PASS managed proc observations: socket identity, descriptor reuse, credentials, busy table and typed provider fallback, no FD leak");
 }
-static void stopped_queued_entry(const char *store,int status) {
+static void stopped_queued_entry(const char *store,int status,int admission) {
     unsigned before=descriptors();
     pid_t pid=getpid();
     struct md_task_registry *tasks=md_task_registry_create(); assert(tasks);
@@ -497,7 +497,7 @@ static void stopped_queued_entry(const char *store,int status) {
         assert(!md_fs_worker_dispatch(worker));
         int stopped=0;
         int borrowed=md_broker_native_borrow(broker,pid,&stopped);
-        assert(borrowed==(WIFSTOPPED(status) ? 1 : -ESRCH));
+        assert(borrowed==admission);
         /* Injection owns the held boundary until its registers are restored.
          * Publishing it early replays the old stop as an injected-call event. */
         if (borrowed==1) {
@@ -629,8 +629,16 @@ void md_test_namespace_broker(const char *root) {
     assert(!close(directory) && !close(attached));
     completed_result(store,SYS_fstat); completed_result(store,SYS_gettid);
     managed_proc_reads(store);
-    stopped_queued_entry(store,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f);
-    stopped_queued_entry(store,SIGKILL);
+    stopped_queued_entry(store,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,1);
+    stopped_queued_entry(store,(PTRACE_EVENT_SECCOMP<<16)|(SIGTRAP<<8)|0x7f,1);
+    stopped_queued_entry(store,((SIGTRAP|0x80)<<8)|0x7f,1);
+    stopped_queued_entry(store,(SIGCHLD<<8)|0x7f,-EBUSY);
+    stopped_queued_entry(store,(SIGSEGV<<8)|0x7f,-EBUSY);
+    stopped_queued_entry(store,(PTRACE_EVENT_STOP<<16)|(SIGSTOP<<8)|0x7f,-EBUSY);
+    stopped_queued_entry(store,(PTRACE_EVENT_CLONE<<16)|(SIGTRAP<<8)|0x7f,-EBUSY);
+    stopped_queued_entry(store,(PTRACE_EVENT_EXEC<<16)|(SIGTRAP<<8)|0x7f,-ESRCH);
+    stopped_queued_entry(store,(PTRACE_EVENT_EXIT<<16)|(SIGTRAP<<8)|0x7f,-ESRCH);
+    stopped_queued_entry(store,SIGKILL,-ESRCH);
     discovery(store); registration_retirement(store); alarm(0);
     puts("PASS broker directory notification ownership");
 }

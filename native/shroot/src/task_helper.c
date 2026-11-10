@@ -282,7 +282,7 @@ static int observe(struct helper *m, const struct user_pt_regs *r) {
         m->observed=1; return 0;
     }
     int found=md_mapping_observe(m->maps,&m->source,(uintptr_t)address,
-        m->request.size,m->request.offset);
+        m->request.size,m->request.offset,!!(m->request.flags&MAP_SHARED));
     if (found<0) return found;
     m->result=found && !m->before ? address : -ECANCELED;
     m->observed=1; return 0;
@@ -513,7 +513,7 @@ export_open:
             }
             if (m->request.address) {
                 m->before=md_mapping_observe(m->maps,&m->source,m->request.address,
-                    m->request.size,m->request.offset);
+                    m->request.size,m->request.offset,!!(m->request.flags&MAP_SHARED));
                 if (m->before<0) { m->result=m->before; return abort_child(m); }
             }
             m->operation=BACKING; args[0]=MD_GUEST_TASK_HELPER; args[1]=1;

@@ -239,6 +239,10 @@ static int complete(struct md_fs_work *work) {
         r->submitted=1; md_fs_worker_publish(r->service->worker,work); return 0;
     }
     r->submitted=0;
+    if (!r->cancelled && r->opening_wait) {
+        r->service->complete(r,r->actor,0);
+        return 0;
+    }
     if (!r->cancelled && r->capturing) {
         r->service->complete(r,r->actor,0);
         return 0;
@@ -351,8 +355,7 @@ int md_fs_buffer_child(struct md_fs_buffer_service *s, pid_t pid, int status) {
         r->output->reply.result.error=result;
         r->output->transfer=MD_FS_BUFFER_NO_FD;
     }
-    if (r->opening_wait && !r->cancelled) r->service->complete(r,r->actor,0);
-    else complete(&r->work);
+    complete(&r->work);
     return 1;
 }
 static void submit(struct md_fs_buffer_request *r, int error) {

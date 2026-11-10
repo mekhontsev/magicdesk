@@ -204,12 +204,17 @@ data IO does not allocate runtime bookkeeping.
 
 Cold stop-owning transactions share one admission check: entry revocation,
 private-memory repair, task-affine injection and guarded mapping cannot borrow
-each other's stopped tasks. The sole nesting exception is retirement of a
-mapping's own temporary FD inside that mapping's barrier. A competing `mprotect`
+each other's stopped tasks. A mapping's own temporary-FD retirement and repair's
+private executor preparation reuse their existing memory turn and writer barrier;
+they do not acquire competing stop owners. A competing `mprotect`
 exit is retained by the active owner, including one from an unrelated address
 space, and replayed with its original status and accounting after release.
 This defers that repair, not all work in the unrelated process. Ordinary events
 remain runnable. Logical dumpability changes require no stopped-task barrier.
+Broker-held signal-delivery, group and birth stops are not native-injection
+boundaries. Their event owner publishes them before a caller can borrow a later
+syscall or synthetic interrupt stop: restoring registers cannot recreate the
+kernel's original signal-delivery context.
 Seccomp installation revokes entry
 and drains occupied private frames without interrupting native waits. New public
 adapter admissions wait until the installing task completes its kernel call;
@@ -319,6 +324,17 @@ pending broker temporary-FD retirement. It releases its writer barrier and worke
 pause request, retaining the original syscall-exit event. Task-affine cleanup can
 then finish; replay revalidates the mapping and resumes repair, without executing
 the guest syscall again. Once mapping mutation starts, this handoff is forbidden.
+
+Candidate mapping, advice and replacement run in the address space's retained
+private executor, shared with managed robust cleanup. The guest caller remains
+stopped. A late caller exit/exec cancels the transaction but does not destroy its
+executor: candidate cleanup and replacement rollback finish before the exact
+terminal event and accounting are replayed. Completion never restores a dead
+caller's registers or closes remembered guest descriptor numbers. The normal
+dispatcher continues serving unrelated address spaces during helper waits and
+bounded scan/copy steps. Supervisor-state tests cover terminal events at each
+MAP/COPY/ADVICE/REPLACE boundary; native retained-actor and private-memory suites
+cover executor lifetime and actual mapping operations in User and Shell.
 
 Protected descriptor metadata uses the filesystem worker's captured-request
 receipts, without a guest buffer or a second file-table turn. The request retains

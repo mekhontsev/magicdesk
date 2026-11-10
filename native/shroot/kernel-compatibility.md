@@ -631,7 +631,7 @@ nondumpable state and cannot be reused for a forked address space. Missing
 access, unknown VMA flags and unsupported mapping types fail preparation without
 replacing the original mapping. The kernel retains COW, truncation and DONTNEED
 semantics. `test_resources.py --case private-memory` covers the memory owner and
-native/guest preparation under UID 2000, including retained access after
+native/guest preparation under User and Shell, including retained access after
 PR_SET_DUMPABLE=0, supervisor source capture, exact child-mm ownership and partial
 proc-capture FD exhaustion. Direct source capture uses the existing task-descriptor
 adapter. An authenticated regular-file O_PATH pin can instead reopen the exact
@@ -644,6 +644,10 @@ changing dumpability. The namespace
 worker's acknowledged pause uses its pipe-backed queue signals and pthread synchronization,
 with no newer kernel dependency. The replacement transaction uses baseline mmap/munmap and
 fixed mremap, retaining the original VMA separately through commit or rollback.
+Its private executor uses the same baseline clone(CLONE_VM) and exact-child
+retirement as managed robust cleanup. Caller death cannot invalidate that mm
+before replacement cleanup completes; no PIDFD_THREAD or newer clone semantics
+are required.
 A failed fixed move does not prove that its destination remains mapped; see
 [Linux 5.15 mremap](https://github.com/torvalds/linux/blob/v5.15/mm/mremap.c).
 Focused checks cover cancellation, destructive-destination failures, failed

@@ -255,8 +255,9 @@ def main():
               + root + "/native", "PASS capture terminal ownership")
         check("guest capture terminal ownership", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test capture-terminal /tmp", "PASS capture terminal ownership")
-        # Opening /dev through the guest now retains its origin. An inherited
-        # native directory really requires capture and exercises helper failure.
+        # An inherited directory has no guest-open origin. Its capture may use
+        # permitted native inspection; logical dumpability does not force the
+        # helper path. Protected native capture is covered by fs-dispatch.
         check("native inherited capture terminal control", executable("resource_guest") + " capture-terminal-inherited-native "
               + root + "/native </dev", "PASS capture terminal ownership")
         check("guest inherited capture terminal ownership", guest_run + " --diagnostics --store " + root
@@ -268,7 +269,6 @@ def main():
                   + scenario + " " + root + "/native" + control, "PASS native cwd")
             check("guest cwd capture inherited=" + str(inherited), guest_run + " --diagnostics --store " + root
                   + "/store --deadline-seconds 90 -- /bin/test " + scenario + " /tmp" + control, "PASS native cwd",
-                  patterns=(r"PROBE buffer-capture pid=\d+",) if inherited else (),
                   absent_patterns=() if inherited else (r"PROBE buffer-capture pid=\d+",))
         check("native proc watch full table", executable("resource_guest") + " watch-slots "
               + root + "/native", "PASS watch paths without private FDs")

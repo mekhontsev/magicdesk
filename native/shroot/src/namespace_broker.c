@@ -315,6 +315,13 @@ int md_broker_native_borrow(struct md_namespace_broker *b,pid_t pid,int *stopped
         if (t->native_borrowed) result=-EBUSY;
         else if (t->held && (!WIFSTOPPED(t->status) || (unsigned)t->status>>16==PTRACE_EVENT_EXIT
                 || (unsigned)t->status>>16==PTRACE_EVENT_EXEC)) result=-ESRCH;
+        else if (t->held && !(((unsigned)t->status>>16==PTRACE_EVENT_STOP && WSTOPSIG(t->status)==SIGTRAP)
+                || (unsigned)t->status>>16==PTRACE_EVENT_SECCOMP
+                || (!(t->status>>16) && WSTOPSIG(t->status)==(SIGTRAP|0x80))))
+            /* Register restoration cannot recreate a signal-delivery, group
+             * or birth stop. Let its current owner publish that event before
+             * borrowing a later syscall or synthetic interrupt boundary. */
+            result=-EBUSY;
         else if (op && op->native_plan!=3 && md_fd_order_state(&op->order)!=MD_RESOURCE_ORDER_QUEUED
                 && !md_notification_result_queued(&op->completion))
             result=-EBUSY;

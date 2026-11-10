@@ -14,8 +14,9 @@ int md_mapping_source(int fd, struct md_mapping_source *source) {
     return 0;
 }
 int md_mapping_observe(int fd, const struct md_mapping_source *source, uintptr_t address,
-        size_t size, uint64_t offset) {
-    if (fd<0 || !source || !size || address>UINTPTR_MAX-size || offset>UINT64_MAX-size) return -EINVAL;
+        size_t size, uint64_t offset, int shared) {
+    if (fd<0 || !source || !size || (shared!=0 && shared!=1)
+            || address>UINTPTR_MAX-size || offset>UINT64_MAX-size) return -EINVAL;
     if (lseek(fd,0,SEEK_SET)<0) return -errno;
     uintptr_t cursor=address, end=address+size;
     struct md_mapping_reader reader={.fd=fd}; struct md_mapping_record v;
@@ -25,7 +26,7 @@ int md_mapping_observe(int fd, const struct md_mapping_source *source, uintptr_t
         if (v.end<=cursor) continue;
         uint64_t displacement=cursor-v.first;
         if (v.inode!=source->inode || makedev(v.major,v.minor)!=source->device
-                || !v.shared || v.offset>UINT64_MAX-displacement
+                || v.shared!=shared || v.offset>UINT64_MAX-displacement
                 || v.offset+displacement!=offset+cursor-address) return 0;
         if (v.end>=end) return 1;
         cursor=v.end;

@@ -32,13 +32,13 @@
  * an address space but never a file table. Production use additionally needs
  * ptrace-owned mapping commit, signals, debugger invisibility and reaping. */
 struct mapping {
-    int control, parent, full, protected, killed, thread;
+    int control, parent, full, protected, killed, thread, shared;
     int tid, phase, caller_tid;
     void *address, *stack; size_t size;
     dev_t device; ino_t inode;
 };
 static int observation_socket=-1;
-struct mapping_source { pid_t pid; dev_t device; ino_t inode; int killed; };
+struct mapping_source { pid_t pid; dev_t device; ino_t inode; int killed, shared; };
 extern long mapping_mmap(void *, size_t, int, int, int, long);
 extern char mapping_mmap_return[];
 extern char mapping_abort_entry[],mapping_abort_return[];
@@ -86,7 +86,8 @@ static int mapping_child(void *data) {
     if (first+1<last) assert(!syscall(SYS_close_range,first+1,last-1,0));
     assert(!syscall(SYS_close_range,last+1,~0U,0));
     int maps=open("/proc/thread-self/maps",O_RDONLY|O_CLOEXEC); assert(maps>=0);
-    struct mapping_source source={.pid=(pid_t)syscall(SYS_gettid),.device=m->device,.inode=m->inode,.killed=m->killed};
+    struct mapping_source source={.pid=(pid_t)syscall(SYS_gettid),.device=m->device,.inode=m->inode,
+        .killed=m->killed,.shared=m->shared};
     send_fd_data(observation_socket,maps,&source,sizeof(source));
     assert(!close(maps) && !close(observation_socket));
     uintptr_t abort_gate=(uintptr_t)mapping_abort_return;
@@ -123,7 +124,8 @@ static int mapping_child(void *data) {
     }
     int fd=syscall(SYS_getppid); assert(fd==0);
     __atomic_store_n(&m->phase,1,__ATOMIC_RELEASE);
-    assert(mapping_mmap(m->address,m->size,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_FIXED,fd,0)==(long)m->address);
+    assert(mapping_mmap(m->address,m->size,PROT_READ|PROT_WRITE,
+        (m->shared ? MAP_SHARED : MAP_PRIVATE)|MAP_FIXED,fd,0)==(long)m->address);
     __atomic_store_n(&m->phase,2,__ATOMIC_RELEASE);
     assert(!close(fd));
     __atomic_store_n(&m->phase,3,__ATOMIC_RELEASE);
@@ -145,7 +147,7 @@ static int dying_caller(void *data) {
     assert(clone(mapping_child,(char *)m->stack+65536,flags,m,&m->tid,NULL,&m->tid)>0);
     syscall(SYS_exit,0); __builtin_unreachable();
 }
-static void exercise(int full, int protected, int killed, int thread, int caller_exit) {
+static void exercise(int full, int protected, int killed, int thread, int caller_exit, int shared) {
     unsigned before=descriptors();
     int dumpable=prctl(PR_GET_DUMPABLE); assert(dumpable>=0);
     struct rlimit limit; assert(!getrlimit(RLIMIT_NOFILE,&limit));
@@ -158,7 +160,7 @@ static void exercise(int full, int protected, int killed, int thread, int caller
     void *caller_stack=caller_exit ? mmap(NULL,65536,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0) : NULL;
     assert(address!=MAP_FAILED && stack!=MAP_FAILED && caller_stack!=MAP_FAILED);
     struct mapping m={.control=sockets[1],.parent=getpid(),.full=full,.protected=protected,
-        .killed=killed,.thread=thread,.address=address,.size=page,.stack=stack};
+        .killed=killed,.thread=thread,.shared=shared,.address=address,.size=page,.stack=stack};
     struct stat backing; assert(!fstat(source,&backing)); m.device=backing.st_dev; m.inode=backing.st_ino;
     unsigned caller_fds=descriptors();
     int fillers[64]; unsigned filled=0;
@@ -207,12 +209,15 @@ static void exercise(int full, int protected, int killed, int thread, int caller
     assert(!setrlimit(RLIMIT_NOFILE,&limit));
     assert(!mprotect(address,page,PROT_READ|PROT_WRITE));
     assert(*(char *)address==(killed==1 ? 0 : 'M'));
+    *(char *)address='C';
+    char content=0;
+    assert(pread(source,&content,1,0)==1 && content==(shared && killed!=1 ? 'C' : 'M'));
     assert(!munmap(address,page) && !munmap(stack,65536));
     if (caller_stack) assert(!munmap(caller_stack,65536));
     assert(!close(sockets[0]) && !close(sockets[1]) && !close(source));
     assert(descriptors()==before);
-    printf("PASS private mapping helper thread=%d full=%d protected=%d killed=%d callerExit=%d\n",
-        thread,full,protected,killed,caller_exit);
+    printf("PASS private mapping helper thread=%d full=%d protected=%d killed=%d callerExit=%d shared=%d\n",
+        thread,full,protected,killed,caller_exit,shared);
 }
 static int policy_child(void *data) {
     int *seen=data; __atomic_store_n(seen,1,__ATOMIC_RELEASE);
@@ -251,11 +256,12 @@ static void clone_policy(void) {
     puts("PASS clone policy: ordinary threads and mmap allowed, private helper denied without FD changes");
 }
 static void cases(void) {
-    for (int thread=0;thread<2;++thread) for (int full=0;full<2;++full)
+    for (int shared=0;shared<2;++shared)
+      for (int thread=0;thread<2;++thread) for (int full=0;full<2;++full)
         for (int protected=0;protected<2;++protected)
             for (int killed=0;killed<5;++killed)
                 for (int caller_exit=0;caller_exit<=thread;++caller_exit)
-                    exercise(full,protected,killed,thread,caller_exit);
+                    exercise(full,protected,killed,thread,caller_exit,shared);
     clone_policy();
     puts("PASS private mapping task kernel feasibility");
 }
@@ -275,10 +281,10 @@ static int mapped_backing(const struct observed_mapping *m, int text) {
         }
         return q.inode==m->source.inode && q.dev_major==major(m->source.device)
             && q.dev_minor==minor(m->source.device) && q.vma_offset+m->input-q.vma_start==0
-            && (q.vma_flags&PROCMAP_QUERY_VMA_SHARED);
+            && !!(q.vma_flags&PROCMAP_QUERY_VMA_SHARED)==m->source.shared;
     }
     struct md_mapping_source source={m->source.device,m->source.inode};
-    int result=md_mapping_observe(m->maps,&source,m->input,(size_t)getpagesize(),0);
+    int result=md_mapping_observe(m->maps,&source,m->input,(size_t)getpagesize(),0,m->source.shared);
     assert(result>=0); return result;
 }
 int main(void) {
@@ -378,8 +384,8 @@ int main(void) {
         assert(!ptrace(event==PTRACE_EVENT_EXIT ? PTRACE_CONT : PTRACE_SYSCALL,pid,0,sig));
     }
     assert(WIFEXITED(runner_status) && !WEXITSTATUS(runner_status)
-        && before_mmap==12 && returned_mmap==advanced_mmap+fatal_returned && advanced_mmap==48);
-    assert(observed_commits==48 && observed_denials==12 && !close(observations[0]));
+        && before_mmap==24 && returned_mmap==advanced_mmap+fatal_returned && advanced_mmap==96);
+    assert(observed_commits==96 && observed_denials==24 && !close(observations[0]));
     printf("PASS mapping observation: executed=%d fatal=%d misleadingExitStops=%d\n",
         advanced_mmap,before_mmap,fatal_returned);
     printf("PASS retained maps text observation: committed=%d denied=%d\n",observed_commits,observed_denials);

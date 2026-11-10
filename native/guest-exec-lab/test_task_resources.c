@@ -91,8 +91,8 @@ static int descriptors(void) {
     closedir(dir); return count;
 }
 static void retained_proc_query(void) {
-    int proc=open("/proc",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-    int other=open("/dev",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    int proc=open("/proc",O_PATH|O_DIRECTORY|O_CLOEXEC);
+    int other=open("/dev",O_PATH|O_DIRECTORY|O_CLOEXEC);
     assert(proc>=0 && other>=0);
     const int flags[]={0,O_DIRECTORY,O_CLOEXEC,O_NOFOLLOW,O_NONBLOCK,O_LARGEFILE,O_NOCTTY,O_PATH};
     for (unsigned i=0;i<sizeof(flags)/sizeof(*flags);++i) {

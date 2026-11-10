@@ -58,16 +58,25 @@ static void lines(void) {
 static void observation(void) {
     struct md_mapping_source backing={.device=makedev(1,2),.inode=7};
     int fd=source("1000-2000 rw-s 0000 01:02 7\n2000-3000 r--s 1000 01:02 7\n");
-    assert(md_mapping_observe(fd,&backing,0x1800,0x1000,0x800)==1);
-    assert(!md_mapping_observe(fd,&backing,0x1800,0x1000,0));
-    assert(!md_mapping_observe(fd,&backing,0x1800,0x2000,0x800)); close(fd);
+    assert(md_mapping_observe(fd,&backing,0x1800,0x1000,0x800,1)==1);
+    assert(!md_mapping_observe(fd,&backing,0x1800,0x1000,0x800,0));
+    assert(!md_mapping_observe(fd,&backing,0x1800,0x1000,0,1));
+    assert(!md_mapping_observe(fd,&backing,0x1800,0x2000,0x800,1)); close(fd);
     const char *other[]={"1000-2000 rw-p 0 01:02 7\n", "1000-2000 rw-s 0 01:02 8\n",
         "1000-2000 rw-s 0 01:03 7\n", "1000-1800 rw-s 0 01:02 7\n1900-3000 rw-s 900 01:02 7\n"};
     for (size_t i=0;i<sizeof(other)/sizeof(*other);++i) {
-        fd=source(other[i]); assert(!md_mapping_observe(fd,&backing,0x1000,0x1000,0)); close(fd);
+        fd=source(other[i]); assert(!md_mapping_observe(fd,&backing,0x1000,0x1000,0,1)); close(fd);
     }
     fd=source("1000-2000 rw-s 0 01:02 18446744073709551623\n");
-    assert(md_mapping_observe(fd,&backing,0x1000,0x1000,0)==-EPROTO); close(fd);
+    assert(md_mapping_observe(fd,&backing,0x1000,0x1000,0,1)==-EPROTO); close(fd);
+    fd=source("1000-2000 rw-p 0000 01:02 7\n2000-3000 r--p 1000 01:02 7\n");
+    assert(md_mapping_observe(fd,&backing,0x1800,0x1000,0x800,0)==1);
+    assert(!md_mapping_observe(fd,&backing,0x1800,0x1000,0x800,1));
+    assert(!md_mapping_observe(fd,&backing,0x1800,0x1000,0,0));
+    assert(md_mapping_observe(fd,&backing,0x1800,0x1000,0x800,2)==-EINVAL);
+    close(fd);
+    fd=source("1000-2000 rw-p 0000 01:02 7\n2000-3000 r--s 1000 01:02 7\n");
+    assert(!md_mapping_observe(fd,&backing,0x1800,0x1000,0x800,0)); close(fd);
 }
 int main(void) {
     parse(); lines(); observation();

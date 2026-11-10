@@ -468,7 +468,7 @@ struct thread {
     struct thread *indexed;
     struct retry_owner retries[2];
     struct md_interception_memory *memory;
-    struct robust_memory *robust;
+    struct retained_memory *memory_actor;
     uintptr_t robust_head;
     uint32_t robust_tid;
     int robust_registering, robust_terminal, robust_replay;
@@ -710,8 +710,8 @@ static struct thread *find_thread(pid_t);
 static struct md_task_wait task_wait;
 /* Private actors have wait ownership, never guest task/resource membership.
  * The mm pointer is borrowed from the attached guest tasks, not a writer pin. */
-struct robust_memory {
-    struct robust_memory *next,*work_next,*indexed;
+struct retained_memory {
+    struct retained_memory *next,*work_next,*indexed;
     struct md_interception_memory *memory;
     struct md_task_wait_member wait;
     struct md_task_retained retained;
@@ -722,12 +722,12 @@ struct robust_memory {
     int ready, cleaning, retiring, dead, checkpoint_suspended, killed, exit_held,queued;
     long error;
 };
-enum { ROBUST_ACTOR_BUCKETS=257 };
-static struct robust_memory *robust_memories,*robust_creation,*robust_work;
-static struct robust_memory *robust_actors[ROBUST_ACTOR_BUCKETS];
+enum { RETAINED_ACTOR_BUCKETS=257 };
+static struct retained_memory *retained_memories,*retained_creation,*retained_work;
+static struct retained_memory *retained_actors[RETAINED_ACTOR_BUCKETS];
 static unsigned robust_replays;
-struct robust_retirement {
-    struct robust_memory *memory;
+struct retained_retirement {
+    struct retained_memory *memory;
     struct thread *actor;
     struct md_task_child_reap reap;
     struct md_task_child_reap_scratch scratch;
@@ -741,17 +741,17 @@ struct debug_wait_output {
     struct user_pt_regs registers;
     enum md_debugger_wait_action action;
 };
-static struct robust_retirement *robust_retirement;
-static struct md_task_quiesce *robust_barrier;
-static void robust_retirement_progress(void);
-static int robust_barrier_event(pid_t,int,const struct rusage *);
-static int robust_runnable(void);
-static void robust_progress(void);
-static int robust_event(pid_t,int,const struct rusage *);
-static pid_t robust_take(int *,struct rusage *);
-static void robust_detach(struct thread *);
-static void robust_cancel(void);
-static void robust_destroy(void);
+static struct retained_retirement *retained_retirement;
+static struct md_task_quiesce *retained_barrier;
+static void retained_retirement_progress(void);
+static int retained_barrier_event(pid_t,int,const struct rusage *);
+static int retained_runnable(void);
+static void retained_progress(void);
+static int retained_event(pid_t,int,const struct rusage *);
+static pid_t retained_take(int *,struct rusage *);
+static void retained_detach(struct thread *);
+static void retained_cancel(void);
+static void retained_destroy(void);
 static int robust_call(struct thread *,struct user_pt_regs *,enum md_task_call_boundary);
 static int pid_collection_pending;
 static struct thread *pid_collection_blocker;
@@ -789,6 +789,7 @@ static int memory_event(pid_t, int, const struct rusage *);
 static int64_t memory_deadline(void);
 static int memory_runnable(void);
 static int memory_available(pid_t);
+static int task_continuation_available(const struct thread *);
 static int entry_fence_adapt(const struct thread *);
 static void memory_discard(void);
 static int ipc_events=-1;
@@ -869,6 +870,7 @@ static int task_call_signal(struct thread *,struct md_task_call *,int);
 static void task_call_resume(struct thread *,struct md_task_call *,int);
 static void signal_control_discard(struct thread *);
 static void signal_entries_progress(void);
+static int signal_entry_committed(struct thread *);
 static void signal_control_progress(struct thread *);
 static int signal_control_delivery(struct thread *,int,struct md_task_signal_stop *);
 static int signal_control_begin(struct thread *,const struct user_pt_regs *,int,const struct md_kernel_action *,uint64_t,
@@ -937,13 +939,24 @@ static void describe_process(pid_t pid, uint64_t pc) {
 }
 static struct md_network_launch launch_network;
 static struct md_task_checkpoints checkpoints;
+static void cleanup_resume_tracees(void) {
+    /* A barrier may already own TRACEEXIT. SIGKILL cannot produce a second
+     * wait event until we release that stop. Include private helper actors,
+     * and let ptrace verify custody before touching any retained numeric PID. */
+    struct md_task_wait_member *first=task_wait.cursor,*member=first;
+    if (member) do {
+        ptrace(PTRACE_CONT,member->pid,NULL,(void *)(uintptr_t)SIGKILL);
+        member=member->next;
+    } while (member!=first);
+}
 static void cleanup(void) {
     report_statistics();
     if (cancellation_timer>=0) { close(cancellation_timer); cancellation_timer=-1; }
-    robust_cancel();
+    retained_cancel();
     for (struct thread *t = threads; t; t = t->next) if (t->pid) {
         kill(t->pid, SIGKILL); release_operation(t); adapter_discard(t);
     }
+    cleanup_resume_tracees();
     /* EVENT_WAIT: reap owned tracees after cancellation; outer runner bounds
      * cleanup if the kernel cannot complete an exit. */
     for (;;) {
@@ -960,7 +973,7 @@ static void cleanup(void) {
         }
     }
     md_task_helpers_destroy(helpers); helpers=NULL;
-    robust_destroy();
+    retained_destroy();
     md_task_checkpoints_clear(&checkpoints);
     memory_discard();
     task_action_cleanup();
@@ -1040,7 +1053,7 @@ _Noreturn static void fail(const char *what, int line) {
 /* Cold transactions share stop ownership. Only retirement of a mapping's own
  * temporary FD may nest inside its barrier; unrelated guest work stays runnable. */
 static struct md_task_quiesce **quiescence_barrier(const struct mapping_owner *parent) {
-    if (robust_creation || robust_retirement) return &robust_barrier;
+    if (retained_creation || retained_retirement) return &retained_barrier;
     if (policy_installer) return &policy_barrier;
     if (memory_execution) return &memory_barrier;
     if (mapping_execution && mapping_execution!=parent) return &mapping_barrier;
@@ -1257,7 +1270,7 @@ static void buffer_admission_yield(struct thread *t) {
     t->buffer_admission_pending=0;
 }
 static int buffer_admission_quiescing(pid_t pid) {
-    return md_task_quiesce_interrupting(robust_barrier,pid)
+    return md_task_quiesce_interrupting(retained_barrier,pid)
         || md_task_quiesce_interrupting(policy_barrier,pid)
         || md_task_quiesce_interrupting(memory_barrier,pid)
         || md_task_quiesce_interrupting(mapping_barrier,pid)
@@ -1407,7 +1420,7 @@ static void debugger_wait_release(struct thread *t) {
 static void release_thread(struct thread *t) {
     int buffered=t->buffer.pool || t->buffer_call || t->buffer_waiting || t->action || t->debug_wait_output;
     debugger_wait_release(t);
-    robust_detach(t);
+    retained_detach(t);
     entry_fence_cancel(t);
     if (entry_fence_owner==t) entry_fence_owner=NULL;
     t->entry_fence_held=0;
@@ -2851,6 +2864,9 @@ static void handle_notification(const struct seccomp_notif *request) {
     struct seccomp_notif q = *request;
     struct thread *t = find_thread((pid_t)q.pid);
     CHECK(t && t->born);
+    /* Notification validation precedes the per-task entry acknowledgement.
+     * The handler may commit after the event loop's earlier global scan. */
+    signal_entry_committed(t);
     if (t->signal_control && t->signal_control->returning) signal_control_discard(t);
     int replay=t->ready && q.data.instruction_pointer==abi.buffer_admit
         && (q.data.nr==SYS_epoll_pwait || q.data.nr==SYS_epoll_pwait2 || q.data.nr==SYS_epoll_ctl);
@@ -2912,7 +2928,7 @@ static void handle_notification(const struct seccomp_notif *request) {
         tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"completed-restarted-notification");
         return;
     }
-    if (!memory_available(t->pid) || (entry_fence_adapt(t) && md_broker_filesystem_call(q.data.nr)
+    if (!task_continuation_available(t) || (entry_fence_adapt(t) && md_broker_filesystem_call(q.data.nr)
             && !(q.data.instruction_pointer>=checkpoints.begin && q.data.instruction_pointer<checkpoints.end))) {
         if (!t->memory_notification) { t->memory_notification=malloc(sizeof(*request)); CHECK(t->memory_notification); }
         else CHECK(t->memory_notification->id==request->id
@@ -3077,8 +3093,13 @@ static void handle_notification(const struct seccomp_notif *request) {
         t->phase = EXPORT_RETURN; return;
     }
     if (q.data.nr != SYS_fstat) {
-        if (t->phase != IDLE) TRACE("PROBE unexpected notification pid=%d phase=%d nr=%d pc=%#llx fd=%llu\n",
-            t->pid, t->phase, q.data.nr, q.data.instruction_pointer, q.data.args[0]);
+        if (t->phase != IDLE) fprintf(stderr,
+            "Shroot: unexpected notification pid=%d phase=%d nr=%d pc=%#llx fd=%llu resume=%d signal=%d packet=%d pending=%d\n",
+            t->pid,t->phase,q.data.nr,q.data.instruction_pointer,q.data.args[0],
+            t->kernel_resume,t->signal_control ? t->signal_control->signal : 0,
+            t->signal_control && t->signal_control->entry_packet,
+            t->signal_control && t->signal_control->entry_packet
+                ? (int)atomic_load_explicit(&t->signal_control->entry_packet->pending,memory_order_acquire) : -1);
         CHECK(t->phase == IDLE);
         /* Retained native-root export below only understands openat/statat.
          * Other reads keep the same task-affine adapter as their TRACE route. */
@@ -3583,6 +3604,15 @@ static int debugger_attachable(pid_t caller, pid_t pid) {
 static int birth_stop_pending(const struct thread *t) {
     /* The initial leader is seized while running, not auto-attached by clone. */
     return t->pid!=leader && t->born && !t->initial_stop;
+}
+static int quiesce_task_add(struct md_task_quiesce *barrier,struct thread *t,int stopped) {
+    /* A vfork parent is kernel-suspended until its child releases the mm;
+     * TRACEVFORKDONE then stops it before any userspace continuation.
+     * Waiting for another INTERRUPT can deadlock the child's own continuation.
+     * Existing interrupt/birth owners supply their event without another request. */
+    return md_task_quiesce_add(barrier,t->pid,
+        stopped || t->kernel_stopped || t->listening || t->vfork_child,
+        t->interrupt_pending || birth_stop_pending(t) ? 0 : t->kernel_resume);
 }
 static int debugger_interrupt(pid_t pid) {
     struct thread *t=find_thread(pid);
@@ -4711,9 +4741,11 @@ static void capture_borrowed_complete(void *context,struct md_task_helper_result
 }
 static int signal_control_parked(const struct thread *);
 static int task_checkpoint_borrow(struct thread *actor,int *owned) {
-    /* A parked signal wait already owns native checkpoint decoding. Borrow
-     * its exact continuation without releasing that outer ownership. */
-    if (signal_control_parked(actor) && actor->signal_control->checkpoint_suspended) return 0;
+    /* A parked signal wait already owns checkpoint decoding, but its native
+     * call can be restoring a SYSEMU entry when interrupted. The decoder's
+     * suspended snapshot predates that call; the live resume owns skip state. */
+    if (signal_control_parked(actor) && actor->signal_control->checkpoint_suspended)
+        return actor->kernel_resume==PTRACE_SYSEMU;
     int boundary=md_task_checkpoint_suspend(&checkpoints,actor->pid);
     if (boundary>=0) *owned=1;
     return boundary;
@@ -4864,7 +4896,20 @@ static int task_parked(const struct thread *t) {
     return t->phase==WATCH_READ || t->phase==IPC_WAITING || t->phase==SOCKET_WAITING || t->phase==FILE_WAITING
         || t->phase==CONTROL_WAITING || t->phase==CLOSE_WAITING || t->phase==EPOLL_WAIT;
 }
+static int retained_task_held(const struct thread *t) {
+    /* Registration and terminal cleanup own the exact stopped continuation,
+     * including the interval before their deferred event is replayed. */
+    return t->robust_registering || t->robust_terminal;
+}
+static int task_continuation_available(const struct thread *t) {
+    return !retained_task_held(t) && memory_available(t->pid);
+}
+static int task_completion_available(pid_t pid) {
+    struct thread *t=find_thread(pid);
+    return t && task_continuation_available(t);
+}
 static int task_action_borrowable(struct thread *p,struct thread *requester) {
+    if (retained_task_held(p)) return 0;
     /* A queued table user is stopped before its operation. Other candidates
      * retain their exact kernel continuation. Never borrow an active worker,
      * mutation or newborn awaiting its first stop. */
@@ -4895,6 +4940,7 @@ static int task_action_borrowable(struct thread *p,struct thread *requester) {
             || task_parked(p) || signal_control_parked(p) || p->phase==PROCESS_OBSERVING)));
 }
 static int task_action_native_borrow(struct task_action *owner,struct thread *actor,int *stopped) {
+    if (retained_task_held(actor)) return -EBUSY;
     *stopped=actor->kernel_stopped;
     int borrowed=md_broker_native_borrow(broker,actor->pid,stopped);
     if (borrowed<0) return borrowed;
@@ -4906,7 +4952,7 @@ static void task_action_start(struct thread *t) {
     struct task_action *owner=t->action;
     CHECK(owner && !task_action_call(owner)->stage);
     if (owner->loan) { loan_start(owner); return; }
-    if (quiescence_busy(NULL)) { retry_wait(t,RETRY_TASK_ACTION); return; }
+    if (quiescence_busy(NULL) || retained_task_held(t)) { retry_wait(t,RETRY_TASK_ACTION); return; }
     if (owner->pid_filter) {
         if (t->pid_filter) { task_action_finish(owner,0); return; }
         owner->actor=t; task_action_execution=owner;
@@ -4948,10 +4994,10 @@ static void task_action_start(struct thread *t) {
         if (error) { task_action_finish(owner,error); return; }
         owner->actor=actor; owner->remote=1; task_action_execution=owner;
         if (!task_action_barrier) { task_action_barrier=md_task_quiesce_new(quiesce_trace); CHECK(task_action_barrier); }
-        CHECK(!md_task_quiesce_add(task_action_barrier,actor->pid,stopped,actor->kernel_resume));
+        CHECK(!quiesce_task_add(task_action_barrier,actor,stopped));
         if (owner->capture_capacity_needed) for (struct thread *peer=threads;peer;peer=peer->next)
             if (peer->pid && peer!=actor && peer->tgid==actor->tgid)
-                CHECK(!md_task_quiesce_add(task_action_barrier,peer->pid,peer->kernel_stopped,peer->kernel_resume));
+                CHECK(!quiesce_task_add(task_action_barrier,peer,0));
         CHECK(!md_task_quiesce_stop(task_action_barrier));
         task_action_call_start(owner); return;
     }
@@ -5012,7 +5058,7 @@ static void task_action_start(struct thread *t) {
     task_action_execution=owner;
     if (owner->remote) {
         if (!task_action_barrier) { task_action_barrier=md_task_quiesce_new(quiesce_trace); CHECK(task_action_barrier); }
-        CHECK(!md_task_quiesce_add(task_action_barrier,candidate->pid,stopped,candidate->kernel_resume));
+        CHECK(!quiesce_task_add(task_action_barrier,candidate,stopped));
         CHECK(!md_task_quiesce_stop(task_action_barrier));
     }
     task_action_call_start(owner);
@@ -5076,7 +5122,7 @@ static void task_action_schedule(void) {
 }
 static int loan_borrow(struct task_action *owner,struct thread *p,int *alive,int *stopped) {
     if (!p || !p->pid || p->resources.files!=owner->loan_table || p->terminal_stop || p->resume_lost) return 0;
-    if (p->signal_return_pending || (p!=owner->requester && p->pid!=owner->retirement.task
+    if (retained_task_held(p) || p->signal_return_pending || (p!=owner->requester && p->pid!=owner->retirement.task
             && !task_action_borrowable(p,owner->requester))) {
         *alive=1; return 0;
     }
@@ -5117,7 +5163,7 @@ static void loan_start(struct task_action *owner) {
     owner->outer_barrier=mapping_execution ? mapping_barrier : NULL;
     if (!owner->outer_barrier) {
         if (!task_action_barrier) { task_action_barrier=md_task_quiesce_new(quiesce_trace); CHECK(task_action_barrier); }
-        CHECK(!md_task_quiesce_add(task_action_barrier,candidate->pid,stopped,candidate->kernel_resume));
+        CHECK(!quiesce_task_add(task_action_barrier,candidate,stopped));
         CHECK(!md_task_quiesce_stop(task_action_barrier));
     }
     task_action_call_start(owner);
@@ -5148,6 +5194,17 @@ static void task_call_resume(struct thread *t,struct md_task_call *call,int sign
     int error=md_task_call_resume(call,signal);
     if (error) { CHECK(error==-ESRCH); t->resume_lost=1; }
     else t->kernel_stopped=0;
+}
+static struct md_task_call *task_call_continuation(struct thread *t) {
+    if (t->signal_control && t->signal_control->started && !t->signal_control->retiring)
+        return md_task_signal_control_call(&t->signal_control->control);
+    if (t->notification && !t->notification->promoting) return &t->notification->call;
+    struct filter_install *install=t->filter_install;
+    if (install && !install->retiring) {
+        if (install->admission.stage && !install->admitted) return &install->admission;
+        if (install->copy.scratch) return &install->copy.call;
+    }
+    return NULL;
 }
 static void task_group_stop(struct thread *t) {
     /* EVENT_WAIT: preserve the exact operation until kernel SIGCONT or exit.
@@ -7297,6 +7354,10 @@ static void retry_progress(struct md_pending_node *node,void *context) {
     (void)context;
     struct retry_owner *owner=(struct retry_owner *)node;
     struct thread *t=owner->thread;
+    if (retained_task_held(t)) {
+        md_pending_add(&retry_queues[owner==&t->retries[1]],node);
+        return;
+    }
     if (owner->mask&RETRY_CLOSE) close_progress(t);
     if (!(owner->mask&~RETRY_CLOSE)) return;
     if (!memory_available(t->pid)) {
@@ -8645,13 +8706,19 @@ static void signal_entry_complete(struct thread *t,int failed) {
     }
     signal_control_discard(t); t->phase=IDLE;
 }
+static int signal_entry_committed(struct thread *t) {
+    struct signal_control *owner=t->signal_control;
+    if (!owner || owner->returning || !owner->entry_packet
+            || atomic_load_explicit(&owner->entry_packet->pending,memory_order_acquire)) return 0;
+    signal_entry_complete(t,0);
+    return 1;
+}
 static void signal_entries_progress(void) {
     for (struct signal_control *owner=signal_entries,*next;owner;owner=next) {
         next=owner->entry_next;
         struct thread *t=owner->entry_thread;
-        if (!owner->returning && !atomic_load_explicit(&owner->entry_packet->pending,memory_order_acquire)) {
-            signal_entry_complete(t,0);
-        } else if (!t->kernel_stopped && !t->interrupt_pending) {
+        if (signal_entry_committed(t)) continue;
+        if (!t->kernel_stopped && !t->interrupt_pending) {
             struct md_resource_queue *queue=owner->memory.queue;
             pthread_mutex_lock(&queue->lock);
             int contended=owner->memory.next!=NULL;
@@ -9501,8 +9568,7 @@ static int policy_sync_begin(struct thread *t) {
          * Hold their next event instead of cancelling the native request. */
         if ((p->notification && !p->notification->promoting)
                 || signal_control_parked(p) || p->phase==SOCKET_NATIVE) continue;
-        CHECK(!md_task_quiesce_add(policy_barrier,p->pid,p->kernel_stopped || p->listening || p->vfork_child,
-            p->interrupt_pending || birth_stop_pending(p) ? 0 : p->kernel_resume));
+        CHECK(!quiesce_task_add(policy_barrier,p,0));
     }
     CHECK(!md_task_quiesce_stop(policy_barrier));
     return -EAGAIN;
@@ -10005,7 +10071,7 @@ static int svc_clients_prepare(struct thread *t) {
 static void resume(pid_t pid, int sig) {
     struct thread *t = thread(pid);
     if (t->resume_lost) return;
-    if (t->robust_registering || t->robust_terminal) return;
+    if (retained_task_held(t)) return;
     if (!t->host_signal_blocked && t->phase==IDLE && t->entered && t->signal_pending) {
         struct md_signal_pending_value pending;
         if (md_signal_pending_peek(t->signal_pending,&pending)) {
@@ -10026,7 +10092,7 @@ static void resume(pid_t pid, int sig) {
         t->memory_resume=1; if (sig) t->memory_signal=sig;
         struct md_task_quiesce *barrier=memory_execution ? memory_barrier
             : mapping_execution ? mapping_barrier : task_action_barrier;
-        if (robust_creation || robust_retirement) barrier=robust_barrier;
+        if (retained_creation || retained_retirement) barrier=retained_barrier;
         if (policy_installer && pid!=policy_installer->pid) barrier=policy_barrier;
         /* A lent actor has a separate resume owner until its registers return. */
         if (!task_action_execution || task_action_execution->actor!=t || !task_action_execution->borrowed)
@@ -10047,6 +10113,15 @@ static void resume(pid_t pid, int sig) {
         /* No guest instruction or syscall remains after the exit event. Keep
          * ownership until waitpid reaps it, without resuming adapter/debug steps. */
         if (tracee_request(t,PTRACE_CONT,NULL,NULL,"continue-exit")) t->kernel_stopped=0;
+        return;
+    }
+    /* A retained asynchronous signal or carrier can resume through this
+     * gateway while a native-call owner is restoring its boundary. Preserve
+     * that owner's SYSCALL/SYSEMU continuation, not the enclosing guest phase. */
+    struct md_task_call *borrowed=task_call_continuation(t);
+    if (borrowed) {
+        task_call_resume(t,borrowed,sig);
+        if (!t->kernel_stopped) t->retained_signal=0;
         return;
     }
     if (t->memory_access_pending && t->born && t->initial_stop) {
@@ -10488,18 +10563,18 @@ static int helper_newborn(pid_t pid) {
     release_thread(t);
     return ready;
 }
-static struct robust_memory *robust_actor(pid_t pid) {
-    for (struct robust_memory *m=robust_actors[(unsigned)pid%ROBUST_ACTOR_BUCKETS];m;m=m->indexed)
+static struct retained_memory *retained_actor(pid_t pid) {
+    for (struct retained_memory *m=retained_actors[(unsigned)pid%RETAINED_ACTOR_BUCKETS];m;m=m->indexed)
         if (m->retained.actor==pid) return m;
     return NULL;
 }
-static void robust_schedule(struct robust_memory *m) {
+static void retained_schedule(struct retained_memory *m) {
     if (m->queued) return;
-    m->queued=1; m->work_next=robust_work; robust_work=m;
+    m->queued=1; m->work_next=retained_work; retained_work=m;
 }
-static void robust_unschedule(struct robust_memory *m) {
+static void retained_unschedule(struct retained_memory *m) {
     if (!m->queued) return;
-    struct robust_memory **link=&robust_work;
+    struct retained_memory **link=&retained_work;
     while (*link!=m) link=&(*link)->work_next;
     *link=m->work_next; m->work_next=NULL; m->queued=0;
 }
@@ -10547,14 +10622,14 @@ static void private_child_retired(void *context,pid_t pid,struct md_task_retired
 }
 static int private_wait_children(pid_t pid,const struct user_pt_regs *regs,pid_t **candidates,size_t *count) {
     *candidates=NULL; *count=0;
-    if (!robust_memories) return 0;
+    if (!retained_memories) return 0;
     struct thread *t=find_thread(pid);
     CHECK(t);
     int id=regs->regs[8]==SYS_waitid;
     pid_t selected=(pid_t)regs->regs[id ? 1 : 0];
     if (id && regs->regs[0]==P_PIDFD) return 0;
     if ((id && regs->regs[0]==P_PID) || (!id && selected>0)) {
-        return robust_actor(native_pid(t,selected))!=NULL;
+        return retained_actor(native_pid(t,selected))!=NULL;
     }
     struct private_child_selection selection={.caller=t,
         .options=(unsigned)regs->regs[id ? 3 : 2]};
@@ -10566,7 +10641,7 @@ static int private_wait_children(pid_t pid,const struct user_pt_regs *regs,pid_t
         if (!selection.group) return -ECHILD;
     }
     int hidden=0;
-    for (struct robust_memory *m=robust_memories;m;m=m->next) if (m->retained.actor) {
+    for (struct retained_memory *m=retained_memories;m;m=m->next) if (m->retained.actor) {
         int matches=private_child_matches(&selection,m->retained.actor);
         if (matches<0) return matches;
         if (matches) { hidden=1; break; }
@@ -10582,12 +10657,24 @@ static int private_wait_children(pid_t pid,const struct user_pt_regs *regs,pid_t
 static int robust_managed(const struct thread *t) {
     return md_app_uid_active || md_pid_namespace_depth(md_pid_identity_namespace(t->resources.pid));
 }
-static void robust_detach(struct thread *t) {
-    struct robust_memory *m=t->robust;
-    t->robust=NULL; t->robust_head=0; t->robust_tid=0; t->robust_registering=0;
+static struct retained_memory *retained_memory_get(struct thread *t) {
+    if (t->memory_actor) return t->memory_actor;
+    struct retained_memory *m=calloc(1,sizeof(*m));
+    if (!m) return NULL;
+    m->memory=t->memory; m->next=retained_memories; retained_memories=m;
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->born && p->memory==t->memory) {
+        CHECK(!p->memory_actor); p->memory_actor=m; ++m->members;
+    }
+    CHECK(t->memory_actor==m);
+    retained_schedule(m);
+    return m;
+}
+static void retained_detach(struct thread *t) {
+    struct retained_memory *m=t->memory_actor;
+    t->memory_actor=NULL; t->robust_head=0; t->robust_tid=0; t->robust_registering=0;
     if (!m) return;
     CHECK(m->members && m->terminal!=t && m->creator!=t);
-    if (!--m->members) { m->memory=NULL; m->retiring=1; robust_schedule(m); }
+    if (!--m->members) { m->memory=NULL; m->retiring=1; retained_schedule(m); }
 }
 static void robust_register_complete(struct thread *t,long error) {
     struct user_pt_regs regs=t->robust_registers;
@@ -10626,31 +10713,23 @@ static int robust_call(struct thread *t,struct user_pt_regs *regs,enum md_task_c
     t->terminal_observation=1; t->trace_options_dirty=1;
     int error=debugger_options(t->pid,t->debug_options);
     if (error) { robust_register_complete(t,error); return 1; }
-    struct robust_memory *m=t->robust;
-    if (!m) {
-        m=calloc(1,sizeof(*m));
-        if (!m) { robust_register_complete(t,-ENOMEM); return 1; }
-        m->memory=t->memory; m->next=robust_memories; robust_memories=m;
-        for (struct thread *p=threads;p;p=p->next) if (p->pid && p->born && p->memory==t->memory) {
-            CHECK(!p->robust); p->robust=m; ++m->members;
-        }
-    }
-    CHECK(t->robust==m);
+    struct retained_memory *m=retained_memory_get(t);
+    if (!m) { robust_register_complete(t,-ENOMEM); return 1; }
     if (m->ready) { robust_register_complete(t,0); return 1; }
     t->robust_registering=1;
-    robust_schedule(m);
+    retained_schedule(m);
     /* EVENT_WAIT: one mm's first registration creates its private executor;
      * other registrations wait for the same birth, never another actor. */
     CHECK(!md_event_signal(fd_ready));
     return 1;
 }
-static void robust_creation_finish(struct robust_memory *m,long error) {
+static void retained_creation_finish(struct retained_memory *m,long error) {
     struct thread *t=m->creator;
     if (m->checkpoint_suspended) md_task_checkpoint_restore(&checkpoints,t->pid);
-    m->checkpoint_suspended=0; m->creator=NULL; robust_creation=NULL;
+    m->checkpoint_suspended=0; m->creator=NULL; retained_creation=NULL;
     if (m->order.queue && md_resource_order_cancel(&m->order)==1)
         CHECK(!md_resource_order_complete(&m->order));
-    if (robust_barrier) CHECK(!md_task_quiesce_release(robust_barrier));
+    if (retained_barrier) CHECK(!md_task_quiesce_release(retained_barrier));
     m->error=error; m->ready=!error;
     if (t && !m->retained.parent_terminal) {
         t->kernel_stopped=1;
@@ -10660,22 +10739,38 @@ static void robust_creation_finish(struct robust_memory *m,long error) {
         /* A cancelled birth can still own a native child. Keep its exact PID
          * until the retirement owner has removed both wait and signal state. */
         m->retiring=1;
-        for (struct thread *p=threads;p;p=p->next) if (p->robust==m) {
-            p->robust=NULL; CHECK(m->members); --m->members;
+        for (struct thread *p=threads;p;p=p->next) if (p->memory_actor==m) {
+            p->memory_actor=NULL; CHECK(m->members); --m->members;
         }
         m->memory=NULL;
     }
     for (struct thread *p=threads;p;p=p->next) if (p->pid && p->robust_registering
-            && (p->robust==m || (error && p->memory==t->memory))) {
+            && (p->memory_actor==m || (error && p->memory==t->memory))) {
         if (p==t && m->retained.parent_terminal) p->robust_registering=0;
         else robust_register_complete(p,error);
     }
     task_action_unpark();
 }
-static void robust_track_actor(struct robust_memory *m) {
+static void retained_creation_begin(struct retained_memory *m,struct thread *t,
+        const struct user_pt_regs *regs,enum md_task_call_boundary call) {
+    CHECK(!retained_creation && !m->ready && !m->creator && !m->retiring);
+    m->creator=t; retained_creation=m;
+    t->terminal_observation=1; t->trace_options_dirty=1;
+    int error=debugger_options(t->pid,t->debug_options);
+    if (error) { retained_creation_finish(m,error); return; }
+    int boundary=md_task_checkpoint_suspend(&checkpoints,t->pid);
+    if (boundary<0) { retained_creation_finish(m,boundary); return; }
+    m->checkpoint_suspended=1;
+    if (boundary && call==MD_TASK_CALL_ENTRY) call=MD_TASK_CALL_EMULATED_ENTRY;
+    error=md_task_retained_begin(&m->retained,native_trace,t->pid,call,regs,&abi);
+    if (error && !m->retained.parent.stage) retained_creation_finish(m,error);
+    else if (error) { CHECK(error==-ESRCH); t->resume_lost=1; }
+    else t->kernel_stopped=0;
+}
+static void retained_track_actor(struct retained_memory *m) {
     if (!m->retained.actor || m->wait.pid) return;
-    unsigned bucket=(unsigned)m->retained.actor%ROBUST_ACTOR_BUCKETS;
-    m->indexed=robust_actors[bucket]; robust_actors[bucket]=m;
+    unsigned bucket=(unsigned)m->retained.actor%RETAINED_ACTOR_BUCKETS;
+    m->indexed=retained_actors[bucket]; retained_actors[bucket]=m;
     md_task_wait_track(&task_wait,&m->wait,m->retained.actor);
     int initial=helper_newborn(m->retained.actor);
     if (initial==MD_TASK_BIRTH_READY) {
@@ -10686,7 +10781,7 @@ static void robust_track_actor(struct robust_memory *m) {
         m->error=-ESRCH;
     } else CHECK(initial==MD_TASK_BIRTH_PENDING);
 }
-static void robust_cleanup_complete(struct robust_memory *m,int state) {
+static void robust_cleanup_complete(struct retained_memory *m,int state) {
     if (state<0) {
         fprintf(stderr,"Shroot: robust cleanup actor=%d error=%d\n",m->retained.actor,state);
         cancel_tree(125); return;
@@ -10698,17 +10793,17 @@ static void robust_cleanup_complete(struct robust_memory *m,int state) {
     m->terminal=NULL; m->cleaning=0;
     m->cleanup=(struct md_task_robust){0};
 }
-static void robust_progress(void) {
-    if (!robust_work) return;
-    robust_retirement_progress();
-    for (struct robust_memory *m=robust_work,*next;m;m=next) {
+static void retained_progress(void) {
+    if (!retained_work) return;
+    retained_retirement_progress();
+    for (struct retained_memory *m=retained_work,*next;m;m=next) {
         next=m->work_next;
         if (m->ready && !m->cleaning && !m->pending && !m->retiring) {
-            robust_unschedule(m); continue;
+            retained_unschedule(m); continue;
         }
         if (m->cleaning==2) robust_cleanup_complete(m,md_task_robust_progress(&m->cleanup));
         if (m->pending && m->ready && !m->cleaning && !m->retiring && !quiescence_busy(NULL)) {
-            for (struct thread *t=threads;t;t=t->next) if (t->pid && t->robust==m && t->robust_terminal==1) {
+            for (struct thread *t=threads;t;t=t->next) if (t->pid && t->memory_actor==m && t->robust_terminal==1) {
                 --m->pending;
                 m->terminal=t;
                 robust_cleanup_complete(m,md_task_robust_begin(&m->cleanup,native_trace,m->retained.actor,
@@ -10716,79 +10811,70 @@ static void robust_progress(void) {
                 break;
             }
         }
-        if (m->ready || m->retiring || m->creator || robust_barrier || quiescence_busy(NULL)) continue;
+        if (m->ready || m->retiring || m->creator || retained_barrier || quiescence_busy(NULL)) continue;
         struct thread *t;
-        for (t=threads;t;t=t->next) if (t->pid && t->robust==m && t->robust_registering) break;
+        for (t=threads;t;t=t->next) if (t->pid && t->memory_actor==m && t->robust_registering) break;
         if (!t) continue;
         if (!m->order.queue) CHECK(md_memory_order_begin(t->memory,&m->order,fd_wakeup)>=0);
         if (md_resource_order_state(&m->order)!=MD_RESOURCE_ORDER_READY) continue;
         CHECK(!md_resource_order_start(&m->order));
-        m->creator=t; robust_creation=m;
-        int boundary=md_task_checkpoint_suspend(&checkpoints,t->pid);
-        if (boundary<0) { robust_creation_finish(m,boundary); continue; }
-        m->checkpoint_suspended=1;
-        enum md_task_call_boundary call=t->robust_boundary;
-        if (boundary && call==MD_TASK_CALL_ENTRY) call=MD_TASK_CALL_EMULATED_ENTRY;
-        int error=md_task_retained_begin(&m->retained,native_trace,t->pid,call,&t->robust_registers,&abi);
-        if (error && !m->retained.parent.stage) robust_creation_finish(m,error);
-        else if (error) { CHECK(error==-ESRCH); t->resume_lost=1; }
-        else t->kernel_stopped=0;
+        retained_creation_begin(m,t,&t->robust_registers,t->robust_boundary);
     }
 }
-static void robust_memory_release(struct robust_memory *m) {
+static void retained_memory_release(struct retained_memory *m) {
     CHECK(!m->members && !m->creator && !m->cleaning);
-    struct robust_memory **link=&robust_memories;
+    struct retained_memory **link=&retained_memories;
     while (*link && *link!=m) link=&(*link)->next;
     CHECK(*link==m); *link=m->next;
-    robust_unschedule(m);
+    retained_unschedule(m);
     if (m->wait.pid) {
-        link=&robust_actors[(unsigned)m->retained.actor%ROBUST_ACTOR_BUCKETS];
+        link=&retained_actors[(unsigned)m->retained.actor%RETAINED_ACTOR_BUCKETS];
         while (*link!=m) link=&(*link)->indexed;
         *link=m->indexed;
     }
     md_task_wait_untrack(&task_wait,&m->wait);
     free(m);
 }
-static void robust_retirement_finish(int completed) {
-    struct robust_retirement *r=robust_retirement;
+static void retained_retirement_finish(int completed) {
+    struct retained_retirement *r=retained_retirement;
     struct thread *t=r->actor;
     if (r->checkpoint_suspended) md_task_checkpoint_restore(&checkpoints,t->pid);
-    if (r->borrowed) CHECK(!md_task_quiesce_return(robust_barrier,t->pid));
+    if (r->borrowed) CHECK(!md_task_quiesce_return(retained_barrier,t->pid));
     if (r->broker_borrowed) md_broker_native_return(broker,t->pid);
     CHECK(!md_buffer_release(&r->buffer));
     if (r->order.queue && md_resource_order_cancel(&r->order)==1)
         CHECK(!md_resource_order_complete(&r->order));
-    CHECK(!md_task_quiesce_release(robust_barrier));
+    CHECK(!md_task_quiesce_release(retained_barrier));
     if (r->synthetic) t->kernel_stopped=0;
-    if (completed) robust_memory_release(r->memory);
-    free(r); robust_retirement=NULL;
+    if (completed) retained_memory_release(r->memory);
+    free(r); retained_retirement=NULL;
     task_action_unpark();
 }
-static int robust_retirement_member(const struct thread *t,pid_t parent) {
+static int retained_retirement_member(const struct thread *t,pid_t parent) {
     return t->pid && t->born && (t->tgid==parent || md_task_parent(t->pid)==parent);
 }
-static int robust_retirement_group_ready(pid_t parent) {
+static int retained_retirement_group_ready(pid_t parent) {
     for (struct thread *t=threads;t;t=t->next) if (t->pid && t->born
-            && (t->terminal_stop || t->robust_terminal || md_task_helpers_group_busy(helpers,t->tgid))
-            && robust_retirement_member(t,parent)) return 0;
+            && (t->terminal_stop || retained_task_held(t) || md_task_helpers_group_busy(helpers,t->tgid))
+            && retained_retirement_member(t,parent)) return 0;
     return 1;
 }
-static void robust_retirement_progress(void) {
-    struct robust_retirement *r=robust_retirement;
+static void retained_retirement_progress(void) {
+    struct retained_retirement *r=retained_retirement;
     if (r) {
-        if (!r->borrowed && !md_task_quiesce_ready(robust_barrier)) return;
-        struct robust_memory *m=r->memory;
+        if (!r->borrowed && !md_task_quiesce_ready(retained_barrier)) return;
+        struct retained_memory *m=r->memory;
         struct thread *t=r->actor;
         if (!r->borrowed) {
             struct md_task_quiesce_stop stop;
-            CHECK(!md_task_quiesce_borrow(robust_barrier,t->pid,&stop));
+            CHECK(!md_task_quiesce_borrow(retained_barrier,t->pid,&stop));
             r->borrowed=1; r->synthetic=stop.kind==MD_TASK_QUIESCE_SYNTHETIC;
             if (stop.kind==MD_TASK_QUIESCE_EVENT) {
                 unsigned event=(unsigned)stop.status>>16;
                 if (event!=PTRACE_EVENT_SECCOMP && (event || WSTOPSIG(stop.status)!=(SIGTRAP|0x80))) {
                     /* No child has been killed yet. Replay a real signal or
                      * lifecycle event before borrowing the next boundary. */
-                    robust_retirement_finish(0); return;
+                    retained_retirement_finish(0); return;
                 }
             }
         }
@@ -10817,14 +10903,14 @@ static void robust_retirement_progress(void) {
         r->stage=2; t->kernel_stopped=0;
         return;
     }
-    if (quiescence_busy(NULL) || robust_barrier) return;
-    for (struct robust_memory *m=robust_work,*next;m;m=next) {
+    if (quiescence_busy(NULL) || retained_barrier) return;
+    for (struct retained_memory *m=retained_work,*next;m;m=next) {
         next=m->work_next;
         if (!m->retiring || m->members || m->cleaning || m->creator) continue;
-        if (!m->retained.actor) { robust_memory_release(m); continue; }
+        if (!m->retained.actor) { retained_memory_release(m); continue; }
         long parent=md_task_parent(m->retained.actor);
         if (parent==getpid() || (m->dead && parent==-ENOENT)) {
-            if (m->dead) { robust_memory_release(m); continue; }
+            if (m->dead) { retained_memory_release(m); continue; }
             if (!m->killed) {
                 m->killed=1;
                 CHECK(!kill(m->retained.actor,SIGKILL) || errno==ESRCH);
@@ -10839,7 +10925,7 @@ static void robust_retirement_progress(void) {
          * barrier. A resumed exit cannot acknowledge INTERRUPT; in particular
          * a zombie leader is not waitable until its remaining threads exit.
          * Holding those threads here would prevent the event we await. */
-        if (!actor || !robust_retirement_group_ready((pid_t)parent)) continue;
+        if (!actor || !retained_retirement_group_ready((pid_t)parent)) continue;
         int stopped=actor->kernel_stopped;
         int borrowed=md_broker_native_borrow(broker,actor->pid,&stopped);
         if (borrowed<0) continue;
@@ -10855,26 +10941,29 @@ static void robust_retirement_progress(void) {
             free(r); continue;
         }
         CHECK(!md_resource_order_start(&r->order));
-        robust_retirement=r;
-        robust_barrier=md_task_quiesce_new(quiesce_trace); CHECK(robust_barrier);
-        CHECK(!md_task_quiesce_add(robust_barrier,actor->pid,stopped,actor->kernel_resume));
-        for (struct thread *t=threads;t;t=t->next) if (t!=actor && robust_retirement_member(t,(pid_t)parent))
-            CHECK(!md_task_quiesce_add(robust_barrier,t->pid,t->kernel_stopped,t->kernel_resume));
-        CHECK(!md_task_quiesce_stop(robust_barrier));
+        retained_retirement=r;
+        retained_barrier=md_task_quiesce_new(quiesce_trace); CHECK(retained_barrier);
+        CHECK(!quiesce_task_add(retained_barrier,actor,stopped));
+        for (struct thread *t=threads;t;t=t->next) if (t!=actor && retained_retirement_member(t,(pid_t)parent))
+            CHECK(!quiesce_task_add(retained_barrier,t,0));
+        CHECK(!md_task_quiesce_stop(retained_barrier));
         return;
     }
 }
-static int robust_barrier_event(pid_t pid,int status,const struct rusage *usage) {
-    struct robust_retirement *r=robust_retirement;
-    if ((!robust_creation && !r) || !md_task_quiesce_contains(robust_barrier,pid)) return 0;
+static int retained_barrier_event(pid_t pid,int status,const struct rusage *usage) {
+    struct retained_retirement *r=retained_retirement;
+    if ((!retained_creation && !r) || !md_task_quiesce_contains(retained_barrier,pid)) return 0;
     unsigned event=(unsigned)status>>16;
     if (!WIFSTOPPED(status) || event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC) {
-        CHECK(!md_task_quiesce_terminal(robust_barrier,pid,status,usage));
-        if (r && pid==r->actor->pid) {
-            r->borrowed=0; r->synthetic=0;
-            /* Its private child can be reparented by the kernel. Keep that exact
-             * PID until the next real parent owns reaping; never restore dead regs. */
-            robust_retirement_finish(0);
+        CHECK(!md_task_quiesce_terminal(retained_barrier,pid,status,usage));
+        if (r && (!r->stage || pid==r->actor->pid)) {
+            if (pid==r->actor->pid) { r->borrowed=0; r->synthetic=0; }
+            /* Before killing the private child, yield every terminal event.
+             * exec may be waiting in de_thread for a sibling held here; its
+             * INTERRUPT cannot complete until that sibling's exit is replayed.
+             * A dying actor's child can be reparented: retain its exact PID for
+             * the next real parent, without restoring dead registers. */
+            retained_retirement_finish(0);
         }
         return 1;
     }
@@ -10882,41 +10971,42 @@ static int robust_barrier_event(pid_t pid,int status,const struct rusage *usage)
         if (task_call_signal(r->actor,&r->reap.call,status)) return 1;
         int state=md_task_child_reap_event(&r->reap,status);
         CHECK(state>=0);
-        if (state==1) { r->actor->kernel_stopped=1; robust_retirement_finish(1); }
-    } else CHECK(!quiesce_event(robust_barrier,pid,status,usage));
+        if (state==1) { r->actor->kernel_stopped=1; retained_retirement_finish(1); }
+    } else CHECK(!quiesce_event(retained_barrier,pid,status,usage));
     return 1;
 }
-static int robust_runnable(void) {
-    for (struct robust_memory *m=robust_work;m;m=m->work_next) if (m->cleaning==2) return 1;
+static int retained_runnable(void) {
+    for (struct retained_memory *m=retained_work;m;m=m->work_next) if (m->cleaning==2) return 1;
     return 0;
 }
-static pid_t robust_take(int *status,struct rusage *usage) {
-    if (robust_barrier && !robust_creation && !robust_retirement) {
-        pid_t pid=md_task_quiesce_take(robust_barrier,status,usage);
+static pid_t retained_take(int *status,struct rusage *usage) {
+    if (retained_barrier && !retained_creation && !retained_retirement) {
+        pid_t pid=md_task_quiesce_take(retained_barrier,status,usage);
         if (pid) return pid;
-        md_task_quiesce_destroy(robust_barrier); robust_barrier=NULL;
+        md_task_quiesce_destroy(retained_barrier); retained_barrier=NULL;
         CHECK(!md_event_signal(fd_ready));
     }
     if (robust_replays) for (struct thread *t=threads;t;t=t->next) if (t->pid && t->robust_terminal==2) {
         --robust_replays;
         *status=t->robust_status; if (usage) *usage=t->robust_usage;
+        if (filesystem) memory_completions_pending=1;
         t->robust_terminal=0; t->robust_replay=1; return t->pid;
     }
     return 0;
 }
-static int robust_event(pid_t pid,int status,const struct rusage *usage) {
+static int retained_event(pid_t pid,int status,const struct rusage *usage) {
     unsigned event=(unsigned)status>>16;
-    struct robust_memory *m=robust_actor(pid);
-    struct robust_memory *birth=robust_creation;
+    struct retained_memory *m=retained_actor(pid);
+    struct retained_memory *birth=retained_creation;
     if (birth && (pid==birth->retained.parent.actor || m==birth)) {
         struct thread *t=birth->creator;
         if (!m && task_call_signal(t,&birth->retained.parent,status)) return 1;
         int terminal=!WIFSTOPPED(status) || event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC;
         int state=md_task_retained_event(&birth->retained,pid,status);
-        robust_track_actor(birth);
+        retained_track_actor(birth);
         if (birth->retained.parent_terminal || (terminal && m==birth)) {
             if (m==birth) birth->error=-ESRCH;
-            robust_creation_finish(birth,-ESRCH);
+            retained_creation_finish(birth,-ESRCH);
             if (!m) return 0;
         } else if (state==-EAGAIN) {
             if (!m && task_call_signal(t,&birth->retained.parent,status)) return 1;
@@ -10924,9 +11014,9 @@ static int robust_event(pid_t pid,int status,const struct rusage *usage) {
             CHECK(!native_trace(PTRACE_CONT,pid,NULL,NULL)); return 1;
         } else if (state<0) {
             if (state==-ESRCH) { if (!m) t->resume_lost=1; return 1; }
-            robust_creation_finish(birth,state); return 1;
+            retained_creation_finish(birth,state); return 1;
         } else {
-            if (state==1) robust_creation_finish(birth,birth->error);
+            if (state==1) retained_creation_finish(birth,birth->error);
             return 1;
         }
     }
@@ -10937,7 +11027,7 @@ static int robust_event(pid_t pid,int status,const struct rusage *usage) {
              * releases a private child to its final exit and SIGCHLD. */
             m->exit_held=1;
             if (!m->retiring) {
-                fprintf(stderr,"Shroot: lost robust executor %d\n",pid);
+                fprintf(stderr,"Shroot: lost retained memory executor %d\n",pid);
                 exit(125);
             }
             if (m->killed) CHECK(!native_trace(PTRACE_CONT,pid,NULL,NULL) || errno==ESRCH);
@@ -10963,36 +11053,36 @@ static int robust_event(pid_t pid,int status,const struct rusage *usage) {
         if (old && old!=(unsigned)pid) subject=find_thread((pid_t)old);
     }
     if (!subject || !subject->robust_head) return 0;
-    CHECK(subject->robust && subject->robust->ready && t->robust==subject->robust);
+    CHECK(subject->memory_actor && subject->memory_actor->ready && t->memory_actor==subject->memory_actor);
     CHECK(!t->robust_terminal);
-    ++subject->robust->pending; robust_schedule(subject->robust);
+    ++subject->memory_actor->pending; retained_schedule(subject->memory_actor);
     t->kernel_stopped=1; t->robust_subject=subject;
     t->robust_terminal=1; t->robust_status=status;
     t->robust_usage=usage ? *usage : (struct rusage){0};
     return 1;
 }
-static void robust_cancel(void) {
-    for (struct robust_memory *m=robust_memories;m;m=m->next)
+static void retained_cancel(void) {
+    for (struct retained_memory *m=retained_memories;m;m=m->next)
         if (m->retained.actor && !m->dead) kill(m->retained.actor,SIGKILL);
 }
-static void robust_destroy(void) {
-    if (robust_retirement) {
-        struct robust_retirement *r=robust_retirement;
-        if (r->borrowed) md_task_quiesce_return(robust_barrier,r->actor->pid);
+static void retained_destroy(void) {
+    if (retained_retirement) {
+        struct retained_retirement *r=retained_retirement;
+        if (r->borrowed) md_task_quiesce_return(retained_barrier,r->actor->pid);
         md_buffer_release(&r->buffer);
         if (r->order.queue && md_resource_order_cancel(&r->order)==1) md_resource_order_complete(&r->order);
-        free(r); robust_retirement=NULL;
+        free(r); retained_retirement=NULL;
     }
-    md_task_quiesce_destroy(robust_barrier); robust_barrier=NULL;
-    while (robust_memories) {
-        struct robust_memory *m=robust_memories; robust_memories=m->next;
+    md_task_quiesce_destroy(retained_barrier); retained_barrier=NULL;
+    while (retained_memories) {
+        struct retained_memory *m=retained_memories; retained_memories=m->next;
         md_task_wait_untrack(&task_wait,&m->wait);
         if (m->order.queue && md_resource_order_cancel(&m->order)==1) md_resource_order_complete(&m->order);
         free(m);
     }
-    robust_creation=NULL;
-    robust_work=NULL; robust_replays=0;
-    memset(robust_actors,0,sizeof(robust_actors));
+    retained_creation=NULL;
+    retained_work=NULL; robust_replays=0;
+    memset(retained_actors,0,sizeof(retained_actors));
 }
 static void mapping_delivery_release(struct mapping_owner *owner) {
     md_fd_origins_finish(&owner->delivery,-ECANCELED);
@@ -11160,9 +11250,7 @@ static int mapping_direct_start(struct thread *t) {
              * and sealed mappings never enter this cold barrier. */
             owner->deadline=md_event_now()+5000000000LL;
             for (struct thread *p=threads;p;p=p->next) if (p->pid && p->resources.files==owner->files.table)
-                CHECK(!md_task_quiesce_add(mapping_barrier,p->pid,
-                    p==t || p->kernel_stopped || p->listening || p->vfork_child,
-                    p->interrupt_pending || birth_stop_pending(p) ? 0 : p->kernel_resume));
+                CHECK(!quiesce_task_add(mapping_barrier,p,p==t));
             CHECK(!md_task_quiesce_stop(mapping_barrier));
         }
         if (mapping_execution!=owner) { retry_wait(t,RETRY_MAPPING); return 0; }
@@ -12288,7 +12376,7 @@ static pid_t entry_fence_take(int *status,struct rusage *usage) {
     return 0;
 }
 static pid_t deferred_event(int *status,struct rusage *usage) {
-    pid_t robust=robust_take(status,usage);
+    pid_t robust=retained_take(status,usage);
     if (robust) return robust;
     if (policy_barrier && !policy_installer) {
         pid_t event=md_task_quiesce_take(policy_barrier,status,usage);
@@ -12395,8 +12483,8 @@ static int publish_birth(struct thread *t,pid_t child,unsigned event) {
     c->memory = md_memory_fork(t->memory, !!(t->cloning & CLONE_VM)); CHECK(c->memory);
     /* Linux resets robust registration in every new thread, including fork.
      * Only CLONE_VM inherits the private executor's address-space lifetime. */
-    if ((t->cloning&CLONE_VM) && t->robust) {
-        c->robust=t->robust; ++c->robust->members;
+    if ((t->cloning&CLONE_VM) && t->memory_actor) {
+        c->memory_actor=t->memory_actor; ++c->memory_actor->members;
     }
     c->memory_access_pending=!(t->cloning&CLONE_VM);
     int untraced=!!(t->cloning&CLONE_UNTRACED);
@@ -12434,7 +12522,7 @@ static int checkpoint_event(pid_t pid,int *status) {
      * Keep raw events queued and normalize them through this same path on replay.
      * EVENT_STOP still normalizes a checkpoint-owned synthetic interrupt first. */
     if ((unsigned)*status>>16!=PTRACE_EVENT_STOP
-            && (((robust_creation || robust_retirement) && md_task_quiesce_waiting(robust_barrier,pid))
+            && (((retained_creation || retained_retirement) && md_task_quiesce_waiting(retained_barrier,pid))
                 || (policy_installer && md_task_quiesce_waiting(policy_barrier,pid))
                 || (memory_execution && md_task_quiesce_waiting(memory_barrier,pid))
                 || (mapping_execution && md_task_quiesce_waiting(mapping_barrier,pid))
@@ -12442,13 +12530,13 @@ static int checkpoint_event(pid_t pid,int *status) {
     return md_task_checkpoint_event(&checkpoints,pid,status);
 }
 static int tasks_pending(void) {
-    return live || robust_memories || md_fs_buffer_children(buffer_service) || md_task_helpers_count(helpers);
+    return live || retained_memories || md_fs_buffer_children(buffer_service) || md_task_helpers_count(helpers);
 }
 static pid_t wait_event(int *status, struct rusage *usage) {
     enum { PROGRESS_BATCH=8 };
     static unsigned progress_budget;
     for (;;) {
-        robust_progress();
+        retained_progress();
         signal_entries_progress();
         policy_sync_progress();
         entry_fence_progress();
@@ -12508,7 +12596,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             errno=ECHILD;
         }
         CHECK(pid == 0 || errno == EINTR);
-        if (memory_runnable() || robust_runnable()) continue;
+        if (memory_runnable() || retained_runnable()) continue;
         /* EVENT_WAIT: task/resource progress, signal or cancellation timer.
          * The timer is serviced even while ptrace continuously has work. */
         int64_t bound = INT64_MAX;
@@ -12554,10 +12642,11 @@ static pid_t wait_event(int *status, struct rusage *usage) {
         progress_budget=PROGRESS_BATCH;
     }
 }
-enum memory_stage { MEMORY_WRITERS, MEMORY_WORKER, MEMORY_VALIDATE, MEMORY_MAP, MEMORY_COPY,
+enum memory_stage { MEMORY_WRITERS, MEMORY_WORKER, MEMORY_VALIDATE, MEMORY_ACTOR, MEMORY_MAP, MEMORY_COPY,
     MEMORY_ADVICE, MEMORY_REPLACE };
 struct memory_execution {
     struct thread *actor;
+    struct retained_memory *executor;
     enum memory_stage stage;
     int64_t deadline, timing[7];
     struct user_pt_regs returned;
@@ -12572,9 +12661,8 @@ struct memory_execution {
     struct md_memory_replace replacement;
     struct md_memory_replace_call call;
     struct md_task_helper_result result;
-    uint64_t mask;
     unsigned advice;
-    int complete, calling, shielded, prior_shielded, global;
+    int complete, calling, terminal, global;
     long error;
     unsigned other_events;
     unsigned progress_calls;
@@ -12596,7 +12684,7 @@ static void memory_discard(void) {
     free(execution);
 }
 static int memory_available(pid_t pid) {
-    return (!(robust_creation || robust_retirement) || !md_task_quiesce_contains(robust_barrier,pid))
+    return (!(retained_creation || retained_retirement) || !md_task_quiesce_contains(retained_barrier,pid))
         && (!policy_installer || pid==policy_installer->pid || !md_task_quiesce_contains(policy_barrier,pid))
         && (!memory_execution || !md_task_quiesce_contains(memory_barrier,pid))
         && (!mapping_execution || !md_task_quiesce_contains(mapping_barrier,pid))
@@ -12609,6 +12697,7 @@ static int memory_runnable(void) {
     case MEMORY_WRITERS: return md_task_quiesce_ready(memory_barrier);
     case MEMORY_WORKER: return !execution->pause.owner || md_fs_worker_pause_state(&execution->pause)!=0;
     case MEMORY_VALIDATE: case MEMORY_COPY: return 1;
+    case MEMORY_ACTOR: return execution->executor && !execution->executor->creator;
     case MEMORY_MAP: return execution->complete;
     case MEMORY_ADVICE: case MEMORY_REPLACE: return !execution->calling;
     }
@@ -12623,22 +12712,21 @@ static void memory_complete(void *context,struct md_task_helper_result result) {
     execution->result=result; execution->complete=1;
 }
 static void memory_call(struct memory_execution *execution,const struct md_memory_replace_call *call) {
-    struct thread *t=execution->actor;
+    pid_t actor=execution->executor->retained.actor;
     execution->call=*call; execution->calling=1;
-    struct user_pt_regs regs=md_task_registers_entry(abi.task_call,t->original.sp,execution->returned.pstate);
+    struct user_pt_regs regs=md_task_registers_entry(abi.task_call,0,execution->returned.pstate);
     regs.regs[8]=call->number; memcpy(regs.regs,call->args,sizeof(call->args));
-    CHECK(set_registers(t->pid,&regs));
-    CHECK(!native_trace(PTRACE_CONT,t->pid,NULL,NULL));
+    CHECK(!md_task_registers_access(native_trace,actor,&regs,1));
+    CHECK(!native_trace(PTRACE_CONT,actor,NULL,NULL));
 }
 static void memory_finish(struct memory_execution *execution) {
     struct thread *t=execution->actor;
-    if (execution->shielded) {
-        CHECK(signal_mask(t,execution->mask,"memory-finish-mask"));
-        t->signal_shielded=execution->prior_shielded;
+    int terminal=execution->terminal;
+    if (!terminal) {
+        struct user_pt_regs restore=execution->returned;
+        restore.regs[0]=execution->error ? -EACCES : 0;
+        CHECK(set_registers(t->pid,&restore));
     }
-    struct user_pt_regs restore=execution->returned;
-    restore.regs[0]=execution->error ? -EACCES : 0;
-    CHECK(set_registers(t->pid,&restore));
     CHECK(!md_buffer_release(&execution->buffer));
     md_private_memory_scan_end(execution->scan);
     if (execution->pause.owner) CHECK(!md_fs_worker_pause_end(&execution->pause));
@@ -12664,7 +12752,8 @@ static void memory_finish(struct memory_execution *execution) {
     if (t->memory_files.table) CHECK(!md_fd_order_complete(&t->memory_files));
     CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
     t->memory_arguments_only=0;
-    t->phase=IDLE; resume(t->pid,0);
+    t->phase=IDLE;
+    if (!terminal) resume(t->pid,0);
 }
 static void memory_replay_unmodified(struct memory_execution *execution,int status,const struct rusage *usage) {
     CHECK(execution->stage<MEMORY_MAP);
@@ -12743,17 +12832,30 @@ static void memory_progress(void) {
         md_private_memory_scan_end(execution->scan); execution->scan=NULL;
         execution->timing[3]=md_event_now();
         if (execution->error) { memory_finish(execution); return; }
-        CHECK(save_signal_mask(t,&execution->mask,"memory-execution-mask"));
-        execution->prior_shielded=t->signal_shielded;
-        CHECK(shield(t)); execution->shielded=1;
-        t->terminal_observation=1; t->trace_options_dirty=1;
-        CHECK(!debugger_options(t->pid,t->debug_options));
+        execution->executor=retained_memory_get(t);
+        if (!execution->executor) { execution->error=-ENOMEM; memory_finish(execution); return; }
+        execution->stage=MEMORY_ACTOR;
+        if (!execution->executor->ready) {
+            /* The caller already owns the mm turn and writer barrier. Reuse
+             * that ownership for the same private executor as robust cleanup. */
+            retained_creation_begin(execution->executor,t,&execution->returned,MD_TASK_CALL_EXIT);
+            return;
+        }
+    }
+    if (execution->stage==MEMORY_ACTOR) {
+        if (execution->executor->creator) return;
+        execution->error=execution->executor->error;
+        if (execution->error) { memory_finish(execution); return; }
+        CHECK(execution->executor->ready && !execution->executor->cleaning);
+        pid_t actor=execution->executor->retained.actor;
+        struct user_pt_regs saved;
+        CHECK(!md_task_registers_access(native_trace,actor,&saved,0));
         struct md_task_helper_request request={.kind=MD_TASK_HELPER_MAP,
             .mapping={.source=execution->mapping.source,.size=execution->mapping.length,
                 .offset=execution->mapping.offset,.protection=execution->mapping.protection,
                 .flags=execution->plan.flags}};
         execution->stage=MEMORY_MAP;
-        execution->error=md_task_helper_begin(helpers,t->pid,t->tgid,&execution->returned,&abi,
+        execution->error=md_task_helper_borrow(helpers,actor,actor,MD_TASK_CALL_USER,&saved,&abi,
             t->memory,&execution->buffer,&request,memory_complete,execution);
         if (execution->error) memory_finish(execution);
         return;
@@ -12761,14 +12863,16 @@ static void memory_progress(void) {
     if (execution->stage==MEMORY_MAP) {
         if (!execution->complete) return;
         execution->timing[4]=md_event_now();
-        execution->error=execution->result.value<0 ? execution->result.value : 0;
-        if (execution->error) { memory_finish(execution); return; }
+        if (execution->result.value<0) {
+            execution->error=execution->result.value; memory_finish(execution); return;
+        }
         execution->mapping.candidate=(uintptr_t)execution->result.value;
         execution->stage=MEMORY_COPY;
     }
     if (execution->stage==MEMORY_COPY) {
-        long ready=md_private_memory_copy_step(&execution->mapping,access,&execution->plan,
-            &execution->copied,execution->scratch,MD_PRIVATE_MEMORY_COPY_BYTES);
+        long ready=execution->error ? execution->error
+            : md_private_memory_copy_step(&execution->mapping,access,&execution->plan,
+                &execution->copied,execution->scratch,MD_PRIVATE_MEMORY_COPY_BYTES);
         if (!ready) return;
         execution->error=ready<0 ? ready : 0;
         execution->timing[5]=md_event_now();
@@ -12804,8 +12908,8 @@ static int quiescence_repair_event(pid_t pid,int status,const struct rusage *usa
     struct thread *t=find_thread(pid);
     if (!t || t->phase!=OBSERVING || t->memory_action!=MEMORY_KERNEL
             || t->original.regs[8]!=SYS_mprotect) return 0;
-    if ((robust_creation && robust_creation->creator==t)
-            || (robust_retirement && robust_retirement->actor==t)
+    if ((retained_creation && retained_creation->creator==t)
+            || (retained_retirement && retained_retirement->actor==t)
             || policy_installer==t
             || (memory_execution && memory_execution->actor==t)
             || (task_action_execution && task_action_execution->actor==t)
@@ -12823,6 +12927,15 @@ static int memory_event(pid_t pid,int status,const struct rusage *usage) {
     struct memory_execution *execution=memory_execution;
     if (!execution) return 0;
     unsigned event=(unsigned)status>>16;
+    if (execution->stage==MEMORY_ACTOR && execution->executor && retained_creation==execution->executor
+            && (pid==execution->actor->pid || retained_actor(pid)==execution->executor)) {
+        int consumed=retained_event(pid,status,usage);
+        if (execution->executor->retained.parent_terminal && !retained_creation) {
+            memory_replay_unmodified(execution,status,usage);
+            return 1;
+        }
+        return consumed;
+    }
     if (pid==execution->actor->pid && execution->stage<MEMORY_MAP
             && (WIFEXITED(status) || WIFSIGNALED(status)
                 || (WIFSTOPPED(status) && (event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)))) {
@@ -12832,18 +12945,28 @@ static int memory_event(pid_t pid,int status,const struct rusage *usage) {
         memory_replay_unmodified(execution,status,usage);
         return 1;
     }
-    if (execution->stage==MEMORY_MAP && md_task_helper_owns(helpers,execution->actor->pid,pid)) {
+    if (execution->stage==MEMORY_MAP && md_task_helper_owns(helpers,execution->executor->retained.actor,pid)) {
         CHECK(md_task_helper_event(helpers,pid,status)==1);
         return 1;
     }
-    if (execution->calling && pid==execution->actor->pid) {
+    if (execution->stage>=MEMORY_MAP && pid==execution->actor->pid
+            && (!WIFSTOPPED(status) || event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)) {
+        /* The private mm executor survives group death and de_thread. Retain
+         * the exact lifecycle event until its candidate is committed or rolled
+         * back; never restore a dead caller's registers or reused FD numbers. */
+        execution->terminal=1; execution->error=-ECANCELED;
+        md_memory_replace_cancel(&execution->replacement);
+        CHECK(!md_task_quiesce_terminal(memory_barrier,pid,status,usage));
+        return 1;
+    }
+    if (execution->calling && pid==execution->executor->retained.actor) {
         CHECK(WIFSTOPPED(status));
         unsigned event=(unsigned)status>>16;
         if (event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP) {
             CHECK(!native_trace(PTRACE_CONT,pid,NULL,NULL)); return 1;
         }
         struct user_pt_regs regs;
-        CHECK(registers(pid,&regs));
+        CHECK(!md_task_registers_access(native_trace,pid,&regs,0));
         if (event==PTRACE_EVENT_SECCOMP) {
             unsigned long cookie;
             CHECK(!native_trace(PTRACE_GETEVENTMSG,pid,NULL,&cookie));
@@ -12854,7 +12977,9 @@ static int memory_event(pid_t pid,int status,const struct rusage *usage) {
         } else {
             CHECK(event==MD_TASK_CHECKPOINT_EVENT && regs.pc==abi.task_completed+4);
             execution->calling=0;
-            if (execution->stage==MEMORY_ADVICE) execution->error=(long)regs.regs[0];
+            if (execution->stage==MEMORY_ADVICE) {
+                if (!execution->error) execution->error=(long)regs.regs[0];
+            }
             else CHECK(!md_memory_replace_observed(&execution->replacement,(long)regs.regs[0]));
         }
         return 1;
@@ -12883,6 +13008,17 @@ static int memory_event(pid_t pid,int status,const struct rusage *usage) {
         }
         if (!hold) { ++execution->other_events; return 0; }
         CHECK(!md_task_quiesce_add(memory_barrier,pid,1,0));
+    }
+    if (execution->stage<MEMORY_MAP
+            && !(execution->executor && execution->executor->creator)
+            && (!WIFSTOPPED(status)
+            || event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)) {
+        /* A writer's exec may need this terminal sibling before acknowledging
+         * INTERRUPT. No mapping changed yet: replay the peer's lifecycle and
+         * the original mprotect exit, not another execution of mprotect. */
+        CHECK(!md_task_quiesce_terminal(memory_barrier,pid,status,usage));
+        memory_replay_unmodified(execution,execution->status,&execution->usage);
+        return 1;
     }
     CHECK(!quiesce_event(memory_barrier,pid,status,usage));
     return 1;
@@ -12913,9 +13049,7 @@ static int memory_repair(struct thread *t,const struct user_pt_regs *returned,in
     memory_execution=execution;
     for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid
             && (execution->global || peer->memory==t->memory || peer->remote_memory==t->memory))
-        CHECK(!md_task_quiesce_add(memory_barrier,peer->pid,
-            peer==t || peer->kernel_stopped || peer->listening || peer->vfork_child,
-            peer->interrupt_pending || birth_stop_pending(peer) ? 0 : peer->kernel_resume));
+        CHECK(!quiesce_task_add(memory_barrier,peer,peer==t));
     CHECK(!md_task_helpers_visit(helpers,execution->global ? NULL : t->memory,memory_participant,memory_barrier));
     CHECK(!md_task_quiesce_stop(memory_barrier));
     return 1;
@@ -13149,7 +13283,7 @@ int main(int argc, char **argv) {
         md_broker_native_observer(broker,cooperative_native_observe);
         md_broker_retirement_handler(broker,broker_retire);
         buffer_service=md_fs_buffer_service_new(filesystem,tasks,fd_wakeup,&task_wait,buffer_complete); CHECK(buffer_service);
-        md_fs_buffer_admission(buffer_service,memory_available);
+        md_fs_buffer_admission(buffer_service,task_completion_available);
         md_fs_buffer_restricted(buffer_service,checkpoint_restricted);
         md_fs_buffer_control_factory(buffer_service,md_proc_file_control_object);
         md_fs_buffer_control_query(buffer_service,control_file_query);
@@ -13230,7 +13364,7 @@ int main(int argc, char **argv) {
             continue;
         }
         if (quiescence_repair_event(pid,status,&usage)) continue;
-        if (robust_barrier_event(pid,status,&usage)) continue;
+        if (retained_barrier_event(pid,status,&usage)) continue;
         if (memory_event(pid,status,&usage)) continue;
         if (task_action_event(pid,status,&usage)) continue;
         if (mapping_event(pid,status)) continue;
@@ -13242,7 +13376,7 @@ int main(int argc, char **argv) {
         if (mapped<0) errno=-mapped;
         CHECK(mapped>=0);
         if (mapped) { adapter_progress(); continue; }
-        if (robust_event(pid,status,&usage)) continue;
+        if (retained_event(pid,status,&usage)) continue;
         struct thread *t = thread(pid);
         /* Retire a completed signal veneer before syscall-restart recovery.
          * A nested delivery must observe the handler's actual IDLE state. */
@@ -13517,7 +13651,7 @@ int main(int argc, char **argv) {
             md_ipc_transport_close(&t->ipc_transport);
             struct md_interception_memory *memory=md_memory_new_image(t->memory); CHECK(memory);
             t->vfork_borrowed=0;
-            robust_detach(t);
+            retained_detach(t);
             md_memory_release(t->memory); t->memory=memory;
             t->memory_access_pending=0;
             t->phase = IDLE; t->stack = 0; t->ready = 0; t->resume_lost = 0; t->terminal_stop=0; images++;

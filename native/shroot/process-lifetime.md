@@ -93,9 +93,12 @@ kernel path. Original guest seccomp admission and process-inspection checks
 still apply. Ordinary futex waits and wakes are not intercepted for this feature;
 priority inheritance is a separate unsupported contract in logical PID views.
 
-One private `task_retained` actor per registered address space retains the old
-mm across thread exit, SIGKILL and exec, including exec from a nonleader. It is
-not a guest thread and has no guest stack, TLS or shared descriptor table.
+One private `task_retained` actor per participating address space retains the old
+mm across thread exit, SIGKILL and exec, including exec from a nonleader. The
+supervisor's retained-memory owner shares this actor between managed robust
+cleanup and private-memory repair. It is created on demand, not for ordinary
+Shell futex operations or native mappings. It is not a guest thread and has no
+guest stack, TLS or shared descriptor table.
 `robust_futex` bounds list traversal to 2048 nodes; `task_robust` yields after
 32 read steps, atomically replaces the matching owner word with OWNER_DIED
 and wakes a native waiter. Invalid lists and inaccessible words terminate their
@@ -103,6 +106,16 @@ cleanup without invoking a guest SIGSEGV handler. The supervisor owns queued
 terminal events and replays each once cleanup finishes. Only pending mm owners
 enter its work queue; private actor lookup uses a PID index rather than a
 scan on every syscall.
+Registration, cleanup and pending terminal replay retain exclusive custody of
+the guest continuation. The shared task-action admission excludes that task
+from filter installation, FD capture and temporary-FD retirement, even when
+it originated the request. Its files remain live until normal exit processing;
+another eligible table holder may still retire the descriptor.
+Resource retries and filesystem completions use the same continuation gate;
+terminal replay reopens completion dispatch only after normal lifecycle handling.
+Deferred FIFO-open children also publish through that completion gate. Reaping
+their exact PID retains the result without invoking a held caller; cancellation
+can release it without waiting for caller admission.
 
 Guest proc/debugger inventories exclude private actors. The common
 [wait owner](debugging.md#waits-and-process-identity) filters them only when they
