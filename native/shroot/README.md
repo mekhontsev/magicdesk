@@ -84,13 +84,32 @@ Android kernel: actual task lifetime, descriptors, data IO and native checks
 | Application services | Authorization, catalog/registry downloads, launch recipes, immutable helper staging, PTY, graphics/audio/input connections | Guest syscall policy or native resource lifetime |
 | `namespace_run.c` | Explicit launch configuration and native process owner | Global current distribution or automatic privilege switching |
 | `bootstrap.c`, `elf.c`, `exec.c` | ELF admission/mapping, stack and exec reentry | Distribution-specific loader or libc policy |
-| `supervisor.c` and task owners | Kernel tracing, continuations, guest identity, cancellation and terminal cleanup | Android windows or a second kernel scheduler |
+| `supervisor.c` | Launch services, event-loop ordering, progress and cancellation | Operation-specific syscall implementations |
+| `supervisor_task.c`, `supervisor_debug.c`, `supervisor_robust.c` | Task birth/exec/exit, guest debugger boundaries and retained robust-futex actors | Independent event loops |
+| `supervisor_execution.c` | Shared entry, dispatch, native-effect completion and continuation selection | Duplicated resource semantics for TRACE and cooperative entry |
+| `supervisor_actors.c`, `supervisor_memory.c` | Borrowed task calls, quiescence custody, mappings and private-memory repair | Unconditional process-tree stops |
+| `supervisor_fs.c`, `supervisor_notifications.c`, `supervisor_proc.c` | Filesystem transport, notification reconciliation and guest proc views | Filesystem provider implementations |
+| `supervisor_descriptors.c`, `supervisor_io.c`, `supervisor_domain.c` | Descriptor operations, captured IPC/control IO and namespace transitions | Interception of ordinary native read/write |
+| `supervisor_identity.c` | Credential calls, capabilities and resource-limit copies | Native Android identity changes |
+| `supervisor_signals.c` | Guest signal delivery, pending signals, masks, frames and signalfd publication | Independent task scheduling |
+| `supervisor_seccomp.c` | Guest policy admission, listeners, TSYNC and inherited host-policy delivery | A second syscall implementation |
+| `supervisor_readiness.c` | Poll/epoll admission, descriptor loans, waits and interruption | Ordinary native data IO |
 | `fs_worker.c`, `namespace_broker.c`, `fs_engine.c` | Captured filesystem requests and provider dispatch | Application IO through ordinary open data descriptions |
 | Inode/image owners | SQLite namespace, metadata, shared bodies, overlays, import and maintenance | Android mount privileges or kernel hardlinks |
 | `fs_continuation.c`, provider continuations | Captured asynchronous filesystem stages and cancellation | Blocking the filesystem worker while a guest daemon runs |
 | `fuse_device.c`, `fuse_session.c`, `fuse_view.c`, `fuse_file.c` | Guest FUSE transport, mount protocol, names and open descriptions | Native Android FUSE permission or a coherent shared page cache |
 | `guest_execution.c` and operation handlers | Admitted task-affine operations, shared by ingress adapters | Register ABI, tracee resume or a second resource model |
 | `interception.c`, `cooperative_entry.h`, resident SVC driver | Register adaptation, caller actions and continuation delivery | Duplicated syscall semantics, SQLite or app-side services |
+
+The supervisor operation modules are separate translation units in the same
+process and event thread. Their private headers describe continuation state and
+direct calls; `supervisor_thread.h` owns the shared task record and
+`supervisor_internal.h` exposes coordinator services. These are not guest ABI or
+worker RPC interfaces. Each operation owner handles its control messages,
+continuations and cancellation; the coordinator preserves event custody and
+ordering. The supervisor-state fixture compiles these same sources together for
+white-box assertions, without exporting test-only entry points or duplicating
+their state machines. Production builds compile each owner separately.
 
 `GuestEnvironmentLibrary` and `GuestOciRegistry` are app-side management, not
 part of this native module. Their Java command helper is short-lived; the

@@ -300,7 +300,7 @@ the shared worker's cancellation and fairness paths.
 
 Ready open results may reuse a ptrace-stopped syscall through the existing fstat
 notification route without changing application registers or its return PC.
-The owner is `supervisor.c`, with `namespace_broker.c`
+The owner is `supervisor_fs.c`, with `namespace_broker.c`
 and `fd_install.c` retaining FD custody. This uses the
 [5.15 post-TRACE seccomp recheck](https://github.com/torvalds/linux/blob/v5.15/kernel/seccomp.c),
 NT_ARM_SYSTEM_CALL and syscall-exit observation, not a newer notification flag.
@@ -320,7 +320,7 @@ can report ENOENT, or ESRCH after the receiver discards an already queued ADDFD;
 the latter is accepted as cancellation only after ID_VALID confirms expiry.
 `notification_result.c` retains the result; `namespace_broker.c` prevents another
 execution during supervisor handoff, including kernel restarts without a delivered
-signal. Nonblocking metadata recovery in `supervisor.c` uses baseline ptrace
+signal. Nonblocking metadata recovery in `supervisor_notifications.c` uses baseline ptrace
 register/signal-mask access and GET_SYSCALL_INFO (5.3), not WAIT_KILLABLE_RECV
 (5.19). It rechecks the original SVC through kernel seccomp before completing
 the read and restoring the real signal. `--case fs-signals` compares native and
@@ -1108,7 +1108,7 @@ retain native errors; arbitrary new guest syscalls are not runtime requirements.
 | `open_tree_attr` | 6.15 | `namespace_mount_fd.c` and `fs_mount_change.c` extend the shared tree-open operation with mount attributes committed before FD publication. `test_mount_api.py` covers detached/attached trees, recursive policy, validation and failed-clone cleanup. | The logical mount provider uses baseline descriptor operations, not the new host syscall. Existing mount attribute restrictions, including unsupported ID mapping, remain explicit. |
 | `SO_PEERPIDFD` | 6.5 | `test_proc_root_guest.py`: optional coverage of native peer-pidfd fields in logical fdinfo. | ENOPROTOOPT/EINVAL/ENOSYS skips only this optional acquisition; baseline pidfd_open and fdinfo assertions still run. This is not a runtime prerequisite. |
 | `SO_PASSPIDFD` / `SCM_PIDFD` | 6.5 | `socket_control.h`, `ipc_io_host.c`, `task_receive.c` and `socket_ancillary.c`: receive, custody, CLOEXEC publication and cleanup of kernel-generated pidfds. An authenticated brokered sender carries its original flags-zero pidfd (baseline 5.3), never substitutes the broker's PIDFD. `ipc-ancillary` compares native/guest scalar, batch, peek, truncation, filtered receives and exact sender identity; `test_systemd.py` covers notify and FD-store restart. | The socket option retains native ENOPROTOOPT/EINVAL when unavailable; no synthetic support or startup requirement. The optional pidfd fixture reports that absence; ordinary credential and rights tests still run. Negative pidfd payloads remain errno values, not owned descriptors. |
-| `PIDFD_GET_*_NAMESPACE` | 6.11 | `pid_calls.c`, `supervisor.c` and `namespace_proc.c`: guest pidfds return retained logical namespace handles through the common FD-publication path. `--case mount-namespace` and systemd directory setup cover the ABI. | No host namespace ioctl is required for managed pidfds. Time namespaces remain EOPNOTSUPP; unowned native pidfds retain native errors. |
+| `PIDFD_GET_*_NAMESPACE` | 6.11 | `pid_calls.c`, `supervisor_descriptors.c` and `namespace_proc.c`: guest pidfds return retained logical namespace handles through the common FD-publication path. `--case mount-namespace` and systemd directory setup cover the ABI. | No host namespace ioctl is required for managed pidfds. Time namespaces remain EOPNOTSUPP; unowned native pidfds retain native errors. |
 | `STATX_MNT_ID_UNIQUE` | 6.8 | `namespace_proc.c`: distinguishes globally unique mount IDs from the runtime's ordinary mount-ID namespace. | The adapter strips the UNIQUE request and asks for `STATX_MNT_ID` (5.8); returned masks do not claim UNIQUE support. |
 | `PROCMAP_QUERY` | 6.11 | `test_mapping_task.c`: optional binary mapping-observation experiment. | Production `mapping_observation.c` reads a retained maps file. The fixture records unavailable ioctl access separately and verifies the text path. |
 | `MFD_EXEC` | 6.3 | `test_exec_policy.c`: explicit executable-memfd policy experiment. | This experiment reports failure; production image admission does not require this flag. |

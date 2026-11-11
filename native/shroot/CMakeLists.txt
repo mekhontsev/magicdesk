@@ -127,6 +127,16 @@ guest_executable(supervisor ${src}/supervisor.c ${src}/task_resources.c ${src}/c
     ${src}/fs_worker.c ${src}/fs_service.c ${src}/ipc_peer_service.c ${src}/ipc_origins.c ${src}/fs_buffer_service.c ${src}/file_open_job.c ${src}/file_snapshot.c ${src}/command_image.c ${src}/exec_prepare.c ${namespace_engine} ${src}/image_catalogue.c ${inodes} ${mounts}
     ${src}/namespace_broker.c ${src}/notification_result.c ${src}/watch_broker.c ${src}/proc_paths.c)
 target_compile_definitions(supervisor PRIVATE MD_NO_START MD_USE_LIBC)
+set(supervisor_owners
+    ${src}/supervisor_identity.c ${src}/supervisor_signals.c
+    ${src}/supervisor_seccomp.c ${src}/supervisor_readiness.c
+    ${src}/supervisor_task.c ${src}/supervisor_execution.c
+    ${src}/supervisor_domain.c ${src}/supervisor_descriptors.c
+    ${src}/supervisor_actors.c ${src}/supervisor_memory.c
+    ${src}/supervisor_fs.c ${src}/supervisor_proc.c
+    ${src}/supervisor_notifications.c ${src}/supervisor_io.c
+    ${src}/supervisor_debug.c ${src}/supervisor_robust.c)
+target_sources(supervisor PRIVATE ${supervisor_owners})
 target_sources(bootstrap PRIVATE ${src}/network_calls.c ${src}/network_packet.c)
 target_sources(supervisor PRIVATE ${capsules})
 target_sources(supervisor PRIVATE ${src}/task_wait.c ${src}/pending.c)
@@ -219,7 +229,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_include_directories(supervisor PRIVATE ../guest-exec-lab)
     # Exercise the coordinator's private transitions without exporting test APIs.
     get_target_property(supervisor_state_sources supervisor SOURCES)
-    list(REMOVE_ITEM supervisor_state_sources ${src}/supervisor.c)
+    list(REMOVE_ITEM supervisor_state_sources ${src}/supervisor.c ${supervisor_owners})
     guest_executable(supervisor_state ../guest-exec-lab/test_supervisor_state.c ${src}/buffer_admission.S ${supervisor_state_sources})
     target_sources(supervisor_state PRIVATE ../guest-exec-lab/test_seccomp_notify.c)
     target_compile_definitions(supervisor_state PRIVATE MD_NO_START MD_USE_LIBC)

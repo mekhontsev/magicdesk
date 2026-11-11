@@ -127,6 +127,14 @@ and known context requirements need no preliminary supervisor exchange.
 requirement. A state-dependent owner can request context before its first effect;
 an already-started operation instead retains its exact continuation.
 
+The supervisor's `resource_call` routes both TRACE and channel ingress through
+the same process, identity, domain, descriptor and memory owners, in that order.
+Kernel-only capture requests require their exact carrier before FD publication.
+`execution_begin` prepares a new C execution; an already-started operation keeps
+its owner's continuation instead. Kernel entry, post-SIGSYS recovery and resident
+entry retain distinct stop/mask preparation rather than inventing a common
+register context.
+
 Registration uses the existing exact-site `gettid` notification gate; the
 supervisor selects the caller's channel, never a supplied task identity. It does
 not use a synchronous signal: Linux can unblock a blocked SIGTRAP and reset its

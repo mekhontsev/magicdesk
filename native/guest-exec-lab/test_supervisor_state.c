@@ -3,6 +3,22 @@
 #define main supervisor_program_main
 #include "../shroot/src/supervisor.c"
 #undef main
+#include "../shroot/src/supervisor_identity.c"
+#include "../shroot/src/supervisor_signals.c"
+#include "../shroot/src/supervisor_seccomp.c"
+#include "../shroot/src/supervisor_readiness.c"
+#include "../shroot/src/supervisor_task.c"
+#include "../shroot/src/supervisor_execution.c"
+#include "../shroot/src/supervisor_domain.c"
+#include "../shroot/src/supervisor_descriptors.c"
+#include "../shroot/src/supervisor_actors.c"
+#include "../shroot/src/supervisor_memory.c"
+#include "../shroot/src/supervisor_fs.c"
+#include "../shroot/src/supervisor_proc.c"
+#include "../shroot/src/supervisor_notifications.c"
+#include "../shroot/src/supervisor_io.c"
+#include "../shroot/src/supervisor_debug.c"
+#include "../shroot/src/supervisor_robust.c"
 #include <assert.h>
 #include "fs_mount_internal.h"
 #include "seccomp_notify.h"
@@ -4335,9 +4351,59 @@ static void execution_register_boundary(void) {
     abi=saved;
     puts("PASS execution register boundary: full-width arguments, typed control, prepared input and preserved caller");
 }
+static void descriptor_capture_admission(void) {
+    struct md_interception_abi saved=abi;
+    abi.capture_gate=0x1004;
+    struct thread t={.memory=md_memory_new()}; assert(t.memory);
+    assert(!md_memory_buffers_prepare(t.memory,1,sizeof(struct md_fs_buffer_frame),0,0));
+    assert(!md_buffers_take(md_memory_buffers(t.memory),&t.buffer));
+    uintptr_t path=md_memory_buffer_address(t.memory,&t.buffer)+offsetof(struct md_fs_buffer_frame,source);
+    struct user_pt_regs r={.pc=abi.capture_gate,
+        .regs={[8]=SYS_openat,[0]=(unsigned long)AT_FDCWD,[1]=path,[2]=O_PATH|O_CLOEXEC}};
+    const int origins[]={0,17,AT_FDCWD};
+    for (unsigned i=0;i<sizeof(origins)/sizeof(*origins);++i) for (unsigned directory=0;directory<2;++directory) {
+        r.regs[4]=(unsigned long)origins[i];
+        r.regs[2]=O_PATH|O_CLOEXEC|(directory ? O_DIRECTORY : 0);
+        assert(fd_capture_valid(&t,&r));
+        for (unsigned invalid=0;invalid<7;++invalid) {
+            struct user_pt_regs bad=r;
+            if (invalid==0) bad.pc+=4;
+            if (invalid==1) bad.regs[8]=SYS_openat2;
+            if (invalid==2) bad.regs[0]=17;
+            if (invalid==3) bad.regs[3]=0600;
+            if (invalid==4) bad.regs[2]|=O_TRUNC;
+            if (invalid==5) bad.regs[2]&=~O_CLOEXEC;
+            if (invalid==6) bad.regs[4]=(unsigned long)-1;
+            assert(!fd_capture_valid(&t,&bad));
+        }
+    }
+    r.regs[4]=(unsigned long)MD_FS_BUFFER_SOURCE;
+    for (unsigned caller=0;caller<2;++caller) for (unsigned append=0;append<2;++append)
+            for (unsigned directory=0;directory<2;++directory) {
+        t.buffer_open.fd=17;
+        t.buffer_open.flags=O_RDWR|O_CLOEXEC|O_NOFOLLOW|(append ? O_APPEND : 0)|(directory ? O_DIRECTORY : 0);
+        t.buffer_open.completion.kind=caller ? MD_OPEN_CALLER : MD_OPEN_READY;
+        r.regs[2]=caller ? t.buffer_open.flags
+            : O_PATH|(t.buffer_open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW));
+        assert(fd_capture_valid(&t,&r));
+        for (unsigned invalid=0;invalid<4;++invalid) {
+            struct user_pt_regs bad=r;
+            if (invalid==0) ++bad.regs[1];
+            if (invalid==1) bad.regs[2]|=O_TRUNC;
+            if (invalid==2) bad.regs[2]^=O_CLOEXEC;
+            if (invalid==3) t.buffer_open.fd=-1;
+            assert(!fd_capture_valid(&t,&bad));
+            t.buffer_open.fd=17;
+        }
+        if (caller && append) { r.regs[2]&=~O_APPEND; assert(fd_capture_valid(&t,&r)); }
+    }
+    assert(!md_buffer_release(&t.buffer)); md_memory_release(t.memory); abi=saved;
+    puts("PASS descriptor capture: exact carrier, ordinary and pinned paths, O_PATH flags and caller append retry");
+}
 int main(void) {
     execution_completion();
     execution_register_boundary();
+    descriptor_capture_admission();
     retained_continuation_custody();
     repair_late_terminal();
     socket_wait_selection();
