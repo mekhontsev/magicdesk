@@ -110,7 +110,7 @@ final class ConsoleSessionFiles implements Closeable {
     synchronized String shellPaths(List<String> paths) {
         if (closed || directory.isEmpty()) return "";
         return items.stream().filter(item -> paths.contains(item.path()))
-                .map(item -> TerminalFilesEnvironment.quoteRelativePath(item.key() + "/" + item.name()))
+                .map(item -> TerminalFilesEnvironment.quotePath(directory, item.key() + "/" + item.name()))
                 .collect(java.util.stream.Collectors.joining(" "));
     }
     void subscribe(Runnable listener) { listeners.add(listener); }

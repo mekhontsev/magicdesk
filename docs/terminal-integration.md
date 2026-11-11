@@ -214,7 +214,9 @@ terminal directories while preserving directories locked by live helpers.
 New PTYs export `MAGICDESK_TERMINAL_FILES_DIR`. The shared `shroot` entry wrapper and
 generated PRoot recipes bind it at `/tmp/magicdesk-terminal-files` and update the
 variable for the guest. Inserted paths expand this variable in the current shell,
-so the same attachment works on either side. Shroot prepares the empty mountpoint
+with the actual host copy directory as a quoted fallback when it is unset or empty.
+Existing host processes, including programs in an attached tmux pane, can therefore
+use the copies without inheriting a new environment. Shroot prepares the empty mountpoint
 on first use; it reuses that single directory across sessions, without storing
 attachment contents in the image.
 This shares only that session's copies, not Android storage generally. Already

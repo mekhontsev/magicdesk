@@ -5,8 +5,11 @@ final class TerminalFilesEnvironment {
     static final String DIRECTORY = "MAGICDESK_TERMINAL_FILES_DIR";
     static final String GUEST_DIRECTORY = "/tmp/magicdesk-terminal-files";
 
-    static String quoteRelativePath(String relative) {
-        return "\"${" + DIRECTORY + "}\"/" + ShellCommandLine.quote(relative);
+    static String quotePath(String directory, String relative) {
+        // Attaching to tmux cannot add environment variables to its existing processes.
+        String fallback = directory.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("$", "\\$").replace("`", "\\`");
+        return "\"${" + DIRECTORY + ":-\"" + fallback + "\"}\"/" + ShellCommandLine.quote(relative);
     }
 
     static String shrootArguments() {

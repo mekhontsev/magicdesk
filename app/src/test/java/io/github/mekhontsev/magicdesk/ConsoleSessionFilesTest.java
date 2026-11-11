@@ -27,17 +27,30 @@ public final class ConsoleSessionFilesTest {
         assertEquals(List.of("original"), arguments(TerminalFilesEnvironment.prootArguments(), ""));
     }
 
-    @Test public void insertedPathContainsOnlyTheDirectoryVariableAndQuotedFilename() {
-        assertEquals("\"${MAGICDESK_TERMINAL_FILES_DIR}\"/'attachment/Photo.jpg'",
-                TerminalFilesEnvironment.quoteRelativePath("attachment/Photo.jpg"));
+    @Test public void insertedPathIncludesTheKnownHostDirectoryAsFallback() {
+        assertEquals("\"${MAGICDESK_TERMINAL_FILES_DIR:-\"/tmp/host-files\"}\"/'attachment/Photo.jpg'",
+                TerminalFilesEnvironment.quotePath("/tmp/host-files", "attachment/Photo.jpg"));
     }
 
     @Test public void insertedPathUsesTheCurrentShellNamespaceWithoutExecutingItsName() throws Exception {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"));
         String relative = "attachment/it's $(false); file.txt";
-        String script = "set -- " + TerminalFilesEnvironment.quoteRelativePath(relative) + "\n";
+        String script = "set -- " + TerminalFilesEnvironment.quotePath("/tmp/host-files", relative) + "\n";
         for (String root : List.of("/data/local/tmp/host ' files", TerminalFilesEnvironment.GUEST_DIRECTORY))
             assertEquals(List.of(root + "/" + relative), arguments(script, root));
+    }
+
+    @Test public void existingProcessesWithoutTheVariableUseTheLiteralHostDirectory() throws Exception {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"));
+        String relative = "attachment/it's $(false); file.txt";
+        for (String host : List.of("/tmp/host-files", "/tmp/host ' \" } $HOME $(printf injected) `printf injected` \\",
+                "/tmp/host\nfiles")) {
+            String script = "set -- " + TerminalFilesEnvironment.quotePath(host, relative) + "\n";
+            assertEquals(List.of(host + "/" + relative), arguments(script, null));
+            assertEquals(List.of(host + "/" + relative), arguments(script, ""));
+            assertEquals(List.of(TerminalFilesEnvironment.GUEST_DIRECTORY + "/" + relative),
+                    arguments(script, TerminalFilesEnvironment.GUEST_DIRECTORY));
+        }
     }
 
     private List<String> arguments(String script, String directory) throws Exception {
