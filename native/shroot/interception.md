@@ -129,7 +129,9 @@ The turn still spans the native exit:
 shared-table reuse, EBADF, late IO errors and terminal abandonment retain their
 existing semantics. Numbers above 32767, loans, contention and debugger/filter
 paths use full capture. This encoding is not an FD limit or a kernel permission.
-Application filters still evaluate kernel-fast-path calls. Logical credentials,
+Application filters still evaluate original-site kernel-fast-path calls. Admitted
+lazy entry evaluates the original call in the shared interpreter instead.
+Logical credentials,
 root changes, filter installation and dumpability changes retain their observers.
 Watch descriptors install bounded FD-class read selectors lazily; reads in
 unselected classes stay native until an application installs its own filter.
@@ -705,8 +707,9 @@ Filesystem transports order descriptor capture and publication with native
 table mutations. Adapter controls reuse the shared channel where possible;
 kernel-context controls use immutable bootstrap SVC checkpoints owned
 by `task_checkpoint`, not service BRKs or application SIGTRAP. Selective TRACE
-handles unfiltered markers; restricted service execution uses scoped SYSEMU to
-skip registered markers while real calls retain kernel filter admission.
+handles unfiltered or exact-image-admitted markers; service execution without
+that admission uses scoped SYSEMU to skip registered markers while real calls
+retain kernel filter admission.
 Small scalar recvmsg requests prepare their vectors before ordered socket capture,
 so capture and IO can complete in one exchange. When permitted, pidfd_getfd
 captures the exact caller's OFD under the file-table turn; it is released after
@@ -784,16 +787,21 @@ for ordinary launches and comparative timing runs.
 Internal sendmsg/recvmsg at the immutable raw-syscall gate go directly to the
 kernel. These calls are already unconditional native operations in every guest
 domain; the domain policy and gate share the explicit list. External calls still
-enter their adapters. This removes redundant supervisor stops, not application
-filter evaluation: ERRNO, TRAP and KILL also apply to the internal transport.
+enter their adapters after guest-policy admission. When the entire installed
+chain admits the runtime image, owned service gates precede the guest-policy
+body in the kernel mirror. The internal transport does not repeat the original
+call's policy evaluation. Unproven inherited gates retain kernel admission;
+Android's inherited filters apply in either case.
 Internal fstat at the same gate reads native descriptor metadata directly; it
 does not request logical inode or set-ID metadata. Application fstat retains the
 namespace and image-catalogue path.
 
 The guest owns SIGSYS, signal masks and alternate stacks. Native clone and signal
-return retain their register/extension ABI. Application filters are not removed:
-ERRNO, TRAP and KILL retain kernel precedence over runtime TRACE/USER_NOTIF.
-Register changes and same-site replay are rechecked by the kernel. Cancellation,
+return retain their register/extension ABI. Guest ERRNO, TRAP and KILL decisions
+remain authoritative over runtime routing. Admitted lazy entry checks the
+original number, arguments and IP locally; cold and original-site fallback
+calls retain the kernel mirror. Register changes and same-site replay are
+rechecked at their original boundary. Cancellation,
 group stops, concurrent TSYNC and non-leader exec have dedicated fixtures.
 Retained asynchronous signals cannot mask a pending synchronous exception. The
 shared delivery owner admits that exception first and waits for its native

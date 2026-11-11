@@ -2,6 +2,7 @@
 #include "fd_filter_program.h"
 #include "pid_filter_program.h"
 #include "interception.h"
+#include "interception_route.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -15,6 +16,51 @@
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 
+static void routing_contract(void) {
+    static struct md_interception_routes routes;
+    struct md_interception_abi abi={.raw_gate=0x2010000000,.watch_return=0x2010000010,
+        .task_return=0x2010000020,.native_return=0x2010000030,.ready=0x2010000100,
+        .buffer_admit=0x2010000200,.host_policy=1};
+    assert(!md_interception_routes_init(&routes,&abi));
+    struct md_fd_filter_gates gates={abi.raw_gate,abi.watch_return,abi.task_return,abi.native_return};
+    const int selected[]={3,190,511};
+    for (unsigned kind=0;kind<MD_FD_SELECTOR_KINDS;++kind) for (unsigned all=0;all<2;++all) {
+        struct md_fd_selector_view view={.active=1u<<kind,.all=all ? 1u<<kind : 0};
+        struct md_fd_filter_program programs[3];
+        unsigned count=all ? 1 : 3;
+        for (unsigned i=0;i<count;++i) {
+            int fd=all ? -1 : selected[i];
+            assert(!md_fd_filter_build(kind,fd,&gates,&programs[i]));
+            if (!all) view.bits[kind][fd/64]|=UINT64_C(1)<<(fd%64);
+        }
+        struct md_interception_route_view published={0};
+        md_interception_route_publish(&published,&view,MD_ROUTE_PID|MD_ROUTE_SIGNALS);
+        for (unsigned nr=0;nr<512;++nr) for (unsigned position=0;position<6;++position)
+            for (unsigned site=0;site<3;++site) {
+                struct seccomp_data call={.nr=nr,.arch=AUDIT_ARCH_AARCH64,
+                    .instruction_pointer=site==0 ? 0x4010000004 : site==1 ? abi.raw_gate : abi.raw_gate+4,
+                    .args={67,F_DUPFD,67,PROT_WRITE,67,67}};
+                call.args[position]=position&1 ? UINT64_C(0xffffffff000001ff) : 190+512;
+                uint32_t expected,next,actual;
+                struct sock_fprog p={routes.base.count,routes.base.code};
+                assert(!md_seccomp_program_eval(&p,&call,&expected));
+                for (unsigned i=0;i<count;++i) {
+                    p=(struct sock_fprog){programs[i].count,programs[i].code};
+                    assert(!md_seccomp_program_eval(&p,&call,&next));
+                    expected=md_seccomp_policy_merge(expected,next);
+                }
+                p=(struct sock_fprog){routes.pid.count,routes.pid.code};
+                assert(!md_seccomp_program_eval(&p,&call,&next));
+                expected=md_seccomp_policy_merge(expected,next);
+                p=(struct sock_fprog){routes.signals.count,routes.signals.code};
+                assert(!md_seccomp_program_eval(&p,&call,&next));
+                expected=md_seccomp_policy_merge(expected,next);
+                assert(!md_interception_route_eval(&routes,&published,&call,&actual));
+                assert(actual==expected);
+            }
+    }
+    puts("PASS local routing: exact kernel programs, sparse/all FD classes, alternate arguments, PID and signal selectors");
+}
 static unsigned evaluate_program(const struct sock_filter *code,unsigned count,
         const struct seccomp_data *d,unsigned *reads) {
     unsigned a=0;
@@ -214,4 +260,5 @@ void test_fd_filter_program(void) {
                 }
         }
     puts("PASS FD filter decisions: classes, aliases, argument positions, grouped/absent/duplicate gates and native waits");
+    routing_contract();
 }

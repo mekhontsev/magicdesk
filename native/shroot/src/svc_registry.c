@@ -255,6 +255,11 @@ int md_svc_registry_revoke(struct md_svc_registry *r,pid_t pid) {
     uint64_t zero=0;
     int error=md_svc_registry_write(pid,r->frames+MD_SVC_POOL_SIZE+
         offsetof(struct md_svc_payload_state,admitted),&zero,8);
+    /* Internal adapters can outlive lazy admission. Once identity publication
+     * stops, their shared client lookup must use the real current TID. */
+    if (!error) error=md_svc_registry_write(pid,r->frames+MD_SVC_POOL_SIZE+
+        offsetof(struct md_svc_payload_state,sole_owner),&zero,sizeof(zero));
+    if (!error) { r->sole_owner=0; r->identity_known=0; }
     for (unsigned i=0;!error && i<r->count;++i) {
         struct md_svc_site *site=&r->sites[i];
         if (r->filter_paused && site->state==MD_SVC_FILTER_PAUSED) continue;

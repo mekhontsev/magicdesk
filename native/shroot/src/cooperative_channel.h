@@ -11,6 +11,7 @@
 #include "file_open.h"
 #include "memory_admission.h"
 #include "guest_execution.h"
+#include "interception_route.h"
 
 static inline int md_entry_open(int number) {
     return number==SYS_openat || number==SYS_openat2;
@@ -103,6 +104,10 @@ struct md_entry_channel {
         char paths[2][4096];
     } input;
     struct md_memory_admission memory;
+    /* Cold routing publication must not split the request/lease cache lines. */
+    struct md_interception_route_view routes;
+    unsigned route_statistics;
+    atomic_uint_fast64_t local_contexts[MD_CONTEXT_COUNT],local_native;
 };
 static inline int md_entry_regular_descriptor(const struct md_entry_channel *c) {
     unsigned lease=atomic_load_explicit(&c->native_regular,memory_order_acquire);

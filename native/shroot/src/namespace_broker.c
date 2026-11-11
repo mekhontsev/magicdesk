@@ -1028,6 +1028,7 @@ int md_broker_cooperative_bind(struct md_namespace_broker *b,pid_t pid,struct md
     int error=!t ? -ESRCH : t->channel ? -EALREADY : 0;
     if (!error) {
         memset(channel,0,sizeof(*channel));
+        channel->route_statistics=b->counts!=NULL;
         atomic_init(&channel->state,MD_ENTRY_IDLE);
         /* Registration is a notification, not a ptrace stop/resume cycle.
          * Publish current eligibility with the channel instead of waiting for

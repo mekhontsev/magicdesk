@@ -143,8 +143,8 @@ static void client_expansion(void) {
     puts("PASS SVC client expansion: bucket publication, growth, fork inventory and common retirement");
 }
 static void entry_revocation(void) {
-    for (int failure=0;failure<3;++failure) {
-        payload.admitted=1;
+    for (int failure=0;failure<4;++failure) {
+        payload.admitted=1; payload.sole_owner=111;
         revocation_code[0]=revocation_code[1]=UINT64_C(0xd503201f14000000);
         struct md_svc_site sites[2];
         struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE,.count=2,.sites=sites};
@@ -161,7 +161,7 @@ static void entry_revocation(void) {
         assert(copy && copy->disabled && copy->revoke_pending); md_svc_registry_free(copy);
         fail_write=-1;
         assert(!md_svc_registry_revoke(&r,222) && r.disabled && !r.revoke_pending);
-        assert(!payload.admitted);
+        assert(!payload.admitted && !payload.sole_owner && !r.identity_known);
         for (unsigned i=0;i<2;++i) {
             assert(r.sites[i].state==MD_SVC_RETIRED);
             assert(revocation_code[i]==UINT64_C(0xd503201fd4000001));
@@ -169,7 +169,7 @@ static void entry_revocation(void) {
         int before=reads+writes;
         assert(!md_svc_registry_revoke(&r,INT_MAX) && before==reads+writes);
     }
-    puts("PASS SVC revocation: lost stop, partial retirement, peer retry and disabled discovery");
+    puts("PASS SVC revocation: lost stop, partial retirement, peer retry, disabled discovery and revoked sole identity");
     struct md_svc_site sites[2];
     struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE,.sites=sites,.count=2};
     for (unsigned i=0;i<2;++i) {

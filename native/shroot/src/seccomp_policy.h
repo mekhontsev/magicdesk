@@ -72,14 +72,14 @@ struct md_seccomp_route {
     /* Zero delegates selected numbers at every PC. An owned service gate
      * leaves the original filter authoritative at application call sites. */
     uint64_t delegation_pc;
-    /* Only non-ALLOW exits consult these owned service gates. Ordinary
-     * constant-ALLOW paths stay cacheable by the kernel. The caller must own
-     * every supplied gate and validate admission before any guest effect. */
+    /* Owned service gates. Without resident entry, only non-ALLOW exits consult
+     * them. The caller must own every gate and validate admission before any
+     * guest effect. Constant-ALLOW paths stay cacheable by the kernel. */
     const struct md_seccomp_gate *gates;
     size_t gate_count;
-    /* IP-sensitive programs require gates before evaluation, including ALLOW
-     * exits: an alias has a different PC from the original application SVC. */
-    int guard_ip;
+    /* A resident entry has already evaluated the original policy. Check its
+     * owned gates before the guest program, retaining constant-ALLOW caching. */
+    int entry_first;
     uint64_t entry_image;
     /* Zero instruction_pointer disables the optional notification carrier. */
     uint32_t number;

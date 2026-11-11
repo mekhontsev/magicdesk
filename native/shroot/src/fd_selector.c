@@ -3,7 +3,19 @@
 #include <stdlib.h>
 #include <string.h>
 enum { BYTES = (MD_FD_SELECTOR_MASK + 1) / 8 };
-struct md_fd_selector { unsigned references, all, instructions; unsigned char *bits[MD_FD_SELECTOR_KINDS]; };
+struct md_fd_selector { unsigned references, all, instructions; uint64_t revision;
+    unsigned char *bits[MD_FD_SELECTOR_KINDS]; };
+uint64_t md_fd_selector_revision(const struct md_fd_selector *a) { return a ? a->revision : 0; }
+void md_fd_selector_export(const struct md_fd_selector *a,struct md_fd_selector_view *out) {
+    memset(out,0,sizeof(*out));
+    if (!a) return;
+    out->active=out->all=a->all;
+    for (unsigned k=0;k<MD_FD_SELECTOR_KINDS;++k) if (a->bits[k]) {
+        memcpy(out->bits[k],a->bits[k],BYTES);
+        for (unsigned i=0;i<MD_FD_SELECTOR_WORDS;++i)
+            if (out->bits[k][i]) out->active|=1u<<k;
+    }
+}
 struct md_fd_selector *md_fd_selector_new(void) {
     struct md_fd_selector *a = calloc(1, sizeof(*a));
     if (a) a->references = 1;
@@ -12,7 +24,7 @@ struct md_fd_selector *md_fd_selector_new(void) {
 struct md_fd_selector *md_fd_selector_fork(struct md_fd_selector *a, int shared) {
     if (shared) { a->references++; return a; }
     struct md_fd_selector *copy = md_fd_selector_new();
-    if (copy) { copy->all=a->all; copy->instructions=a->instructions; }
+    if (copy) { copy->all=a->all; copy->instructions=a->instructions; copy->revision=a->revision; }
     for (unsigned i=0;copy && i<MD_FD_SELECTOR_KINDS;++i) if (a->bits[i]) {
         copy->bits[i] = malloc(BYTES);
         if (!copy->bits[i]) { md_fd_selector_release(copy); return NULL; }
@@ -47,13 +59,14 @@ int md_fd_selector_mark(struct md_fd_selector *a, unsigned kind, int fd) {
     if (!a || kind>=MD_FD_SELECTOR_KINDS || fd< -1) return -EINVAL;
     if (kind==MD_FD_SELECTOR_POLL) fd=-1;
     if (fd==-1) {
+        ++a->revision;
         a->all|=1U<<kind;
         if (kind==MD_FD_SELECTOR_PROC) a->all|=1U<<MD_FD_SELECTOR_WATCH;
         return 0;
     }
     fd &= MD_FD_SELECTOR_MASK;
     if (!a->bits[kind]) return -EINVAL;
-    a->bits[kind][fd / 8] |= (1U << (fd % 8)); return 0;
+    a->bits[kind][fd / 8] |= (1U << (fd % 8)); ++a->revision; return 0;
 }
 int md_fd_selector_missing(const struct md_fd_selector *required,struct md_fd_selector *installed,
         enum md_fd_selector_kind *kind,int *fd) {

@@ -21,6 +21,10 @@
 extern long md_guest_entry_kernel(long,const uint64_t *);
 static unsigned char offers[512];
 static unsigned char strings[512];
+static struct md_interception_routes routes;
+int md_cooperative_routes_init(const struct md_interception_abi *abi) {
+    return md_interception_routes_init(&routes,abi);
+}
 uintptr_t md_cooperative_registration=1;
 void md_cooperative_revoke(void) {
     __atomic_store_n(&md_cooperative_registration,0,__ATOMIC_RELEASE);
@@ -28,7 +32,7 @@ void md_cooperative_revoke(void) {
 void md_cooperative_init(void) {
     for (unsigned i=0;i<sizeof(offers);++i) {
         enum md_entry_route route=md_entry_route(i);
-        offers[i]=(route!=MD_ENTRY_CALLER ? MD_ENTRY_ORDINARY : 0)
+        offers[i]=MD_ENTRY_ORDINARY
             |(route==MD_ENTRY_FD ? MD_ENTRY_CANCELLATION : 0)
             |(route==MD_ENTRY_MEMORY ? MD_ENTRY_NATIVE_MEMORY : 0);
         strings[i]=(unsigned char)md_fs_syscall_strings(i);
@@ -37,6 +41,14 @@ void md_cooperative_init(void) {
 static enum md_entry_outcome kernel_call(struct md_entry_call *call) {
     if (!call->kernel) call->kernel=md_guest_entry_kernel;
     return MD_ENTRY_KERNEL_CALL;
+}
+static enum md_entry_outcome admitted_kernel_call(const struct md_entry_channel *c,struct md_entry_call *call) {
+    if ((atomic_load_explicit(&c->routes.flags,memory_order_acquire)&MD_ROUTE_ADMITTED_KERNEL)
+            && md_execution_context_needed(call->number,call->args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_COUNT) {
+        call->result=md_guest_entry_kernel(call->number,call->args);
+        return MD_ENTRY_COMPLETED;
+    }
+    return kernel_call(call);
 }
 static void capture_paths(struct md_entry_channel *c,const struct md_entry_call *call) {
     unsigned selectors=(unsigned)call->number<sizeof(strings) ? strings[call->number] : 0;
@@ -167,11 +179,11 @@ static enum md_entry_outcome offer_native(struct md_entry_client *client,struct 
 static enum md_entry_outcome invoke_identified(struct md_entry_client *client,long tid,struct md_entry_call *call) {
     if (!client || !call || call->reserved) return MD_ENTRY_DECLINED;
     enum md_entry_route route=md_entry_route(call->number);
-    if (route==MD_ENTRY_CALLER) return MD_ENTRY_DECLINED;
-    int task_route=route==MD_ENTRY_TASK || route==MD_ENTRY_READINESS;
+    if (!md_entry_supported(call->number)) return MD_ENTRY_DECLINED;
+    int task_route=route==MD_ENTRY_TASK || route==MD_ENTRY_READINESS || route==MD_ENTRY_MEMORY;
     /* The resident frontend owns the frame that defers application handlers
      * across C execution. Ordinary API clients retain their kernel context. */
-    int task_execution=tid>0 && task_route && md_entry_task_execution(call->number,call->args);
+    int task_execution=tid>0 && task_route;
     call->next=NULL;
     uintptr_t control=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
     if (control&MD_ENTRY_CLIENT_BUSY) return MD_ENTRY_DECLINED;
@@ -208,6 +220,34 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
         if (policy==POLICY_FALLBACK) goto kernel;
         if (policy==POLICY_RESULT) return finish(client,call,MD_ENTRY_COMPLETED);
         admitted=1;
+    }
+    enum md_execution_context context=MD_CONTEXT_COUNT;
+    if (task_execution && route!=MD_ENTRY_READINESS) {
+        /* An unconditional caller-frame requirement already determines the
+         * continuation. Keep policy admission, but do not interpret our own
+         * routing programs just to reach that same context again. */
+        context=md_execution_context_needed(call->number,call->args,MD_INTERCEPT_DISPATCH);
+        if (context!=MD_CONTEXT_COUNT) goto context_required;
+    }
+    unsigned interception=MD_INTERCEPT_DISPATCH;
+    if (task_route) {
+        /* Guest policy was evaluated above at the original SVC. Local routing
+         * then avoids a supervisor round trip for ordinary native operations
+         * and unconditional errors from our own interception contract. */
+        struct seccomp_data data={.nr=call->number,.arch=AUDIT_ARCH_AARCH64,
+            .instruction_pointer=call->instruction_pointer};
+        memcpy(data.args,call->args,sizeof(data.args));
+        uint32_t decision;
+        if (md_interception_route_eval(&routes,&c->routes,&data,&decision)) goto kernel;
+        if (decision==SECCOMP_RET_ALLOW) {
+            if (c->route_statistics) atomic_fetch_add_explicit(&c->local_native,1,memory_order_relaxed);
+            outcome=tid>0 ? admitted_kernel_call(c,call) : kernel_call(call); goto done;
+        }
+        if ((decision&SECCOMP_RET_ACTION_FULL)==SECCOMP_RET_ERRNO) {
+            call->result=md_seccomp_policy_error(decision);
+            return finish(client,call,MD_ENTRY_COMPLETED);
+        }
+        if ((decision&SECCOMP_RET_ACTION_FULL)==SECCOMP_RET_TRACE) interception=decision&SECCOMP_RET_DATA;
     }
     int probe=0,immediate=0;
     if (c && route==MD_ENTRY_READINESS && tid>0 && !call->args[4]) {
@@ -266,6 +306,10 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
         }
     }
     if (task_route && !task_execution) goto kernel;
+    if (task_execution) {
+        context=md_execution_context_needed(call->number,call->args,interception);
+        if (context!=MD_CONTEXT_COUNT) goto context_required;
+    }
     if (!atomic_load_explicit(&c->enabled,memory_order_acquire)) goto kernel;
     /* Different entry adapters in one thread share the channel. The client
      * guard alone cannot exclude a signal handler using another adapter. */
@@ -295,7 +339,6 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
             return finish(client,call,MD_ENTRY_COMPLETED);
         }
     }
-    if (route==MD_ENTRY_MEMORY) goto kernel;
     int native_fd=md_entry_native_fd(call->number,call->args);
     if (task_execution && !native_fd) {
         call->continuation[CONT_SEQUENCE]=c->sequence;
@@ -316,6 +359,8 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
 done:
     call->continuation[CONT_CONTROL]=control;
     return finish(client,call,outcome);
+context_required:
+    if (c->route_statistics) atomic_fetch_add_explicit(&c->local_contexts[context],1,memory_order_relaxed);
 kernel:
     /* Without policy admission only a caller-owned application site is safe.
      * The runtime fallback cannot stand in for an unknown original PC. */
@@ -441,6 +486,8 @@ static enum md_entry_outcome task_execute(struct md_entry_client *client,struct 
     while (outcome==MD_ENTRY_NATIVE_EFFECT) outcome=md_entry_advance(client,call,outcome);
     if (outcome!=MD_ENTRY_COMPLETED) return outcome;
     if (c->execution_action==MD_EXECUTION_RESULT) return outcome;
+    if (c->execution_action==MD_EXECUTION_KERNEL || c->execution_action==MD_EXECUTION_CONTEXT)
+        return kernel_call(call);
     if (c->execution_action!=MD_EXECUTION_GUEST) return MD_ENTRY_UNKNOWN;
     struct md_guest_execution execution=c->execution;
     long result=md_guest_execute(&execution);

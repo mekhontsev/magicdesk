@@ -40,6 +40,8 @@ extern long live_map(void *,size_t,int,int,int,long);
 extern long live_remap(void *,size_t,size_t,int,void *);
 extern long live_uname(struct utsname *);
 extern long live_mknod(long,const char *,long,long);
+extern long live_prctl(long,long,long,long,long);
+extern long live_epoll(long,void *,long,long,void *,long);
 __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     "image_uid:\nmov x8,#174\nsvc #0\nret\n.p2align 16\n"
     ".global live_uid\nlive_uid:\nmov x8,#174\nsvc #0\nret\n"
@@ -50,7 +52,9 @@ __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     ".global live_map\nlive_map:\nmov x8,#222\nsvc #0\nret\n"
     ".global live_remap\nlive_remap:\nmov x8,#216\nsvc #0\nret\n"
     ".global live_uname\nlive_uname:\nmov x8,#160\nsvc #0\nret\n"
-    ".global live_mknod\nlive_mknod:\nmov x8,#33\nsvc #0\nret\n.popsection");
+    ".global live_mknod\nlive_mknod:\nmov x8,#33\nsvc #0\nret\n"
+    ".global live_prctl\nlive_prctl:\nmov x8,#167\nsvc #0\nret\n"
+    ".global live_epoll\nlive_epoll:\nmov x8,#22\nsvc #0\nret\n.popsection");
 static void publication_check(uintptr_t function,int patched) {
     uint32_t word=*(volatile const uint32_t *)(function+4);
     assert(patched ? (word&0xfc000000)==0x14000000 : word==0xd4000001);
@@ -59,7 +63,8 @@ static void first_encounter(int patched,int filtered) {
     if (filtered) {
         struct sock_filter code[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_uname,0,3),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_uname,1,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait,0,3),
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,7,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
@@ -67,6 +72,18 @@ static void first_encounter(int patched,int filtered) {
         struct sock_fprog program={sizeof(code)/sizeof(*code),code};
         assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
         assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    publication_check((uintptr_t)live_prctl,0);
+    assert(live_prctl(PR_GET_DUMPABLE,0,0,0,0)>=0);
+    publication_check((uintptr_t)live_prctl,patched);
+    for (unsigned i=0;i<32;++i) assert(live_prctl(PR_GET_DUMPABLE,0,0,0,0)>=0);
+    publication_check((uintptr_t)live_epoll,0);
+    struct epoll_event event;
+    assert(live_epoll(-1,&event,1,1,NULL,8)==-EBADF);
+    publication_check((uintptr_t)live_epoll,patched);
+    for (unsigned i=0;i<64;++i) {
+        assert(live_epoll(-1,&event,1,0,NULL,8)==-EBADF);
+        if (filtered) assert(live_epoll(7,&event,1,0,NULL,8)==-EACCES);
     }
     publication_check((uintptr_t)live_uname,0);
     assert(live_uname((void *)1)==-EFAULT);
@@ -86,7 +103,7 @@ static void first_encounter(int patched,int filtered) {
     assert(live_map((void *)mapped,page,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)==mapped);
     assert(!munmap((void *)mapped,page));
-    puts("PASS SVC first encounter: task execution, failed arguments, file mmap and later fast eligibility");
+    puts("PASS SVC first encounter: common prctl entry, task execution, failed arguments and file mmap context");
 }
 static size_t unmap_page;
 static volatile sig_atomic_t task_signals;

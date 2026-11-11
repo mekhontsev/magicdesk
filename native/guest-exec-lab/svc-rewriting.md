@@ -59,7 +59,18 @@ fixtures exercise the same transport independently of patch discovery.
 Memory changes retire overlapping entry points; resident continuations remain
 until address-space teardown. Debugger ownership disables machine admission.
 
-An unfiltered TRACE entry at a published site's native alias can use the same
+The common ingress evaluates the guest policy before selecting execution.
+Its local routing view uses the same base, FD, PID and signal program generators
+as kernel interception. Known native operations, direct errors and unconditional
+context requirements need no preliminary supervisor request. Shared-state
+operations reuse the existing resource owners over the task channel. A context
+request names its reason and precedes effects; an in-progress operation retains
+its completion owner instead of restarting from that request.
+Owned service gates precede the kernel guest-policy body, so an admitted helper
+does not execute it again. Original-site fallback and Android's inherited filters
+remain authoritative where local admission is unavailable.
+
+A TRACE entry at a published site's native alias can use the same
 Base syscall owner even when its number is new to that chain. Discovery uses
 the authenticated original PC and actual arguments; it may publish another
 gate for subsequent calls without replaying the current syscall. Publication
@@ -69,6 +80,11 @@ branch never implicitly admits another number. Memory profitability checks
 therefore apply equally to initial discovery, alias discovery and signal retry.
 Application filters, exposed address spaces and debugger ownership retain
 their original recovery and admission boundaries.
+For an admitted policy-mirror gate, the shared interception classifier restores
+the ordinary native or TRACE route after checking the original IP and arguments.
+The alias already has the caller's stack, so it needs no cancellation/replay
+solely because the mirror supplied a service cookie. Notification/error routes,
+filter installation and guest observation policies retain original-site recovery.
 
 Seccomp stops share one register snapshot between checkpoint recovery, executed
 site discovery and ordinary dispatch. Discovery precedes compact Base handlers:
@@ -202,76 +218,52 @@ their inspection checks. The process-image fixture verifies
 post-protection argument edits and denied `auxv` natively, with Base and lazy
 entry, plus a differing guest-identity control.
 
-## Task-Channel Acceptance
+## Common-Entry Acceptance
 
 The qualified device is an NX809J, Android 16, kernel 6.12.23, with Alpine 3.23.6
 for stock application workloads. User and Shell use the same executable and
 fixture contracts. This is not coverage of another firmware or a physical 5.15
-kernel. Full SVC, cooperative and signal suites, plus the supervisor-state,
-namespace, control-event, FS-buffer, FS-dispatch and task-mapping resource groups,
-check completion, interruption, policy publication and original-context fallback
+kernel. The full SVC suite, signal-checkpoint suite, cooperative-entry contracts,
+and the supervisor-state, namespace, control-event, FS-buffer, FD-observation and
+task-mapping resource groups check completion, interruption, policy publication
+and original-context fallback
 independently of timing. Stock sandboxed headless Chromium with software video,
 Docker and Podman exercise real programs;
 their lazy completion counts are separate from merely starting successfully.
 
-The interleaved Shell comparison uses the pre-task-channel runtime as reference,
-not Base. File batches contain 16 blocks of 1,024 operations, over eight rounds;
+The interleaved Shell comparison uses the saved `a383439f` runtime as reference,
+not Base. Both runtimes have lazy entry enabled. File batches contain 16 blocks
+of 1,024 operations, over four rounds;
 readiness contains 10,000 calls under a guest ALLOW filter, over four rounds.
 Timings have statistics disabled. CPU-frequency observations, per-command CPU
-usage, binary hashes and complete samples are in the run receipts.
+usage, binary hashes and complete samples are in the run receipts. A separate
+12-round readiness repeat reverses the initial four-round timing difference;
+frequency changes prevent treating either aggregate as a stable speedup or
+slowdown. Those samples are retained in
+`build/common-entry-benchmark-readiness-repeat/`.
 
-| Workload | Reference median | Task-channel median |
-| --- | ---: | ---: |
-| stat, complete batch | 60.17 ms | 56.35 ms |
-| open/close, complete batch | 165.35 ms | 161.11 ms |
-| create/rename/unlink, complete batch | 2022.26 ms | 2032.17 ms |
-| epoll, empty zero-time probe | 388.85 ms | 26.11 ms |
-| epoll, ready zero-time probe | 406.06 ms | 23.08 ms |
-| poll | 378.59 ms | 293.96 ms |
+In three interleaved 30-second Chromium video/input pairs against that reference,
+median supervisor-thread CPU was 20.63% versus 20.56%, and process CPU including
+its worker was 27.23% versus 26.73%. Median input latency was 29.81 versus
+25.03 ms. These counters exclude guest-process and Android compositor CPU;
+this series does not establish a general browser speedup. Frequency observations
+cover each command envelope, not a particular thread. Receipts are in
+`build/common-entry-browser-qualified-{0,1,2}-{reference,current}/`.
 
-Paired file medians are more conservative than the ratio of aggregate medians:
-stat is 0.986x, open/close 0.959x and file cycle 1.023x the reference time.
-Steady-state block ratios are 1.058x, 0.998x and 1.017x respectively; paired
-full-command CPU ratios are 1.006x, 0.960x and 0.998x. This series does not show
-a substantial file regression or prove a general file speedup. Frequency
-residency varies, and observations cover each command envelope rather than a
-particular thread. Poll gains also varied between series; the strong repeatable
-gain is the native epoll probe. Separate instrumented 10,000-probe runs reduced
-stops from 10,063 to 63 and ptrace requests from 30,383 to 387; instrumented
-elapsed time is not used for the timing table.
+Separate two-round Base/lazy video/input checks pass in both User and Shell.
+Instrumented 15-second runs complete 9,273 filtered calls in Shell and 10,298
+in User, with zero unknown entry outcomes. Guest-local native decisions total
+5,094 and 4,556 respectively; shared task completions total 4,455 and 4,433.
+These categories are not additive syscall totals. Context counters still show
+substantial wait and memory ownership: acceleration is not elimination of every
+ptrace stop. Browser receipts and nonblank captures are in
+`build/common-entry-browser-{shell,app}/` and the corresponding `browser-counts`
+directories. These are software headless checks, not GPU or HDMI qualification.
 
-The matching User series compares Base with lazy in the current runtime, not
-with the pre-task-channel reference. It measures the complete lazy mechanism:
-
-| Workload | User Base median | User lazy median |
-| --- | ---: | ---: |
-| stat, complete batch | 728.27 ms | 57.07 ms |
-| open/close, complete batch | 2751.88 ms | 183.93 ms |
-| create/rename/unlink, complete batch | 5317.90 ms | 2108.91 ms |
-| epoll, empty zero-time probe | 378.01 ms | 15.69 ms |
-| epoll, ready zero-time probe | 3220.88 ms | 17.34 ms |
-| poll | 360.70 ms | 372.18 ms |
-
-The User poll result does not demonstrate an improvement. Native epoll probes
-and real blocking waits have different ownership; their results must not be
-combined into a general readiness speedup.
-
-In two paired 30-second Base/lazy headless Chromium video/input rounds,
-supervisor-thread CPU changed from 21.61% to 20.53% in Shell and from 22.86%
-to 20.83% in User. Supervisor-process CPU, including its worker, increased from
-23.19% to 27.01% and from 24.31% to 27.12% respectively. These counters exclude
-guest-process and Android compositor CPU, and compare Base with lazy rather than
-isolating this transport change. They establish neither an overall CPU reduction
-nor a multi-fold browser speedup. Separate instrumented runs completed 6,722
-filtered calls in Shell and 6,885 in User, with zero unknown entry outcomes.
-Browser receipts and nonblank video/input captures are in
-`build/task-channel-final16-browser-{shell,app}/` and the corresponding
-`browser-counts` directories.
-
-File, readiness and separate instrumented receipts are in
-`build/task-channel-production16-{files,readiness,counts}-{shell,app}/`.
-App-mode Base/lazy comparisons measure the complete lazy mechanism, not the
-incremental benefit of this task transport.
+File, readiness and startup receipts are in
+`build/common-entry-benchmark-{files,readiness,startup}/`. Base/lazy comparisons
+measure the complete lazy mechanism; reference/current comparisons isolate this
+change. Neither should be presented as the other.
 
 ## Regression Commands
 

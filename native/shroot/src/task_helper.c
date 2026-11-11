@@ -290,7 +290,12 @@ static int child_adopt(struct helper *m,pid_t child) {
 static int observe(struct helper *m, const struct user_pt_regs *r) {
     if (m->observed || !m->started) return 0;
     long address=(long)r->regs[0];
-    if (r->pc!=m->abi.task_return || r->regs[8]!=SYS_mmap) return protocol_error(m,__LINE__);
+    if (!md_task_registers_call_result(r,m->abi.task_return,m->abi.task_completed,SYS_mmap)) {
+        fprintf(stderr,"guest-runtime: mapping return pc=%lx returned=%lx completed=%lx number=%lu saved=%lu result=%ld\n",
+            (unsigned long)r->pc,(unsigned long)m->abi.task_return,(unsigned long)m->abi.task_completed,
+            (unsigned long)r->regs[8],(unsigned long)r->regs[19],address);
+        return protocol_error(m,__LINE__);
+    }
     if (address<=0) {
         m->result=address<0 && address>=-4095 ? address : -ECANCELED;
         m->observed=1; return 0;

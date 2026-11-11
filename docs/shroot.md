@@ -101,8 +101,10 @@ than scanning every executable byte as if it were an instruction.
 
 For an eligible site, Shroot prepares a private entry stub and replaces that
 single `svc` instruction in process memory with a branch. Publication does not
-stop neighboring threads. The stub checks the syscall number and routes the
-call to the shared syscall engine; later calls at that site can avoid the
+stop neighboring threads. Publication happens on the first suitable intercepted
+execution; the stub chooses an operation on each invocation rather than only
+admitting a fixed fast-call list. It routes the call to the shared syscall engine;
+later calls at that site can avoid the
 seccomp/ptrace round trip. Eligible native operations execute in the guest
 thread, while worker-owned operations use the shared-memory channel. Admitted
 task-affine operations use that same channel and the common C executor, retaining
@@ -133,7 +135,10 @@ Application seccomp installation fences accelerated calls before publishing an
 immutable policy view. Eligible calls can then retain lazy entry: the shared
 interpreter checks the original syscall arguments and instruction address before
 any effect. ALLOW uses the existing engine, ERRNO returns directly, and other
-actions retain original-site kernel admission. IP-independent filter chains can
+actions retain original-site kernel admission. An admitted service syscall uses
+an owned entry ahead of the kernel's guest-policy mirror, avoiding a second
+execution of that policy. Cold calls and unproven inherited entries retain the
+kernel fallback. Android's own filters still apply. IP-independent filter chains can
 retain acceleration after exec when they admit an inert return checkpoint.
 IP-sensitive inherited chains, unavailable policy mappings and debugger ownership
 retain Base. A successful sandboxed launch alone therefore does not prove

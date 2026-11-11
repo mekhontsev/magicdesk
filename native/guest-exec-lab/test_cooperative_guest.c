@@ -1571,6 +1571,7 @@ static enum md_entry_outcome identified_entry(struct md_entry_client *owner,stru
     return api->try_identified(owner,api->thread_identity(),call);
 }
 static void contracts(const char *executable) {
+    assert(offsetof(struct md_entry_channel,native_regular)<64);
     assert(sizeof(struct md_entry_client)==3*sizeof(uintptr_t));
     struct md_entry_api invalid=*api;
     assert(md_entry_api_valid(&invalid));
@@ -1587,7 +1588,7 @@ static void contracts(const char *executable) {
     assert(!md_entry_offered(api,api->syscall_count,MD_ENTRY_ORDINARY));
     for (unsigned nr=0;nr<api->syscall_count;++nr) {
         enum md_entry_route route=md_entry_route(nr);
-        assert(!!md_entry_offered(api,nr,MD_ENTRY_ORDINARY)==(route!=MD_ENTRY_CALLER));
+        assert(md_entry_offered(api,nr,MD_ENTRY_ORDINARY));
         assert(!!md_entry_offered(api,nr,MD_ENTRY_CANCELLATION)==(route==MD_ENTRY_FD));
         assert(!!md_entry_offered(api,nr,MD_ENTRY_NATIVE_MEMORY)==(route==MD_ENTRY_MEMORY));
     }
@@ -1637,9 +1638,17 @@ static void contracts(const char *executable) {
     strict_reentry=1;
     client.opaque[MD_ENTRY_CLIENT_CONTROL]=MD_ENTRY_CLIENT_BUSY;
     assert(!raise(SIGUSR1) && signals==1);
+    assert(call6(SYS_getpid,0,0,0,0,0,0)>0);
     client.opaque[MD_ENTRY_CLIENT_CONTROL]=0; strict_reentry=0;
-    struct md_entry_call unsupported={.number=SYS_clone};
+    struct md_entry_call unsupported={.number=api->syscall_count};
     assert(md_entry_invoke(api,&client,&unsupported)==MD_ENTRY_DECLINED);
+    const int context_calls[]={SYS_clone,SYS_rt_sigreturn,SYS_ioctl,SYS_wait4};
+    for (unsigned i=0;i<sizeof(context_calls)/sizeof(*context_calls);++i) {
+        struct md_entry_call context=caller_request(context_calls[i],(uint64_t[6]){0});
+        assert(api->try_syscall(&client,&context)==MD_ENTRY_KERNEL_CALL);
+        assert(context.kernel==caller_kernel && !context.next);
+        assert(!(client.opaque[MD_ENTRY_CLIENT_CONTROL]&MD_ENTRY_CLIENT_BUSY));
+    }
     pid_t child=fork(); assert(child>=0);
     if (!child) {
         struct md_entry_channel *inherited=(void *)client.opaque[MD_ENTRY_CLIENT_CHANNEL];

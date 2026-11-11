@@ -714,7 +714,7 @@ def main():
                 check("native wait control " + str(filtered), executable("wait_guest") + " "
                       + str(filtered), "PASS native wait fast paths")
                 expected = [r"MD_SYSCALL nr=20 trace=2 notification=0"]
-                absent = [r"MD_SYSCALL nr=(?:21|22|72|73|441) "]
+                absent = [r"MD_SYSCALL nr=(?:21|22|72|73) "]
                 if filtered:
                     # Poll/select retain their kernel owner. Patched epoll
                     # probes use the native journal under the same FD turn.
@@ -726,16 +726,22 @@ def main():
                       + "-- /bin/waits " + str(filtered),
                       "PASS native wait fast paths",
                       patterns=expected, absent_patterns=absent)
+                counts = {int(nr): int(count) for nr, count in re.findall(
+                    r'MD_SYSCALL nr=(\d+) trace=(\d+)', value['output'])}
+                # epoll_pwait2 may discover a shared SVC once; repeated native
+                # waits must still avoid interception under either executor.
+                assert counts.get(441, 0) <= 1, counts
                 if filtered:
-                    counts = {int(nr): int(count) for nr, count in re.findall(
-                        r'MD_SYSCALL nr=(\d+) trace=(\d+)', value['output'])}
-                    assert counts.get(21, 0) <= 3 and counts.get(441, 0) <= 1, counts
+                    assert counts.get(21, 0) <= 3, counts
                     # Only cold admission may stop; not one stop per loop.
                     assert counts.get(22, 0) <= 8, counts
                     native = re.search(r'nativeReadiness=(\d+)', value['output'])
                     assert native and int(native[1]) >= 19992, value['output']
                     executions = re.search(r'MD_EXECUTION taskEntries=(\d+) completed=(\d+)', value['output'])
-                    assert executions and int(executions[1]) > 0 and executions[1] == executions[2], value['output']
+                    contexts = sum(map(int, re.findall(r'MD_EXECUTION_CONTEXT reason=\w+ calls=(\d+)', value['output'])))
+                    kernel = re.search(r'MD_EXECUTION_NATIVE calls=(\d+)', value['output'])
+                    assert executions and kernel and int(executions[2]) > 0, value['output']
+                    assert int(executions[1]) == int(executions[2]) + contexts + int(kernel[1]), value['output']
             if args.case == "control-event":
                 return
         if args.case == "all":

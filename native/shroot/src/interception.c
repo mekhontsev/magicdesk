@@ -167,7 +167,8 @@ static int host_signal_install(int inherited) {
 }
 int md_interception_install(int inherited) {
     abi.host_policy=md_app_uid_active;
-    long result = 0;
+    long result=md_cooperative_routes_init(&abi);
+    if (result) return (int)result;
     int listener = -1, capabilities=0;
     if (!inherited) {
         uintptr_t watch = (uintptr_t)md_guest_watch_return;

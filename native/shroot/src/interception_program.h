@@ -114,20 +114,20 @@ static inline void md_interception_program_build(const struct md_interception_ab
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abi->socket_return,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK),
             /* An admitted native effect retains its table turn and journal.
-             * Application filters are still evaluated by the kernel. */
+             * Guest policy admission precedes this owned service call. */
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)native,0,1+native_instructions),
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             MD_ENTRY_NATIVE_CALLS(NATIVE)
             /* Descriptor admission has no dependency on application prctl
-             * policy. Its exact site still runs every application filter. */
+             * policy. The installed chain must admit this exact service site. */
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)admit,0,3),
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF),
-            /* Exact private-helper termination site. Application KILL_PROCESS
-             * still has precedence; ERRNO on ordinary exit cannot strand its
-             * private file table. Ordinary guest exits never use this site. */
+            /* Exact private-helper termination site. Its admitted service
+             * policy must not strand the private file table because ordinary
+             * guest exit is denied. Guest exits never use this site. */
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abort_task,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_KILL_THREAD),
@@ -240,11 +240,11 @@ static inline void md_interception_program_build(const struct md_interception_ab
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)gate, 0, 20 + transport_instructions),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             /* Already unconditional kernel operations in every domain. The
-             * original application call still enters its adapter, and every
-             * application filter still evaluates these internal syscalls. */
+             * original call enters its adapter after guest policy admission;
+             * admitted service gates do not repeat the guest program. */
             MD_GATE_TRANSPORT_CALLS(NATIVE)
-            /* These internal queries already request native metadata/paths,
-             * never logical guest metadata. Application filters stay in force. */
+            /* These admitted internal queries request native metadata/paths,
+             * never logical guest metadata. */
             NATIVE(fstat) NATIVE(readlinkat)
             /* Runtime transport validates its native peer identity; guest
              * credential queries use their original SVC, never this gate. */

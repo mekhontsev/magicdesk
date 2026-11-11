@@ -323,6 +323,33 @@ static unsigned gate_write(struct sock_filter *code,const struct md_seccomp_gate
     }
     return size;
 }
+static unsigned constant_allow_prefix(struct sock_filter *out,const struct md_seccomp_cache *cache) {
+    unsigned used=4;
+    for (unsigned first=0;first<64*MD_SECCOMP_CACHE_WORDS;++first) {
+        if (!(cache->allow[first/64]&(UINT64_C(1)<<(first%64)))) continue;
+        unsigned last=first;
+        while (last+1<64*MD_SECCOMP_CACHE_WORDS
+                && (cache->allow[(last+1)/64]&(UINT64_C(1)<<((last+1)%64)))) ++last;
+        if (out) {
+            if (first==last) out[used]=(struct sock_filter)BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,first,0,1);
+            else {
+                out[used]=(struct sock_filter)BPF_JUMP(BPF_JMP|BPF_JGE|BPF_K,first,0,2);
+                out[used+1]=(struct sock_filter)BPF_JUMP(BPF_JMP|BPF_JGT|BPF_K,last,1,0);
+            }
+        }
+        used+=first==last ? 1 : 2;
+        if (out) out[used]=(struct sock_filter)BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
+        ++used; first=last;
+    }
+    if (used==4) return 0;
+    if (out) {
+        out[0]=(struct sock_filter)BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,arch));
+        out[1]=(struct sock_filter)BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,AUDIT_ARCH_AARCH64,1,0);
+        out[2]=(struct sock_filter)BPF_STMT(BPF_JMP|BPF_JA,used-3);
+        out[3]=(struct sock_filter)BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr));
+    }
+    return used;
+}
 int md_seccomp_policy_route(const struct md_seccomp_policy *p,const uint32_t *calls,size_t count,
         uint16_t cookie,struct sock_filter *out,size_t capacity,const struct md_seccomp_route *route) {
     if (!route || !route->gate_count) return policy_route(p,calls,count,cookie,out,capacity,route);
@@ -342,6 +369,22 @@ int md_seccomp_policy_route(const struct md_seccomp_policy *p,const uint32_t *ca
     int length=policy_route(p,calls,count,cookie,code,BPF_MAXINSNS,route);
     if (length<0) { free(code); return length; }
     unsigned used=(unsigned)length;
+    if (route->entry_first) {
+        /* Constant ALLOW needs neither guest evaluation nor an IP load. All
+         * other service calls inspect the owned gate before any guest code,
+         * including implicit exits such as division by zero. */
+        struct sock_fprog program={used,code};
+        struct md_seccomp_cache cache;
+        md_seccomp_cache_build(&cache,&program,NULL);
+        unsigned prefix=constant_allow_prefix(NULL,&cache)+gates+1;
+        int error=prefix>BPF_MAXINSNS-used ? -E2BIG : used+prefix>capacity ? -ENOSPC : 0;
+        if (error) { free(code); return error; }
+        unsigned at=constant_allow_prefix(out,&cache);
+        for (size_t n=0;n<route->gate_count;++n) at+=gate_write(out+at,route->gates+n);
+        out[at++]=(struct sock_filter)BPF_STMT(BPF_ALU|BPF_AND|BPF_K,0);
+        memcpy(out+at,code,used*sizeof(*code)); free(code);
+        return (int)(at+used);
+    }
     for (unsigned i=0;i<(unsigned)length;++i) {
         struct sock_filter ret=code[i];
         if (BPF_CLASS(ret.code)!=BPF_RET || (ret.code==(BPF_RET|BPF_K)
@@ -365,13 +408,6 @@ int md_seccomp_policy_route(const struct md_seccomp_policy *p,const uint32_t *ca
         }
         code[i]=(struct sock_filter)BPF_STMT(BPF_JMP|BPF_JA,target-i-1);
     }
-    unsigned prefix=route->guard_ip && p->uses_ip ? gates+1 : 0;
-    if (prefix>BPF_MAXINSNS-used) { free(code); return -E2BIG; }
-    if (used+prefix>capacity) { free(code); return -ENOSPC; }
-    unsigned at=0;
-    if (prefix) {
-        for (size_t n=0;n<route->gate_count;++n) at+=gate_write(out+at,route->gates+n);
-        out[at++]=(struct sock_filter)BPF_STMT(BPF_ALU|BPF_AND|BPF_K,0);
-    }
-    memcpy(out+at,code,used*sizeof(*code)); free(code); return (int)(used+prefix);
+    if (used>capacity) { free(code); return -ENOSPC; }
+    memcpy(out,code,used*sizeof(*code)); free(code); return (int)used;
 }

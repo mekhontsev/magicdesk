@@ -38,7 +38,9 @@ The resident frontend's optional `try_identified` entry reuses that native
 identity instead of performing a second `gettid`. For a sole address-space
 owner, the supervisor publishes the identity at an owned stop, so even the
 first query is unnecessary. Before fork children or CLONE_VM peers resume,
-their publication replaces or clears the hint. Shared address spaces query the
+their publication replaces or clears the hint. Revocation clears it as well:
+internal adapters may remain live after lazy identity publication stops.
+Shared address spaces query the
 kernel on every entry; generic API callers retain their own identity check.
 Neither a cached guest PID nor thread-local libc layout is used. These changes
 do not enlarge worker bursts or spin budgets.
@@ -80,18 +82,20 @@ pool still bounds simultaneous entries, not the number of registered threads.
 `syscall_catalog.h` and `entry_route.h` remain runtime-private. Bootstrap builds
 the per-image offer table before guest execution. The caller checks a bounded byte flag
 for ordinary or cancellation-point entry, without embedding syscall numbers or
-engine routes. An unlisted syscall stays at its original SVC, without an indirect
-handler call. The table is fixed for the image lifetime, not hot-swapped while
-threads run. The implementation routes offered calls as follows:
+engine routes. All numbers in the ABI table admit the common entry; routes select
+optimizations, not a supported-call whitelist. Discovery publishes a suitable
+executed site on its first interception, independently of that invocation's
+fast-path eligibility. Syscalls which the kernel does not intercept do not cause
+discovery. The table is fixed for the image lifetime. The implementation routes
+offered calls as follows:
 
 | Route | Ownership |
 | --- | --- |
-| Caller | Native IO, time/futex, unknown calls and original-stack operations such as clone, exec and signal return retain their ordinary syscall site. No channel registration or synchronization. Dynamic FD selectors and kernel seccomp still apply. |
 | Worker | Stat/statx/statfs, directory reads, readlink, mkdir/unlink/rename/link/symlink, access/ownership/mode/timestamp operations and path/link/FD xattrs use the existing filesystem dispatcher and checked task-memory copying. |
 | Value | Scalar UID/GID reads use current registry credentials and the same user-namespace translation as the ordinary supervisor path. They neither retain a filesystem operation window nor cache caller credentials. |
 | FD | Existing regular-file/directory `openat` and `openat2`, including O_PATH and writable/append/truncate flags, can use a checked native plan. Known ordinary-file close, dup/dup3, lseek and supported fcntl commands share that protocol and the existing file-table owner. Other open/fsopen calls retain their exact kernel publication carrier. |
 | Memory | The resident SVC driver can execute private untracked `munmap`/nonfixed `mremap`, ordinary-range `mprotect` and anonymous private `MAP_FIXED` replacement directly in the caller, using a supervisor-published exclusion snapshot. Shared address spaces, tracked mappings and generic API callers keep ordered kernel interception. |
-| Task | Admitted UTS, scalar credential mutations, SysV IPC control, filesystem/mount operations and epoll control use the common C executor in the resident frame. Original-stack, blocking-signal and kernel-publication operations retain explicit kernel control through the same resource owners. |
+| Task | Default route. The guest evaluates the shared interception programs against the published selector inventory, choosing native execution, a direct error, an operation-owned context requirement or the common C executor. The supervisor retains ownership of shared process/resource state. |
 | Readiness | An unmasked native epoll queue can execute a zero-time probe through the existing worker/native-effect journal, including under an admitted guest filter. Virtual queues retain their readiness owner; an empty infinite-wait probe continues to the real interruptible wait. |
 
 An original-context task route, failed registration and a worker's explicit pre-execution decline
@@ -113,6 +117,15 @@ Every syscall has a route, but a common entry is not a purely userspace
 implementation of every family. Kernel control is retained for actual context,
 descriptor, mapping and signal transitions, not used as a message transport
 for an already admitted scalar control operation.
+
+`interception_route` builds its programs from the same generators as the kernel
+filters, including FD argument positions, process selectors and signal policy.
+The channel publishes a monotonic selector view; a concurrent older routing hint
+falls back to native interception, not to a weaker guest policy. Native routing
+and known context requirements need no preliminary supervisor exchange.
+`execution_context` names the original-stack, mask, publication or lifecycle
+requirement. A state-dependent owner can request context before its first effect;
+an already-started operation instead retains its exact continuation.
 
 Registration uses the existing exact-site `gettid` notification gate; the
 supervisor selects the caller's channel, never a supplied task identity. It does
@@ -193,6 +206,9 @@ publication retain their existing kernel boundaries. The shared task entry does
 not synthesize a complete application register image from six syscall arguments.
 `MD_EXECUTION` distinguishes task entries/completions, promoted checkpoints and
 native effects; broker controls are counted separately from guest calls.
+`MD_EXECUTION_LOCAL_NATIVE` and `MD_EXECUTION_LOCAL_CONTEXT` identify guest-local
+routing, while `MD_EXECUTION_NATIVE` and `MD_EXECUTION_CONTEXT` identify decisions
+requiring shared state. These counters are enabled only by `--statistics`.
 
 Checkpoint admission uses the installed policy chain's exact runtime-image
 identity. When every filter admits those internal gates, checkpoints keep the
@@ -318,6 +334,8 @@ the saved signal-frame PC (or the live PC for ignored/suppressed signals).
 Filter fences wait for that boundary instead of translating early.
 Only this interrupted-alias case adds a stop. Metadata notification cancellation
 uses the same read-only replay owner for original SVCs and native aliases.
+Signal-mask queries may use it; mask mutations retain the signal owner's native
+exit and commit semantics.
 A restored delivery is not requeued merely because other signals remain pending.
 An alias can also return without a signal. A requested drain is reconciled at
 the next observed ordinary guest boundary even with no pending signal; a
@@ -764,10 +782,14 @@ An immutable per-chain bitmap proves argument/IP-independent ALLOW decisions
 at installation; other decisions use the same interpreter. A miss is not a
 rejection. Readiness probes admit the original timeout and signal mask before
 issuing an owned nonblocking probe; helper arguments are not a new guest call.
-Kernel mirrors retain ordinary cold-call admission and route owned helper/alias
-gates separately. IP-independent filters preserve constant-ALLOW exits; filters
-which read either IP word guard aliases before evaluation, even when an alias
-would otherwise receive ALLOW. This does not intercept every native read/write.
+Kernel mirrors retain ordinary cold-call admission. For resident entry, owned
+service gates precede the guest program, so an admitted service syscall does not
+execute that program again. A syscall-number/architecture-only prefix preserves
+the kernel's constant-ALLOW cache; remaining original sites evaluate the guest
+program unchanged. Local native routing uses the admitted bootstrap gate only
+when the entire installed chain covers that runtime image. Context recovery and
+unproven inherited gates retain their original-site continuation. This does not
+intercept every native read/write or remove Android's inherited filters.
 
 All ancestors must cover the current entry image or be portable across exec
 before rearming. Portability requires IP-independent policies and a provably

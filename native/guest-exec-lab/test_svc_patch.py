@@ -69,8 +69,13 @@ def main():
                     assert 'PASS SVC first encounter:' in output
                     if patched == 'patched':
                         counts = re.search(r'MD_EXECUTION taskEntries=(\d+) completed=(\d+)', output)
-                        assert counts and int(counts[1]) == int(counts[2]), output
-                        assert int(counts[1]) >= (33 if policy else 65), output
+                        contexts = sum(map(int, re.findall(r'MD_EXECUTION_CONTEXT reason=\w+ calls=(\d+)', output)))
+                        native = re.search(r'MD_EXECUTION_NATIVE calls=(\d+)', output)
+                        assert counts and native and int(counts[1]) == int(counts[2]) + contexts + int(native[1]), output
+                        assert int(counts[2]) >= (66 if policy else 98), output
+                        assert re.search(r'MD_EXECUTION_LOCAL_CONTEXT reason=memory calls=[1-9]', output), output
+                        local_native = re.search(r'MD_EXECUTION_LOCAL_NATIVE calls=(\d+)', output)
+                        assert local_native and (policy or int(local_native[1]) >= 64), output
             rejected = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY=invalid',
                                       '--', '/bin/raw'], quiet=True, expected=126)
             assert 'SHROOT_MACHINE_ENTRY must be 0 or 1' in rejected

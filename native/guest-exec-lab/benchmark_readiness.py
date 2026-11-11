@@ -87,7 +87,7 @@ def main():
                      'epoll-ready': [target + '/benchmark', 'epoll-ready', str(args.iterations)],
                      'idle': [target + '/benchmark', 'idle', '1'],
                      'python-start': ['/usr/bin/python3', '-c', 'import ssl,asyncio,sqlite3,multiprocessing'],
-                     'ls-start': ['/usr/bin/ls', '--version']}
+                     'ls-start': ['/bin/ls', '--version']}
         file_workloads = {'file-stat', 'file-open', 'file-cycle'}
         for workload in ('file-stat', 'file-open', 'file-cycle'):
             workloads[workload] = [target + '/benchmark', workload, '1024', str(args.file_blocks)]

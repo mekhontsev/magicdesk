@@ -536,6 +536,25 @@ static void signal_shield_ownership(void) {
     checkpoints.trace=NULL;
     puts("PASS signal shield: native pending SIGSYS retained, app gate available, guest mask restored");
 }
+static void metadata_mask_mutation(void) {
+    struct thread t={.pid=123,.phase=IDLE,.ready=1,.entered=1,.memory=md_memory_new()};
+    assert(t.memory);
+    const uint64_t inputs[]={0x1000,UINT64_C(0x100000000)};
+    const int actions[]={SIG_BLOCK,SIG_UNBLOCK,SIG_SETMASK};
+    for (unsigned host=0;host<2;++host) for (unsigned i=0;i<2;++i)
+            for (unsigned j=0;j<sizeof(actions)/sizeof(*actions);++j) {
+        t.host_signals=host;
+        struct md_task_signal_stop stop={.has_info=1,.has_regs=1,
+            .info={.si_signo=SIGALRM,.si_code=SI_KERNEL},.regs={.pc=0x400004}};
+        stop.regs.regs[8]=SYS_rt_sigprocmask;
+        stop.regs.regs[0]=actions[j]; stop.regs.regs[1]=inputs[i];
+        stop.regs.regs[2]=0x2000; stop.regs.regs[3]=8;
+        assert(!interrupted_metadata_event(&t,(SIGALRM<<8)|0x7f,NULL,&stop));
+        assert(!t.metadata_restart && !t.broker_event.held && !t.signal_shielded);
+    }
+    md_memory_release(t.memory);
+    puts("PASS metadata admission: signal-mask mutations retain their native completion owner");
+}
 static unsigned metadata_replay_step;
 static uint64_t metadata_replay_mask;
 static long metadata_replay_value;
@@ -1162,8 +1181,16 @@ static void machine_context_admission(void) {
     t.application_filter=t.cooperative_blocked=0; t.debug_options=0; r->disabled=0;
     t.entered=0;
     assert(!machine_discovery(&t) && !machine_context(&t,&info));
-    t.entered=1; info.seccomp.nr=SYS_sched_yield;
+    t.entered=1;
+    for (unsigned nr=0;nr<512;++nr) {
+        info.seccomp.nr=nr;
+        assert(machine_context(&t,&info));
+    }
+    info.seccomp.nr=512;
     assert(!machine_context(&t,&info));
+    entry_fence_owner=&t;
+    assert(!machine_discovery(&t));
+    entry_fence_owner=NULL;
     info.instruction_pointer=0x3004;
     assert(machine_context(&t,&info));
     t.phase=DISPATCHING;
@@ -1204,6 +1231,75 @@ static void machine_context_admission(void) {
     puts("PASS machine context: lazy discovery capture, revoked entry recovery and task-owned dispatch");
     puts("PASS policy entry admission: published view, exact image, fork/exec and mapping mutation scope");
 }
+static void native_alias_routing(void) {
+    struct thread t={.pid=123,.entered=1,.application_filter=1,.memory=md_memory_new()};
+    assert(t.memory);
+    struct md_svc_registry *r=md_svc_registry_new(0x1000000,0x4000); assert(r);
+    assert(!md_memory_svc_set(t.memory,r));
+    r->pool_count=1; r->pools[0]=(struct md_svc_code_pool){.address=0x3000,.used=8};
+    r->count=1;
+    r->sites[0]=(struct md_svc_site){.direct={.svc=0x2000,.gate=0x3000,.number=SYS_getpid},.kernel_alias=0x3000};
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0x2004,0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,17,1,0),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    assert(!md_seccomp_policy_capture(NULL,&program,&t.policy));
+    md_seccomp_policy_bind_entry(t.policy,r->image);
+    struct md_interception_buffers *pool=NULL;
+    assert(!md_buffers_create_readonly(1,128,&pool));
+    assert(!md_memory_snapshot_publish(t.memory,md_seccomp_policy_identity(t.policy),pool,0x200000));
+    struct user_pt_regs regs=md_task_registers_entry(0x3004,0x800000,0);
+    const long calls[]={SYS_getpid,SYS_munmap,SYS_close};
+    const unsigned expected[]={MD_INTERCEPT_NATIVE,MD_INTERCEPT_MEMORY,MD_INTERCEPT_CLOSE|7};
+    for (unsigned i=0;i<sizeof(calls)/sizeof(*calls);++i) {
+        regs.regs[8]=calls[i]; regs.regs[0]=7;
+        unsigned long cookie=MD_INTERCEPT_TASK;
+        assert(machine_native_entry(&t,&regs,&cookie)==(i ? 2 : 1) && cookie==expected[i]);
+        regs.regs[0]=17; cookie=MD_INTERCEPT_TASK;
+        assert(!machine_native_entry(&t,&regs,&cookie) && cookie==MD_INTERCEPT_TASK);
+    }
+    regs.regs[8]=SYS_getpid; regs.regs[0]=7; t.pid_filter=1;
+    unsigned long cookie=MD_INTERCEPT_TASK;
+    assert(machine_native_entry(&t,&regs,&cookie)==1 && cookie==MD_INTERCEPT_PROCESS);
+    regs.regs[8]=SYS_openat; cookie=MD_INTERCEPT_TASK;
+    assert(!machine_native_entry(&t,&regs,&cookie) && cookie==MD_INTERCEPT_TASK);
+    regs.regs[8]=SYS_prctl; regs.regs[0]=PR_SET_SECCOMP; regs.regs[1]=SECCOMP_MODE_FILTER;
+    assert(!machine_native_entry(&t,&regs,&cookie));
+    md_buffers_release(pool); md_seccomp_policy_release(t.policy); md_memory_release(t.memory);
+    puts("PASS native alias: original IP/arguments, shared native/PID/memory/FD routes and notification/filter fallback");
+}
+static void execution_context_contract(void) {
+    uint64_t args[6]={0};
+    assert(md_execution_context_needed(SYS_uname,args,MD_INTERCEPT_DISPATCH)==MD_CONTEXT_COUNT);
+    assert(md_execution_context_needed(SYS_clone,args,MD_INTERCEPT_FD)==MD_CONTEXT_BIRTH);
+    assert(md_execution_context_needed(SYS_rt_sigreturn,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_SIGNAL);
+    assert(md_execution_context_needed(SYS_set_robust_list,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_PROCESS);
+    assert(md_execution_context_needed(SYS_ptrace,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_DEBUG);
+    const long waits[]={SYS_read,SYS_write,SYS_futex,SYS_wait4,SYS_connect,SYS_recvmsg};
+    for (unsigned i=0;i<sizeof(waits)/sizeof(*waits);++i)
+        assert(md_execution_context_needed(waits[i],args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_WAIT);
+    assert(md_execution_context_needed(SYS_epoll_pwait,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_COUNT);
+    args[3]=-1;
+    assert(md_execution_context_needed(SYS_epoll_pwait,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_WAIT);
+    args[3]=0; args[4]=1;
+    assert(md_execution_context_needed(SYS_epoll_pwait,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_WAIT);
+    args[4]=0;
+    const unsigned queries[]={FIONREAD,TIOCGWINSZ,TCGETS,TCGETS2};
+    for (unsigned i=0;i<sizeof(queries)/sizeof(*queries);++i) {
+        args[1]=queries[i];
+        assert(md_execution_context_needed(SYS_ioctl,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_COUNT);
+        assert(md_execution_context_needed(SYS_ioctl,args,MD_INTERCEPT_PROC)==MD_CONTEXT_DESCRIPTOR);
+    }
+    args[1]=TCSETSW2;
+    assert(md_execution_context_needed(SYS_ioctl,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_DESCRIPTOR);
+    args[1]=0xdeadbeef;
+    assert(md_execution_context_needed(SYS_ioctl,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_DESCRIPTOR);
+    puts("PASS execution context: common admission, native queries, blocking masks and original-stack owners");
+}
 static void processor_controls(void) {
     const uint64_t controls[]={0,UINT64_C(1)<<12,UINT64_C(1)<<24,(UINT64_C(1)<<12)|(UINT64_C(1)<<24)};
     for (unsigned i=0;i<sizeof(controls)/sizeof(*controls);++i) {
@@ -1212,6 +1308,19 @@ static void processor_controls(void) {
         for (unsigned j=0;j<sizeof(regs.regs)/sizeof(*regs.regs);++j) assert(!regs.regs[j]);
     }
     puts("PASS fresh continuation: operands/NZCV cleared, processor controls retained");
+    for (unsigned offset=0;offset<=12;offset+=4) {
+        struct user_pt_regs r={.pc=0x1004+offset};
+        r.regs[8]=offset<8 ? SYS_mmap : SYS_gettid;
+        r.regs[19]=offset ? SYS_mmap : 0;
+        assert(md_task_registers_call_result(&r,0x1004,0x100c,SYS_mmap));
+        assert(!md_task_registers_call_result(&r,0x1004,0x100c,SYS_munmap));
+        r.pc++;
+        assert(!md_task_registers_call_result(&r,0x1004,0x100c,SYS_mmap));
+    }
+    struct user_pt_regs outside={.pc=0x1014};
+    outside.regs[8]=SYS_gettid; outside.regs[19]=SYS_mmap;
+    assert(!md_task_registers_call_result(&outside,0x1004,0x100c,SYS_mmap));
+    puts("PASS service call result: exact return/marker positions, saved number, reject unrelated state");
 }
 static void svc_client_lifetime(void) {
     struct md_interception_memory *memory=md_memory_new(); assert(memory);
@@ -4269,6 +4378,7 @@ int main(void) {
     queued_loan_retirement();
     readiness_transport_pressure();
     signal_shield_ownership();
+    metadata_mask_mutation();
     metadata_replay_completion();
     metadata_policy_delivery();
     readiness_publication_eviction();
@@ -4278,6 +4388,8 @@ int main(void) {
     memory_observation_routes();
     entry_revocation_lost_stop();
     machine_context_admission();
+    native_alias_routing();
+    execution_context_contract();
     processor_controls();
     svc_client_lifetime();
     receive_layouts();
