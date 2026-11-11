@@ -8,7 +8,7 @@
 
 enum { MD_EPOLL_EVENTS=256, MD_EPOLL_NATIVE=0x50000001, MD_EPOLL_CAPTURED=0x50000002,
     MD_EPOLL_LOAN=0x50000003, MD_EPOLL_PARK=0x50000004,
-    MD_EPOLL_COPY=0x50000005 };
+    MD_EPOLL_COPY=0x50000005, MD_EPOLL_DONE=0x50000006 };
 struct md_epoll_park { struct pollfd queues[2]; struct timespec timeout; uint64_t mask; };
 struct md_epoll_frame {
     struct md_fd_capture_frame capture;
@@ -17,6 +17,7 @@ struct md_epoll_frame {
     struct timespec timeout;
     uint64_t mask;
     uintptr_t output;
+    long result;
     int capacity, timed, masked, native_output;
     int copy_count, copy_offset, copy_read;
     struct epoll_event events[MD_EPOLL_EVENTS];

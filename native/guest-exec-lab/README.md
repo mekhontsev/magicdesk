@@ -498,6 +498,9 @@ entry. It does not pin CPUs by default. `--cpu-mask HEX` applies the same native
 taskset mask to both runtime process trees for a controlled follow-up; reports
 retain that mask and CPU-frequency observations. This changes neither governor
 nor host frequency limits, and pinned results do not certify unpinned performance.
+`--application-filter` measures the same workloads after guest seccomp admission.
+Use `--statistics` in a separate run to record syscall, checkpoint, ptrace and
+supervisor CPU counters; instrumented timings are not a performance baseline.
 
 `test_os_boot.py --service-io avahi|cups|firewalld` supplements the stock boot
 observer with protocol IO and three stop/start cycles. Avahi must answer mDNS

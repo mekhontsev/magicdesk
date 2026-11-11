@@ -33,6 +33,11 @@ Lazy machine-code entry admits observed AArch64 SVC sites in unmodified programs
 including stock libc and Go, by default for inode-store launches. It shares the
 [cooperative channel](cooperative-entry.md) and syscall owners, not a second
 implementation.
+Admitted task operations reach the existing supervisor/resource owners over that
+same channel. Their guest-thread C execution and native-effect acknowledgements
+share Base's dispatcher and retirement; ordinary worker/native fast paths remain
+direct. Kernel stops are retained for actual task-context requirements, not for
+scalar control messaging.
 Application filters fence entry and publish immutable original-policy views
 before eligible calls resume acceleration. Debugger ownership and unavailable
 policy views retain the common fallback. Unavailable capabilities and

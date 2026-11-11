@@ -51,17 +51,11 @@ int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s,uintptr_t
     long tid=(long)__atomic_load_n(&s->sole_owner,__ATOMIC_ACQUIRE);
     if (!tid) tid=api->thread_identity();
     if (tid<=0) return 0;
-    struct md_entry_client *client=client_slot(s->clients,MD_SVC_INLINE_CLIENTS,
-        MD_SVC_CLIENT_PROBES,(unsigned)tid,(uint64_t)tid,0);
+    struct md_entry_client *client=md_svc_client_find(s,(uint64_t)tid);
     if (!client) {
         unsigned bucket=(unsigned)tid%MD_SVC_CLIENT_BUCKETS;
         struct md_svc_client_block *head=(void *)__atomic_load_n(&s->client_buckets[bucket],__ATOMIC_ACQUIRE);
         struct md_svc_client_block *block=head;
-        for (;block;block=(void *)block->next) {
-            client=client_slot(block->slots,MD_SVC_CLIENT_BLOCK,MD_SVC_CLIENT_BLOCK,
-                (unsigned)tid/MD_SVC_CLIENT_BUCKETS,(uint64_t)tid,0);
-            if (client) break;
-        }
         if (!client) client=client_slot(s->clients,MD_SVC_INLINE_CLIENTS,
             MD_SVC_CLIENT_PROBES,(unsigned)tid,(uint64_t)tid,1);
         for (block=head;!client && block;block=(void *)block->next)

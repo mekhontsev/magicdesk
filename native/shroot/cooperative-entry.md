@@ -28,7 +28,9 @@ runtime-owned syscall-offer table and a caller-compiled action driver,
 The size-checked descriptor also supplies `thread_identity` for callers without
 libc TLS. It returns the runtime's native thread key, not a guest PID namespace
 number. It must not run while helper admission is revoked. Filtered offers carry
-the original post-SVC instruction pointer; a missing pointer declines.
+the original post-SVC instruction pointer. Without it, only an explicitly
+supplied caller-owned kernel continuation may run; otherwise the offer declines.
+The runtime's internal fallback cannot substitute for that application site.
 The lazy machine-entry frontend uses this callback to avoid collisions
 between separate PID-1 processes.
 
@@ -89,9 +91,10 @@ threads run. The implementation routes offered calls as follows:
 | Value | Scalar UID/GID reads use current registry credentials and the same user-namespace translation as the ordinary supervisor path. They neither retain a filesystem operation window nor cache caller credentials. |
 | FD | Existing regular-file/directory `openat` and `openat2`, including O_PATH and writable/append/truncate flags, can use a checked native plan. Known ordinary-file close, dup/dup3, lseek and supported fcntl commands share that protocol and the existing file-table owner. Other open/fsopen calls retain their exact kernel publication carrier. |
 | Memory | The resident SVC driver can execute private untracked `munmap`/nonfixed `mremap`, ordinary-range `mprotect` and anonymous private `MAP_FIXED` replacement directly in the caller, using a supervisor-published exclusion snapshot. Shared address spaces, tracked mappings and generic API callers keep ordered kernel interception. |
-| Task | Other FD producers, filesystem/control calls, networking, credential mutations and pointer-bearing queries, UTS, namespaces and SysV IPC enter the existing kernel-admitted dispatcher and completion owners in the original guest thread. |
+| Task | Admitted UTS, scalar credential mutations, SysV IPC control, filesystem/mount operations and epoll control use the common C executor in the resident frame. Original-stack, blocking-signal and kernel-publication operations retain explicit kernel control through the same resource owners. |
+| Readiness | An unmasked native epoll queue can execute a zero-time probe through the existing worker/native-effect journal, including under an admitted guest filter. Virtual queues retain their readiness owner; an empty infinite-wait probe continues to the real interruptible wait. |
 
-The task route, failed registration and a worker's explicit pre-execution decline
+An original-context task route, failed registration and a worker's explicit pre-execution decline
 invoke the kernel continuation and return `COMPLETED`. The callback receives the
 original number and arguments for that continuation; the broker never calls a
 guest function pointer. An admitted native-open plan invokes the optional
@@ -106,9 +109,10 @@ Protocol fixtures may supply an explicit continuation; callers that omit it use
 the adapter's ordinary SVC, not its privileged raw gate, and must not assume
 their own instruction address is preserved.
 
-Thus every syscall has a route, but only worker operations and admitted native
-plans avoid ordinary syscall interception. A common entry is not an accelerated
-implementation of every family.
+Every syscall has a route, but a common entry is not a purely userspace
+implementation of every family. Kernel control is retained for actual context,
+descriptor, mapping and signal transitions, not used as a message transport
+for an already admitted scalar control operation.
 
 Registration uses the existing exact-site `gettid` notification gate; the
 supervisor selects the caller's channel, never a supplied task identity. It does
@@ -119,7 +123,10 @@ control reserve. Further channels use demand-mapped blocks sized for channel
 state, not full syscall frames. The shared private-table mapper installs a
 block under the address-space turn without consuming an application FD slot.
 Ordinary calls retain a direct pointer; neither allocation nor block lookup
-occurs per syscall. Allocation failure, a busy mapping turn and interrupted
+occurs per syscall. The private helper owns asynchronous signal shielding when
+its caller has none, and restores the caller's registers before restoring that
+mask. This applies to channel/client expansion and the other helper consumers,
+not to each ordinary channel request. Allocation failure, a busy mapping turn and interrupted
 registration retain the kernel route with bounded retry backoff; unsupported
 admission is remembered by that client. The original syscall has not run yet.
 No guest socket or persistent helper thread is created. Fork cannot reuse an inherited client;
@@ -149,10 +156,43 @@ remains transport-specific: an ordinary client invokes its supplied callback;
 the resident driver restores the original instruction site. Worker operations
 and admitted native plans keep their direct paths without a supervisor hop.
 
-Task-affine execution still uses Base entry and internal control checkpoints.
-Separating its executor and retirement does not itself remove those ptrace
-exchanges. Shared-memory transport must preserve the same control owners,
-signal boundaries and completion rules before it can replace them.
+An admitted task request uses the same per-thread channel for BEGIN, internal
+buffer/descriptor/resource controls and END. BEGIN captures the authoritative
+task context; the resident frame runs `guest_execution`, and END retires the
+operation before publishing its result. Resource state is not copied into a
+second guest-side implementation. Scalar controls also borrow this channel from
+an existing Base C adapter when the thread already owns one; they do not require
+lazy admission to be re-enabled during that adapter.
+
+Control and terminal replies can offer a journaled native effect to the common
+caller-action driver. The effect's completion is acknowledged on the same channel
+before its owner releases the resource turn. A stopped caller's journal distinguishes an
+unstarted action from an executed result; teardown never repeats an uncertain
+effect. Existing worker/FD/value fast paths do not acquire an extra supervisor
+round trip.
+
+When an internal operation needs actual stopped registers, its owner retains
+the pending request and asks for a kernel continuation. The caller enters the
+matching internal checkpoint, whose continuation resumes that request exactly
+once. It does not resubmit the original guest syscall. Buffer/FD waits remain
+event driven, and task death cancels their existing ownership. Refreshing a
+task's policy or execution view does not release a held kernel stop; only an
+actual resume does so.
+The first actual checkpoint captures the resident caller's signal mask. A helper's
+temporary shield ends before returning to that resident frame, whose own signal
+deferral remains authoritative. Pure channel calls neither read nor change the
+kernel mask. Internal controls and effect acknowledgements survive a stop before
+worker admission: they continue an owned operation, unlike a fresh BEGIN that
+may still decline without an effect. Task teardown remains their cancellation owner.
+An unadmitted BEGIN takes the terminal kernel continuation without reading an
+execution descriptor; a previous request's action cannot cause a second effect.
+
+Original-stack operations (clone/exec/signal return), blocking IPC/readiness
+with kernel signal semantics, FD selector installation and typed descriptor
+publication retain their existing kernel boundaries. The shared task entry does
+not synthesize a complete application register image from six syscall arguments.
+`MD_EXECUTION` distinguishes task entries/completions, promoted checkpoints and
+native effects; broker controls are counted separately from guest calls.
 
 Checkpoint admission uses the installed policy chain's exact runtime-image
 identity. When every filter admits those internal gates, checkpoints keep the
@@ -422,8 +462,8 @@ releases the origin and precedes truncation. Creation keeps its existing
 publication path; special endpoints decline the pin plan before effects.
 
 A leaf assembly gate executes `openat`, ordinary-file `close`, `dup`, `dup3`,
-regular-file `lseek` or admitted `fcntl` commands and
-publishes a native-result journal. Shroot's filter admits those numbers only at
+regular-file `lseek`, admitted `fcntl` commands and nonblocking epoll actions,
+and publishes a native-result journal. Shroot's filter admits those numbers only at
 that exact instruction; this is still a real kernel syscall, without its ordinary
 notification/ptrace round trip. Application filters are evaluated against the
 original call before offering this plan. Known FD flags can be read,
@@ -805,7 +845,7 @@ documents publication, signal semantics and verification boundaries.
 
 `test_cooperative_runtime.py BUILD` runs buffer/execution-window contracts, the
 filesystem dispatcher and a protocol guest through the actual bootstrap and
-supervisor as Android UID 2000. The guest checks pointer/partial-write faults,
+supervisor with the selected App or Shell fixture executor. The guest checks pointer/partial-write faults,
 native FD operations, signals and reentry, fork/exec, thread/slot churn,
 dumpability, credentials, mounts/chroot, private PID namespaces, debugger fallback
 and actual TSYNC denials. It checks kernel continuations including argument- and
@@ -813,10 +853,10 @@ instruction-pointer-sensitive filters, FD results and exclusive creation without
 replay, and signal-handler `siglongjmp` with reused output memory. It also
 exercises Landlock's distinction between metadata and file-data
 access, and repeated SIGKILL/exit_group while peers use active channels.
-The native journal fixture stops real `openat`, `close`, `F_SETFD`, `dup`, `dup3`
-and `F_DUPFD_CLOEXEC` at every instruction around the effect (112 cases,
-including failed open), verifies the
-actual FD table and exercises restart classification. Entry tests additionally
+The native journal fixture stops real `openat`, `close`, `F_SETFD`, `dup`, `dup3`,
+`F_DUPFD_CLOEXEC`, `epoll_ctl` and `epoll_pwait` at every instruction around the
+effect, including failed open. It verifies the actual FD table, ONESHOT event
+consumption and restart classification. Entry tests additionally
 hold 192 live opens, replace FD flags, use dup/close_range, replace/unlink a pinned
 path, cancel a pending plan, exit before its effect and check exact inotify
 open/close events. These complement the existing shared-table thread tests.
@@ -837,7 +877,16 @@ declines. Revocation and client ownership are independent of instrumentation.
 `cooperativeDescriptors` counts FD-request adoptions and
 `cooperativeNativeYields` counts avoided idle spins. FD receipts also contribute
 to `cooperativeCompleted`; that total is not an SVC-free syscall count.
-`nativeOpen`, `nativeClose`, `nativeFlags`, `nativeDuplicate` and `nativeSeek` count admitted native plans/flag
+`cooperativeControls` counts internal channel replies separately from syscall
+completions. `MD_EXECUTION` reports task entries, retired calls, explicit kernel
+promotions and journaled native actions. `MD_CHECKPOINT`, `MD_BUFFER` and
+`MD_PTRACE` distinguish the remaining kernel-control costs. Use
+`benchmark_readiness.py --statistics` for separate instrumented runs; ordinary
+paired timing runs must omit that option.
+Current device qualification and its scope are recorded in the
+[task-channel acceptance](../guest-exec-lab/svc-rewriting.md#task-channel-acceptance).
+`nativeOpen`, `nativeClose`, `nativeFlags`, `nativeDuplicate`, `nativeSeek` and
+`nativeReadiness` count admitted native plans/flag
 queries, not necessarily successful effects (a stop can cancel a plan).
 `nativeDeferred` counts completed effects whose caller returned before the
 worker's receipt; a concurrent 1000-iteration contract verifies that retirement

@@ -46,13 +46,22 @@ static const struct md_entry_api *api;
 static struct md_entry_client client;
 static const char *path="/tmp/cooperative-file";
 static unsigned direct_calls, fallback_calls;
+extern char entry_test_kernel_return[];
+static long caller_kernel(long number,const uint64_t *args);
+static struct md_entry_call caller_request(int number,const uint64_t args[6]) {
+    struct md_entry_call call={.number=number,.kernel=caller_kernel,
+        .instruction_pointer=(uintptr_t)entry_test_kernel_return};
+    memcpy(call.args,args,sizeof(call.args));
+    return call;
+}
 static enum md_entry_outcome stat_try(struct md_entry_client *c,struct stat *st,long *result) {
-    struct md_entry_call call={.number=SYS_newfstatat,.args={AT_FDCWD,(uintptr_t)path,(uintptr_t)st,0}};
+    struct md_entry_call call=caller_request(SYS_newfstatat,
+        (uint64_t[6]){AT_FDCWD,(uintptr_t)path,(uintptr_t)st});
     enum md_entry_outcome outcome=md_entry_invoke(api,c,&call);
     *result=call.result; return outcome;
 }
 static long call6(int nr,unsigned long a,unsigned long b,unsigned long c,unsigned long d,unsigned long e,unsigned long f) {
-    struct md_entry_call call={.number=nr,.args={a,b,c,d,e,f}};
+    struct md_entry_call call=caller_request(nr,(uint64_t[6]){a,b,c,d,e,f});
     enum md_entry_outcome outcome=md_entry_invoke(api,&client,&call);
     assert(outcome!=MD_ENTRY_UNKNOWN);
     if (outcome==MD_ENTRY_COMPLETED) { ++direct_calls; return call.result; }
@@ -389,7 +398,7 @@ static void filter_exec(const char *executable) {
         }
         reap(child);
     }
-    puts("PASS filter exec: leader and nonleader retain registration revocation");
+    puts("PASS filter exec: leader and nonleader retain policy and internal registration");
 }
 static void barrier(pthread_barrier_t *value) {
     int result=pthread_barrier_wait(value); assert(!result || result==PTHREAD_BARRIER_SERIAL_THREAD);
@@ -401,7 +410,7 @@ static void *filtered_peer(void *unused) {
     barrier(&filter_barrier); barrier(&filter_barrier);
     assert(stat_try(&local,&st,&result)==MD_ENTRY_COMPLETED && result==-EACCES);
     assert(stat_try(&fresh,&st,&result)==MD_ENTRY_COMPLETED && result==-EACCES);
-    assert((fresh.opaque[MD_ENTRY_CLIENT_CONTROL]>>1)==UINT32_MAX);
+    assert(fresh.opaque[MD_ENTRY_CLIENT_CHANNEL]);
     assert(syscall(SYS_newfstatat,AT_FDCWD,path,&st,0)==-1 && errno==EACCES);
     return NULL;
 }
@@ -423,9 +432,11 @@ static void filters(void) {
     reap(child); puts("PASS cooperative entry: TSYNC peer/fresh clients use kernel admission without forbidden helper syscalls");
 }
 static long required_call(struct md_entry_client *local,int nr,const uint64_t args[6]) {
-    struct md_entry_call call={.number=nr};
-    memcpy(call.args,args,sizeof(call.args));
-    assert(md_entry_invoke(api,local,&call)==MD_ENTRY_COMPLETED);
+    struct md_entry_call call=caller_request(nr,args);
+    enum md_entry_outcome outcome=md_entry_invoke(api,local,&call);
+    if (outcome!=MD_ENTRY_COMPLETED)
+        fprintf(stderr,"required call nr=%d outcome=%d result=%ld\n",nr,outcome,(long)call.result);
+    assert(outcome==MD_ENTRY_COMPLETED);
     return call.result;
 }
 static void scalar_credentials(void) {
@@ -955,6 +966,9 @@ static void filter_arguments(void) {
         struct sock_fprog program={sizeof(code)/sizeof(*code),code};
         assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
         assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+        struct md_entry_call unknown={.number=SYS_openat,
+            .args={AT_FDCWD,(uintptr_t)path,O_RDWR|O_TRUNC}};
+        assert(md_entry_invoke(api,&local,&unknown)==MD_ENTRY_DECLINED);
         assert(required_call(&local,SYS_openat,(uint64_t[]){AT_FDCWD,(uintptr_t)path,O_RDWR|O_TRUNC,0,0,0})==-EACCES);
         assert(stat_try(&local,&st,&result)==MD_ENTRY_COMPLETED && !result && st.st_size==7);
         int fd=required_call(&local,SYS_openat,(uint64_t[]){AT_FDCWD,(uintptr_t)path,O_RDONLY,0,0,0});
@@ -963,7 +977,6 @@ static void filter_arguments(void) {
     }
     reap(child); puts("PASS cooperative entry: seccomp argument denial precedes mutation; allowed metadata/open still complete");
 }
-extern char entry_test_kernel_return[];
 __attribute__((noinline)) static long caller_kernel(long number,const uint64_t *args) {
     register long x8 __asm__("x8")=number;
     register long x0 __asm__("x0")=args[0], x1 __asm__("x1")=args[1], x2 __asm__("x2")=args[2];
@@ -1018,9 +1031,9 @@ static void capacity(void) {
         barrier(&capacity_barrier);
         for (unsigned i=0;i<16;++i) assert(!pthread_join(peers[i],NULL));
         assert(!pthread_barrier_destroy(&capacity_barrier));
-        assert(atomic_load(&capacity_completed)==7 && atomic_load(&capacity_declined)==9);
+        assert(atomic_load(&capacity_completed)==16 && !atomic_load(&capacity_declined));
     }
-    puts("PASS cooperative entry: bounded channel exhaustion falls back; exited threads release all seven borrowed slots");
+    puts("PASS cooperative entry: concurrent channels grow and are reused after thread exit");
 }
 struct reader_burst {
     pthread_barrier_t ready;
@@ -1046,7 +1059,7 @@ static void *burst_reader(void *argument) {
     }
     struct md_entry_client local={0}; struct stat st; long result;
     assert(stat_try(&local,&st,&result)==MD_ENTRY_COMPLETED && !result);
-    assert(!!local.opaque[MD_ENTRY_CLIENT_CHANNEL]==!burst->filtered);
+    assert(local.opaque[MD_ENTRY_CLIENT_CHANNEL]);
     barrier(&burst->ready);
     unsigned calls=0;
     do {
@@ -1068,7 +1081,7 @@ static void reader_writer_bursts(void) {
         if (filtered) {
             struct md_entry_client fresh={0}; struct stat st; long result;
             assert(stat_try(&fresh,&st,&result)==MD_ENTRY_COMPLETED && !result);
-            assert(!fresh.opaque[MD_ENTRY_CLIENT_CHANNEL]);
+            assert(fresh.opaque[MD_ENTRY_CLIENT_CHANNEL]);
             struct md_entry_channel *registered=(void *)client.opaque[MD_ENTRY_CLIENT_CHANNEL];
             assert(registered && atomic_load(&registered->enabled));
         }
@@ -1665,8 +1678,6 @@ static void contracts(const char *executable) {
     assert(!prctl(PR_SET_DUMPABLE,1));
     puts("PASS cooperative protected copy: existing/fresh channels use sequence-bound input and output without remote memory access");
     filters(); filter_exec(executable);
-    /* A thread-local filter closes new registration for this image, even after
-     * that thread exits. Verify capacity before this irreversible admission. */
     reader_writer_bursts();
     assert(!call6(SYS_renameat2,AT_FDCWD,(uintptr_t)path,AT_FDCWD,(uintptr_t)"/tmp/cooperative-renamed",0,0));
     assert(!call6(SYS_unlinkat,AT_FDCWD,(uintptr_t)"/tmp/cooperative-renamed",0,0,0,0));
@@ -1705,8 +1716,12 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"--filtered-exec")) {
         struct stat st; long result;
         assert(stat_try(&client,&st,&result)==MD_ENTRY_COMPLETED && !result);
-        assert((client.opaque[MD_ENTRY_CLIENT_CONTROL]>>1)==UINT32_MAX);
-        puts("PASS inherited filter: fresh client uses kernel without registration"); return 0;
+        assert(client.opaque[MD_ENTRY_CLIENT_CHANNEL]);
+        pid_t child=fork(); assert(child>=0);
+        if (!child) { syscall(SYS_gettid,MD_ENTRY_BIND); _exit(99); }
+        int status; assert(waitpid(child,&status,0)==child);
+        assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
+        puts("PASS inherited filter: internal registration preserves application SIGSYS"); return 0;
     }
     if (argc>1 && (!strcmp(argv[1],"--initial-stack") || !strcmp(argv[1],"--stack-empty"))) {
         initial_stack(argc,argv,!strcmp(argv[1],"--stack-empty")); return 0;

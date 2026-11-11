@@ -39,6 +39,7 @@ extern long live_protect(void *,size_t,int);
 extern long live_map(void *,size_t,int,int,int,long);
 extern long live_remap(void *,size_t,size_t,int,void *);
 extern long live_uname(struct utsname *);
+extern long live_mknod(long,const char *,long,long);
 __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     "image_uid:\nmov x8,#174\nsvc #0\nret\n.p2align 16\n"
     ".global live_uid\nlive_uid:\nmov x8,#174\nsvc #0\nret\n"
@@ -48,7 +49,8 @@ __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     ".global live_protect\nlive_protect:\nmov x8,#226\nsvc #0\nret\n"
     ".global live_map\nlive_map:\nmov x8,#222\nsvc #0\nret\n"
     ".global live_remap\nlive_remap:\nmov x8,#216\nsvc #0\nret\n"
-    ".global live_uname\nlive_uname:\nmov x8,#160\nsvc #0\nret\n.popsection");
+    ".global live_uname\nlive_uname:\nmov x8,#160\nsvc #0\nret\n"
+    ".global live_mknod\nlive_mknod:\nmov x8,#33\nsvc #0\nret\n.popsection");
 static void publication_check(uintptr_t function,int patched) {
     uint32_t word=*(volatile const uint32_t *)(function+4);
     assert(patched ? (word&0xfc000000)==0x14000000 : word==0xd4000001);
@@ -84,9 +86,28 @@ static void first_encounter(int patched,int filtered) {
     assert(live_map((void *)mapped,page,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)==mapped);
     assert(!munmap((void *)mapped,page));
-    puts("PASS SVC first encounter: Base task, failed arguments, file mmap and later fast eligibility");
+    puts("PASS SVC first encounter: task execution, failed arguments, file mmap and later fast eligibility");
 }
 static size_t unmap_page;
+static volatile sig_atomic_t task_signals;
+static void task_alarm(int signal) { assert(signal==SIGALRM); ++task_signals; }
+static void task_signal_completion(void) {
+    struct sigaction action={.sa_handler=task_alarm},previous;
+    assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGALRM,&action,&previous));
+    struct itimerval timer={.it_interval={0,100},.it_value={0,100}};
+    assert(!setitimer(ITIMER_REAL,&timer,NULL));
+    char path[96]; snprintf(path,sizeof(path),"/tmp/svc-task-once-%d",getpid());
+    for (unsigned i=0;i<512;++i) {
+        /* Creation exposes accidental replay: a second effect would change
+         * success into EEXIST, unlike an idempotent metadata query. */
+        assert(!live_mknod(AT_FDCWD,path,S_IFREG|0600,0));
+        struct stat st; assert(!stat(path,&st) && S_ISREG(st.st_mode));
+        assert(!unlink(path));
+    }
+    timer=(struct itimerval){0}; assert(!setitimer(ITIMER_REAL,&timer,NULL));
+    assert(task_signals && !sigaction(SIGALRM,&previous,NULL));
+    puts("PASS SVC task signals: non-idempotent creation completes once across interruption");
+}
 static volatile sig_atomic_t policy_traps;
 static void policy_trap(int number,siginfo_t *info,void *opaque) {
     ucontext_t *context=opaque;
@@ -276,11 +297,40 @@ static volatile sig_atomic_t unmap_signals;
 static pthread_barrier_t channel_barrier;
 static pthread_mutex_t channel_turn=PTHREAD_MUTEX_INITIALIZER;
 static int channel_serial;
+static int channel_signals;
+static _Thread_local _Alignas(64) uintptr_t channel_stack;
+static _Thread_local volatile sig_atomic_t channel_received;
+static atomic_int channel_signal_running,channel_signal_count;
+struct channel_senders { pthread_t *threads; unsigned count; };
+static void channel_signal(int signal,siginfo_t *info,void *context) {
+    (void)info;
+    assert(signal==SIGUSR1);
+    uintptr_t sp=((ucontext_t *)context)->uc_mcontext.sp;
+    /* A service mapping stack is not the interrupted application's stack. */
+    assert(channel_stack && sp<=channel_stack && channel_stack-sp<1024*1024);
+    ++channel_received;
+    atomic_fetch_add_explicit(&channel_signal_count,1,memory_order_relaxed);
+}
+static void *channel_send(void *context) {
+    const struct channel_senders *senders=context;
+    /* Stress cold registration, then let all execution modes drain. An
+     * unbounded producer measures signal throughput instead of helper custody. */
+    for (unsigned wave=0;wave<128 && atomic_load_explicit(&channel_signal_running,memory_order_relaxed);++wave) {
+        for (unsigned i=0;i<senders->count;++i) assert(!pthread_kill(senders->threads[i],SIGUSR1));
+        struct timespec pause={.tv_nsec=100000};
+        nanosleep(&pause,NULL);
+    }
+    return NULL;
+}
 static void channel_sync(void) {
     int result=pthread_barrier_wait(&channel_barrier);
     assert(!result || result==PTHREAD_BARRIER_SERIAL_THREAD);
 }
 static void *channel_thread(void *path) {
+    uintptr_t stack;
+    __asm__ volatile("mov %0,sp" : "=r"(stack));
+    channel_stack=stack;
+    if (channel_signals) channel_sync();
     channel_sync();
     if (channel_serial) assert(!pthread_mutex_lock(&channel_turn));
     for (unsigned i=0;i<1024;++i) {
@@ -291,12 +341,26 @@ static void *channel_thread(void *path) {
     /* Keep every registered channel alive until all peers finish. */
     channel_sync();
     channel_sync();
+    /* Cold expansion and signal recovery may legitimately choose Base. Keep
+     * the accelerated-completion quota independent of that scheduling race. */
+    if (channel_serial) assert(!pthread_mutex_lock(&channel_turn));
+    for (unsigned i=0;i<1024;++i) {
+        struct stat value;
+        assert(!stat(path,&value) && value.st_size>0);
+    }
+    if (channel_serial) assert(!pthread_mutex_unlock(&channel_turn));
+    if (channel_signals) assert(channel_received>0);
     return NULL;
 }
 static void channel_threads(const char *path,int filtered,int many,int full) {
     unsigned count=many ? 192 : 48;
     channel_serial=many;
     alarm(90);
+    struct sigaction previous;
+    if (channel_signals) {
+        struct sigaction action={.sa_sigaction=channel_signal,.sa_flags=SA_SIGINFO|SA_RESTART};
+        assert(!sigaction(SIGUSR1,&action,&previous));
+    }
     if (filtered) {
         struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
         struct sock_fprog program={1,code};
@@ -307,6 +371,13 @@ static void channel_threads(const char *path,int filtered,int many,int full) {
     for (unsigned round=0;round<2;++round) {
         pthread_t peers[192];
         for (unsigned i=0;i<count;++i) assert(!pthread_create(&peers[i],NULL,channel_thread,(void *)path));
+        pthread_t sender;
+        struct channel_senders senders={peers,count};
+        if (channel_signals) {
+            channel_sync();
+            atomic_store(&channel_signal_running,1);
+            assert(!pthread_create(&sender,NULL,channel_send,&senders));
+        }
         struct rlimit limit;
         int fds[128],used=0;
         if (full) {
@@ -320,6 +391,10 @@ static void channel_threads(const char *path,int filtered,int many,int full) {
             }
         }
         channel_sync(); channel_sync();
+        if (channel_signals) {
+            atomic_store(&channel_signal_running,0);
+            assert(!pthread_join(sender,NULL));
+        }
         pid_t child=fork(); assert(child>=0);
         if (!child) {
             for (unsigned i=0;i<1024;++i) {
@@ -338,6 +413,10 @@ static void channel_threads(const char *path,int filtered,int many,int full) {
         for (unsigned i=0;i<count;++i) assert(!pthread_join(peers[i],NULL));
     }
     assert(!pthread_barrier_destroy(&channel_barrier));
+    if (channel_signals) {
+        assert(atomic_load(&channel_signal_count)>0);
+        assert(!sigaction(SIGUSR1,&previous,NULL));
+    }
     puts("PASS SVC channels: concurrent registration, filtered calls and reuse");
 }
 static void unmap_signal(int signal) {
@@ -656,11 +735,16 @@ static void waiter_blocked(unsigned index,long number) {
 }
 static void *racing_peer(void *unused) {
     (void)unused;
-    for (unsigned i=0;i<64;++i) assert(live_uid()==expected_uid);
+    struct utsname name;
+    for (unsigned i=0;i<64;++i) {
+        assert(live_uid()==expected_uid);
+        assert(!live_uname(&name) && !strcmp(name.sysname,"Linux"));
+    }
     atomic_fetch_add(&ready,1);
     while (!atomic_load(&finished)) {
         long result=live_uid();
         assert(result==expected_uid || result==-EACCES);
+        assert(!live_uname(&name) && !strcmp(name.sysname,"Linux"));
         result=live_open(AT_FDCWD,image_path,O_RDONLY,0);
         assert(result>=0 || result==-EACCES);
         if (result>=0) assert(!close((int)result));
@@ -834,6 +918,7 @@ static void entry_transition_race(void) {
         : "PASS SVC filter race: 24 TSYNC installs, live peers, forbidden helper and post-filter denial");
 }
 int main(int argc,char **argv) {
+    if (argc>1 && !strcmp(argv[1],"task-signals")) { task_signal_completion(); return 0; }
     if (argc>1 && !strcmp(argv[1],"first-encounter")) {
         first_encounter(argc>2 && !strcmp(argv[2],"patched"),argc>3); return 0;
     }
@@ -846,6 +931,8 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"filter-exec-child")) { filter_exec(argv[0],1); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-probe")) { filter_probe(argv[0],0); return 0; }
     if (argc>1 && !strcmp(argv[1],"channels")) { channel_threads(argv[0],0,0,0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"channels-signals")) { channel_signals=1; channel_threads(argv[0],0,0,0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"channels-signals-filter")) { channel_signals=1; channel_threads(argv[0],1,0,0); return 0; }
     if (argc>1 && !strcmp(argv[1],"channels-filter")) { channel_threads(argv[0],1,0,0); return 0; }
     if (argc>1 && !strcmp(argv[1],"channels-many")) { channel_threads(argv[0],0,1,0); return 0; }
     if (argc>1 && !strcmp(argv[1],"channels-many-filter")) { channel_threads(argv[0],1,1,0); return 0; }

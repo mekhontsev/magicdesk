@@ -104,9 +104,12 @@ single `svc` instruction in process memory with a branch. Publication does not
 stop neighboring threads. The stub checks the syscall number and routes the
 call to the shared syscall engine; later calls at that site can avoid the
 seccomp/ptrace round trip. Eligible native operations execute in the guest
-thread, while worker-owned operations use the shared-memory channel. The
-kernel still performs native IO: acceleration does not mean that every syscall
-becomes a purely userspace operation.
+thread, while worker-owned operations use the shared-memory channel. Admitted
+task-affine operations use that same channel and the common C executor, retaining
+the existing supervisor resource owners. Completion and cancellation preserve
+already performed effects; a required kernel continuation does not restart the
+original operation. The kernel still performs native IO: acceleration does not
+mean that every syscall becomes a purely userspace operation.
 
 This works with unmodified stock glibc, musl, static executables and Go binaries.
 Package-owned files on disk are unchanged. Mapping changes invalidate affected

@@ -24,6 +24,8 @@ def main():
                         help='Consecutive 1024-operation file blocks per launch (1-64); retain first and tail timings')
     parser.add_argument('--application-filter', action='store_true',
                         help='Install an application ALLOW filter before the measured fixture loop')
+    parser.add_argument('--statistics', action='store_true',
+                        help='Record runtime counters for each workload; not a timing baseline')
     parser.add_argument('--cpu-mask', type=lambda value: int(value, 16),
                         help='Optional native taskset hexadecimal mask for controlled comparisons')
     parser.add_argument('--workload', action='append', choices=(
@@ -54,7 +56,8 @@ def main():
             suite.report['referenceHashes'] = suite.stage_runtime(args.reference, reference)
             candidates.append(('reference', reference + '/libmagicdesk_guest_run.so'))
         suite.report['scope'] = dict(store=args.store,
-            fixture='same guest binary and installed userspace; no timing diagnostics',
+            fixture='same guest binary and installed userspace',
+            instrumented=args.statistics,
             cpuMask=None if args.cpu_mask is None else format(args.cpu_mask, 'x'),
             applicationFilter=args.application_filter,
             timing='loop wall/caller CPU; time -p covers full launch and reaped descendants',
@@ -76,6 +79,9 @@ def main():
         if args.application_filter:
             for prefix in modes.values():
                 prefix.extend(['--env', 'MD_BENCH_FILTER=1'])
+        if args.statistics:
+            for prefix in modes.values():
+                prefix.append('--statistics')
         workloads = {'poll': [target + '/benchmark', 'poll', str(args.iterations)],
                      'epoll': [target + '/benchmark', 'epoll', str(args.iterations)],
                      'epoll-ready': [target + '/benchmark', 'epoll-ready', str(args.iterations)],
@@ -104,6 +110,9 @@ def main():
                     row = dict(mode=name, workload=workload, round=round_number, cpu=cpu,
                                launchSeconds=float(measurement['real']),
                                totalCpuSeconds=float(measurement['user']) + float(measurement['sys']))
+                    if args.statistics:
+                        row['runtimeCounters'] = [line for line in output.splitlines()
+                                                  if line.startswith(('MD_', 'SVC_RUNTIME_STATS '))]
                     records = [json.loads(line.removeprefix('READINESS_BENCH '))
                                for line in output.splitlines() if line.startswith('READINESS_BENCH ')]
                     if workload in measured:

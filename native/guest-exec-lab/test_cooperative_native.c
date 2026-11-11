@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
 #include <sys/stat.h>
@@ -123,6 +125,21 @@ static void boundary(uintptr_t pc,int kind) {
     if (kind==4) { n->number=SYS_dup; n->args[0]=fd; }
     if (kind==5) { n->number=SYS_dup3; n->args[0]=fd; n->args[1]=900; n->args[2]=O_CLOEXEC; }
     if (kind==6) { n->number=SYS_fcntl; n->args[0]=fd; n->args[1]=F_DUPFD_CLOEXEC; n->args[2]=900; }
+    int queue=-1,event=-1;
+    struct epoll_event watch={.events=EPOLLIN|EPOLLONESHOT,.data.u64=42},output={0};
+    if (kind>=7) {
+        queue=epoll_create1(EPOLL_CLOEXEC); event=eventfd(1,EFD_CLOEXEC|EFD_NONBLOCK);
+        assert(queue>=0 && event>=0);
+        memset(n->args,0,sizeof(n->args));
+        n->args[0]=queue;
+        if (kind==7) {
+            n->number=SYS_epoll_ctl; n->args[1]=EPOLL_CTL_ADD;
+            n->args[2]=event; n->args[3]=(uintptr_t)&watch;
+        } else {
+            assert(!epoll_ctl(queue,EPOLL_CTL_ADD,event,&watch));
+            n->number=SYS_epoll_pwait; n->args[1]=(uintptr_t)&output; n->args[2]=1;
+        }
+    }
     pid_t child=fork(); assert(child>=0);
     if (!child) {
         alarm(5);
@@ -135,6 +152,9 @@ static void boundary(uintptr_t pc,int kind) {
         if (state==MD_NATIVE_CANCELLED) {
             assert(n->result==-EINTR && descriptors()==before);
             assert(fcntl(fd,F_GETFD)==FD_CLOEXEC);
+        } else if (kind>=7) {
+            assert(descriptors()==before && n->result==(kind==7 ? 0 : 1));
+            if (kind==8) assert(output.data.u64==42 && output.events==EPOLLIN);
         } else if (!kind) {
             assert(n->result>=0 && descriptors()==before+1);
             assert(fcntl(n->result,F_GETFD)==FD_CLOEXEC);
@@ -150,6 +170,14 @@ static void boundary(uintptr_t pc,int kind) {
             assert(fcntl(n->result,F_GETFD)==(kind==4 ? 0 : FD_CLOEXEC));
             if (kind!=4) assert(n->result>=900);
             assert(!close(n->result));
+        }
+        if (kind>=7) {
+            /* ONESHOT distinguishes a cancelled wait from a consumed event;
+             * replaying the action would lose either its result or its readiness. */
+            int ready=state==MD_NATIVE_CANCELLED ? kind==8 : kind==7;
+            assert(epoll_wait(queue,&output,1,0)==ready);
+            if (ready) assert(output.data.u64==42 && output.events==EPOLLIN);
+            assert(!close(queue) && !close(event));
         }
         _exit(0);
     }
@@ -178,6 +206,7 @@ static void boundary(uintptr_t pc,int kind) {
         fprintf(stderr,"native boundary kind=%d offset=%zu state=%u status=%#x\n",kind,pc-(uintptr_t)md_cooperative_native,state,status);
     assert(WIFEXITED(status) && !WEXITSTATUS(status));
     assert(!close(fd) && !munmap(n,4096));
+    if (kind>=7) assert(!close(queue) && !close(event));
 }
 static struct md_entry_channel channel;
 static void descriptor_lease(void) {
@@ -264,7 +293,7 @@ int main(void) {
     string_operands();
     open_admission();
     park_handoff();
-    for (int kind=0;kind<7;++kind)
+    for (int kind=0;kind<9;++kind)
         for (uintptr_t pc=(uintptr_t)md_cooperative_native;pc<=(uintptr_t)md_cooperative_native_end;pc+=4) {
             boundary(pc,kind); ++count;
         }

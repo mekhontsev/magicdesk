@@ -2,12 +2,13 @@
 #include "sysv_shm.h"
 #include "interception.h"
 #include "adapter_buffer.h"
+#include "resource_control.h"
 #include "raw.h"
 #include <errno.h>
 #include <limits.h>
 
 static long request(unsigned op, unsigned long a, unsigned long b, unsigned long c) {
-    return RAW5(prctl,MD_GUEST_SHM,op,a,b,c);
+    return md_guest_resource_control(MD_GUEST_SHM,op,a,b,c,0);
 }
 extern long md_guest_task_control(void);
 long md_shm_dispatch(long nr, const unsigned long *a) {

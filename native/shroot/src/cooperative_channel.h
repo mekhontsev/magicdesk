@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include "file_open.h"
 #include "memory_admission.h"
+#include "guest_execution.h"
 
 static inline int md_entry_open(int number) {
     return number==SYS_openat || number==SYS_openat2;
@@ -20,6 +21,7 @@ static inline int md_entry_native_open(int number,const uint64_t args[6]) {
 }
 
 static inline int md_entry_native_fd(int number,const uint64_t args[6]) {
+    if (number==SYS_epoll_pwait) return !(int)args[3] && !args[4];
     if (number==SYS_close || number==SYS_dup || number==SYS_dup3 || number==SYS_lseek) return 1;
     if (number!=SYS_fcntl) return 0;
     switch ((unsigned)args[1]) {
@@ -44,6 +46,11 @@ _Static_assert(sizeof(atomic_uint)==4,"Linux futex word size");
 enum md_entry_state { MD_ENTRY_IDLE, MD_ENTRY_REQUEST, MD_ENTRY_FD_REQUEST, MD_ENTRY_RUNNING,
     MD_ENTRY_RESPONSE, MD_ENTRY_CLOSED, MD_ENTRY_NATIVE, MD_ENTRY_RETIRING };
 enum { MD_ENTRY_WAKE = 0x434f4f50, MD_ENTRY_BIND };
+enum md_entry_request_kind { MD_ENTRY_SYSCALL, MD_ENTRY_BUFFER_CONTROL, MD_ENTRY_FD_CONTROL,
+    MD_ENTRY_RESOURCE_CONTROL, MD_ENTRY_EFFECT_DONE, MD_ENTRY_EXECUTION_BEGIN, MD_ENTRY_EXECUTION_END };
+static inline int md_entry_control_request(unsigned kind) {
+    return kind>=MD_ENTRY_BUFFER_CONTROL && kind<=MD_ENTRY_EXECUTION_END;
+}
 /* The open effect chooses its FD. Resolve only a completed, non-birth effect;
  * explicit descriptors are encoded as fd+1, never this sentinel. */
 #define MD_ENTRY_RESULT_FD UINT32_MAX
@@ -71,9 +78,13 @@ struct md_entry_channel {
         int32_t number;
         uint32_t reserved;
     } call;
+    struct md_guest_execution execution;
+    enum md_execution_action execution_action;
+    uintptr_t instruction_pointer;
     _Alignas(64) uint64_t receipt;
     enum md_entry_outcome outcome;
     int64_t result;
+    uintptr_t result_extra;
     _Alignas(64) struct md_entry_native native;
     /* The native FD is provisional until the worker publishes its name. */
     unsigned native_commit;
@@ -113,7 +124,7 @@ static inline unsigned md_entry_prepare_wait(struct md_entry_channel *c) {
         pending|=MD_ENTRY_PENDING_NATIVE;
     return pending;
 }
-/* Only the worker publishes receipts. A caller which claimed RETIRING already
+/* The native-effect owner publishes receipts. A caller which claimed RETIRING already
  * owns the native result and may have queued its next request in call. */
 static inline int md_entry_native_retire(struct md_entry_channel *c,uint64_t sequence,
         enum md_entry_outcome outcome,long result) {

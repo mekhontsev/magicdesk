@@ -22,6 +22,22 @@ struct md_svc_payload_state {
     struct md_svc_client_slot clients[MD_SVC_INLINE_CLIENTS];
     uintptr_t client_buckets[MD_SVC_CLIENT_BUCKETS];
 };
+/* Lookup only: publication and retirement remain with the entry registry. */
+static __attribute__((always_inline)) inline struct md_entry_client *md_svc_client_find(
+        struct md_svc_payload_state *s,uint64_t tid) {
+    for (unsigned j=0;j<MD_SVC_CLIENT_PROBES;++j) {
+        struct md_svc_client_slot *slot=&s->clients[(tid+j)%MD_SVC_INLINE_CLIENTS];
+        if (__atomic_load_n(&slot->tid,__ATOMIC_ACQUIRE)==tid) return &slot->client;
+    }
+    struct md_svc_client_block *block=(void *)__atomic_load_n(
+        &s->client_buckets[tid%MD_SVC_CLIENT_BUCKETS],__ATOMIC_ACQUIRE);
+    for (;block;block=(void *)block->next)
+        for (unsigned j=0;j<MD_SVC_CLIENT_BLOCK;++j) {
+            struct md_svc_client_slot *slot=&block->slots[(tid/MD_SVC_CLIENT_BUCKETS+j)%MD_SVC_CLIENT_BLOCK];
+            if (__atomic_load_n(&slot->tid,__ATOMIC_ACQUIRE)==tid) return &slot->client;
+        }
+    return NULL;
+}
 extern unsigned char __start_md_svc_payload[],__stop_md_svc_payload[];
 int md_svc_payload_dispatch(uint64_t *registers,struct md_svc_payload_state *,uintptr_t original_pc);
 #endif

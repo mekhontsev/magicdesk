@@ -7,6 +7,7 @@
 #include <linux/seccomp.h>
 #include <sys/syscall.h>
 #include "syscall_catalog.h"
+#include "cooperative_entry.h"
 #define MD_BROKER_CASE(n) case SYS_##n:
 static inline int md_broker_filesystem_call(int nr) {
     switch (nr) { MD_FS_NOTIFICATION_CALLS(MD_BROKER_CASE) return 1; default: return 0; }
@@ -29,6 +30,13 @@ struct md_entry_channel;
 /* Mapping lifetime belongs to the stopped task. Forget precedes its release. */
 int md_broker_cooperative_bind(struct md_namespace_broker *,pid_t,struct md_entry_channel *,uintptr_t wake_gate);
 void md_broker_cooperative_revoke(struct md_namespace_broker *,pid_t);
+/* Supervisor-side control admission; the existing operation owner publishes
+ * its eventual response. No guest register snapshot or kernel stop is implied. */
+void md_broker_entry_handler(struct md_namespace_broker *,void (*)(pid_t,struct md_entry_channel *));
+void md_broker_entry_reply(struct md_namespace_broker *,struct md_entry_channel *,enum md_entry_outcome,long);
+/* Publish one journaled caller action. The control owner retains its resource
+ * turns until MD_ENTRY_EFFECT_DONE; the worker never retires it as an FD call. */
+void md_broker_entry_effect(struct md_namespace_broker *,struct md_entry_channel *,long,const uint64_t [6]);
 struct md_namespace_broker *md_broker_create(struct md_fs_worker *, int statistics,
         void (*delegate)(const struct seccomp_notif *));
 void md_broker_listen(struct md_namespace_broker *, int listener);
@@ -71,10 +79,11 @@ pid_t md_broker_take_event(struct md_namespace_broker *,int *,struct rusage *);
 /* Includes terminal events already reaped from the kernel but still owned by
  * worker retirement. ECHILD does not finish the dispatcher while these remain. */
 int md_broker_pending_events(struct md_namespace_broker *);
-/* Publish before resuming a tracee; forget retires its eligibility. */
+/* Eligibility publication and kernel resumption are distinct. Only resuming=1
+ * releases the recorded stop; a context update must not resume a held event. */
 struct md_broker_code_ranges { uintptr_t starts[8]; size_t size; unsigned count; };
 int md_broker_task(struct md_namespace_broker *, int pid, int eligible, uintptr_t raw_gate, uintptr_t watch_gate,
-    const struct md_broker_code_ranges *);
+    const struct md_broker_code_ranges *,int resuming);
 /* Stopped-task authority: a pure mask query needs no logical translation.
  * Revoked before resuming with a different logical mask or debugger policy. */
 void md_broker_signal_query(struct md_namespace_broker *,pid_t,int native);

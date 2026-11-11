@@ -7,7 +7,7 @@
 #define MD_AT_COOPERATIVE 0x4d440001UL
 #define MD_ENTRY_VERSION 11
 enum md_entry_outcome { MD_ENTRY_DECLINED, MD_ENTRY_COMPLETED, MD_ENTRY_UNKNOWN,
-    MD_ENTRY_CHECK_CANCEL, MD_ENTRY_KERNEL_CALL, MD_ENTRY_NATIVE_EFFECT };
+    MD_ENTRY_CHECK_CANCEL, MD_ENTRY_KERNEL_CALL, MD_ENTRY_NATIVE_EFFECT, MD_ENTRY_NEEDS_STOP };
 struct md_entry_client;
 struct md_entry_call;
 typedef enum md_entry_outcome (*md_entry_step_fn)(struct md_entry_client *,struct md_entry_call *);

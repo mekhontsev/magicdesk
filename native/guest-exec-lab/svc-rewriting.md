@@ -4,6 +4,7 @@ This guide describes the machine-entry contract and its regression fixtures.
 
 - [Product Boundary](#product-boundary)
 - [Regression Commands](#regression-commands)
+- [Task-Channel Acceptance](#task-channel-acceptance)
 - [Admission Limits](#admission-limits)
 
 ## Product Boundary
@@ -30,14 +31,24 @@ instruction uses the existing atomic publication path; no partial gate becomes
 reachable through a published branch. This reduces cold startup work without
 changing the warm entry path or making proc-write permission mandatory.
 
-A newly published worker/FD/value entry can also serve the first, unexecuted
-call. A cancelled notification already owns a post-kernel continuation; a
+A newly published worker/FD/value or admitted task entry can also serve the
+first, unexecuted call. A cancelled notification already owns a post-kernel continuation; a
 TRACE stop cancels its syscall and restores the complete context at exit before
 entering the new gate. Existing gates and retained interrupted results keep
 their ordinary completion path, so a pre-execution decline cannot loop back
-through the same gate. Task-route calls do not acquire gates just to reach the
-same Base dispatcher. Site-discovery coverage includes all first calls, not
-only later warmed iterations.
+through the same gate. Publication is independent of one invocation's fast-path
+eligibility: the common entry selects execution from the current number,
+arguments, policy and resource ownership. Site-discovery coverage includes all
+first calls, not only later warmed iterations. The first-encounter task fixture
+also asserts actual task-entry completions, including invalid output pointers
+and a guest filter denying selected arguments.
+The task-signal fixture creates, verifies and removes 512 files under a 100 us
+signal timer in Base and lazy modes. Exclusive creation detects any repeated
+side effect after an unadmitted BEGIN or an interrupted completion.
+Channel expansion also runs with thread-directed signals, both with and without
+a guest filter. Handlers check that their interrupted SP belongs to the
+application stack, not a private helper stack. A quiet tail separately verifies
+accelerated completion counts after signal recovery.
 
 `svc_machine.c` owns logical signal contexts, deferred siginfo, checkpoint return
 and necessary replay at the original instruction. It uses the existing interception
@@ -191,6 +202,77 @@ their inspection checks. The process-image fixture verifies
 post-protection argument edits and denied `auxv` natively, with Base and lazy
 entry, plus a differing guest-identity control.
 
+## Task-Channel Acceptance
+
+The qualified device is an NX809J, Android 16, kernel 6.12.23, with Alpine 3.23.6
+for stock application workloads. User and Shell use the same executable and
+fixture contracts. This is not coverage of another firmware or a physical 5.15
+kernel. Full SVC, cooperative and signal suites, plus the supervisor-state,
+namespace, control-event, FS-buffer, FS-dispatch and task-mapping resource groups,
+check completion, interruption, policy publication and original-context fallback
+independently of timing. Stock sandboxed headless Chromium with software video,
+Docker and Podman exercise real programs;
+their lazy completion counts are separate from merely starting successfully.
+
+The interleaved Shell comparison uses the pre-task-channel runtime as reference,
+not Base. File batches contain 16 blocks of 1,024 operations, over eight rounds;
+readiness contains 10,000 calls under a guest ALLOW filter, over four rounds.
+Timings have statistics disabled. CPU-frequency observations, per-command CPU
+usage, binary hashes and complete samples are in the run receipts.
+
+| Workload | Reference median | Task-channel median |
+| --- | ---: | ---: |
+| stat, complete batch | 60.17 ms | 56.35 ms |
+| open/close, complete batch | 165.35 ms | 161.11 ms |
+| create/rename/unlink, complete batch | 2022.26 ms | 2032.17 ms |
+| epoll, empty zero-time probe | 388.85 ms | 26.11 ms |
+| epoll, ready zero-time probe | 406.06 ms | 23.08 ms |
+| poll | 378.59 ms | 293.96 ms |
+
+Paired file medians are more conservative than the ratio of aggregate medians:
+stat is 0.986x, open/close 0.959x and file cycle 1.023x the reference time.
+Steady-state block ratios are 1.058x, 0.998x and 1.017x respectively; paired
+full-command CPU ratios are 1.006x, 0.960x and 0.998x. This series does not show
+a substantial file regression or prove a general file speedup. Frequency
+residency varies, and observations cover each command envelope rather than a
+particular thread. Poll gains also varied between series; the strong repeatable
+gain is the native epoll probe. Separate instrumented 10,000-probe runs reduced
+stops from 10,063 to 63 and ptrace requests from 30,383 to 387; instrumented
+elapsed time is not used for the timing table.
+
+The matching User series compares Base with lazy in the current runtime, not
+with the pre-task-channel reference. It measures the complete lazy mechanism:
+
+| Workload | User Base median | User lazy median |
+| --- | ---: | ---: |
+| stat, complete batch | 728.27 ms | 57.07 ms |
+| open/close, complete batch | 2751.88 ms | 183.93 ms |
+| create/rename/unlink, complete batch | 5317.90 ms | 2108.91 ms |
+| epoll, empty zero-time probe | 378.01 ms | 15.69 ms |
+| epoll, ready zero-time probe | 3220.88 ms | 17.34 ms |
+| poll | 360.70 ms | 372.18 ms |
+
+The User poll result does not demonstrate an improvement. Native epoll probes
+and real blocking waits have different ownership; their results must not be
+combined into a general readiness speedup.
+
+In two paired 30-second Base/lazy headless Chromium video/input rounds,
+supervisor-thread CPU changed from 21.61% to 20.53% in Shell and from 22.86%
+to 20.83% in User. Supervisor-process CPU, including its worker, increased from
+23.19% to 27.01% and from 24.31% to 27.12% respectively. These counters exclude
+guest-process and Android compositor CPU, and compare Base with lazy rather than
+isolating this transport change. They establish neither an overall CPU reduction
+nor a multi-fold browser speedup. Separate instrumented runs completed 6,722
+filtered calls in Shell and 6,885 in User, with zero unknown entry outcomes.
+Browser receipts and nonblank video/input captures are in
+`build/task-channel-final16-browser-{shell,app}/` and the corresponding
+`browser-counts` directories.
+
+File, readiness and separate instrumented receipts are in
+`build/task-channel-production16-{files,readiness,counts}-{shell,app}/`.
+App-mode Base/lazy comparisons measure the complete lazy mechanism, not the
+incremental benefit of this task transport.
+
 ## Regression Commands
 
 Build with `MAGICDESK_GUEST_FIXTURES=ON`. Tests use the normal native artifacts,
@@ -207,9 +289,11 @@ python native/guest-exec-lab/test_svc_patch.py BUILD STOCK_GO --rounds 5
 python native/guest-exec-lab/test_svc_libc.py BUILD STOCK_LIBC_PROBE --checks-only --signal-storm
 ```
 
-The SVC runner's `--section` selects `entry`, `filters`, `protected`, `images`,
+The SVC runner's `--section` selects `entry`, `channels`, `filters`, `protected`, `images`,
 `mappings` or `programs` for focused diagnosis. Omit it for the complete suite;
 section runs retain the same assertions and record their scope in the report.
+Use `--diagnostics` to retain supervisor traces for integrated guests. These
+instrumented runs diagnose ownership, not ordinary-launch performance.
 
 `build_svc_go.py` builds stock Go/cgo fixtures; run the same SVC suite with
 each artifact. `build_svc_glibc.py` compiles a small test program against a stock
@@ -222,6 +306,7 @@ Use its `--dynamic-loader`, `--dynamic-libc`, `--interpreter` and
 | Cooperative runtime, Base and machine entry | Existing filesystem, FD, namespace, channel, memory, signal and debugger contracts |
 | SVC direct signals | Every executed gate instruction, logical register/stack state, negative controls and eight queued-RT scenarios |
 | SVC patch | Branch limits, original call identity, adjacent fault PC, raw assembly, mapping replacement, protected proc views, TSYNC and dumpability races, stock Go with/without filters |
+| SVC channel expansion | Native/Base/lazy registration and reuse, bounded 100-microsecond signal waves, original interrupted stack and signal delivery in every worker, quiet-tail accelerated completions |
 | Stock libc | ABI/contracts, 256 retired thread owners, optional asynchronous/blocked signal storms, dynamic loader variants |
 | Payload audit | Actual bootstrap driver has no hidden relocations; object bytes equal linked bytes |
 

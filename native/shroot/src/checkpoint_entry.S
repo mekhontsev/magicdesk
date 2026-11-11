@@ -18,10 +18,14 @@ CONTROL md_guest_ready
 CONTROL md_guest_done
 CONTROL md_guest_exported
 CONTROL md_guest_export_control
-CONTROL md_guest_fd_control
-CONTROL md_guest_buffer_control
+CONTROL md_guest_fd_control_kernel
+.global md_guest_fd_control_checkpoint
+.set md_guest_fd_control_checkpoint, md_guest_fd_control_kernel_checkpoint
+CONTROL md_guest_buffer_control_kernel
+.global md_guest_buffer_control_checkpoint
+.set md_guest_buffer_control_checkpoint, md_guest_buffer_control_kernel_checkpoint
 /* Same checkpoint, with the standard two-register C aggregate return ABI. */
-.global md_guest_buffer_start
-.set md_guest_buffer_start, md_guest_buffer_control
+.global md_guest_buffer_start_kernel
+.set md_guest_buffer_start_kernel, md_guest_buffer_control_kernel
 CONTROL md_guest_task_control
 .section .note.GNU-stack,"",%progbits

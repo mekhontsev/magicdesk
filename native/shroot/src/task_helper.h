@@ -98,7 +98,9 @@ int md_task_helper_retiring(struct md_task_helpers *,pid_t group,pid_t task);
  * memory owner, scratch stack and buffer lease. No caller FD is installed.
  * Completion occurs once after helper reaping or a confirmed pre-birth error.
  * The caller orders any FS/table inputs through context capture and retains
- * its continuation until completion; detach cannot resume a dead task. */
+ * its continuation until completion; detach cannot resume a dead task.
+ * Unshielded callers acquire an asynchronous signal shield until their
+ * register continuation is restored, before invoking completion. */
 int md_task_helper_begin(struct md_task_helpers *, pid_t owner, pid_t group,
         const struct user_pt_regs *, const struct md_interception_abi *,
         struct md_interception_memory *, const struct md_interception_buffer *,

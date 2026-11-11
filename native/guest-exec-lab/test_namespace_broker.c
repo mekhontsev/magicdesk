@@ -173,7 +173,7 @@ static void failed_opens(const char *store) {
     assert(!md_task_registry_publish(tasks,child,child,&id,&resources));
     struct md_namespace_broker *broker=md_broker_create(worker,1,unexpected_delegate); assert(broker);
     md_broker_completion_handler(broker,unexpected_completion);
-    assert(!md_broker_task(broker,child,MD_BROKER_READ|MD_BROKER_OPEN,0,0,NULL));
+    assert(!md_broker_task(broker,child,MD_BROKER_READ|MD_BROKER_OPEN,0,0,NULL,1));
     md_broker_listen(broker,fd);
     assert(write(sockets[0],"r",1)==1);
     for (;;) {
@@ -213,7 +213,7 @@ static void run(const char *store,const char *native,int directory,int cancel) {
     struct md_identity identity=md_identity_new(0,0);
     assert(!md_task_registry_publish(tasks,child,child,&identity,&resources));
     struct md_namespace_broker *broker=md_broker_create(worker,1,unexpected_delegate); assert(broker);
-    assert(!md_broker_task(broker,child,1,0,0,NULL));
+    assert(!md_broker_task(broker,child,1,0,0,NULL,1));
     atomic_store(&cancel_pid,cancel ? child : 0);
     md_broker_listen(broker,fd);
     assert(write(channel[0],"r",1)==1);
@@ -278,19 +278,19 @@ static void discovery(const char *store) {
     assert(!md_task_registry_publish(tasks,child,child,&identity,&resources));
     struct md_namespace_broker *broker=md_broker_create(worker,1,discovery_delegate); assert(broker);
     unsigned eligible=MD_BROKER_READ|MD_BROKER_DISCOVERY;
-    assert(!md_broker_task(broker,child,eligible,0,0,NULL));
+    assert(!md_broker_task(broker,child,eligible,0,0,NULL,1));
     md_broker_listen(broker,discovery_listener);
     for (unsigned i=0;i<6+MD_TEST_SYSCALL_SITES*2+6;++i) {
         if (i==2) md_broker_resample(broker,child,(uintptr_t)result_return+4);
         if (i==3) md_broker_resample(broker,child,(uintptr_t)result_return);
         if (i==4) md_broker_resample(broker,child,0);
-        if (i==5) assert(!md_broker_task(broker,child,eligible,0,0,NULL));
+        if (i==5) assert(!md_broker_task(broker,child,eligible,0,0,NULL,1));
         if (i==6+MD_TEST_SYSCALL_SITES*2+2) {
             md_broker_forget(broker,child);
-            assert(!md_broker_task(broker,child,eligible,0,0,NULL));
+            assert(!md_broker_task(broker,child,eligible,0,0,NULL,1));
         }
         if (i==6+MD_TEST_SYSCALL_SITES*2+4)
-            assert(!md_broker_task(broker,child,MD_BROKER_COOPERATIVE|MD_BROKER_DISCOVERY,0,0,NULL));
+            assert(!md_broker_task(broker,child,MD_BROKER_COOPERATIVE|MD_BROKER_DISCOVERY,0,0,NULL,1));
         assert(write(channel[0],"r",1)==1);
         char byte;
         struct pollfd ready[]={{.fd=channel[0],.events=POLLIN},{.fd=md_fs_worker_fd(worker),.events=POLLIN}};
@@ -350,7 +350,7 @@ static void completed_result(const char *store,int nr) {
     assert(!md_fs_worker_start(store,endpoint,NULL,tasks,NULL,NULL,&worker));
     struct md_fd_origins *files=md_fd_origins_new(); assert(files);
     struct md_namespace_broker *broker=md_broker_create(worker,1,unexpected_delegate); assert(broker);
-    assert(!md_broker_task(broker,child,0,0,0,NULL));
+    assert(!md_broker_task(broker,child,0,0,0,NULL,1));
     long value=-123;
     assert(!md_broker_result_finish(broker,child,&value) && value==-123);
     assert(!md_broker_result_begin(broker,child,&call,files,source,NULL,O_CLOEXEC));
@@ -473,7 +473,7 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     struct md_identity id=md_identity_new(0,0);
     assert(!md_task_registry_publish(tasks,pid,pid,&id,&resources));
     struct md_namespace_broker *broker=md_broker_create(worker,0,unexpected_delegate); assert(broker);
-    assert(!md_broker_task(broker,pid,MD_BROKER_COOPERATIVE,0,0,NULL));
+    assert(!md_broker_task(broker,pid,MD_BROKER_COOPERATIVE,0,0,NULL,1));
     struct md_entry_channel channel;
     assert(!md_broker_cooperative_bind(broker,pid,&channel,1));
     assert(atomic_load(&channel.enabled) && channel.owner==pid);
@@ -491,6 +491,9 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     assert(atomic_load(&channel.state)==MD_ENTRY_RUNNING);
     assert(!md_broker_pending_events(broker));
     assert(md_broker_hold_event(broker,pid,status,NULL)==1);
+    assert(md_broker_pending_events(broker));
+    /* Publishing policy cannot release a kernel stop owned by retirement. */
+    assert(!md_broker_task(broker,pid,MD_BROKER_COOPERATIVE,0,0,NULL,0));
     assert(md_broker_pending_events(broker));
     pid_t observed=0; int returned=0;
     while (!observed) {
@@ -514,6 +517,20 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     assert(observed==pid && returned==status && !md_broker_pending_events(broker));
     assert(atomic_load(&channel.state)==MD_ENTRY_RESPONSE && channel.receipt==1
         && channel.outcome==MD_ENTRY_DECLINED);
+    /* The stopped task cannot publish another ordinary call, but an owned
+     * adapter may already have published a control/acknowledgement. Preserve
+     * it for resume, including when a signal arrives before worker admission. */
+    for (unsigned kind=MD_ENTRY_BUFFER_CONTROL;kind<=MD_ENTRY_EXECUTION_END;++kind) {
+        if (kind==MD_ENTRY_EXECUTION_BEGIN) continue;
+        channel.sequence=2; channel.call.reserved=kind;
+        atomic_store_explicit(&channel.state,MD_ENTRY_REQUEST,memory_order_release);
+        assert(!md_broker_hold_event(broker,pid,status,NULL));
+        assert(atomic_load(&channel.state)==MD_ENTRY_REQUEST && channel.receipt==1);
+    }
+    channel.call.reserved=MD_ENTRY_EXECUTION_BEGIN;
+    assert(!md_broker_hold_event(broker,pid,status,NULL));
+    assert(atomic_load(&channel.state)==MD_ENTRY_RESPONSE && channel.receipt==2
+        && channel.outcome==MD_ENTRY_DECLINED);
     assert(md_fd_order_state(&owner)==MD_RESOURCE_ORDER_RUNNING && fcntl(fd,F_GETFD)==FD_CLOEXEC);
     assert(!md_fd_order_complete(&owner) && !close(fd));
     md_broker_forget(broker,pid);
@@ -533,7 +550,7 @@ static struct {
 static void registration_delegate(const struct seccomp_notif *request) {
     assert(request->data.nr==SYS_gettid && !registration.received++);
     struct md_entry_channel *c=&registration.channel;
-    assert(!md_broker_task(registration.broker,request->pid,MD_BROKER_COOPERATIVE,0,0,NULL));
+    assert(!md_broker_task(registration.broker,request->pid,MD_BROKER_COOPERATIVE,0,0,NULL,1));
     assert(!md_broker_cooperative_bind(registration.broker,request->pid,c,1));
     struct seccomp_notif_resp reply={.id=request->id,.val=request->pid};
     assert(!ioctl(registration.listener,SECCOMP_IOCTL_NOTIF_SEND,&reply));
@@ -572,7 +589,7 @@ static void registration_retirement(const char *store) {
     struct md_identity identity=md_identity_new(0,0);
     assert(!md_task_registry_publish(tasks,child,child,&identity,&resources));
     registration.broker=md_broker_create(registration.worker,0,registration_delegate);
-    assert(registration.broker && !md_broker_task(registration.broker,child,MD_BROKER_READ,0,0,NULL));
+    assert(registration.broker && !md_broker_task(registration.broker,child,MD_BROKER_READ,0,0,NULL,1));
     md_broker_listen(registration.broker,registration.listener);
     assert(write(sockets[0],"r",1)==1);
     while (!registration.received) {

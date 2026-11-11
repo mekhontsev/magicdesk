@@ -1054,7 +1054,7 @@ static long checkpoint_trace(int request,pid_t pid,void *address,void *data) {
 static int checkpoint_policy(pid_t pid) { (void)pid; return checkpoint_restricted; }
 extern char unified_native[],md_guest_buffer_control_checkpoint[];
 __asm__(".text\n.balign 4\n.global unified_native\nunified_native:\nsvc #0\n"
-    "str x0,[x23]\nmov x8,x25\nb md_guest_buffer_control\n");
+    "str x0,[x23]\nmov x8,x25\nb md_guest_buffer_control_kernel\n");
 static int checkpoint_site(uintptr_t pc) { return pc==(uintptr_t)md_guest_buffer_control_checkpoint+4; }
 extern char entry_scalar_gate[],entry_scalar_return[],md_guest_done_checkpoint[];
 extern char md_guest_fd_control_checkpoint[];
@@ -1070,7 +1070,8 @@ static int scalar_entry(uintptr_t pc,unsigned long command) {
     return checkpoint_site(pc) && (md_adapter_buffer_scalar(command) || md_fs_buffer_scalar(command));
 }
 static void scalar_checkpoint(int protected,int restricted,unsigned command,int descriptor,int resident) {
-    extern struct md_fd_observation md_guest_fd_control(unsigned,uint64_t,long,long);
+    extern struct md_fd_observation md_guest_fd_control_kernel(unsigned,uint64_t,long,long);
+    extern long md_guest_buffer_control_kernel(unsigned,unsigned long,unsigned long);
     volatile uint64_t *output=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(output!=MAP_FAILED);
     int start[2]; assert(!pipe(start));
@@ -1100,7 +1101,7 @@ static void scalar_checkpoint(int protected,int restricted,unsigned command,int 
     assert(write(start[1],"s",1)==1 && stopped(pid)==SIGSTOP);
     struct user_pt_regs saved=registers(pid),gate=saved;
     gate.pc=(uintptr_t)entry_scalar_gate; gate.regs[23]=(uintptr_t)output;
-    gate.regs[21]=descriptor ? (uintptr_t)md_guest_fd_control : (uintptr_t)md_guest_buffer_control;
+    gate.regs[21]=descriptor ? (uintptr_t)md_guest_fd_control_kernel : (uintptr_t)md_guest_buffer_control_kernel;
     gate.regs[22]=command;
     checkpoint_restricted=restricted;
     struct md_task_checkpoints runtime={.trace=checkpoint_trace,.restricted=checkpoint_policy,

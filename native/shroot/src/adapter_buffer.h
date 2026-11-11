@@ -31,9 +31,13 @@ static inline int md_adapter_buffer_scalar(unsigned long command) {
         || command==MD_BUFFER_MEMORY_OPEN || command==MD_BUFFER_MEMORY_OPEN_RESULT
         || command==MD_BUFFER_CONTROL_IOCTL_SPEC || command==MD_BUFFER_CONTROL_IOCTL_LAYOUT
         || command==MD_BUFFER_PROC_ACK || command==MD_BUFFER_UTS
-        || command==MD_BUFFER_SHM_STAT || command==MD_BUFFER_NETWORK_CREDENTIALS;
+        || command==MD_BUFFER_SHM_STAT || command==MD_BUFFER_NETWORK_CREDENTIALS
+        || command==MD_BUFFER_IPC_PREPARE;
 }
 struct md_adapter_input { long value; void *buffer; };
+static inline int md_adapter_buffer_shared(unsigned long command) {
+    return md_adapter_buffer_scalar(command) || command==MD_BUFFER_EPOLL_BEGIN;
+}
 #ifndef MD_USE_LIBC
 int md_adapter_buffer_install(void);
 int md_adapter_readonly_install(void);

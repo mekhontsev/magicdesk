@@ -166,6 +166,8 @@ int test_uts_namespace_guest(int argc, char **argv) {
     assert(!sethostname("",0)); names_are("","outer");
     assert(!setuid(1234));
     assert(sethostname("denied",6)<0 && errno==EPERM);
+    assert(syscall(SYS_sethostname,1,sizeof(large))<0 && errno==EPERM);
+    assert(syscall(SYS_setdomainname,1,4)<0 && errno==EPERM);
     assert(unshare(CLONE_NEWUTS)<0 && errno==EPERM);
     names_are("","outer");
     puts("PASS guest UTS namespaces: launch, shared fork, clone, nested unshare, exec, protected memory, rollback and permissions");

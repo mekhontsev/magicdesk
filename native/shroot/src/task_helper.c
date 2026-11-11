@@ -53,6 +53,9 @@ struct helper {
     struct md_interception_memory *memory;
     struct md_interception_buffer buffer;
     int borrowed;
+    int parent_shielded;
+    uint64_t parent_mask;
+    struct user_pt_regs parent_registers;
     struct md_task_call parent_call;
     uintptr_t stack_mapping;
     uintptr_t stack, parcel;
@@ -153,7 +156,17 @@ static void dispose(struct helper *m) {
     free(m->directory);
     free(m);
 }
-static void complete(struct helper *m) {
+static int parent_restore(struct helper *m) {
+    if (!m->parent_shielded || !m->owner) return 0;
+    int error=registers(m,m->owner,&m->parent_registers,1);
+    if (!error) error=(int)trace(m,PTRACE_SETSIGMASK,m->owner,
+        (void *)sizeof(m->parent_mask),&m->parent_mask);
+    if (!error || error==-ESRCH) m->parent_shielded=0;
+    return error==-ESRCH ? 0 : error;
+}
+static int complete(struct helper *m) {
+    int error=parent_restore(m);
+    if (error) return error;
     void *context=m->completion;
     struct md_task_helper_result result={.value=m->result,.descriptor=-1,.signal=m->signal,.metadata=m->metadata};
     if (descriptor_helper(m) && !m->result && !m->cancelled) {
@@ -168,6 +181,7 @@ static void complete(struct helper *m) {
     md_task_helper_complete callback=m->complete;
     dispose(m);
     callback(context,result);
+    return 0;
 }
 static int abort_child(struct helper *m) {
     m->operation=EXIT;
@@ -707,6 +721,17 @@ static int helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t grou
     if (!error && request->kind==MD_TASK_HELPER_SEND_CAPTURED && m->send_inputs->count>1)
         error=md_fd_channel_output_vector(m->channel,m->send_inputs->fds+1,m->send_inputs->count-1,&m->send_token);
     if (!error && exporting) error=md_received_fds_reserve(&m->received,exporting);
+    if (!error && !m->borrowed) {
+        /* A lazy channel/client expansion may enter without an adapter shield.
+         * Own asynchronous delivery while lending the caller's registers;
+         * synchronous faults and the host SIGSYS gate retain their policy. */
+        error=(int)trace(m,PTRACE_GETSIGMASK,owner,(void *)sizeof(m->parent_mask),&m->parent_mask);
+        uint64_t mask=m->parent_mask|md_signal_async_mask();
+        if (!error && mask!=m->parent_mask) {
+            error=(int)trace(m,PTRACE_SETSIGMASK,owner,(void *)sizeof(mask),&mask);
+            if (!error) { m->parent_shielded=1; m->parent_registers=*regs; }
+        }
+    }
     if (error) { dispose(m); return error; }
     m->next=manager->first; manager->first=m; ++manager->count;
     m->stack=md_memory_stack_take(memory);
@@ -730,7 +755,11 @@ static int helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t grou
         error=registers(m,owner,&r,1);
         if (!error) error=resume(m,owner);
     }
-    if (error && error!=-ESRCH) { dispose(m); return error; }
+    if (error && error!=-ESRCH) {
+        int restored=parent_restore(m);
+        if (restored) return restored;
+        dispose(m); return error;
+    }
     return 0;
 }
 int md_task_helper_begin(struct md_task_helpers *manager,pid_t owner,pid_t group,
@@ -755,7 +784,7 @@ int md_task_helper_detach(struct md_task_helpers *manager, pid_t owner) {
     if (!manager) return 0;
     for (struct helper *m=manager->first;m;m=m->next) if (m->owner==owner) {
         m->owner=0; m->cancelled=1;
-        if (!m->child || m->reaped) { complete(m); return 0; }
+        if (!m->child || m->reaped) return complete(m);
         int error=(int)trace(m,PTRACE_INTERRUPT,m->child,NULL,NULL);
         return error==-ESRCH ? 0 : error;
     }
@@ -813,7 +842,7 @@ static int borrowed_parent(struct helper *m,int status) {
     if (value<0 || m->parent_operation==RELEASE_STACK) {
         if (m->parent_operation!=RELEASE_STACK) m->result=value;
         if (m->child) return protocol_error(m,__LINE__);
-        complete(m); return 0;
+        return complete(m);
     }
     if (m->parent_operation==ALLOCATE) {
         m->stack_mapping=(uintptr_t)value;
@@ -824,8 +853,7 @@ static int borrowed_parent(struct helper *m,int status) {
     }
     if (m->parent_operation!=CLONE || !m->child || value!=m->child) return protocol_error(m,__LINE__);
     m->parent_ready=1;
-    if (m->reaped) complete(m);
-    return 0;
+    return m->reaped ? complete(m) : 0;
 }
 int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status) {
     struct helper *m=manager ? manager->first : NULL;
@@ -837,8 +865,8 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
         if (!child) return 0;
         md_task_wait_untrack(manager->callbacks.wait,&m->wait_member);
         m->reaped=1;
-        if (!m->owner || m->parent_ready) complete(m);
-        return 1;
+        int error=(!m->owner || m->parent_ready) ? complete(m) : 0;
+        return error ? error : 1;
     }
     if (!WIFSTOPPED(status)) return protocol_error(m,__LINE__);
     unsigned event=(unsigned)status>>16;
@@ -866,7 +894,7 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
                 && (uintptr_t)info.si_call_addr==m->abi.task_return) {
             /* This denied syscall belongs to our private helper, not to the
              * application's continuation or SIGSYS handler. No child exists. */
-            m->result=-EOPNOTSUPP; complete(m); return 1;
+            m->result=-EOPNOTSUPP; error=complete(m); return error ? error : 1;
         }
     }
     if (!child && !m->borrowed && event==PTRACE_EVENT_STOP && sig==SIGTRAP) {
@@ -927,7 +955,7 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
         error=registers(m,pid,&r,0);
         if (!error && !child && m->parent_operation==ALLOCATE && r.pc==m->abi.allocated+4) {
             long top=r.regs[0];
-            if (top<0) { m->result=top; complete(m); return 1; }
+            if (top<0) { m->result=top; error=complete(m); return error ? error : 1; }
             if (!top || top%(size_t)getpagesize()) return protocol_error(m,__LINE__);
             m->stack=top;
             error=md_memory_stack_add(m->memory,m->stack);
@@ -939,13 +967,13 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
             else {
                 if ((long)r.regs[0]<0) {
                     if (m->child) return protocol_error(m,__LINE__);
-                    m->result=(long)r.regs[0]; complete(m); return 1;
+                    m->result=(long)r.regs[0]; error=complete(m); return error ? error : 1;
                 }
                 if (!m->child || r.regs[0]!=(unsigned)m->child) return protocol_error(m,__LINE__);
                 /* EVENT_WAIT: exact helper reaping. Completion owns the caller
                  * continuation; no userspace wait or settling delay is used. */
                 m->parent_ready=1;
-                if (m->reaped) { complete(m); return 1; }
+                if (m->reaped) { error=complete(m); return error ? error : 1; }
             }
         } else if (!error) return protocol_error(m,__LINE__);
     } else if (child) {

@@ -27,7 +27,11 @@ static void epoll_custody(void) {
     assert(!epoll_ctl(duplicate,EPOLL_CTL_ADD,fd,&event));
     pid_t child=fork(); assert(child>=0);
     if (!child) {
-        assert(epoll_wait(ep,&out,1,0)==1 && out.data.u64==UINT64_MAX);
+        int result=epoll_wait(ep,&out,1,0);
+        if (result!=1 || out.data.u64!=UINT64_MAX)
+            fprintf(stderr,"epoll custody: result=%d errno=%d events=%x data=%llx\n",
+                result,errno,out.events,(unsigned long long)out.data.u64);
+        assert(result==1 && out.data.u64==UINT64_MAX);
         event.data.u64=0;
         assert(!epoll_ctl(duplicate,EPOLL_CTL_MOD,fd,&event));
         _exit(0);

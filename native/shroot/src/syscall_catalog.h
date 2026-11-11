@@ -46,5 +46,5 @@
     X(fchmodat) X(fchmodat2) X(fchownat) X(fchmod) X(fchown) X(utimensat) \
     X(setxattr) X(lsetxattr) X(fsetxattr) X(removexattr) X(lremovexattr) X(fremovexattr)
 /* Exact native journal site, never an exemption for arbitrary guest PCs. */
-#define MD_ENTRY_NATIVE_CALLS(X) X(openat) X(close) X(fcntl) X(dup) X(dup3) X(lseek)
+#define MD_ENTRY_NATIVE_CALLS(X) X(openat) X(close) X(fcntl) X(dup) X(dup3) X(lseek) X(epoll_ctl) X(epoll_pwait)
 #endif

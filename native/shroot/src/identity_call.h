@@ -11,6 +11,14 @@
     X(setfsuid) X(setfsgid) X(setgroups) X(getgroups) \
     X(capget) X(capset)
 
+static inline int md_identity_scalar_update(long number) {
+    switch (number) {
+    case SYS_setresuid: case SYS_setresgid: case SYS_setuid: case SYS_setgid:
+    case SYS_setreuid: case SYS_setregid: case SYS_setfsuid: case SYS_setfsgid: return 1;
+    default: return 0;
+    }
+}
+
 static inline int md_identity_call(long number) {
 #define CASE(name) case SYS_##name:
     switch (number) { MD_IDENTITY_CALLS(CASE) return 1; default: return 0; }

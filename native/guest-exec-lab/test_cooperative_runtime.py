@@ -144,7 +144,7 @@ def main():
         assert 'PASS filtered close: actual syscall FD' in output
         assert 'PASS native open exhaustion:' in output
         assert 'PASS execution bursts:' in output
-        assert 'PASS filter exec: leader and nonleader retain registration revocation' in output
+        assert 'PASS filter exec: leader and nonleader retain policy and internal registration' in output
         for key, minimum in (('nativeOpen', 1000), ('nativeClose', 990), ('nativeFlags', 576),
                              ('nativeDuplicate', 576), ('nativeSeek', 384), ('nativeDeferred', 1)):
             count = re.search(rf'{key}=(\d+)', output)

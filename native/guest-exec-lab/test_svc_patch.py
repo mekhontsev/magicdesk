@@ -20,6 +20,8 @@ def main():
     parser.add_argument('go', type=Path)
     parser.add_argument('--rounds', type=int, default=5)
     parser.add_argument('--condition', default='unspecified')
+    parser.add_argument('--diagnostics', action='store_true',
+                        help='Retain supervisor traces for the integrated guest runs')
     parser.add_argument('--section', choices=('all', 'entry', 'channels', 'filters', 'protected', 'images', 'mappings', 'programs'), default='all')
     FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
@@ -54,6 +56,8 @@ def main():
         suite.chmod('700', root + '/bin/go-stress')
         suite.command([suite.base + '/service', '--import', root, suite.base + '/store', '--preserve-ownership'])
         guest = [suite.runner, '--store', suite.base + '/store', '--user', '0:0']
+        if args.diagnostics:
+            guest.append('--diagnostics')
         if args.section in ('all', 'entry'):
             suite.command([suite.base + '/planner'])
             for command in ([root + '/bin/mapping'],
@@ -63,6 +67,10 @@ def main():
                 for policy in ([], ['filtered']):
                     output = suite.command([*command, 'first-encounter', patched, *policy], quiet=True)
                     assert 'PASS SVC first encounter:' in output
+                    if patched == 'patched':
+                        counts = re.search(r'MD_EXECUTION taskEntries=(\d+) completed=(\d+)', output)
+                        assert counts and int(counts[1]) == int(counts[2]), output
+                        assert int(counts[1]) >= (33 if policy else 65), output
             rejected = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY=invalid',
                                       '--', '/bin/raw'], quiet=True, expected=126)
             assert 'SHROOT_MACHINE_ENTRY must be 0 or 1' in rejected
@@ -71,6 +79,10 @@ def main():
             assert 'PASS raw assembly:' in base_output
             assert not records(base_output, 'SVC_RUNTIME_STATS ')
             assert re.search(r'cooperativeCompleted=0\b', base_output), base_output
+            for mode in ('0', '1'):
+                output = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY='+mode,
+                                        '--statistics', '--', '/bin/mapping', 'task-signals'], quiet=True, timeout=120)
+                assert 'PASS SVC task signals:' in output
             for command in ([root + '/bin/fault'], [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/fault'],
                             [*guest, '--', '/bin/fault']):
                 output = suite.command(command, quiet=True)
@@ -79,7 +91,8 @@ def main():
             for command in ([root + '/bin/mapping'],
                             [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
                             [*guest, '--statistics', '--', '/bin/mapping']):
-                for case in ('channels', 'channels-filter', 'channels-many', 'channels-many-filter', 'channels-full-filter'):
+                for case in ('channels', 'channels-filter', 'channels-many', 'channels-many-filter', 'channels-full-filter',
+                             'channels-signals', 'channels-signals-filter'):
                     output = suite.command([*command, case], quiet=True, timeout=120)
                     assert 'PASS SVC channels:' in output
                     if '--statistics' in command and '--env' not in command:

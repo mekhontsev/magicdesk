@@ -1,13 +1,14 @@
 #include "sysv_ipc.h"
 #include "interception.h"
 #include "adapter_buffer.h"
+#include "resource_control.h"
 #include "raw.h"
 #include <errno.h>
 
 long md_ipc_dispatch(long nr, const unsigned long *args) {
     long memory=md_adapter_buffer_take();
     if (memory<0) {
-        RAW3(prctl,MD_GUEST_IPC,MD_IPC_CLOSE,1);
+        md_guest_resource_control(MD_GUEST_IPC,MD_IPC_CLOSE,1,0,0,0);
         return memory;
     }
     long result=md_guest_buffer_control(MD_BUFFER_IPC_PREPARE,0,0);
@@ -24,14 +25,14 @@ long md_ipc_dispatch(long nr, const unsigned long *args) {
         if (!result && first) result=md_read_memory(packet->data,(void *)address,first);
         if (!result && header.timeout_offset)
             result=md_read_memory(packet->data+first,(void *)args[3],sizeof(struct timespec));
-        if (!result) result=RAW2(prctl,MD_GUEST_IPC,MD_IPC_EXECUTE);
+        if (!result) result=md_guest_resource_control(MD_GUEST_IPC,MD_IPC_EXECUTE,0,0,0,0);
         if (result>=0 && packet->output_size) {
             long copy=packet->output_size>header.length-sizeof(header) ? -EPROTO
                 : md_write_memory((void *)address,packet->data,packet->output_size);
             if (copy) result=copy;
         }
     }
-    long close=RAW3(prctl,MD_GUEST_IPC,MD_IPC_CLOSE,result!=MD_IPC_WAIT);
+    long close=md_guest_resource_control(MD_GUEST_IPC,MD_IPC_CLOSE,result!=MD_IPC_WAIT,0,0,0);
     if (close<0) result=close;
     long released=md_adapter_buffer_release();
     return released<0 ? released : result;

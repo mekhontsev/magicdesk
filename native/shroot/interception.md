@@ -26,7 +26,11 @@ execution context. Unsupported sites and calls without admitted application
 policy retain Base admission. Compatible filtered calls can use the cooperative
 entry with their original number, arguments and instruction pointer.
 The task-affine C executor and operation retirement are separate from register
-encoding and resumption; see [execution and transport](cooperative-entry.md#execution-and-transport).
+encoding and resumption. Admitted calls enter this executor through the shared
+channel; its internal buffer, descriptor and IPC controls retain their existing
+supervisor owners. Native actions have an acknowledged completion, and a required
+kernel continuation retains the pending operation rather than replaying it;
+see [execution and transport](cooperative-entry.md#execution-and-transport).
 The dispatch gate receives policy and the retained typed-descriptor kind in x9
 and moves them to the C argument register in userspace. Descriptor classification
 belongs to the supervisor's ordered OFD capture; the adapter does not ask for
@@ -189,10 +193,12 @@ kernel-owned through delivery. That task cannot lend its continuation to FD
 retirement or publish retained signal carriers until its next syscall entry.
 This one-entry observation preserves the signal frame without single-stepping,
 stopping peers or adding observation to successful waits and ordinary data IO.
-An unmasked, unfiltered native epoll_pwait can first probe at timeout zero in the
-caller. A ready result needs only native entry/exit; an empty result proceeds to
-the owned wait with its original deadline. Application filters, debugger stops
-and masked waits retain full admission. Pure native waits publish output directly
+An unmasked native epoll_pwait can first probe at timeout zero in the caller.
+An admitted application filter uses the shared native-effect journal, without
+ptrace entry/exit for the probe; its policy is evaluated against the original
+arguments before reducing the probe timeout. An empty result proceeds to the
+owned wait with its original deadline. Debugger stops, unadmitted policies and
+masked waits retain full kernel admission. Pure native waits publish output directly
 through the kernel, including its pointer validation and event consumption.
 Failed argument reads and unknown authorities retain normal adaptation.
 Adapted calls run on guarded scratch stacks leased by `interception_memory`, the
@@ -355,8 +361,9 @@ allocator and inherited mapping, preventing overlapping leases between parent
 and child. Exec creates an independent pool; outstanding workers retain old
 storage until completion. The pool has 32 page-rounded response slots, allocated
 only for namespace execution, not direct-rootfs launches.
-Eight separate persistent cooperative-channel slots cannot consume response or
-control capacity. They are leased lazily and returned on task retirement.
+Eight inline cooperative-channel slots and demand-mapped channel blocks cannot
+consume response or control capacity. They are leased lazily and returned on
+task retirement.
 `adapter_buffer` owns the lease controls, while `adapter_frame` defines the
 filesystem, SysV packet and shared-memory metadata views. Filesystem requests
 clear only their bounded header, not the entire payload capacity. SysV calls
@@ -385,9 +392,11 @@ and receives with heap-backed temporary storage retain their output/cleanup cont
 
 All guest filesystem operations, including opens/reopens and root changes, use this
 transport before admission when their inputs can be captured. The task-local
-path uses signal-neutral control checkpoints to lease, submit and release a slot after copying
-the result. No temporary guest FD, socket, mmap or pool allocation is needed per
-call. Each admitted request owns one host allocation, a pinned output slot and a
+path leases, submits and releases a slot through the shared control channel when
+available. Operations needing stopped kernel context retain signal-neutral
+checkpoints and the same completion owner. No temporary guest FD, socket, mmap
+or pool allocation is needed per call. Each admitted request owns one host
+allocation, a pinned output slot and a
 captured filesystem context. Requests copy both validated paths, scalar fields
 and attributes before submission; getcwd needs no pathname allocation. Input
 capture acquires the file-table turn before the CLONE_FS turn, retaining the
@@ -693,7 +702,8 @@ uncaptured inputs and nofollow sources without a stable backing use SCM_RIGHTS.
 Protected or filtered opens and directory seeks retain the task-affine adapter
 and its no-replay contract.
 Filesystem transports order descriptor capture and publication with native
-table mutations. Adapter control uses immutable bootstrap SVC checkpoints owned
+table mutations. Adapter controls reuse the shared channel where possible;
+kernel-context controls use immutable bootstrap SVC checkpoints owned
 by `task_checkpoint`, not service BRKs or application SIGTRAP. Selective TRACE
 handles unfiltered markers; restricted service execution uses scoped SYSEMU to
 skip registered markers while real calls retain kernel filter admission.

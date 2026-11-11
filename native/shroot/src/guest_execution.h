@@ -4,6 +4,7 @@
 
 enum md_dispatch_policy { MD_DISPATCH_PATHS=1, MD_DISPATCH_NETWORK_SCOPED=2, MD_DISPATCH_OFFLINE_SOCKET=4,
     MD_DISPATCH_NETWORK_CONTROL=8, MD_DISPATCH_NETWORK_DATA=16, MD_DISPATCH_DEVICE_EVENTS=32 };
+enum md_execution_action { MD_EXECUTION_RESULT, MD_EXECUTION_GUEST };
 
 /* An admitted operation, independent of the ingress register ABI. The owner
  * retains the typed control OFD and prepared input until execution completes;

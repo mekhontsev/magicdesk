@@ -152,10 +152,13 @@ def main():
               + root + "/store --deadline-seconds 90 -- /bin/test user-limits", "PASS guest user namespace limits:")
         check("direct guest UTS namespace lifecycle", supervisor_run + " --diagnostics --user 0:0 --hostname launch-name "
               + executable("bootstrap") + " " + root + "/source /bin/test uts-namespace", "PASS guest UTS namespaces:")
-        runner = guest_run + " --user 0:0 --hostname launch-name --diagnostics --store " + root + "/store --deadline-seconds 90 -- /bin/test "
+        runner = guest_run + " --user 0:0 --hostname launch-name --statistics --diagnostics --store " + root + "/store --deadline-seconds 90"
         for kind in ("UTS", "IPC", "mount"):
-            check("guest " + kind + " namespace lifecycle", runner + kind.lower() + "-namespace",
-                  "PASS guest " + kind + " namespaces:")
+            for entry in ((1,) if kind == 'mount' else (0, 1)):
+                patterns = (r'MD_EXECUTION taskEntries=[1-9][0-9]*',) if entry and kind == 'UTS' else ()
+                check(f"guest {kind} namespace lifecycle entry={entry}",
+                      runner + f" --env SHROOT_MACHINE_ENTRY={entry} -- /bin/test " + kind.lower() + "-namespace",
+                      "PASS guest " + kind + " namespaces:", patterns=patterns)
 
     def check_mount_flags():
         check("guest mount flags", guest_run + " --user 0:0 --diagnostics --admit-elf /bin/test --store "
@@ -713,16 +716,26 @@ def main():
                 expected = [r"MD_SYSCALL nr=20 trace=2 notification=0"]
                 absent = [r"MD_SYSCALL nr=(?:21|22|72|73|441) "]
                 if filtered:
-                    # Sandbox preflight admits future virtual FDs before the
-                    # application denies seccomp. Native waits still execute in
-                    # the caller, but readiness admission is no longer selective.
+                    # Poll/select retain their kernel owner. Patched epoll
+                    # probes use the native journal under the same FD turn.
                     expected += [r"MD_SYSCALL nr=" + str(nr) + r" trace=" + str(count) + r" notification=0"
-                                 for nr, count in ((21, 3), (22, 10005), (72, 10000), (73, 10000), (441, 10000))]
+                                 for nr, count in ((72, 10000), (73, 10000))]
                     absent = []
-                check("guest wait fast paths " + str(filtered), guest_run + " --statistics --store "
-                      + root + "/wait-store --deadline-seconds 30 -- /bin/waits " + str(filtered),
+                value = check("guest wait fast paths " + str(filtered), guest_run + " --statistics --store "
+                      + root + "/wait-store --deadline-seconds 30 " + ("--diagnostics " if args.diagnostics else "")
+                      + "-- /bin/waits " + str(filtered),
                       "PASS native wait fast paths",
                       patterns=expected, absent_patterns=absent)
+                if filtered:
+                    counts = {int(nr): int(count) for nr, count in re.findall(
+                        r'MD_SYSCALL nr=(\d+) trace=(\d+)', value['output'])}
+                    assert counts.get(21, 0) <= 3 and counts.get(441, 0) <= 1, counts
+                    # Only cold admission may stop; not one stop per loop.
+                    assert counts.get(22, 0) <= 8, counts
+                    native = re.search(r'nativeReadiness=(\d+)', value['output'])
+                    assert native and int(native[1]) >= 19992, value['output']
+                    executions = re.search(r'MD_EXECUTION taskEntries=(\d+) completed=(\d+)', value['output'])
+                    assert executions and int(executions[1]) > 0 and executions[1] == executions[2], value['output']
             if args.case == "control-event":
                 return
         if args.case == "all":
