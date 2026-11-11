@@ -787,7 +787,9 @@ interrupted. Registration remains disabled until publication completes.
 Successful installation maps an immutable original-policy view through the
 existing private-table mapping helper. Views share retained ancestors and belong
 to the address-space owner. Fork retains them; exec creates a new owner.
-The coordinator publishes each channel's policy before rearming entry. TSYNC
+The coordinator publishes each channel's policy before rearming entry. Concurrent
+installers sharing an address space finish or retire before registration is
+republished, including queued preflights that can still revoke it. TSYNC
 uses the same installation barrier and retained old-policy admission snapshots.
 Replacing or protecting a policy mapping drains direct entries before
 invalidating the view graph; unavailable views retain Base.

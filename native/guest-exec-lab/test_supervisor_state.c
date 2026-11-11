@@ -4305,6 +4305,28 @@ static void socket_wait_selection(void) {
     puts("PASS native socket waits: per-call nonblocking flags and independent accept4 flags");
 }
 static unsigned control_continuations;
+static void filter_registration_ownership(void) {
+    assert(!threads);
+    struct thread owner={.pid=123,.memory=md_memory_new()},peer={.pid=124},other={.pid=125};
+    assert(owner.memory);
+    peer.memory=owner.memory; other.memory=md_memory_new(); assert(other.memory);
+    struct filter_install first={0},second={0};
+    owner.seccomp.install=&first; other.seccomp.install=&second;
+    threads=&owner; owner.next=&peer; peer.next=&other;
+    int filtered=-1;
+    assert(filter_entry_shared_policy(&owner,&filtered) && !filtered);
+    peer.entry.fence_waiting=1;
+    assert(!filter_entry_shared_policy(&owner,&filtered));
+    peer.entry.fence_waiting=0; peer.seccomp.install=&second;
+    assert(!filter_entry_shared_policy(&owner,&filtered));
+    peer.seccomp.install=NULL;
+    assert(filter_entry_shared_policy(&owner,&filtered));
+    peer.pid=0; peer.seccomp.install=&second;
+    assert(filter_entry_shared_policy(&owner,&filtered));
+    threads=NULL;
+    md_memory_release(other.memory); md_memory_release(owner.memory);
+    puts("PASS filter registration: shared policy waits for queued/active installers, not unrelated or retired tasks");
+}
 static void control_checkpoint_resume(struct thread *t) {
     assert(!t->entry.stop.resume && t->entry.stop.reason==MD_CONTEXT_COUNT);
     assert(t->phase==DISPATCHING && t->control.result==123);
@@ -4447,6 +4469,7 @@ static void descriptor_capture_admission(void) {
 }
 int main(void) {
     execution_request_boundary();
+    filter_registration_ownership();
     execution_completion();
     execution_register_boundary();
     descriptor_capture_admission();

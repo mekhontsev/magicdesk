@@ -1057,6 +1057,10 @@ static void *burst_reader(void *argument) {
         assert(!installed);
         assert(syscall(SYS_getppid)==-1 && errno==EACCES);
     }
+    /* A peer's filter installation may temporarily revoke shared admission.
+     * Require channels after all policies commit, then stress reader/writer
+     * fairness independently of that transition. */
+    barrier(&burst->ready);
     struct md_entry_client local={0}; struct stat st; long result;
     assert(stat_try(&local,&st,&result)==MD_ENTRY_COMPLETED && !result);
     assert(local.opaque[MD_ENTRY_CLIENT_CHANNEL]);
@@ -1077,6 +1081,7 @@ static void reader_writer_bursts(void) {
         pthread_t readers[3];
         assert(!pthread_barrier_init(&burst.ready,NULL,4));
         for (unsigned i=0;i<3;++i) assert(!pthread_create(&readers[i],NULL,burst_reader,&burst));
+        barrier(&burst.ready);
         barrier(&burst.ready);
         if (filtered) {
             struct md_entry_client fresh={0}; struct stat st; long result;

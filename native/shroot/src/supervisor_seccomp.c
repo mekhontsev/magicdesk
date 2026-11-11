@@ -379,15 +379,24 @@ int filter_entry_eligible(const struct thread *t) {
         && md_memory_snapshot_address(t->memory,md_seccomp_policy_identity(t->seccomp.policy));
 }
 
+static int filter_entry_shared_policy(struct thread *t,int *filtered) {
+    *filtered=0;
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
+        /* A queued install may still revoke the process-wide registration in
+         * its preflight. Only the last installer can publish a stable view. */
+        if (p!=t && (p->seccomp.install || p->entry.fence_waiting)) return 0;
+        if (!filter_entry_eligible(p) || p->debug.options || md_debugger_traced(debugger,p->pid)) return 0;
+        *filtered|=p->seccomp.application_filter;
+    }
+    return 1;
+}
+
 static void filter_entry_rearm(struct thread *t) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
     if (!registry || !registry->filter_paused || !registry->entry_fence_drained
             || md_memory_exposed(t->memory) || !md_memory_snapshots_valid(t->memory)) return;
-    int filtered=0;
-    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
-        if (!filter_entry_eligible(p) || p->debug.options || md_debugger_traced(debugger,p->pid)) return;
-        filtered|=p->seccomp.application_filter;
-    }
+    int filtered;
+    if (!filter_entry_shared_policy(t,&filtered)) return;
     if (filtered && statistics && !registry->filter_statistics) {
         struct md_svc_payload_state state;
         if (!md_svc_registry_read(t->pid,registry->frames+MD_SVC_POOL_SIZE,&state,sizeof(state))) {
