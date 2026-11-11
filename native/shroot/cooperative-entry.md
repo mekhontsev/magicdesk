@@ -164,6 +164,13 @@ control-file kind and optional prepared input. It does not encode ARM64 register
 positions or resume a tracee. `interception` adapts the Base register ABI to this
 executor; existing file, network, IPC and readiness handlers remain its owners.
 
+The supervisor carries the logical syscall as `seccomp_data`: number, six
+arguments and original instruction address. Channel requests never fabricate
+an ARM64 register frame. The stopped-task adapter retains genuine registers
+separately; shared handlers receive a register context only when that ingress
+actually owns one. Buffer/FD commands likewise carry a typed command and three
+arguments, independently of any checkpoint frame.
+
 The supervisor separates operation retirement from continuation delivery.
 `execution_complete` releases operation-owned resources and chooses return,
 preflight replay, clone, restart, IPC wait or native execution. The Base adapter
@@ -178,8 +185,8 @@ the resident driver restores the original instruction site. Worker operations
 and admitted native plans keep their direct paths without a supervisor hop.
 
 An admitted task request uses the same per-thread channel for BEGIN, internal
-buffer/descriptor/resource controls and END. BEGIN captures the authoritative
-task context; the resident frame runs `guest_execution`, and END retires the
+buffer/descriptor/resource controls and END. BEGIN retains the admitted syscall
+description; the resident frame runs `guest_execution`, and END retires the
 operation before publishing its result. Resource state is not copied into a
 second guest-side implementation. Scalar controls also borrow this channel from
 an existing Base C adapter when the thread already owns one; they do not require
@@ -193,7 +200,8 @@ effect. Existing worker/FD/value fast paths do not acquire an extra supervisor
 round trip.
 
 When an internal operation needs actual stopped registers, its owner retains
-the pending request and asks for a kernel continuation. The caller enters the
+the pending request, an explicit context reason and a kernel continuation. This
+promotion is distinct from an unstarted BEGIN's context fallback. The caller enters the
 matching internal checkpoint, whose continuation resumes that request exactly
 once. It does not resubmit the original guest syscall. Buffer/FD waits remain
 event driven, and task death cancels their existing ownership. Refreshing a
@@ -216,7 +224,8 @@ not synthesize a complete application register image from six syscall arguments.
 native effects; broker controls are counted separately from guest calls.
 `MD_EXECUTION_LOCAL_NATIVE` and `MD_EXECUTION_LOCAL_CONTEXT` identify guest-local
 routing, while `MD_EXECUTION_NATIVE` and `MD_EXECUTION_CONTEXT` identify decisions
-requiring shared state. These counters are enabled only by `--statistics`.
+requiring shared state. `MD_EXECUTION_STOP` records the reasons for promoting
+already-owned operations. These counters are enabled only by `--statistics`.
 
 Checkpoint admission uses the installed policy chain's exact runtime-image
 identity. When every filter admits those internal gates, checkpoints keep the

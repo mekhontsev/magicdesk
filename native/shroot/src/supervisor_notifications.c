@@ -72,24 +72,24 @@ void completed_event_discard(struct thread *t) {
 }
 
 void buffer_admission_yield(struct thread *t) {
-    if (!t || !t->buffer_admission_pending) return;
+    if (!t || !t->fs.admission_pending) return;
     /* A shielded USER_NOTIF cannot take INTERRUPT until answered. Retirement
      * races delivery atomically; an already published operation is not replayed. */
-    int sent=md_notification_retire(listener,t->buffer_admission_id,MD_BUFFER_ADMIT_RETRY);
+    int sent=md_notification_retire(listener,t->fs.admission_id,MD_BUFFER_ADMIT_RETRY);
     if (sent<0) errno=-sent;
     CHECK(sent>=0);
-    if (sent) ++t->buffer_admission_yields;
-    if (t->memory_notification && t->memory_notification->id==t->buffer_admission_id) {
-        free(t->memory_notification); t->memory_notification=NULL;
+    if (sent) ++t->fs.admission_yields;
+    if (t->memory_op.notification && t->memory_op.notification->id==t->fs.admission_id) {
+        free(t->memory_op.notification); t->memory_op.notification=NULL;
     }
-    t->buffer_admission_pending=0;
+    t->fs.admission_pending=0;
 }
 
 void notification_release(struct thread *t) {
     /* No operation was admitted. A signal or lazy-entry retry must discard
      * both metadata export and typed descriptor discovery before re-entry. */
     release_operation(t);
-    md_proc_file_release(t->proc_file); t->proc_file=NULL;
+    md_proc_file_release(t->proc.file); t->proc.file=NULL;
 }
 
 int notification_unexecuted(const struct thread *t) {
@@ -181,7 +181,7 @@ void handle_notification(const struct seccomp_notif *request) {
     /* Notification validation precedes the per-task entry acknowledgement.
      * The handler may commit after the event loop's earlier global scan. */
     signal_entry_committed(t);
-    if (t->signal_control && t->signal_control->returning) signal_control_discard(t);
+    if (t->signals.control && t->signals.control->returning) signal_control_discard(t);
     int replay=t->ready && q.data.instruction_pointer==abi.buffer_admit
         && (q.data.nr==SYS_epoll_pwait || q.data.nr==SYS_epoll_pwait2 || q.data.nr==SYS_epoll_ctl);
     CHECK(md_broker_filesystem_call(q.data.nr) || q.data.nr==SYS_prctl || q.data.nr==SYS_gettid
@@ -192,7 +192,7 @@ void handle_notification(const struct seccomp_notif *request) {
         && !q.data.args[1] && !q.data.args[2] && !q.data.args[3]
         && !q.data.args[4] && !q.data.args[5]);
     if (buffer_admission) {
-        t->buffer_admission_id=q.id; t->buffer_admission_pending=1;
+        t->fs.admission_id=q.id; t->fs.admission_pending=1;
         if (buffer_admission_quiescing(t->pid)) { buffer_admission_yield(t); return; }
     }
     if (mapping_notification(t,&q)) return;
@@ -207,12 +207,12 @@ void handle_notification(const struct seccomp_notif *request) {
         CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
         return;
     }
-    if (t->proc_snapshot) {
-        if (md_notification_same_call(&t->proc_snapshot_notification.data,&q.data)) {
-            CHECK(!md_notification_rebind(listener,&t->proc_snapshot_notification,&q));
+    if (t->proc.snapshot) {
+        if (md_notification_same_call(&t->proc.snapshot_notification.data,&q.data)) {
+            CHECK(!md_notification_rebind(listener,&t->proc.snapshot_notification,&q));
             return;
         }
-        md_fs_buffer_cancel(&t->proc_snapshot);
+        md_fs_buffer_cancel(&t->proc.snapshot);
     }
     if (t->phase==DELEGATE_CANCEL || t->phase==EXPORT_CANCEL || t->phase==PROC_CANCEL) {
         /* A process-directed signal can cancel USER_NOTIF yet be consumed by
@@ -244,10 +244,10 @@ void handle_notification(const struct seccomp_notif *request) {
     }
     if (!task_continuation_available(t) || (entry_fence_adapt(t) && md_broker_filesystem_call(q.data.nr)
             && !(q.data.instruction_pointer>=checkpoints.begin && q.data.instruction_pointer<checkpoints.end))) {
-        if (!t->memory_notification) { t->memory_notification=malloc(sizeof(*request)); CHECK(t->memory_notification); }
-        else CHECK(t->memory_notification->id==request->id
-            || (ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&t->memory_notification->id)<0 && errno==ENOENT));
-        *t->memory_notification=*request; return;
+        if (!t->memory_op.notification) { t->memory_op.notification=malloc(sizeof(*request)); CHECK(t->memory_op.notification); }
+        else CHECK(t->memory_op.notification->id==request->id
+            || (ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&t->memory_op.notification->id)<0 && errno==ENOENT));
+        *t->memory_op.notification=*request; return;
     }
     if (!buffer_admission && guest_trace_rejected(t,&q.data)) {
         struct seccomp_notif_resp reply={.id=q.id,.error=-ENOSYS};
@@ -257,7 +257,7 @@ void handle_notification(const struct seccomp_notif *request) {
     if (!buffer_admission && guest_notification_begin(t,&q.data,NULL,&q,NULL)) return;
     if (q.data.nr==SYS_rt_sigprocmask) {
         CHECK(!q.data.args[1]);
-        if (!t->host_signals || (!t->metadata_restart && !t->host_signal_blocked && !t->signal_delivery.active) || !q.data.args[2]
+        if (!t->signals.host || (!t->metadata_restart && !t->signals.host_blocked && !t->signals.delivery.active) || !q.data.args[2]
                 || q.data.args[3]!=sizeof(uint64_t)) {
             struct seccomp_notif_resp reply={.id=q.id,.flags=SECCOMP_USER_NOTIF_FLAG_CONTINUE};
             CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
@@ -265,13 +265,13 @@ void handle_notification(const struct seccomp_notif *request) {
             /* A replay is admitted under a temporary shield. Queries must
              * expose the interrupted application's mask, not that shield. */
             uint64_t mask=t->metadata_restart
-                ? md_signal_view_mask(t->metadata_restart->mask,t->host_signal_blocked) : t->signal_delivery.active
-                ? md_signal_view_mask(t->signal_delivery.mask,t->host_signal_blocked) : t->signal_handler_mask;
-            ssize_t copied=t->metadata_restart || t->signal_delivery.active || t->signal_handler_mask_known
+                ? md_signal_view_mask(t->metadata_restart->mask,t->signals.host_blocked) : t->signals.delivery.active
+                ? md_signal_view_mask(t->signals.delivery.mask,t->signals.host_blocked) : t->signals.handler_mask;
+            ssize_t copied=t->metadata_restart || t->signals.delivery.active || t->signals.handler_mask_known
                 ? md_task_copy_direct(t->pid,q.data.args[2],&mask,sizeof(mask),1) : -EACCES;
             if (copied>=0 || copied==-EFAULT) {
                 struct seccomp_notif_resp reply={.id=q.id,
-                    .error=copied==sizeof(t->signal_handler_mask) ? 0 : -EFAULT};
+                    .error=copied==sizeof(t->signals.handler_mask) ? 0 : -EFAULT};
                 CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
             } else delegate_begin(t,&q);
         }
@@ -283,39 +283,39 @@ void handle_notification(const struct seccomp_notif *request) {
             t->pid,q.data.instruction_pointer,0)) {
         delegate_begin(t,&q); return;
     }
-    if (t->proc_delivery.files.table && t->proc_delivery.notification!=q.id) proc_deliver(t);
+    if (t->proc.delivery.files.table && t->proc.delivery.notification!=q.id) proc_deliver(t);
     if (q.data.nr==SYS_gettid || replay) {
         int value=-EPERM;
         if (buffer_admission) {
             if (purpose==MD_ENTRY_BIND) {
                 long address=cooperative_bind(t);
                 SUPERVISOR_TRACE("PROBE entry-bind pid=%d result=%ld phase=%d blocked=%d filter=%d\n",
-                    t->pid,address,t->phase,t->cooperative_blocked,t->application_filter);
+                    t->pid,address,t->phase,t->entry.blocked,t->seccomp.application_filter);
                 struct seccomp_notif_resp reply={.id=q.id,
                     .val=address<0 ? 0 : address,.error=address<0 ? (int)address : 0};
                 CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
                 return;
             } else if (purpose==MD_FS_BUFFER_IMPORT)
-                value=md_fd_return_install(&t->buffer_return,listener,q.id);
+                value=md_fd_return_install(&t->fs.returned,listener,q.id);
             else if (purpose==MD_FS_BUFFER_EXPORT)
-                value=md_fs_buffer_export_install(t->buffer_call,listener,q.id);
+                value=md_fs_buffer_export_install(t->fs.call,listener,q.id);
             else if (purpose==MD_FS_BUFFER_IPC_ADMIT) {
                 struct md_fd_capture *capture=NULL;
                 struct md_fd_order *order=NULL;
-                if (t->outgoing && t->outgoing->brokered && t->outgoing->stage==OUTGOING_CAPTURE) {
-                    capture=&t->outgoing->capture; order=&t->outgoing->files;
-                } else if (t->receive && t->receive->brokered && !t->receive->ready) {
-                    capture=&t->receive->capture; order=&t->receive->files;
+                if (t->io.outgoing && t->io.outgoing->brokered && t->io.outgoing->stage==OUTGOING_CAPTURE) {
+                    capture=&t->io.outgoing->capture; order=&t->io.outgoing->files;
+                } else if (t->io.receive && t->io.receive->brokered && !t->io.receive->ready) {
+                    capture=&t->io.receive->capture; order=&t->io.receive->files;
                 }
                 if (order && md_fd_order_state(order)==MD_RESOURCE_ORDER_RUNNING)
                     value=md_fd_capture_admit(capture,order->table,listener,q.id);
-            } else if (purpose==MD_BUFFER_PIDFD_ADMIT && t->pidfd_capture.count
-                    && t->fd_job==MD_FD_USE && md_fd_order_state(&t->fd_order)==MD_RESOURCE_ORDER_RUNNING)
-                value=md_fd_capture_admit(&t->pidfd_capture,t->resources.files,listener,q.id);
-            else if (purpose==MD_BUFFER_CONTROL_CAPTURE_ADMIT && t->control_capture.count
-                    && t->buffer_descriptor_operation==MD_BUFFER_CONTROL_CAPTURE
-                    && md_fd_order_state(&t->buffer_descriptor_order)==MD_RESOURCE_ORDER_RUNNING)
-                value=md_fd_capture_admit(&t->control_capture,t->resources.files,listener,q.id);
+            } else if (purpose==MD_BUFFER_PIDFD_ADMIT && t->descriptors.pidfd_capture.count
+                    && t->descriptors.job==MD_FD_USE && md_fd_order_state(&t->descriptors.order)==MD_RESOURCE_ORDER_RUNNING)
+                value=md_fd_capture_admit(&t->descriptors.pidfd_capture,t->resources.files,listener,q.id);
+            else if (purpose==MD_BUFFER_CONTROL_CAPTURE_ADMIT && t->control.capture.count
+                    && t->fs.descriptor_operation==MD_BUFFER_CONTROL_CAPTURE
+                    && md_fd_order_state(&t->fs.descriptor_order)==MD_RESOURCE_ORDER_RUNNING)
+                value=md_fd_capture_admit(&t->control.capture,t->resources.files,listener,q.id);
             else if (purpose==MD_FS_BUFFER_EPOLL_ADMIT && t->readiness
                     && md_fd_order_state(&t->readiness->files)==MD_RESOURCE_ORDER_RUNNING) {
                 value=md_fd_capture_admit(&t->readiness->capture,t->readiness->files.table,listener,q.id);
@@ -352,17 +352,17 @@ void handle_notification(const struct seccomp_notif *request) {
                 && (q.data.args[2]==MD_PROC_CMDLINE || (target && proc_allowed(t->pid,target->pid)));
             int error=!owner.identity ? -ENOENT : !allowed ? -EACCES
                 : q.data.instruction_pointer!=RAW_GATE || t->phase!=DISPATCHING
-                    || t->proc_image_fd>=0 || q.data.args[4] || q.data.args[5] ? -EPERM
+                    || t->proc.image_fd>=0 || q.data.args[4] || q.data.args[5] ? -EPERM
                 : md_file_snapshot_flags((unsigned)q.data.args[3]);
             void *bytes=NULL;
-            ssize_t size=error ? error : md_process_image_snapshot((pid_t)q.data.args[1],target ? target->process_image : 0,
+            ssize_t size=error ? error : md_process_image_snapshot((pid_t)q.data.args[1],target ? target->image.process_image : 0,
                 access ? access->memory : -1,(unsigned)q.data.args[2],&bytes);
             if (size<0) error=(int)size;
             else error=md_fs_buffer_snapshot_copy(buffer_service,t->pid,t->resources.fs,
-                (unsigned)q.data.args[3],bytes,(size_t)size,&t->proc_snapshot);
+                (unsigned)q.data.args[3],bytes,(size_t)size,&t->proc.snapshot);
             free(bytes);
             if (!error) {
-                t->proc_snapshot_notification=q;
+                t->proc.snapshot_notification=q;
                 /* EVENT_WAIT: owned snapshot completion, then destination FD
                  * publication. Task cancellation retires the exact request. */
                 return;
@@ -392,7 +392,7 @@ void handle_notification(const struct seccomp_notif *request) {
     }
     if (q.data.nr==SYS_getdents64 && t->phase==IDLE && q.data.instruction_pointer!=RAW_GATE) {
         struct md_proc_file *file=proc_file_capture(t,(int)q.data.args[0]);
-        if (file) { CHECK(!t->proc_file); t->proc_file=file; delegate_begin(t,&q); return; }
+        if (file) { CHECK(!t->proc.file); t->proc.file=file; delegate_begin(t,&q); return; }
     }
     if (q.data.nr == SYS_getdents64 && md_domain_restricted(t->resources.fs)) {
         CHECK(t->phase == IDLE);
@@ -411,10 +411,10 @@ void handle_notification(const struct seccomp_notif *request) {
         if (t->phase != IDLE) fprintf(stderr,
             "Shroot: unexpected notification pid=%d phase=%d nr=%d pc=%#llx fd=%llu resume=%d signal=%d packet=%d pending=%d\n",
             t->pid,t->phase,q.data.nr,q.data.instruction_pointer,q.data.args[0],
-            t->kernel_resume,t->signal_control ? t->signal_control->signal : 0,
-            t->signal_control && t->signal_control->entry_packet,
-            t->signal_control && t->signal_control->entry_packet
-                ? (int)atomic_load_explicit(&t->signal_control->entry_packet->pending,memory_order_acquire) : -1);
+            t->kernel_resume,t->signals.control ? t->signals.control->signal : 0,
+            t->signals.control && t->signals.control->entry_packet,
+            t->signals.control && t->signals.control->entry_packet
+                ? (int)atomic_load_explicit(&t->signals.control->entry_packet->pending,memory_order_acquire) : -1);
         CHECK(t->phase == IDLE);
         /* Retained native-root export below only understands openat/statat.
          * Other reads keep the same task-affine adapter as their TRACE route. */
@@ -442,7 +442,7 @@ void handle_notification(const struct seccomp_notif *request) {
         int tracked=object!=NULL; md_fd_object_release(object);
         if (tracked) { delegate_begin(t,&q); return; }
         struct md_proc_file *file=proc_file_capture(t,(int)q.data.args[0]);
-        if (file) { CHECK(!t->proc_file); t->proc_file=file; delegate_begin(t,&q); return; }
+        if (file) { CHECK(!t->proc.file); t->proc.file=file; delegate_begin(t,&q); return; }
     }
     int fd = duplicate_fd(q.pid, (int)q.data.args[0]);
     if (md_task_descriptor_needs_export(fd) || fd == -ESRCH) {
@@ -565,7 +565,7 @@ int interrupted_metadata_event(struct thread *t,int status,const struct rusage *
     /* Only pure mask queries use metadata notification/replay. A mask update
      * owns its native exit and must not inherit a second completion owner. */
     if (!md_broker_metadata_call((int)regs.regs[8])
-            && !(t->host_signals && regs.regs[8]==SYS_rt_sigprocmask && !regs.regs[1])) return 0;
+            && !(t->signals.host && regs.regs[8]==SYS_rt_sigprocmask && !regs.regs[1])) return 0;
     struct md_svc_site *site=md_svc_registry_direct_at(md_memory_svc(t->memory),t->pid,regs.pc,regs.sp);
     if (site && regs.pc!=site->kernel_alias) return 0;
     /* A notified read can also originate at a resident native alias. Its
@@ -590,9 +590,9 @@ int interrupted_metadata_event(struct thread *t,int status,const struct rusage *
     t->broker_event.has_info=1; t->broker_event.info=info;
     if (!save_signal_mask(t,&restart->mask,"metadata-signal-mask")
             || !shield(t)) return 1;
-    t->retained_signal=md_signal_delivery_retain(&t->signal_delivery,t->pid,&info);
-    CHECK(t->retained_signal>=0);
-    restart->requeued_signal=t->retained_signal;
+    t->signals.retained=md_signal_delivery_retain(&t->signals.delivery,t->pid,&info);
+    CHECK(t->signals.retained>=0);
+    restart->requeued_signal=t->signals.retained;
     if (restart->stage==METADATA_CHECK) {
         regs.regs[0]=regs.pc; regs.regs[1]=1; regs.pc=abi.load_groups;
         if (set_registers(t->pid,&regs)) resume(t->pid,0);
@@ -609,7 +609,7 @@ int metadata_restart_event(struct thread *t,int status) {
         siginfo_t info;
         if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"metadata-deferred-signal")) return 1;
         if (!md_signal_synchronous(&info)) {
-            int retained=md_signal_delivery_retain(&t->signal_delivery,t->pid,&info); CHECK(retained>=0);
+            int retained=md_signal_delivery_retain(&t->signals.delivery,t->pid,&info); CHECK(retained>=0);
             notification_interrupted(t);
             resume(t->pid,retained); return 1;
         }
@@ -646,7 +646,7 @@ int metadata_restart_event(struct thread *t,int status) {
              * Preserve its native SIGSYS bit until the exact syscall exit. */
             uint64_t mask=(md_signal_blockable_mask()&~MD_SIGNAL_SYS_BIT)|(r->mask&MD_SIGNAL_SYS_BIT);
             if (!signal_mask(t,mask,"metadata-admission-mask")) return 1;
-            t->signal_shielded=1;
+            t->signals.shielded=1;
             r->stage=METADATA_WAIT;
             if (set_registers(t->pid,&regs)) resume(t->pid,0);
             return 1;
@@ -705,27 +705,27 @@ int completed_notification_event(struct thread *t,int status,const struct rusage
         regs.pc=result->call.instruction_pointer; regs.regs[8]=result->call.nr;
         for (unsigned i=0;i<6;++i) regs.regs[i]=result->call.args[i];
         if (result->opened.fd>=0) {
-            if (t->phase!=IDLE || t->buffer.pool || t->broker_event.held)
+            if (t->phase!=IDLE || t->fs.buffer.pool || t->broker_event.held)
                 notification_conflict(t,"completed-notification-adoption",NULL,NULL,__LINE__);
-            t->original=regs; t->kernel_stopped=1; t->interrupt_pending=0;
+            execution_capture(t,&regs); t->kernel_stopped=1; t->interrupt_pending=0;
             t->broker_event.held=1; t->broker_event.status=status;
             t->broker_event.usage=usage ? *usage : (struct rusage){0};
             t->broker_event.has_info=!event && signal!=(SIGTRAP|0x80);
             if (t->broker_event.has_info
                     && !tracee_request(t,PTRACE_GETSIGINFO,NULL,&t->broker_event.info,"completed-signal")) return 1;
-            int error=md_buffers_take(md_memory_buffers(t->memory),&t->buffer);
+            int error=md_buffers_take(md_memory_buffers(t->memory),&t->fs.buffer);
             if (!error) error=md_fs_buffer_adopt(buffer_service,t->pid,t->resources.fs,result->operation,result->flags,
-                &t->buffer,&result->result,&result->opened,&t->buffer_call);
+                &t->fs.buffer,&result->result,&result->opened,&t->fs.call);
             if (!error) {
                 /* Transfer signal custody only after result admission. On
                  * failure the original delivery stop still owns the signal. */
                 if (t->broker_event.has_info) {
-                    t->retained_signal=md_signal_delivery_retain(&t->signal_delivery,t->pid,&t->broker_event.info);
-                    CHECK(t->retained_signal>=0);
+                    t->signals.retained=md_signal_delivery_retain(&t->signals.delivery,t->pid,&t->broker_event.info);
+                    CHECK(t->signals.retained>=0);
                 }
-                t->direct=DIRECT_OPEN; t->phase=DISPATCHING;
-                t->direct_flags=result->flags; t->direct_mode=0;
-                t->buffer_registers=t->original; t->buffer_registers.regs[1]=result->operation;
+                t->fs.direct=DIRECT_OPEN; t->phase=DISPATCHING;
+                t->fs.direct_flags=result->flags; t->fs.direct_mode=0;
+                buffer_capture(t,&t->execution.registers); t->fs.request.args[0]=result->operation;
                 md_broker_completion_taken(broker,t->pid);
                 free(result); t->broker_completion=NULL;
                 return 1;

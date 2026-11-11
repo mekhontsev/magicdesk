@@ -209,8 +209,8 @@ void cleanup(void) {
         struct thread *next = threads->next;
         md_task_wait_untrack(&task_wait,&threads->wait_member);
         exec_images_release(threads);
-        md_process_executable_release(threads->executable);
-        md_fs_anchor_release(threads->executable_origin);
+        md_process_executable_release(threads->image.executable);
+        md_fs_anchor_release(threads->image.executable_origin);
         fd_discard(threads);
         adapter_discard(threads);
         md_broker_forget(broker,threads->pid);
@@ -218,29 +218,29 @@ void cleanup(void) {
         signal_control_discard(threads);
         filter_install_discard(threads);
         guest_notification_discard(threads);
-        md_signal_pending_release(threads->signal_pending);
-        md_signal_actions_release(threads->signal_actions);
-        md_seccomp_policy_release(threads->admission_policy);
-        md_seccomp_policy_replace(&threads->policy,NULL);
+        md_signal_pending_release(threads->signals.pending);
+        md_signal_actions_release(threads->signals.actions);
+        md_seccomp_policy_release(threads->seccomp.admission_policy);
+        md_seccomp_policy_replace(&threads->seccomp.policy,NULL);
         md_memory_release(threads->memory);
-        md_memory_release(threads->remote_memory);
-        free(threads->memory_notification);
+        md_memory_release(threads->memory_op.remote);
+        free(threads->memory_op.notification);
         free(threads->metadata_restart);
         if (threads->broker_completion) {
             md_fs_buffer_open_release(&threads->broker_completion->opened);
             free(threads->broker_completion);
         }
-        md_fd_selector_release(threads->fd_selector);
-        md_fd_selector_release(threads->deferred_selector);
+        md_fd_selector_release(threads->descriptors.selector);
+        md_fd_selector_release(threads->descriptors.deferred_selector);
         md_shm_space_release(threads->shm_space);
         ipc_unwatch(threads);
-        md_ipc_cancel(md_ipc_namespace_active(threads->resources.ipc),&threads->ipc_pending);
-        md_ipc_transport_close(&threads->ipc_transport);
+        md_ipc_cancel(md_ipc_namespace_active(threads->resources.ipc),&threads->io.pending);
+        md_ipc_transport_close(&threads->io.transport);
         md_resources_unshare_finish(&threads->resources,&threads->identity,&threads->resource_change, -ECANCELED);
         md_resources_release(&threads->resources);
         md_identity_release(&threads->identity);
-        free(threads->identity_buffer);
-        md_signal_delivery_clear(&threads->signal_delivery);
+        free(threads->identity_copy.buffer);
+        md_signal_delivery_clear(&threads->signals.delivery);
         free(threads); threads = next;
     }
     task_action_cleanup();
@@ -368,9 +368,9 @@ static void describe_pending_tasks(void) {
         if (!group) ++total;
         if (shown==16 || (t->pid==t->tgid)!=!group) continue;
         ++shown;
-        fprintf(stderr,"Shroot: pending pid=%d tgid=%d phase=%d stopped=%d resume=%d listening=%d interrupt=%d syscall=%llu buffer=%d broker=%d ipc=%d outgoing=%d action=%d readiness=%d\n",
-            t->pid,t->tgid,t->phase,t->kernel_stopped,t->kernel_resume,t->listening,t->interrupt_pending,t->original.regs[8],
-            t->buffer_call!=NULL,t->broker_completion!=NULL,t->ipc_pending!=NULL,t->outgoing!=NULL,
+        fprintf(stderr,"Shroot: pending pid=%d tgid=%d phase=%d stopped=%d resume=%d listening=%d interrupt=%d syscall=%d buffer=%d broker=%d ipc=%d outgoing=%d action=%d readiness=%d\n",
+            t->pid,t->tgid,t->phase,t->kernel_stopped,t->kernel_resume,t->listening,t->interrupt_pending,t->execution.request.nr,
+            t->fs.call!=NULL,t->broker_completion!=NULL,t->io.pending!=NULL,t->io.outgoing!=NULL,
             t->action!=NULL,t->readiness!=NULL);
     }
     if (total>shown) fprintf(stderr,"Shroot: pending tasks shown=%u total=%u\n",shown,total);
@@ -538,8 +538,8 @@ static pid_t wait_event(int *status, struct rusage *usage) {
         if (pid > 0) {
             struct thread *returning=find_thread(pid);
             child_signals_observe(returning,*status);
-            if (returning) md_signal_delivery_checkpoint(&returning->signal_delivery,*status);
-            if (returning && returning->signal_control && returning->signal_control->returning)
+            if (returning) md_signal_delivery_checkpoint(&returning->signals.delivery,*status);
+            if (returning && returning->signals.control && returning->signals.control->returning)
                 signal_control_discard(returning);
             int checkpoint=checkpoint_event(pid,status);
             if (checkpoint==-ESRCH) continue;
@@ -569,7 +569,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
          * The timer is serviced even while ptrace continuously has work. */
         int64_t bound = INT64_MAX;
         struct thread *control_owner=control_deadline_owner();
-        int64_t control_bound=control_owner ? control_owner->control_pending->deadline : INT64_MAX;
+        int64_t control_bound=control_owner ? control_owner->control.pending->deadline : INT64_MAX;
         if (control_bound<bound) bound=control_bound;
         if (memory_deadline()<bound) bound=memory_deadline();
         if (mapping_execution && mapping_execution->deadline<bound) bound=mapping_execution->deadline;
@@ -599,8 +599,8 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             if (diagnostics) {
                 for (struct thread *t=threads;t;t=t->next) if (t->pid)
                     SUPERVISOR_TRACE("PROBE pending pid=%d phase=%d fdJob=%u fdRunning=%d files=%d fs=%d bufferWaiting=%d\n",
-                        t->pid,t->phase,t->fd_job,t->fd_running,md_fd_order_state(&t->fd_order),
-                        md_fs_order_state(&t->fs_order),t->buffer_waiting);
+                        t->pid,t->phase,t->descriptors.job,t->descriptors.running,md_fd_order_state(&t->descriptors.order),
+                        md_fs_order_state(&t->descriptors.fs_order),t->fs.waiting);
                 md_fs_buffer_describe(buffer_service,STDERR_FILENO);
             }
             errno = (int)-outcome;
@@ -799,11 +799,11 @@ int main(int argc, char **argv) {
     CHECK(!md_test_kernel_profile_install(kernel_profile));
 #endif
     thread(leader)->born = 1;
-    thread(leader)->signal_pending=md_signal_pending_new(); CHECK(thread(leader)->signal_pending);
+    thread(leader)->signals.pending=md_signal_pending_new(); CHECK(thread(leader)->signals.pending);
     /* A caller can install filters before starting Shroot. Treat inherited
      * no_new_privs conservatively: its ERRNO rules can outrank service TRACE
      * markers, so use the same pre-filter protocol as guest-installed filters. */
-    thread(leader)->application_filter=!!inherited_no_new_privs;
+    thread(leader)->seccomp.application_filter=!!inherited_no_new_privs;
     close(channel[1]);
     int keep[] = {signal_fd, channel[0], command_owner};
     CHECK(!md_process_close_fds(keep, command_owner >= 0 ? 3 : 2));
@@ -939,7 +939,7 @@ int main(int argc, char **argv) {
         struct thread *t = thread(pid);
         /* Retire a completed signal veneer before syscall-restart recovery.
          * A nested delivery must observe the handler's actual IDLE state. */
-        if (t->signal_control && t->signal_control->entry_packet) {
+        if (t->signals.control && t->signals.control->entry_packet) {
             t->kernel_stopped=1;
             t->interrupt_pending=0;
             if (signal_control_event(t,status)) continue;
@@ -949,19 +949,19 @@ int main(int argc, char **argv) {
         int restored_signal=0;
         if (WIFSTOPPED(status) && !((unsigned)status>>16)) {
             int deliver=0;
-            int owned=md_signal_delivery_event(&t->signal_delivery,pid,WSTOPSIG(status),&deliver);
+            int owned=md_signal_delivery_event(&t->signals.delivery,pid,WSTOPSIG(status),&deliver);
             CHECK(owned>=0);
             if (owned==MD_SIGNAL_CARRIER) { resume(pid,deliver); continue; }
             restored_signal=owned==MD_SIGNAL_RESTORED;
         }
         if (completed_notification_event(t,status,&usage)) continue;
         if (metadata_restart_event(t,status)) continue;
-        if (t->signal_shielded && WIFSTOPPED(status) && !((unsigned)status>>16)
+        if (t->signals.shielded && WIFSTOPPED(status) && !((unsigned)status>>16)
                 && WSTOPSIG(status)<32 && WSTOPSIG(status)!=SIGSTOP) {
             siginfo_t info;
             if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"shielded-signal")) continue;
             if (!md_signal_synchronous(&info)) {
-                int retained=md_signal_delivery_retain(&t->signal_delivery,pid,&info); CHECK(retained>=0);
+                int retained=md_signal_delivery_retain(&t->signals.delivery,pid,&info); CHECK(retained>=0);
                 notification_interrupted(t);
                 resume(pid,retained); continue;
             }
@@ -982,13 +982,13 @@ int main(int argc, char **argv) {
         unsigned event = (unsigned)status >> 16;
         if (lost_stop_event(t,event)) continue;
         int sig = WSTOPSIG(status);
-        if (t->signal_return_pending && !event && sig==(SIGTRAP|0x80)) {
+        if (t->signals.return_pending && !event && sig==(SIGTRAP|0x80)) {
             struct ptrace_syscall_info info={0};
             if (!tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"signal-return-entry")) continue;
             if (info.op==PTRACE_SYSCALL_INFO_ENTRY) {
-                t->signal_return_pending=0;
-                if (t->signal_wait_view.active) {
-                    uint64_t mask=t->signal_wait_view.saved&~MD_SIGNAL_SYS_BIT;
+                t->signals.return_pending=0;
+                if (t->signals.wait_view.active) {
+                    uint64_t mask=t->signals.wait_view.saved&~MD_SIGNAL_SYS_BIT;
                     signal_wait_restore(t);
                     if (!signal_mask(t,mask,"wait-return-mask")) continue;
                 }
@@ -996,11 +996,11 @@ int main(int argc, char **argv) {
             }
         }
         if (readiness_native_event(t,status)) continue;
-        if (!event && sig!=(SIGTRAP|0x80) && (t->phase==IDLE || t->entry_execution)
+        if (!event && sig!=(SIGTRAP|0x80) && (t->phase==IDLE || t->entry.execution)
                 && md_memory_svc(t->memory)) {
             int deliver=0;
             int owned=md_svc_machine_signal(md_memory_svc(t->memory),&t->machine,pid,
-                &t->signal_delivery,&signal_stop,&deliver);
+                &t->signals.delivery,&signal_stop,&deliver);
             if (owned==-ESRCH) { t->resume_lost=1; continue; }
             if (owned<0) errno=-owned;
             CHECK(owned>=0);
@@ -1046,6 +1046,9 @@ static void report_statistics(void) {
         for (unsigned i=0;i<MD_CONTEXT_COUNT;++i) if (statistics->entry_contexts[i])
             fprintf(stderr,"MD_EXECUTION_CONTEXT reason=%s calls=%llu\n",context_names[i],
                 (unsigned long long)statistics->entry_contexts[i]);
+        for (unsigned i=0;i<MD_CONTEXT_COUNT;++i) if (statistics->entry_stop_reasons[i])
+            fprintf(stderr,"MD_EXECUTION_STOP reason=%s calls=%llu\n",context_names[i],
+                (unsigned long long)statistics->entry_stop_reasons[i]);
         for (unsigned i=0;i<MD_CONTEXT_COUNT;++i) if (statistics->entry_local_contexts[i])
             fprintf(stderr,"MD_EXECUTION_LOCAL_CONTEXT reason=%s calls=%llu\n",context_names[i],
                 (unsigned long long)statistics->entry_local_contexts[i]);

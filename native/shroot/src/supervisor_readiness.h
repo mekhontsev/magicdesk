@@ -61,7 +61,7 @@ void task_readiness_changed(struct thread *t);
 void readiness_interrupted(struct thread *t);
 int readiness_native_event(struct thread *t,int status);
 
-void readiness_buffer_control(struct thread *t,const struct user_pt_regs *r);
+void readiness_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r);
 int readiness_probe_exit(struct thread *t,pid_t pid);
 
 #endif

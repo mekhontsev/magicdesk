@@ -52,6 +52,7 @@ struct interception_statistics {
     uint64_t untracked_close, unchanged_fd_flags;
     uint64_t entry_executions, entry_completions, entry_promotions, entry_effects,entry_native;
     uint64_t entry_contexts[MD_CONTEXT_COUNT];
+    uint64_t entry_stop_reasons[MD_CONTEXT_COUNT];
     uint64_t entry_local_contexts[MD_CONTEXT_COUNT],entry_local_native;
     uint64_t signal_frames[5];
     struct md_cost event_collect, event_sleep;

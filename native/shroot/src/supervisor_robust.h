@@ -42,7 +42,7 @@ int retained_task_held(const struct thread *t);
 struct retained_memory *retained_actor(pid_t pid);
 struct retained_memory *retained_memory_get(struct thread *t);
 void retained_detach(struct thread *t);
-int robust_call(struct thread *t,struct user_pt_regs *regs,enum md_task_call_boundary boundary);
+int robust_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *regs,enum md_task_call_boundary boundary);
 void retained_creation_begin(struct retained_memory *m,struct thread *t,
         const struct user_pt_regs *regs,enum md_task_call_boundary call);
 void retained_progress(void);

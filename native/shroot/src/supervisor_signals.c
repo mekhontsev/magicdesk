@@ -82,9 +82,9 @@ void signal_origin_capture(void *context,const siginfo_t *info,struct md_signal_
     struct thread *t=context;
     *out=(struct md_signal_origin){0};
     if (!md_signal_child_notice(info)) return;
-    const struct md_signal_origin *saved=&t->signal_origin;
-    if (!md_signal_origin_matches(saved,info)) saved=t->signal_delivery.child_origin;
-    if (!md_signal_origin_matches(saved,info)) saved=md_signal_pending_origin(t->signal_pending,info);
+    const struct md_signal_origin *saved=&t->signals.origin;
+    if (!md_signal_origin_matches(saved,info)) saved=t->signals.delivery.child_origin;
+    if (!md_signal_origin_matches(saved,info)) saved=md_signal_pending_origin(t->signals.pending,info);
     if (saved) { *out=*saved; return; }
     struct proc_owner owner=proc_owner(info->si_pid);
     if (!owner.identity) return;
@@ -105,10 +105,10 @@ void signal_origin_translate(struct thread *t,const struct md_signal_origin *ori
 }
 
 void signal_origin_consumed(struct thread *t,const siginfo_t *info) {
-    md_signal_pending_consumed(t->signal_pending,info);
-    if (md_signal_origin_matches(&t->signal_origin,info)) t->signal_origin.valid=0;
-    if (md_signal_origin_matches(t->signal_delivery.child_origin,info)) {
-        free(t->signal_delivery.child_origin); t->signal_delivery.child_origin=NULL;
+    md_signal_pending_consumed(t->signals.pending,info);
+    if (md_signal_origin_matches(&t->signals.origin,info)) t->signals.origin.valid=0;
+    if (md_signal_origin_matches(t->signals.delivery.child_origin,info)) {
+        free(t->signals.delivery.child_origin); t->signals.delivery.child_origin=NULL;
     }
 }
 
@@ -128,14 +128,14 @@ static int child_signals_capture(struct thread *t) {
         CHECK(present>=0);
         struct md_signal_origin origin={0};
         if (present) signal_origin_capture(t,&info,&origin);
-        *md_signal_pending_child(t->signal_pending,scope)=origin;
+        *md_signal_pending_child(t->signals.pending,scope)=origin;
     }
     return 1;
 }
 
 void process_reap(struct thread *t,pid_t child) {
     if (child_signals_capture(t)) md_task_registry_reap(tasks,child);
-    else md_signal_pending_child_changed(t->signal_pending);
+    else md_signal_pending_child_changed(t->signals.pending);
 }
 
 int signal_observe(struct thread *t,struct md_task_signal_stop *stop,int with_registers) {
@@ -159,7 +159,7 @@ int signal_replace_info(struct thread *t,struct md_task_signal_stop *stop,const 
 }
 
 int signal_control_parked(const struct thread *t) {
-    const struct signal_control *o=t->signal_control;
+    const struct signal_control *o=t->signals.control;
     return t->phase==SIGNAL_CONTROL && o && !o->scratch.pool && !o->memory.queue
         && !o->files.table && md_task_signal_control_parked(&o->control);
 }
@@ -185,16 +185,16 @@ void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *s
     struct thread *t=thread(pid);
     struct md_task_signal_stop local;
     if (!stop) { md_task_signal_stop_init(&local,native_trace); stop=&local; }
-    if (sig && sig!=SIGSTOP && !t->signal_delivery.active
-            && ((!restored && md_signal_delivery_pending(&t->signal_delivery))
-                || t->signal_shielded || t->metadata_restart)) {
+    if (sig && sig!=SIGSTOP && !t->signals.delivery.active
+            && ((!restored && md_signal_delivery_pending(&t->signals.delivery))
+                || t->signals.shielded || t->metadata_restart)) {
         /* A lower-level owner can finish at an architectural boundary while
          * a higher-level restart still owns that boundary. Retain its signal
          * until every internal owner has restored the application context. */
         if (!signal_observe(t,stop,0)) return;
         siginfo_t info=stop->info;
         if (!md_signal_synchronous(&info) && info.si_signo<32) {
-            int retained=md_signal_delivery_retain(&t->signal_delivery,pid,&info); CHECK(retained>=0);
+            int retained=md_signal_delivery_retain(&t->signals.delivery,pid,&info); CHECK(retained>=0);
             resume(pid,retained); return;
         }
     }
@@ -205,7 +205,7 @@ void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *s
         if (namespace_init(t) && sig!=SIGKILL && sig!=SIGSTOP && !fault) {
             uint64_t caught=0;
             long error=0;
-            int handled=md_signal_actions_caught(t->signal_actions,sig);
+            int handled=md_signal_actions_caught(t->signals.actions,sig);
             if (handled>=0) caught=handled ? UINT64_C(1)<<(sig-1) : 0;
             else error=md_task_signal_handlers(t->pid,&caught);
             if (error) {
@@ -220,9 +220,9 @@ void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *s
             if (!signal_replace_info(t,stop,&info)) return;
         }
     }
-    if (sig && t->signal_delivery.first && !t->signal_delivery.active) {
+    if (sig && t->signals.delivery.first && !t->signals.delivery.active) {
         if (!signal_observe(t,stop,0)) return;
-        int error=md_signal_delivery_before_handler(&t->signal_delivery,pid,&stop->info);
+        int error=md_signal_delivery_before_handler(&t->signals.delivery,pid,&stop->info);
         if (error==-ESRCH) { t->resume_lost=1; return; }
         CHECK(!error);
     }
@@ -233,9 +233,9 @@ void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *s
 void resume_signal(pid_t pid,int sig,const struct md_signal_origin *origin) {
     /* Debugger release has already passed ordinary signal admission. */
     struct thread *t=thread(pid);
-    if (origin && origin->valid) t->signal_origin=*origin;
+    if (origin && origin->valid) t->signals.origin=*origin;
     deliver_signal(pid,sig,1,NULL);
-    t->signal_origin.valid=0;
+    t->signals.origin.valid=0;
 }
 
 int init_signal_suppressed(const struct thread *from,const struct thread *to,int signal) {
@@ -261,13 +261,13 @@ static void signal_retired_candidate(void *context,pid_t pid,struct md_task_reti
 }
 
 static int signal_pending_wake(struct thread *t) {
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     if (owner && !owner->returning && !owner->entry_packet)
         return md_task_signal_control_wake(&owner->control);
     /* Published entry/return packets may be followed only by native IO. They
      * hold a mapping turn, not an interruptible borrowed syscall: require an
      * acknowledgement for newly deliverable signals as for mapping contention. */
-    if (!t->host_signal_blocked && !t->kernel_stopped && !t->interrupt_pending) {
+    if (!t->signals.host_blocked && !t->kernel_stopped && !t->interrupt_pending) {
         if (native_trace(PTRACE_INTERRUPT,t->pid,NULL,NULL)<0)
             return errno==ESRCH ? 0 : -errno;
         t->interrupt_pending=1;
@@ -277,10 +277,10 @@ static int signal_pending_wake(struct thread *t) {
 
 int signal_logical_enqueue(struct thread *to,enum md_signal_scope scope,const siginfo_t *info) {
     struct md_kernel_action action;
-    int error=md_signal_actions_read(to->signal_actions,SIGSYS,&action);
+    int error=md_signal_actions_read(to->signals.actions,SIGSYS,&action);
     if (error) return error;
-    if (action.handler==(uintptr_t)SIG_IGN && !to->host_signal_blocked) return 0;
-    error=md_signal_pending_put(to->signal_pending,scope,info);
+    if (action.handler==(uintptr_t)SIG_IGN && !to->signals.host_blocked) return 0;
+    error=md_signal_pending_put(to->signals.pending,scope,info);
     if (error<0) return error;
     for (struct thread *peer=threads;peer;peer=peer->next) {
         if (!peer->pid || !peer->born || (scope==MD_SIGNAL_PRIVATE ? peer!=to : peer->tgid!=to->tgid)) continue;
@@ -297,7 +297,7 @@ long signal_logical_send(struct thread *from,const struct user_pt_regs *r,const 
     int index=nr==SYS_tgkill || nr==SYS_rt_tgsigqueueinfo;
     pid_t pid=native_pid(from,(pid_t)r->regs[index]);
     struct thread *to=find_thread(pid);
-    if (!to || !to->born || !to->host_signals) return -ESRCH;
+    if (!to || !to->born || !to->signals.host) return -ESRCH;
     if (index && to->tgid!=native_pid(from,(pid_t)r->regs[0])) return -ESRCH;
     if (!signal_allowed(from,to,SIGSYS)) return -EPERM;
     if (supplied && (supplied->si_code>=0 || supplied->si_code==SI_TKILL) && pid!=from->pid) return -EPERM;
@@ -321,7 +321,7 @@ long signal_process_next(struct thread *from,pid_t selector,int signal,pid_t aft
     }
     md_task_registry_retired_processes(tasks,signal_retired_candidate,&selection);
     struct thread *to=selection.next ? find_thread(selection.next) : NULL;
-    if (signal==SIGSYS && to && to->host_signals && !selection.suppressed) {
+    if (signal==SIGSYS && to && to->signals.host && !selection.suppressed) {
         siginfo_t info={.si_signo=SIGSYS,.si_code=SI_USER};
         info.si_pid=from->tgid; info.si_uid=getuid();
         int error=signal_logical_enqueue(to,MD_SIGNAL_SHARED,&info);
@@ -334,7 +334,7 @@ long signal_process_next(struct thread *from,pid_t selector,int signal,pid_t aft
 
 void signal_control_discard(struct thread *t) {
     retry_clear(t,RETRY_SIGNAL);
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     if (!owner) return;
     if (owner->entry_previous) {
         *owner->entry_previous=owner->entry_next;
@@ -360,29 +360,29 @@ void signal_control_discard(struct thread *t) {
     md_fd_object_release(owner->descriptor);
     md_task_signal_control_dispose(&owner->control);
     md_memory_page_release(owner->wait_page);
-    free(owner); t->signal_control=NULL;
+    free(owner); t->signals.control=NULL;
 }
 
 static void signal_entry_complete(struct thread *t,int failed) {
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     struct md_kernel_action entered;
-    CHECK(!md_signal_actions_enter(t->signal_actions,owner->signal,&entered));
+    CHECK(!md_signal_actions_enter(t->signals.actions,owner->signal,&entered));
     if (failed) {
         /* Frame construction failed before the kernel applied the action's
          * mask. A failed SIGSEGV frame also forces its disposition to DFL. */
-        t->host_signal_blocked=owner->entry_blocked;
-        t->signal_wait_view=owner->entry_wait_view;
-        t->signal_handler_mask_known=0;
+        t->signals.host_blocked=owner->entry_blocked;
+        t->signals.wait_view=owner->entry_wait_view;
+        t->signals.handler_mask_known=0;
         if (owner->signal==SIGSEGV) {
             entered.handler=(uintptr_t)SIG_DFL;
-            CHECK(!md_signal_actions_commit(t->signal_actions,SIGSEGV,&entered));
+            CHECK(!md_signal_actions_commit(t->signals.actions,SIGSEGV,&entered));
         }
     }
     signal_control_discard(t); t->phase=IDLE;
 }
 
 int signal_entry_committed(struct thread *t) {
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     if (!owner || owner->returning || !owner->entry_packet
             || atomic_load_explicit(&owner->entry_packet->pending,memory_order_acquire)) return 0;
     signal_entry_complete(t,0);
@@ -394,8 +394,8 @@ void signal_entries_progress(void) {
         next=owner->entry_next;
         struct thread *t=owner->entry_thread;
         int committed=signal_entry_committed(t);
-        if (md_signal_pending_has(t->signal_pending,MD_SIGNAL_PRIVATE)
-                || md_signal_pending_has(t->signal_pending,MD_SIGNAL_SHARED))
+        if (md_signal_pending_has(t->signals.pending,MD_SIGNAL_PRIVATE)
+                || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED))
             CHECK(!signal_pending_wake(t));
         if (committed) continue;
         if (!t->kernel_stopped && !t->interrupt_pending) {
@@ -432,24 +432,24 @@ static void signal_wait_info(void *context,siginfo_t *info) {
 }
 
 void signal_query_publish(struct thread *t) {
-    if (!t->host_signals) return;
-    int native=!t->host_signal_blocked && !t->signal_shielded && !t->signal_delivery.active
-        && (t->phase==IDLE || (t->phase==SIGNAL_ENTRY && t->signal_control && t->signal_control->entry_packet))
-        && !md_seccomp_policy_may_trace(t->policy) && !md_seccomp_policy_may_notify(t->policy)
-        && !t->debug_options && !t->debug_call_active;
-    if (native!=t->native_signal_query) {
+    if (!t->signals.host) return;
+    int native=!t->signals.host_blocked && !t->signals.shielded && !t->signals.delivery.active
+        && (t->phase==IDLE || (t->phase==SIGNAL_ENTRY && t->signals.control && t->signals.control->entry_packet))
+        && !md_seccomp_policy_may_trace(t->seccomp.policy) && !md_seccomp_policy_may_notify(t->seccomp.policy)
+        && !t->debug.options && !t->debug.call_active;
+    if (native!=t->signals.native_query) {
         md_broker_signal_query(broker,t->pid,native);
-        t->native_signal_query=native;
+        t->signals.native_query=native;
     }
 }
 
 static void signal_descriptor_retired(struct thread *t,long error) {
     CHECK(!error);
-    signal_control_finish(t,t->signal_control->retire_error);
+    signal_control_finish(t,t->signals.control->retire_error);
 }
 
 static void signal_descriptor_selected(struct thread *t,long error) {
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     if (error) {
         if (owner->loan && owner->loan->number>=0) {
             struct task_action *loan=owner->loan; owner->loan=NULL;
@@ -471,14 +471,14 @@ static void signal_descriptor_selected(struct thread *t,long error) {
         }
         struct task_action *action=task_action_new(t);
         if (!action) { signal_descriptor_selected(t,-ENOMEM); return; }
-        action->continuation=t->original; action->boundary=owner->control.boundary;
+        action->continuation=t->execution.registers; action->boundary=owner->control.boundary;
         action->kind=(enum md_fd_selector_kind)kind; action->number=(int)owner->descriptor_result;
         action->complete=signal_descriptor_selected;
         task_action_start(t); return;
     }
     md_fd_origins_release_custody(&owner->publication);
     md_fd_origins_finish(&owner->publication,(int)owner->descriptor_result);
-    if ((int)t->original.regs[0]>=0)
+    if ((int)t->execution.request.args[0]>=0)
         CHECK(!md_fd_origins_set_flags(t->resources.files,(int)owner->descriptor_result,owner->control.descriptor_flags));
     if (owner->loan) {
         md_fd_loan_end(owner->loan->loan); md_fd_loan_release(owner->loan->loan);
@@ -489,7 +489,7 @@ static void signal_descriptor_selected(struct thread *t,long error) {
 }
 
 static void signal_control_finish(struct thread *t,int ready) {
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     if (ready==MD_SIGNAL_FD_ACQUIRE) {
         CHECK(!md_resource_order_complete(&owner->memory));
         owner->descriptor_admission=1;
@@ -505,8 +505,8 @@ static void signal_control_finish(struct thread *t,int ready) {
                 md_signal_fd_update(file,owner->control.wait_set);
                 for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid && peer!=t) {
                     task_readiness_changed(peer);
-                    if (peer->signal_control) {
-                        int error=md_task_signal_descriptor_changed(&peer->signal_control->control,file);
+                    if (peer->signals.control) {
+                        int error=md_task_signal_descriptor_changed(&peer->signals.control->control,file);
                         CHECK(!error || error==-ESRCH);
                     }
                 }
@@ -553,7 +553,7 @@ static void signal_control_finish(struct thread *t,int ready) {
         if (result) {
             fprintf(stderr,"Shroot: forced signal disposition failed: %ld\n",result);
             syscall(SYS_tgkill,t->tgid,t->pid,SIGKILL);
-        } else CHECK(!md_signal_delivery_seccomp(&t->signal_delivery,&owner->forced));
+        } else CHECK(!md_signal_delivery_seccomp(&t->signals.delivery,&owner->forced));
         signal_control_discard(t); t->phase=IDLE; resume(t->pid,0); return;
     }
     if (owner->signal) {
@@ -569,7 +569,7 @@ static void signal_control_finish(struct thread *t,int ready) {
         resume(t->pid,0);
         return;
     }
-    struct user_pt_regs original=t->original;
+    struct user_pt_regs original=t->execution.registers;
     if (!result && owner->control.sending)
         result=signal_logical_send(t,&original,&owner->control.wait_info);
     int passthrough=owner->control.passthrough;
@@ -580,12 +580,13 @@ static void signal_control_finish(struct thread *t,int ready) {
     if (!result && original.regs[8]==SYS_rt_sigaction && original.regs[0]==SIGSYS
             && original.regs[1] && owner->control.requested.handler==(uintptr_t)SIG_IGN)
         for (struct thread *peer=threads;peer;peer=peer->next)
-            if (peer->pid && peer->tgid==t->tgid) md_signal_pending_clear(peer->signal_pending,1);
+            if (peer->pid && peer->tgid==t->tgid) md_signal_pending_clear(peer->signals.pending,1);
     signal_control_discard(t); t->phase=IDLE;
     if (restarting) { restart_boundary(t,&original,restart_mask,RESTART_SIGNAL,restart_at); return; }
     if (passthrough) {
         unsigned long cookie=MD_INTERCEPT_PROCESS;
-        if (!process_call(t,&original,&cookie) && set_registers(t->pid,&original)) resume(t->pid,0);
+        struct seccomp_data call=syscall_description(&original);
+        if (!process_call(t,&call,&original,&cookie) && set_registers(t->pid,&original)) resume(t->pid,0);
         return;
     }
     if (original.regs[8]==SYS_rt_sigprocmask && t->metadata_restart) {
@@ -596,20 +597,20 @@ static void signal_control_finish(struct thread *t,int ready) {
 
 void signal_control_progress(struct thread *t) {
     retry_clear(t,RETRY_SIGNAL);
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     CHECK(owner && (!owner->started || owner->reacquiring || owner->descriptor_admission));
     if (owner->descriptor_admission) {
         if (md_fd_order_state(&owner->files)!=MD_RESOURCE_ORDER_READY) { retry_wait(t,RETRY_SIGNAL); return; }
         CHECK(!md_fd_order_start(&owner->files));
         owner->descriptor_admission=0;
-        int descriptor=(int)t->original.regs[0];
+        int descriptor=(int)t->execution.request.args[0];
         owner->descriptor=descriptor<0 ? NULL : md_fd_origins_object(t->resources.files,descriptor,NULL);
         int error=0;
-        if (t->original.regs[8]==SYS_signalfd4 && !md_signal_fd_from_object(owner->descriptor)) {
+        if (t->execution.request.nr==SYS_signalfd4 && !md_signal_fd_from_object(owner->descriptor)) {
             md_fd_object_release(owner->descriptor);
             owner->descriptor=md_signal_fd_object(md_signal_fd_new());
             error=owner->descriptor ? md_fd_origins_prepare_object(t->resources.files,owner->descriptor,
-                t->original.regs[3]&SFD_CLOEXEC ? FD_CLOEXEC : 0,&owner->publication) : -ENOMEM;
+                t->execution.request.args[3]&SFD_CLOEXEC ? FD_CLOEXEC : 0,&owner->publication) : -ENOMEM;
             if (!error && descriptor<0) {
                 owner->loan=calloc(1,sizeof(*owner->loan));
                 if (!owner->loan) error=-ENOMEM;
@@ -629,8 +630,8 @@ void signal_control_progress(struct thread *t) {
     /* Buffer admission precedes the memory turn: a returning reader can still
      * own its buffer while another reader is acquiring its FD. Holding the
      * memory queue while awaiting a pool slot would deadlock their completion. */
-    int wrapped=owner->signal && md_signal_actions_entry(t->signal_actions,owner->signal);
-    int native_frame=owner->signal && !t->signal_wait_view.active && !wrapped;
+    int wrapped=owner->signal && md_signal_actions_entry(t->signals.actions,owner->signal);
+    int native_frame=owner->signal && !t->signals.wait_view.active && !wrapped;
     int error=owner->scratch.pool || native_frame ? 0 : md_buffers_take(md_memory_buffers(t->memory),&owner->scratch);
     if (error==-EAGAIN) { retry_wait(t,RETRY_SIGNAL); return; }
     if (error) { signal_control_finish(t,error); return; }
@@ -653,7 +654,7 @@ void signal_control_progress(struct thread *t) {
     owner->started=1;
     if (owner->signal) {
         struct md_kernel_action action;
-        error=md_signal_actions_read(t->signal_actions,owner->signal,&action);
+        error=md_signal_actions_read(t->signals.actions,owner->signal,&action);
         if (error || action.handler!=owner->action.handler || action.flags!=owner->action.flags
                 || action.mask!=owner->action.mask) {
             /* A preceding disposition exchange won the admission turn. The
@@ -667,8 +668,8 @@ void signal_control_progress(struct thread *t) {
             struct md_buffer_span span; CHECK(!md_buffer_span(&owner->scratch,&span));
             struct md_signal_entry *packet=span.data;
             uint64_t saved=owner->entry_mask;
-            uint64_t mask=md_signal_view_enter(owner->signal,&owner->action,t->host_signal_blocked,
-                &t->signal_wait_view,&saved);
+            uint64_t mask=md_signal_view_enter(owner->signal,&owner->action,t->signals.host_blocked,
+                &t->signals.wait_view,&saved);
             if (!owner->entry_info.si_signo
                     && !tracee_request(t,PTRACE_GETSIGINFO,NULL,&owner->entry_info,"signal-entry-info")) return;
             *packet=(struct md_signal_entry){.handler=owner->action.handler,
@@ -676,12 +677,12 @@ void signal_control_progress(struct thread *t) {
             siginfo_t transport=owner->entry_info;
             transport.si_value.sival_ptr=(void *)md_memory_buffer_address(t->memory,&owner->scratch);
             if (!tracee_request(t,PTRACE_SETSIGINFO,NULL,&transport,"signal-entry-packet")) return;
-            owner->entry_blocked=t->host_signal_blocked;
-            owner->entry_wait_view=t->signal_wait_view;
-            t->host_signal_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
-            t->signal_handler_mask=mask;
-            t->signal_handler_mask_known=1;
-            t->signal_wait_view.active=0;
+            owner->entry_blocked=t->signals.host_blocked;
+            owner->entry_wait_view=t->signals.wait_view;
+            t->signals.host_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
+            t->signals.handler_mask=mask;
+            t->signals.handler_mask_known=1;
+            t->signals.wait_view.active=0;
             owner->entry_packet=packet; owner->entry_thread=t;
             owner->entry_next=signal_entries; owner->entry_previous=&signal_entries;
             if (signal_entries) signal_entries->entry_previous=&owner->entry_next;
@@ -698,7 +699,7 @@ void signal_control_progress(struct thread *t) {
          * directly. The commit stop removes SIGSYS before the handler runs;
          * no protected-memory copy is needed to amend the saved frame. Never
          * replace a temporary wait mask here: SETSIGMASK clears its restore. */
-        if (!t->signal_wait_view.active && t->host_signal_blocked
+        if (!t->signals.wait_view.active && t->signals.host_blocked
                 && !signal_mask(t,owner->entry_mask|MD_SIGNAL_SYS_BIT,"handler-frame-logical-mask")) return;
         /* EVENT_WAIT: kernel signal-frame construction precedes this interrupt
          * stop; no veneer or application instruction executes before admission.
@@ -715,28 +716,28 @@ void signal_control_progress(struct thread *t) {
     CHECK(!boundary); owner->checkpoint_suspended=1;
     struct md_buffer_span span; CHECK(!md_buffer_span(&owner->scratch,&span));
     int ready=owner->forced.si_signo
-        ? md_task_signal_default_begin(&owner->control,native_trace,t->pid,&t->original,
-            abi.task_call,abi.task_return,t->signal_actions,&t->host_signal_blocked,&owner->action,
+        ? md_task_signal_default_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
+            abi.task_call,abi.task_return,t->signals.actions,&t->signals.host_blocked,&owner->action,
             span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
-        : t->original.regs[8]==SYS_rt_sigprocmask
-        ? md_task_signal_query_begin(&owner->control,native_trace,t->pid,&t->original,
+        : t->execution.request.nr==SYS_rt_sigprocmask
+        ? md_task_signal_query_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
             abi.task_call,abi.task_return,owner->entry_mask,
             span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
-        : t->original.regs[8]==SYS_signalfd4 || t->original.regs[8]==SYS_read || t->original.regs[8]==SYS_readv
-        ? md_task_signal_descriptor_begin(&owner->control,native_trace,t->pid,&t->original,
-            abi.task_call,abi.task_return,t->signal_pending,&t->host_signal_blocked,
+        : t->execution.request.nr==SYS_signalfd4 || t->execution.request.nr==SYS_read || t->execution.request.nr==SYS_readv
+        ? md_task_signal_descriptor_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
+            abi.task_call,abi.task_return,t->signals.pending,&t->signals.host_blocked,
             signal_wait_info,t,span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
-        : t->original.regs[8]==SYS_rt_sigtimedwait
-        ? md_task_signal_wait_begin(&owner->control,native_trace,t->pid,&t->original,
-            abi.task_call,abi.task_return,t->signal_pending,&t->host_signal_blocked,
+        : t->execution.request.nr==SYS_rt_sigtimedwait
+        ? md_task_signal_wait_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
+            abi.task_call,abi.task_return,t->signals.pending,&t->signals.host_blocked,
             signal_wait_info,t,span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
-        : t->original.regs[8]==SYS_rt_sigqueueinfo || t->original.regs[8]==SYS_rt_tgsigqueueinfo
-        ? md_task_signal_send_begin(&owner->control,native_trace,t->pid,&t->original,
+        : t->execution.request.nr==SYS_rt_sigqueueinfo || t->execution.request.nr==SYS_rt_tgsigqueueinfo
+        ? md_task_signal_send_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
             abi.task_call,abi.task_return,span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
-        : md_task_signal_control_begin(&owner->control,native_trace,t->pid,&t->original,
-            abi.task_call,abi.task_return,t->signal_actions,&t->host_signal_blocked,
-            (md_signal_pending_has(t->signal_pending,MD_SIGNAL_PRIVATE)
-                || md_signal_pending_has(t->signal_pending,MD_SIGNAL_SHARED)) ? MD_SIGNAL_SYS_BIT : 0,
+        : md_task_signal_control_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
+            abi.task_call,abi.task_return,t->signals.actions,&t->signals.host_blocked,
+            (md_signal_pending_has(t->signals.pending,MD_SIGNAL_PRIVATE)
+                || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED)) ? MD_SIGNAL_SYS_BIT : 0,
             span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size);
     signal_control_finish(t,ready);
 }
@@ -744,15 +745,15 @@ void signal_control_progress(struct thread *t) {
 static int signal_return_snapshot(struct thread *t) {
     if (statistics) ++statistics->signal_frames[0];
     uintptr_t base=md_memory_readonly_base(t->memory);
-    if (!base || t->signal_control || t->signal_return_pending || t->metadata_restart || t->signal_delivery.active
-            || t->debug_options || t->debug_call_active || t->debug_step_call
+    if (!base || t->signals.control || t->signals.return_pending || t->metadata_restart || t->signals.delivery.active
+            || t->debug.options || t->debug.call_active || t->debug.step_call
             || md_debugger_traced(debugger,t->pid)) return 0;
     /* A queued carrier must borrow the restored application's mask, not the
      * handler's mask at this pre-execution stop. Pending logical SIGSYS can
      * also become a carrier when the restored mask unblocks it in resume(). */
-    if (md_signal_delivery_pending(&t->signal_delivery)
-            || md_signal_pending_has(t->signal_pending,MD_SIGNAL_PRIVATE)
-            || md_signal_pending_has(t->signal_pending,MD_SIGNAL_SHARED)) return 0;
+    if (md_signal_delivery_pending(&t->signals.delivery)
+            || md_signal_pending_has(t->signals.pending,MD_SIGNAL_PRIVATE)
+            || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED)) return 0;
     if (statistics) ++statistics->signal_frames[1];
     struct user_pt_regs regs;
     if (!registers(t->pid,&regs)) return 1;
@@ -774,16 +775,16 @@ static int signal_return_snapshot(struct thread *t) {
             if (statistics) ++statistics->signal_frames[4];
             uint64_t mask;
             memcpy(&mask,&frame->context.uc_sigmask,sizeof(mask));
-            t->host_signal_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
-            t->signal_handler_mask=mask&md_signal_blockable_mask();
-            t->signal_handler_mask_known=1;
+            t->signals.host_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
+            t->signals.handler_mask=mask&md_signal_blockable_mask();
+            t->signals.handler_mask_known=1;
             mask&=~MD_SIGNAL_SYS_BIT;
             memcpy(&frame->context.uc_sigmask,&mask,sizeof(mask));
             regs.sp=base+span.offset;
             owner->returning=1; owner->entry_thread=t;
             owner->entry_next=signal_entries; owner->entry_previous=&signal_entries;
             if (signal_entries) signal_entries->entry_previous=&owner->entry_next;
-            signal_entries=owner; t->signal_control=owner;
+            signal_entries=owner; t->signals.control=owner;
             /* The original syscall has passed kernel seccomp. Its immutable
              * input owns the mapping turn until the next native stop. A
              * competing mapping operation requests an acknowledgement only
@@ -800,24 +801,24 @@ static int signal_return_snapshot(struct thread *t) {
 
 int signal_native_call(struct thread *t,uint64_t number,uint64_t input,uint64_t output,uint64_t size) {
     if (number==SYS_rt_sigreturn) {
-        t->signal_handler_mask_known=0;
+        t->signals.handler_mask_known=0;
         if (signal_return_snapshot(t)) return 1;
-        if (t->signal_delivery.active && !signal_mask(t,t->signal_delivery.mask,"signal-return-carrier-mask")) return 1;
+        if (t->signals.delivery.active && !signal_mask(t,t->signals.delivery.mask,"signal-return-carrier-mask")) return 1;
         t->phase=SIGNAL_NATIVE_EXIT; resume(t->pid,0); return 1;
     }
     if (number==SYS_rt_sigprocmask) {
-        if (input || (output && (t->host_signal_blocked || t->signal_delivery.active))) {
-            if (input) t->signal_handler_mask_known=0;
+        if (input || (output && (t->signals.host_blocked || t->signals.delivery.active))) {
+            if (input) t->signals.handler_mask_known=0;
             /* This original syscall has passed seccomp admission. Let the
              * kernel query or update its logical mask, with native pointer
              * validation and error/commit ordering.
              * EVENT_WAIT: syscall exit removes the borrowed SIGSYS bit before
              * any application instruction or handler can execute. */
-            if (t->host_signal_blocked || t->signal_delivery.active) {
+            if (t->signals.host_blocked || t->signals.delivery.active) {
                 uint64_t mask;
-                if (t->signal_delivery.active) mask=t->signal_delivery.mask;
+                if (t->signals.delivery.active) mask=t->signals.delivery.mask;
                 else if (!save_signal_mask(t,&mask,"signal-call-mask")) return 1;
-                uint64_t logical=md_signal_view_mask(mask,t->host_signal_blocked);
+                uint64_t logical=md_signal_view_mask(mask,t->signals.host_blocked);
                 if (!input && output && size==sizeof(mask)) {
                     ssize_t copied=md_task_copy_direct(t->pid,output,&logical,sizeof(logical),1);
                     /* The query has already passed original-site seccomp.
@@ -831,8 +832,8 @@ int signal_native_call(struct thread *t,uint64_t number,uint64_t input,uint64_t 
                 }
                 if (!signal_mask(t,logical,"signal-call-logical-mask")) return 1;
                 if (!input) {
-                    t->signal_query_mask=mask;
-                    t->signal_query_active=1;
+                    t->signals.query_mask=mask;
+                    t->signals.query_active=1;
                 }
             }
             t->phase=SIGNAL_NATIVE_EXIT;
@@ -843,53 +844,53 @@ int signal_native_call(struct thread *t,uint64_t number,uint64_t input,uint64_t 
 }
 
 static int signal_native_mask_commit(struct thread *t,uint64_t mask) {
-    if (!t->signal_delivery.active) return signal_mask(t,mask,"signal-native-restore-mask");
-    int error=md_signal_delivery_update_mask(&t->signal_delivery,t->pid,mask);
+    if (!t->signals.delivery.active) return signal_mask(t,mask,"signal-native-restore-mask");
+    int error=md_signal_delivery_update_mask(&t->signals.delivery,t->pid,mask);
     if (error==-ESRCH) { t->resume_lost=1; return 0; }
-    CHECK(!error); t->signal_handler_mask_known=0;
+    CHECK(!error); t->signals.handler_mask_known=0;
     return 1;
 }
 
 void signal_native_complete(struct thread *t) {
-    if (t->signal_query_active) {
+    if (t->signals.query_active) {
         /* A pure query cannot change the mask, even on EFAULT or EINVAL.
          * No guest instruction runs in this loan; restore its exact snapshot
          * instead of reading the same mask again at the owned syscall exit. */
-        if (!signal_native_mask_commit(t,t->signal_query_mask)) return;
-        t->signal_query_active=0; t->phase=IDLE; resume(t->pid,0);
+        if (!signal_native_mask_commit(t,t->signals.query_mask)) return;
+        t->signals.query_active=0; t->phase=IDLE; resume(t->pid,0);
         return;
     }
     uint64_t mask;
     if (!save_signal_mask(t,&mask,"signal-native-exit-mask")) return;
-    t->host_signal_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
+    t->signals.host_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
     t->phase=IDLE;
-    if ((!t->signal_delivery.active && !(mask&MD_SIGNAL_SYS_BIT))
+    if ((!t->signals.delivery.active && !(mask&MD_SIGNAL_SYS_BIT))
             || signal_native_mask_commit(t,mask&~MD_SIGNAL_SYS_BIT)) resume(t->pid,0);
 }
 
 int signal_control_begin(struct thread *t,const struct user_pt_regs *r,int signal,
         const struct md_kernel_action *action,uint64_t entry_mask,const siginfo_t *info) {
-    CHECK(!t->signal_control);
+    CHECK(!t->signals.control);
     struct signal_control *owner=calloc(1,sizeof(*owner));
     if (!owner) return -ENOMEM;
     owner->signal=signal;
     owner->entry_mask=entry_mask;
     if (info) owner->entry_info=*info;
     if (action) owner->action=*action;
-    t->signal_control=owner;
-    if (r) t->original=*r;
+    t->signals.control=owner;
+    if (r) execution_capture(t,r);
     t->phase=SIGNAL_CONTROL;
     signal_control_progress(t); return 0;
 }
 
 static int signal_frame_native(const struct thread *t) {
-    return !t->host_signal_blocked && !t->signal_wait_view.active;
+    return !t->signals.host_blocked && !t->signals.wait_view.active;
 }
 
 static int signal_control_delivery(struct thread *t,int signal,struct md_task_signal_stop *stop) {
-    if (!signal || !t->host_signals || !t->entered || t->phase!=IDLE) return 0;
+    if (!signal || !t->signals.host || !t->entered || t->phase!=IDLE) return 0;
     struct md_kernel_action action;
-    if (md_signal_actions_read(t->signal_actions,signal,&action)
+    if (md_signal_actions_read(t->signals.actions,signal,&action)
             || action.handler==(uintptr_t)SIG_DFL || action.handler==(uintptr_t)SIG_IGN) return 0;
     /* A retained carrier restores the application's mask before admission.
      * A blocked signal goes back to the kernel pending queue, not through a
@@ -897,20 +898,20 @@ static int signal_control_delivery(struct thread *t,int signal,struct md_task_si
     uint64_t mask;
     /* GETSIGMASK exposes saved_sigmask while an interrupted atomic wait
      * retains TIF_RESTORE_SIGMASK. Delivery still uses its temporary mask. */
-    if (t->signal_return_pending && t->signal_wait_view.active)
-        mask=t->signal_wait_view.temporary;
+    if (t->signals.return_pending && t->signals.wait_view.active)
+        mask=t->signals.wait_view.temporary;
     else if (!tracee_request(t,PTRACE_GETSIGMASK,(void *)sizeof(mask),&mask,"handler-delivery-mask")) return 1;
     if (mask&(UINT64_C(1)<<(signal-1))) return 0;
-    if (signal_frame_native(t) && md_signal_actions_exclusive(t->signal_actions)
-            && !md_signal_actions_entry(t->signal_actions,signal)) {
+    if (signal_frame_native(t) && md_signal_actions_exclusive(t->signals.actions)
+            && !md_signal_actions_entry(t->signals.actions,signal)) {
         /* No peer can replace this disposition between selection and native
          * frame construction. The saved frame is already logical; the native
          * action keeps SIGSYS clear while its logical handler mask is owned
          * here. No frame edit or commit stop is necessary. */
         struct md_kernel_action entered;
-        CHECK(!md_signal_actions_enter(t->signal_actions,signal,&entered));
+        CHECK(!md_signal_actions_enter(t->signals.actions,signal,&entered));
         uint64_t saved=mask;
-        t->host_signal_blocked=!!(md_signal_view_enter(signal,&entered,0,NULL,&saved)&MD_SIGNAL_SYS_BIT);
+        t->signals.host_blocked=!!(md_signal_view_enter(signal,&entered,0,NULL,&saved)&MD_SIGNAL_SYS_BIT);
         resume(t->pid,signal); return 1;
     }
     int error=signal_control_begin(t,NULL,signal,&action,mask,stop && stop->has_info ? &stop->info : NULL);
@@ -922,7 +923,7 @@ static int signal_control_delivery(struct thread *t,int signal,struct md_task_si
 }
 
 int signal_control_event(struct thread *t,int status) {
-    struct signal_control *owner=t->signal_control;
+    struct signal_control *owner=t->signals.control;
     if (!owner || owner->retiring || !owner->started || !WIFSTOPPED(status)
             || (unsigned)status>>16==PTRACE_EVENT_EXIT || (unsigned)status>>16==PTRACE_EVENT_EXEC) return 0;
     if (owner->entry_packet) {
@@ -968,13 +969,13 @@ int signal_control_event(struct thread *t,int status) {
     if (t->phase!=SIGNAL_ENTRY || (unsigned)status>>16!=PTRACE_EVENT_STOP
             || WSTOPSIG(status)!=SIGTRAP) return 0;
     struct md_kernel_action entered;
-    CHECK(!md_signal_actions_enter(t->signal_actions,owner->signal,&entered));
-    if (!t->signal_wait_view.active) {
+    CHECK(!md_signal_actions_enter(t->signals.actions,owner->signal,&entered));
+    if (!t->signals.wait_view.active) {
         uint64_t saved=owner->entry_mask;
-        uint64_t next=md_signal_view_enter(owner->signal,&owner->action,t->host_signal_blocked,NULL,&saved);
-        if (t->host_signal_blocked
+        uint64_t next=md_signal_view_enter(owner->signal,&owner->action,t->signals.host_blocked,NULL,&saved);
+        if (t->signals.host_blocked
                 && !signal_mask(t,next&~MD_SIGNAL_SYS_BIT,"handler-frame-native-mask")) return 1;
-        t->host_signal_blocked=!!(next&MD_SIGNAL_SYS_BIT);
+        t->signals.host_blocked=!!(next&MD_SIGNAL_SYS_BIT);
         signal_control_discard(t); t->phase=IDLE; resume(t->pid,0); return 1;
     }
     struct user_pt_regs regs;
@@ -984,48 +985,48 @@ int signal_control_event(struct thread *t,int status) {
     struct md_buffer_span span={0};
     if (owner->scratch.pool) CHECK(!md_buffer_span(&owner->scratch,&span));
     int ready=md_task_signal_wait_entry_begin(&owner->control,native_trace,t->pid,&regs,
-        abi.task_call,abi.task_return,t->signal_actions,&t->host_signal_blocked,&owner->action,
-        &t->signal_wait_view,span.data,
+        abi.task_call,abi.task_return,t->signals.actions,&t->signals.host_blocked,&owner->action,
+        &t->signals.wait_view,span.data,
         owner->scratch.pool ? md_memory_buffer_address(t->memory,&owner->scratch) : 0,span.size);
-    t->signal_wait_view.active=0;
+    t->signals.wait_view.active=0;
     signal_control_finish(t,ready); return 1;
 }
 
 void child_signals_observe(struct thread *t,int status) {
-    if (!t || !WIFSTOPPED(status) || !md_signal_pending_child_dirty(t->signal_pending)) return;
+    if (!t || !WIFSTOPPED(status) || !md_signal_pending_child_dirty(t->signals.pending)) return;
     if (!((unsigned)status>>16) && WSTOPSIG(status)==SIGCHLD) {
         siginfo_t info;
         if (native_trace(PTRACE_GETSIGINFO,t->pid,NULL,&info)<0) { CHECK(errno==ESRCH); return; }
         struct md_signal_origin origin;
-        signal_origin_capture(t,&info,&origin); t->signal_origin=origin;
+        signal_origin_capture(t,&info,&origin); t->signals.origin=origin;
     }
     if (!child_signals_capture(t)) return;
-    md_signal_pending_child_observed(t->signal_pending);
+    md_signal_pending_child_observed(t->signals.pending);
     pid_collection_pending=1;
 }
 
-void signals_buffer_control(struct thread *t,const struct user_pt_regs *r) {
+void signals_buffer_control(struct thread *t,const struct supervisor_control_request *control) {
     long result=-EINVAL;
-    switch (r->regs[0]) {
+    switch (control->command) {
     case MD_BUFFER_SIGNAL_ENABLE: {
         struct { struct md_kernel_action action; uint64_t mask; } initial;
         if (t->entered || t->phase!=IDLE || !md_memory_buffers(t->memory)
-                || r->regs[2]!=sizeof(initial)) break;
-        ssize_t copied=md_task_copy_direct(t->pid,r->regs[1],&initial,sizeof(initial),0);
+                || control->args[1]!=sizeof(initial)) break;
+        ssize_t copied=md_task_copy_direct(t->pid,control->args[0],&initial,sizeof(initial),0);
         if (copied!=sizeof(initial)) { result=copied<0 ? copied : -EFAULT; break; }
-        if (!t->signal_actions) {
+        if (!t->signals.actions) {
             /* This first bootstrap handshake follows the native exec event.
              * Later images and clone children already retain their owner. */
-            t->signal_actions=md_signal_actions_exec(NULL);
-            if (!t->signal_actions) { result=-ENOMEM; break; }
-            result=md_signal_actions_commit(t->signal_actions,SIGSYS,&initial.action);
+            t->signals.actions=md_signal_actions_exec(NULL);
+            if (!t->signals.actions) { result=-ENOMEM; break; }
+            result=md_signal_actions_commit(t->signals.actions,SIGSYS,&initial.action);
             if (result) break;
-            t->host_signal_blocked=!!(initial.mask&MD_SIGNAL_SYS_BIT);
+            t->signals.host_blocked=!!(initial.mask&MD_SIGNAL_SYS_BIT);
         }
-        if (!t->signal_pending) t->signal_pending=md_signal_pending_new();
-        if (!t->signal_pending) { result=-ENOMEM; break; }
-        md_signal_actions_entry_configure(t->signal_actions,abi.signal_entry);
-        t->host_signals=1; result=0;
+        if (!t->signals.pending) t->signals.pending=md_signal_pending_new();
+        if (!t->signals.pending) { result=-ENOMEM; break; }
+        md_signal_actions_entry_configure(t->signals.actions,abi.signal_entry);
+        t->signals.host=1; result=0;
         break;
     }
     }
@@ -1068,7 +1069,7 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
     }
     if ((sig == SIGSEGV || sig == SIGBUS) && t->phase == STORING_IDS) {
         if (regs.pc >= STORE_IDS && regs.pc < STORED_IDS) {
-            regs = t->original; regs.regs[0] = (uint64_t)-EFAULT;
+            regs = t->execution.registers; regs.regs[0] = (uint64_t)-EFAULT;
             if (!set_registers(pid, &regs) || !restore_mask(t)) return;
             t->phase = IDLE; resume(pid, 0); return;
         }
@@ -1077,15 +1078,15 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
             && regs.pc>=abi.store_groups && regs.pc<abi.stored_groups) {
         /* Linux ignores a failed CLONE_*SETTID store. The child still
          * exists; never report a second failed clone to its parent. */
-        if (!set_registers(pid,&t->original) || !restore_mask(t)) return;
+        if (!set_registers(pid,&t->execution.registers) || !restore_mask(t)) return;
         t->phase=IDLE; resume(pid,0); return;
     }
     if ((sig==SIGSEGV || sig==SIGBUS) && ((t->phase==PROCESS_INFO_LOAD
             && regs.pc>=abi.load_groups && regs.pc<abi.loaded_groups)
             || ((t->phase==PROCESS_INFO_STORE || t->phase==PROCESS_VALUE_STORE)
                 && regs.pc>=abi.store_groups && regs.pc<abi.stored_groups))) {
-        t->process_return.regs[0]=(uint64_t)-EFAULT;
-        if (!set_registers(pid,&t->process_return) || !restore_mask(t)) return;
+        t->process_op.returned.regs[0]=(uint64_t)-EFAULT;
+        if (!set_registers(pid,&t->process_op.returned) || !restore_mask(t)) return;
         t->phase=IDLE; resume(pid,0); return;
     }
     if (sig == SIGSEGV && t->phase == LOADING_PATH && regs.pc == LOAD_BYTE) {
@@ -1115,9 +1116,9 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
             for (i = 0; i < 64; i++) {
                 struct denial *d = &denials[i];
                 if (!d->count) *d = (struct denial){.nr = info.si_syscall,
-                    .adapted = t->phase == IDLE ? 0 : t->original.regs[8], .phase = t->phase};
+                    .adapted = t->phase == IDLE ? 0 : t->execution.request.nr, .phase = t->phase};
                 if (d->nr == (unsigned)info.si_syscall && d->phase == t->phase
-                        && d->adapted == (t->phase == IDLE ? 0 : t->original.regs[8])) {
+                        && d->adapted == (t->phase == IDLE ? 0U : (unsigned)t->execution.request.nr)) {
                     d->count++; break;
                 }
             }
@@ -1125,13 +1126,13 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
                 deliver_signal(pid,sig,restored_signal,signal_stop); return;
             }
         }
-        SUPERVISOR_SIGNAL_TRACE("PROBE signal pid=%d signal=%d code=%d pc=%#llx nr=%llu phase=%d adapted=%llu address=%p\n",
-            pid, sig, info.si_code, regs.pc, regs.regs[8], t->phase, t->original.regs[8], info.si_addr);
+        SUPERVISOR_SIGNAL_TRACE("PROBE signal pid=%d signal=%d code=%d pc=%#llx nr=%llu phase=%d adapted=%d address=%p\n",
+            pid, sig, info.si_code, regs.pc, regs.regs[8], t->phase, t->execution.request.nr, info.si_addr);
         SUPERVISOR_SIGNAL_TRACE("PROBE signal-context pid=%d group=%d sp=%#llx lr=%#llx x0=%#llx shielded=%d logicalSigsys=%d\n",
-            pid,t->tgid,regs.sp,regs.regs[30],regs.regs[0],t->signal_shielded,t->host_signal_blocked);
-        if ((diagnostics || signal_diagnostics) && t->process_image) {
+            pid,t->tgid,regs.sp,regs.regs[30],regs.regs[0],t->signals.shielded,t->signals.host_blocked);
+        if ((diagnostics || signal_diagnostics) && t->image.process_image) {
             char image[PATH_MAX];
-            ssize_t length=md_process_image_link(pid,t->process_image,-1,image,sizeof(image));
+            ssize_t length=md_process_image_link(pid,t->image.process_image,-1,image,sizeof(image));
             if (length>0) SUPERVISOR_SIGNAL_TRACE("PROBE signal-image pid=%d path=%.*s\n",pid,(int)length,image);
         }
         if (sig == SIGSYS)

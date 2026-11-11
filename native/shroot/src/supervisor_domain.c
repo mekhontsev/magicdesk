@@ -60,7 +60,7 @@ static int domain_path_apply(struct thread *t, long nr, const char *path) {
 }
 
 void domain_path_finish(struct thread *t, int error) {
-    struct user_pt_regs r = t->original;
+    struct user_pt_regs r = t->execution.registers;
     if (!error && guest_root_path(t, r.regs[8])) {
         dispatch_with_stack(t); return;
     }
@@ -73,8 +73,8 @@ void domain_path_finish(struct thread *t, int error) {
 static void domain_path_load(struct thread *t) {
     size_t offset = t->metadata.path_size;
     if (offset == sizeof(t->metadata.path)) { domain_path_finish(t, -ENAMETOOLONG); return; }
-    if (t->original.regs[0] > UINTPTR_MAX - offset) { domain_path_finish(t, -EFAULT); return; }
-    struct user_pt_regs r = t->original;
+    if (t->execution.request.args[0] > UINTPTR_MAX - offset) { domain_path_finish(t, -EFAULT); return; }
+    struct user_pt_regs r = t->execution.registers;
     r.pc = LOAD_BYTE; r.regs[0] += offset;
     if (!set_registers(t->pid, &r)) return;
     t->phase = DOMAIN_PATH; resume(t->pid, 0);
@@ -86,8 +86,8 @@ static void domain_path_call(struct thread *t, struct user_pt_regs *r) {
     if (error != -EPERM && error != -EACCES) {
         if (!error && guest_root_path(t, r->regs[8])) {
             CHECK(t->ready && t->phase == IDLE);
-            t->original = *r;
-            if (!save_signal_mask(t,&t->mask,"get-mask")
+            execution_capture(t,r);
+            if (!save_signal_mask(t,&t->execution.mask,"get-mask")
                     || !shield(t) || !skip(t->pid)) return;
             dispatch_with_stack(t); return;
         }
@@ -95,26 +95,26 @@ static void domain_path_call(struct thread *t, struct user_pt_regs *r) {
         return_value(t, r, error); return;
     }
     CHECK(t->ready && t->phase == IDLE);
-    t->original = *r; t->metadata.path_size = 0;
-    if (!save_signal_mask(t,&t->mask,"get-mask")
+    execution_capture(t,r); t->metadata.path_size = 0;
+    if (!save_signal_mask(t,&t->execution.mask,"get-mask")
             || !shield(t) || !skip(t->pid)) return;
     domain_path_load(t);
 }
 
-void domain_buffer_control(struct thread *t,const struct user_pt_regs *r) {
+void domain_buffer_control(struct thread *t,const struct supervisor_control_request *control) {
     long result=-EINVAL;
-    switch (r->regs[0]) {
+    switch (control->command) {
     case MD_BUFFER_UTS: {
-        if (!t->buffer.pool || t->buffer_open.fd>=0 || t->phase!=DISPATCHING || r->regs[1] || r->regs[2]) break;
-        long nr=t->original.regs[8];
+        if (!t->fs.buffer.pool || t->fs.open.fd>=0 || t->phase!=DISPATCHING || control->args[0] || control->args[1]) break;
+        long nr=t->execution.request.nr;
         if (nr!=SYS_uname && nr!=SYS_sethostname && nr!=SYS_setdomainname) break;
         struct md_buffer_span span;
-        result=md_buffer_span(&t->buffer,&span);
+        result=md_buffer_span(&t->fs.buffer,&span);
         if (!result && !t->resources.uts) result=-ENOTSUP;
         if (!result && nr==SYS_uname) md_uts_namespace_read(t->resources.uts,span.data);
         else if (!result) {
             result=uts_access(t,nr);
-            if (!result) result=md_uts_namespace_set(t->resources.uts,nr==SYS_setdomainname,span.data,t->original.regs[1]);
+            if (!result) result=md_uts_namespace_set(t->resources.uts,nr==SYS_setdomainname,span.data,t->execution.request.args[1]);
         }
         break;
     }
@@ -124,19 +124,19 @@ void domain_buffer_control(struct thread *t,const struct user_pt_regs *r) {
 
 void setns_complete(struct thread *t,int error) {
     CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,error));
-    struct md_buffer_span span; CHECK(!md_buffer_span(&t->buffer,&span));
+    struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
     ((struct md_pidfd_frame *)span.data)->result=error;
     buffer_reply(t,MD_PIDFD_DONE);
 }
 
 void setns_prepared(struct thread *t,long error) {
-    if (!error && t->resource_change.pid_children_pending && !t->pid_filter) {
+    if (!error && t->resource_change.pid_children_pending && !t->process_op.filter) {
         struct user_pt_regs continuation;
         if (registers(t->pid,&continuation)) pid_filter_begin(t,&continuation,setns_prepared);
         return;
     }
     if (!error && t->resource_change.join_mounts) {
-        error=md_mount_join_submit(mount_copy_service,t->pid,t->resource_change.join_mounts,&t->mount_copy);
+        error=md_mount_join_submit(mount_copy_service,t->pid,t->resource_change.join_mounts,&t->descriptors.mount_copy);
         /* EVENT_WAIT: selected namespace root/cwd resolution. Cancellation
          * discards the entire unpublished namespace/credential candidate. */
         if (!error) return;
@@ -144,15 +144,15 @@ void setns_prepared(struct thread *t,long error) {
     setns_complete(t,error);
 }
 
-int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) {
-    long nr = r->regs[8];
+int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r, unsigned long cookie) {
+    long nr = call->nr;
     /* Descriptor-table ioctls retain native validation and FD bookkeeping;
      * a managed/offline socket does not give them network semantics. */
     if (cookie==MD_INTERCEPT_FD && nr==SYS_ioctl) return 0;
     if (nr==SYS_reboot && t->phase==IDLE) {
         if (entry_context(t,MD_CONTEXT_PROCESS)) return 1;
         struct md_pid_namespace *space=md_pid_identity_namespace(t->resources.pid);
-        int error=md_pid_namespace_reboot(space,&t->identity,r->regs[0],r->regs[1],r->regs[2]);
+        int error=md_pid_namespace_reboot(space,&t->identity,call->args[0],call->args[1],call->args[2]);
         if (error<0) { return_value(t,r,error); return 1; }
         struct md_pid_identity *init=md_pid_namespace_lookup(space,1);
         pid_t target=md_pid_identity_native(init);
@@ -172,8 +172,8 @@ int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) 
             resume(t->pid,0);
         return 1;
     }
-    if (t->ready && t->entered && t->phase==IDLE && cookie==MD_INTERCEPT_OBSERVE && r->pc!=RAW_GATE
-            && md_seccomp_filter_call(nr,r->regs[0],r->regs[1])) {
+    if (t->ready && t->entered && t->phase==IDLE && cookie==MD_INTERCEPT_OBSERVE && call->instruction_pointer!=RAW_GATE
+            && md_seccomp_filter_call(nr,call->args[0],call->args[1])) {
         if (entry_context(t,MD_CONTEXT_POLICY)) return 1;
         /* Revoke existing entries before filter commit, including TSYNC. The
          * guest preflight revokes new registration in its own address space;
@@ -181,84 +181,84 @@ int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) 
         if (!filter_revoke_entry(t,r)) return 1;
         filter_install_begin(t,r); return 1;
     }
-    if (t->phase==PROCESS_INIT_EXIT && nr==SYS_prctl && r->pc==RAW_GATE
-            && r->regs[0]==PR_SET_CHILD_SUBREAPER && r->regs[1]==1
-            && !r->regs[2] && !r->regs[3] && !r->regs[4] && !r->regs[5]) {
+    if (t->phase==PROCESS_INIT_EXIT && nr==SYS_prctl && call->instruction_pointer==RAW_GATE
+            && call->args[0]==PR_SET_CHILD_SUBREAPER && call->args[1]==1
+            && !call->args[2] && !call->args[3] && !call->args[4] && !call->args[5]) {
         /* This is the namespace owner's pending birth operation, not a guest
          * request against its restricted root. Kernel filters still apply. */
         resume(t->pid,0); return 1;
     }
-    if (t->phase==IDLE && !t->pid_filter
-            && ((nr==SYS_clone || nr==SYS_unshare) && (r->regs[0]&CLONE_NEWPID))) {
+    if (t->phase==IDLE && !t->process_op.filter
+            && ((nr==SYS_clone || nr==SYS_unshare) && (call->args[0]&CLONE_NEWPID))) {
         if (entry_context(t,MD_CONTEXT_BIRTH)) return 1;
-        t->pid_preflight=1;
-        execution_begin(t,r,"pid-filter-mask");
+        t->process_op.preflight=1;
+        execution_begin(t,call,r,"pid-filter-mask");
         return 1;
     }
     if (nr == SYS_socket) {
-        int error = md_domain_socket_error((int)r->regs[0], (int)r->regs[2]);
+        int error = md_domain_socket_error((int)call->args[0], (int)call->args[2]);
         if (error) { return_value(t, r, error); return 1; }
     }
     if (t->ready && t->phase==IDLE) {
         struct md_fd_object *object=network_descriptor_call(nr)
-            ? md_fd_origins_object(t->resources.files,(int)r->regs[0],NULL) : NULL;
+            ? md_fd_origins_object(t->resources.files,(int)call->args[0],NULL) : NULL;
         int control=md_network_socket_control(object) || md_network_endpoint_is(object) || md_device_events_is(object)
-            || (nr==SYS_ioctl && md_network_interface_ioctl(r->regs[1]) && md_network_socket_namespace(object));
-        int native_payload=md_socket_payload_native(nr,r->regs[4])
+            || (nr==SYS_ioctl && md_network_interface_ioctl(call->args[1]) && md_network_socket_namespace(object));
+        int native_payload=md_socket_payload_native(nr,call->args[4])
             && !md_network_socket_control(object) && !md_device_events_is(object);
         md_fd_object_release(object);
         /* No pathname, peer address or ancillary result needs adaptation.
          * Keep blocking IO at its original PC/mask so signals and a debugger
          * interrupt do not wait for an internal adapter to finish reading. */
         if (native_payload) { native_resume(t); return 1; }
-        int devices=nr==SYS_socket && r->regs[0]==AF_NETLINK && r->regs[2]==NETLINK_KOBJECT_UEVENT
+        int devices=nr==SYS_socket && call->args[0]==AF_NETLINK && call->args[2]==NETLINK_KOBJECT_UEVENT
             && md_fs_worker_device_events(filesystem);
         if (control || devices || (nr==SYS_socket && md_network_namespace_managed(t->resources.network))) {
-            execution_begin(t,r,"network-call-mask");
+            execution_begin(t,call,r,"network-call-mask");
             return 1;
         }
     }
     if (t->ready && t->phase==IDLE && (nr==SYS_bind || nr==SYS_connect || nr==SYS_listen
             || nr==SYS_setsockopt || nr==SYS_ioctl)) {
-        struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)r->regs[0],NULL);
+        struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)call->args[0],NULL);
         int offline=md_network_socket_offline(object); md_fd_object_release(object);
         /* Namespace-mutating ioctls and Unix autobind must not reach Android's
          * network. Ordinary inherited descriptions keep their own authority. */
-        if (offline && (nr!=SYS_setsockopt || (r->regs[1]==SOL_SOCKET && r->regs[2]==SO_PASSCRED))) {
+        if (offline && (nr!=SYS_setsockopt || (call->args[1]==SOL_SOCKET && call->args[2]==SO_PASSCRED))) {
             return_value(t,r,nr==SYS_ioctl ? -ENOTTY : -EOPNOTSUPP); return 1;
         }
     }
-    if (t->ready && t->phase==IDLE && nr==SYS_ioctl && (md_terminal_attributes_command((unsigned)r->regs[1])
-            || md_pidfd_namespace_command((unsigned)r->regs[1])
-            || md_filesystem_ioctl_command((unsigned)r->regs[1]))) {
-        execution_begin(t,r,"descriptor-ioctl-mask");
+    if (t->ready && t->phase==IDLE && nr==SYS_ioctl && (md_terminal_attributes_command((unsigned)call->args[1])
+            || md_pidfd_namespace_command((unsigned)call->args[1])
+            || md_filesystem_ioctl_command((unsigned)call->args[1]))) {
+        execution_begin(t,call,r,"descriptor-ioctl-mask");
         return 1;
     }
     if (nr == SYS_unshare) {
         CHECK(t->phase == IDLE);
-        if (!(r->regs[0]&CLONE_NEWUSER) && md_resources_namespace_flags(r->regs[0])
+        if (!(call->args[0]&CLONE_NEWUSER) && md_resources_namespace_flags(call->args[0])
                 && !md_identity_capable(&t->identity,CAP_SYS_ADMIN)) {
             return_value(t,r,-EPERM); return 1;
         }
-        fd_begin(t,r,0);
+        if (!entry_context(t,MD_CONTEXT_DESCRIPTOR)) fd_begin(t,r,0);
         return 1;
     }
     if (nr == SYS_setns) {
         if (entry_context(t,MD_CONTEXT_NAMESPACE)) return 1;
-        execution_begin(t,r,"namespace-entry-mask");
+        execution_begin(t,call,r,"namespace-entry-mask");
         return 1;
     }
-    if (nr==SYS_clone3 && !t->clone_prepared) {
+    if (nr==SYS_clone3 && !t->process_op.clone_prepared) {
         if (entry_context(t,MD_CONTEXT_BIRTH)) return 1;
         CHECK(t->phase==IDLE);
-        execution_begin(t,r,"clone-arguments-mask");
+        execution_begin(t,call,r,"clone-arguments-mask");
         return 1;
     }
     if (md_clone_call(nr)) {
         if (entry_context(t,MD_CONTEXT_BIRTH)) return 1;
-        unsigned long flags=r->regs[0];
+        unsigned long flags=call->args[0];
         if (nr==SYS_clone3) {
-            struct md_buffer_span span; CHECK(!md_buffer_span(&t->buffer,&span));
+            struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
             flags=((struct clone_args *)span.data)->flags;
         }
         if ((flags&CLONE_PARENT) && md_pid_identity_number(t->resources.pid_group,
@@ -272,7 +272,7 @@ int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) 
                 && !md_identity_capable(&t->identity,CAP_SYS_ADMIN)) {
             return_value(t,r,-EPERM); return 1;
         }
-        t->cloning=flags; return 0;
+        t->process_op.cloning=flags; return 0;
     }
     if (nr == SYS_chroot) {
         if ((admitted_path || virtual_identity) && !md_identity_may_chroot(&t->identity)) return_value(t, r, -EPERM);
@@ -291,16 +291,16 @@ int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) 
      * kernel table mutation. A restricted root does not turn that dispatch
      * into an unobserved native dup, losing the retained object's identity. */
     if (cookie==MD_INTERCEPT_DISPATCH && (nr==SYS_dup || nr==SYS_dup3
-            || (nr==SYS_fcntl && ((unsigned)r->regs[1]==F_DUPFD
-                || (unsigned)r->regs[1]==F_DUPFD_CLOEXEC)))) return 0;
+            || (nr==SYS_fcntl && ((unsigned)call->args[1]==F_DUPFD
+                || (unsigned)call->args[1]==F_DUPFD_CLOEXEC)))) return 0;
     /* These selectors operate on retained descriptions, not paths. Their
      * owners validate typed IO and recheck reused slots before native IO;
      * a restricted root must not revoke an already opened pipe or proc file. */
     if (cookie==MD_INTERCEPT_PROC || cookie==MD_INTERCEPT_WATCH) return 0;
     if (t->phase==PROC_OPENING && t->metadata.task_open && cookie==MD_INTERCEPT_NATIVE
-            && nr==SYS_openat && (int)r->regs[0]==t->metadata.proc_directory
-            && r->regs[1]==abi.proc_open_path && r->regs[2]==t->metadata.request.data.args[2]
-            && !r->regs[3]
+            && nr==SYS_openat && (int)call->args[0]==t->metadata.proc_directory
+            && call->args[1]==abi.proc_open_path && call->args[2]==t->metadata.request.data.args[2]
+            && !call->args[3]
             && md_fd_order_state(&t->metadata.files)==MD_RESOURCE_ORDER_RUNNING) {
         resume(t->pid,0); return 1;
     }
@@ -308,7 +308,7 @@ int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) 
     if (nr == SYS_uname && cookie == MD_INTERCEPT_DISPATCH) return 0;
     if (cookie==MD_INTERCEPT_DISPATCH && (md_domain_ipc_call(nr) || nr==SYS_pipe2)) return 0;
     if (nr == SYS_kill || nr == SYS_tgkill || nr == SYS_tkill) {
-        long target = (long)r->regs[nr == SYS_tgkill ? 1 : 0];
+        long target = (long)call->args[nr == SYS_tgkill ? 1 : 0];
         struct thread *destination = target > 0 ? find_thread(target) : NULL;
         if (destination && destination->born) {
             native_resume(t); return 1;
@@ -316,7 +316,7 @@ int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) 
         return_value(t, r, -EPERM); return 1;
     }
     unsigned long args[6];
-    for (unsigned i = 0; i < 6; i++) args[i] = r->regs[i];
+    for (unsigned i = 0; i < 6; i++) args[i] = call->args[i];
     if (md_domain_native_call(nr, args)) {
         if (cookie == MD_INTERCEPT_OBSERVE || cookie == MD_INTERCEPT_WATCH
                 || cookie==MD_INTERCEPT_FD || cookie==MD_INTERCEPT_PROC || cookie==MD_INTERCEPT_MEMORY) return 0;

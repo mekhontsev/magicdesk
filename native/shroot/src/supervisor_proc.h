@@ -25,7 +25,7 @@ int proc_path_capture(pid_t actor,pid_t process,unsigned kind,struct md_task_sna
 void proc_io_progress(struct thread *t);
 void proc_io_begin(struct thread *t);
 int proc_write_direct(struct thread *t);
-void proc_buffer_control(struct thread *t,const struct user_pt_regs *r);
+void proc_buffer_control(struct thread *t,const struct supervisor_control_request *control);
 void proc_lookup_start(struct thread *t);
 void proc_lookup_begin(struct thread *t,const struct user_pt_regs *regs);
 

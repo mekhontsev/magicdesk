@@ -108,7 +108,7 @@ long quiesce_trace(int request,pid_t pid,void *address,void *data) {
          * before guest execution, after the barrier has relinquished ownership. */
         if (t && md_debugger_traced(debugger,pid)) {
             CHECK(!data);
-            t->memory_resume=1; t->kernel_stopped=1;
+            t->memory_op.resume=1; t->kernel_stopped=1;
             return 0;
         }
     }
@@ -122,11 +122,11 @@ long quiesce_trace(int request,pid_t pid,void *address,void *data) {
          * poll after the barrier releases. Retain the service wake through
          * both entry and wait; it must not become application EINTR.
          * Ordinary guest syscalls keep kernel restart semantics. */
-        if (t && (t->phase==IPC_WAIT_ENTRY || t->phase==IPC_WAITING)) t->ipc_waking=1;
+        if (t && (t->phase==IPC_WAIT_ENTRY || t->phase==IPC_WAITING)) t->io.waking=1;
         if (t && (t->phase==SOCKET_WAIT_ENTRY || t->phase==SOCKET_WAITING
-                || t->phase==EPOLL_CALL || t->phase==EPOLL_WAIT)) t->socket_waking=1;
-        if (t && (t->phase==DEBUG_PARK_ENTRY || t->phase==DEBUG_PARK_EXIT)) t->debug_wait_waking=1;
-        if (t && t->signal_control) md_task_signal_control_quiesced(&t->signal_control->control);
+                || t->phase==EPOLL_CALL || t->phase==EPOLL_WAIT)) t->io.socket_waking=1;
+        if (t && (t->phase==DEBUG_PARK_ENTRY || t->phase==DEBUG_PARK_EXIT)) t->debug.wait_waking=1;
+        if (t && t->signals.control) md_task_signal_control_quiesced(&t->signals.control->control);
     }
     /* Only barrier release restores this unchanged guest continuation.
      * Injected helper execution must retain the broker's stopped state. */
@@ -154,7 +154,7 @@ int quiesce_task_add(struct md_task_quiesce *barrier,struct thread *t,int stoppe
      * Waiting for another INTERRUPT can deadlock the child's own continuation.
      * Existing interrupt/birth owners supply their event without another request. */
     return md_task_quiesce_add(barrier,t->pid,
-        stopped || t->kernel_stopped || t->listening || t->vfork_child,
+        stopped || t->kernel_stopped || t->listening || t->process_op.vfork_child,
         t->interrupt_pending || birth_stop_pending(t) ? 0 : t->kernel_resume);
 }
 
@@ -253,12 +253,12 @@ void task_action_discard(struct thread *t) {
 
 void task_action_unpark(void) {
     for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid) {
-        if (peer->memory_notification) {
-            struct seccomp_notif *n=peer->memory_notification; peer->memory_notification=NULL;
+        if (peer->memory_op.notification) {
+            struct seccomp_notif *n=peer->memory_op.notification; peer->memory_op.notification=NULL;
             handle_notification(n); free(n);
         }
-        if (peer->memory_resume) {
-            int signal=peer->memory_signal; peer->memory_resume=peer->memory_signal=0;
+        if (peer->memory_op.resume) {
+            int signal=peer->memory_op.signal; peer->memory_op.resume=peer->memory_op.signal=0;
             resume(peer->pid,signal);
         }
     }
@@ -309,7 +309,7 @@ static void task_action_call_complete(long result,int retry) {
     } else if (!owner->capture && !result && !retry) {
         if (owner->pid_filter) {
             for (struct thread *peer=threads;peer;peer=peer->next)
-                if (peer->pid && peer->tgid==actor->tgid) peer->pid_filter=1;
+                if (peer->pid && peer->tgid==actor->tgid) peer->process_op.filter=1;
         } else result=md_fd_selector_installed(owner->group,owner->kind,
             owner->selector_number,owner->selector_instructions);
         if (!result) for (struct thread *peer=threads;peer;peer=peer->next)
@@ -361,7 +361,7 @@ int task_checkpoint_borrow(struct thread *actor,int *owned) {
     /* A parked signal wait already owns checkpoint decoding, but its native
      * call can be restoring a SYSEMU entry when interrupted. The decoder's
      * suspended snapshot predates that call; the live resume owns skip state. */
-    if (signal_control_parked(actor) && actor->signal_control->checkpoint_suspended)
+    if (signal_control_parked(actor) && actor->signals.control->checkpoint_suspended)
         return actor->kernel_resume==PTRACE_SYSEMU;
     int boundary=md_task_checkpoint_suspend(&checkpoints,actor->pid);
     if (boundary>=0) *owned=1;
@@ -419,7 +419,7 @@ static void task_action_call_start(struct task_action *owner) {
         }
         if (!error) {
             actor->terminal_observation=1; actor->trace_options_dirty=1;
-            error=debugger_options(actor->pid,actor->debug_options);
+            error=debugger_options(actor->pid,actor->debug.options);
         }
         if (!error) {
             struct md_task_helper_request request={.kind=MD_TASK_HELPER_CAPTURE,
@@ -465,28 +465,28 @@ static void task_action_call_start(struct task_action *owner) {
 }
 
 static int selector_peer_ready(struct thread *peer,unsigned kind,int number) {
-    int ready=md_fd_selector_has(peer->fd_selector,kind,number);
-    if (ready || !peer->vfork_child) return ready;
+    int ready=md_fd_selector_has(peer->descriptors.selector,kind,number);
+    if (ready || !peer->process_op.vfork_child) return ready;
     /* The kernel will not run this parent until its vfork child releases the
      * mm. Retain only bounded selector requirements, never hold the child's
      * publication hostage to a task-affine call in that suspended parent. */
-    if (!peer->deferred_selector) peer->deferred_selector=md_fd_selector_new();
-    if (!peer->deferred_selector) return -ENOMEM;
-    ready=md_fd_selector_has(peer->deferred_selector,kind,number);
+    if (!peer->descriptors.deferred_selector) peer->descriptors.deferred_selector=md_fd_selector_new();
+    if (!peer->descriptors.deferred_selector) return -ENOMEM;
+    ready=md_fd_selector_has(peer->descriptors.deferred_selector,kind,number);
     if (ready<0) return ready;
     if (!ready) {
-        int error=md_fd_selector_mark(peer->deferred_selector,kind,number);
+        int error=md_fd_selector_mark(peer->descriptors.deferred_selector,kind,number);
         if (error) return error;
     }
     return 1;
 }
 
 int selector_has(struct thread *t,unsigned kind,int number) {
-    int ready=md_fd_selector_has(t->fd_selector,kind,number);
+    int ready=md_fd_selector_has(t->descriptors.selector,kind,number);
     if (ready<=0 || number<0) return ready;
     for (struct thread *peer=threads;peer;peer=peer->next)
         if (peer->pid && peer->born && peer->resources.files==t->resources.files
-                && peer->fd_selector!=t->fd_selector) {
+                && peer->descriptors.selector!=t->descriptors.selector) {
             ready=selector_peer_ready(peer,kind,number);
             if (ready<=0) return ready;
         }
@@ -497,15 +497,15 @@ static int task_files_queued(const struct thread *p) {
     /* The table turn has not begun, so none of these owners may execute
      * task-affine work yet. Keep eligibility tied to resource state, not to
      * a syscall family or a scheduler's retry bit. */
-    const struct md_fd_order *turns[]={&p->fd_order,&p->proc_lookup,&p->memory_files,
-        &p->metadata.files,&p->buffer_descriptor_order,&p->buffer_return.files,
-        &p->proc_delivery.files,p->readiness ? &p->readiness->files : NULL,
+    const struct md_fd_order *turns[]={&p->descriptors.order,&p->proc.lookup,&p->memory_op.files,
+        &p->metadata.files,&p->fs.descriptor_order,&p->fs.returned.files,
+        &p->proc.delivery.files,p->readiness ? &p->readiness->files : NULL,
         p->readiness ? &p->readiness->loans[p->readiness->lending].delivery.files : NULL,
-        p->outgoing ? &p->outgoing->files : NULL,p->receive ? &p->receive->files : NULL,
-        p->mapping ? &p->mapping->files : NULL,p->signal_control ? &p->signal_control->files : NULL};
+        p->io.outgoing ? &p->io.outgoing->files : NULL,p->io.receive ? &p->io.receive->files : NULL,
+        p->memory_op.mapping ? &p->memory_op.mapping->files : NULL,p->signals.control ? &p->signals.control->files : NULL};
     for (unsigned i=0;i<sizeof(turns)/sizeof(*turns);++i)
         if (md_fd_order_state(turns[i])==MD_RESOURCE_ORDER_QUEUED) return 1;
-    return md_fs_buffer_waiting_files(p->buffer_call)
+    return md_fs_buffer_waiting_files(p->fs.call)
         || md_fs_buffer_waiting_files(p->metadata.stat_call);
 }
 
@@ -530,8 +530,8 @@ int task_action_borrowable(struct thread *p,struct thread *requester) {
      * mutation or newborn awaiting its first stop. */
     int waiter=p->kernel_stopped && (task_files_queued(p)
         || (p->action && !task_action_call(p->action)->stage));
-    int mapping_active=p->mapping
-        && md_fd_order_state(&p->mapping->files)!=MD_RESOURCE_ORDER_QUEUED;
+    int mapping_active=p->memory_op.mapping
+        && md_fd_order_state(&p->memory_op.mapping->files)!=MD_RESOURCE_ORDER_QUEUED;
     int traced=md_debugger_traced(debugger,p->pid);
     /* A debugger can share files with its stopped inferior (crash collectors
      * commonly do). Its own parked request is the only control owner, so the
@@ -545,8 +545,8 @@ int task_action_borrowable(struct thread *p,struct thread *requester) {
      * peer. Published debugger stops and pending interrupts remain excluded. */
     int debug_running=traced && md_debugger_running(debugger,p->pid);
     return p->ready && !birth_stop_pending(p) && !p->resume_lost && !p->terminal_stop
-        && !p->listening && !p->vfork_child && !p->interrupt_pending && !p->signal_return_pending
-        && !mapping_active && !p->memory_capture && !p->fd_running && (!traced || debug_held || debug_running)
+        && !p->listening && !p->process_op.vfork_child && !p->interrupt_pending && !p->signals.return_pending
+        && !mapping_active && !p->memory_op.capture && !p->descriptors.running && (!traced || debug_held || debug_running)
         && !md_task_helper_owns(helpers,p->pid,p->pid)
         && (waiter || debug_held || (p->freezer_resume && debugger_at_boundary(p))
             /* A provider owns the pending operation, not this native wait.
@@ -571,7 +571,7 @@ void task_action_start(struct thread *t) {
     if (owner->loan) { loan_start(owner); return; }
     if (quiescence_busy(NULL) || retained_task_held(t)) { retry_wait(t,RETRY_TASK_ACTION); return; }
     if (owner->pid_filter) {
-        if (t->pid_filter) { task_action_finish(owner,0); return; }
+        if (t->process_op.filter) { task_action_finish(owner,0); return; }
         owner->actor=t; task_action_execution=owner;
         task_action_call_start(owner); return;
     }
@@ -630,9 +630,9 @@ void task_action_start(struct thread *t) {
     /* The request may already own this turn for dup or received publication.
      * Otherwise acquire it before freezing the set of CLONE_FILES holders.
      * A copied table inherits only filters captured before its kernel clone. */
-    if (!owner->selected_group && owner->number>=0 && md_fd_order_state(&t->fd_order)!=MD_RESOURCE_ORDER_RUNNING
-            && md_fd_order_state(&t->buffer_return.files)!=MD_RESOURCE_ORDER_RUNNING
-            && !(t->signal_control && md_fd_order_state(&t->signal_control->files)==MD_RESOURCE_ORDER_RUNNING)
+    if (!owner->selected_group && owner->number>=0 && md_fd_order_state(&t->descriptors.order)!=MD_RESOURCE_ORDER_RUNNING
+            && md_fd_order_state(&t->fs.returned.files)!=MD_RESOURCE_ORDER_RUNNING
+            && !(t->signals.control && md_fd_order_state(&t->signals.control->files)==MD_RESOURCE_ORDER_RUNNING)
             && !(t->readiness && md_fd_order_state(&t->readiness->files)==MD_RESOURCE_ORDER_RUNNING)) {
         if (!owner->files.table) {
             int ready=md_fd_order_begin(t->resources.files,&owner->files,fd_wakeup);
@@ -645,14 +645,14 @@ void task_action_start(struct thread *t) {
             CHECK(!md_fd_order_start(&owner->files));
     }
     struct thread *candidate=NULL;
-    int ready=md_fd_selector_has(owner->selected_group ? owner->selected_group : t->fd_selector,owner->kind,owner->number);
+    int ready=md_fd_selector_has(owner->selected_group ? owner->selected_group : t->descriptors.selector,owner->kind,owner->number);
     if (ready<0) { task_action_finish(owner,ready); return; }
     if (ready && owner->selected_group) { task_action_finish(owner,0); return; }
-    if (!ready && (!owner->selected_group || owner->selected_group==t->fd_selector)) candidate=t;
+    if (!ready && (!owner->selected_group || owner->selected_group==t->descriptors.selector)) candidate=t;
     int pending=0;
     for (struct thread *peer=threads;!candidate && owner->number>=0 && peer;peer=peer->next)
         if (peer->pid && peer->born && (owner->selected_group
-                ? peer->fd_selector==owner->selected_group : peer->resources.files==t->resources.files)) {
+                ? peer->descriptors.selector==owner->selected_group : peer->resources.files==t->resources.files)) {
             ready=selector_peer_ready(peer,owner->kind,owner->number);
             if (ready<0) { task_action_finish(owner,ready); return; }
             if (ready) continue;
@@ -671,7 +671,7 @@ void task_action_start(struct thread *t) {
         if (error) { task_action_finish(owner,error); return; }
     }
     owner->actor=candidate; owner->remote=candidate!=t;
-    owner->group=md_fd_selector_fork(candidate->fd_selector,1);
+    owner->group=md_fd_selector_fork(candidate->descriptors.selector,1);
     task_action_execution=owner;
     if (owner->remote) {
         if (!task_action_barrier) { task_action_barrier=md_task_quiesce_new(quiesce_trace); CHECK(task_action_barrier); }
@@ -700,10 +700,10 @@ void selector_deferred_complete(struct thread *t,long result) {
         cancel_tree(125); return;
     }
     enum md_fd_selector_kind kind; int number;
-    int missing=md_fd_selector_missing(t->deferred_selector,t->fd_selector,&kind,&number);
+    int missing=md_fd_selector_missing(t->descriptors.deferred_selector,t->descriptors.selector,&kind,&number);
     if (missing<0) { selector_deferred_complete(t,missing); return; }
     if (!missing) {
-        md_fd_selector_release(t->deferred_selector); t->deferred_selector=NULL;
+        md_fd_selector_release(t->descriptors.deferred_selector); t->descriptors.deferred_selector=NULL;
         t->phase=IDLE; resume(t->pid,0); return;
     }
     struct user_pt_regs saved;
@@ -712,7 +712,7 @@ void selector_deferred_complete(struct thread *t,long result) {
     if (!owner) { selector_deferred_complete(t,-ENOMEM); return; }
     owner->continuation=saved; owner->boundary=MD_TASK_CALL_EXIT;
     owner->kind=kind; owner->number=number;
-    owner->selected_group=md_fd_selector_fork(t->fd_selector,1);
+    owner->selected_group=md_fd_selector_fork(t->descriptors.selector,1);
     owner->complete=selector_deferred_complete;
     task_action_start(t);
 }
@@ -744,7 +744,7 @@ void task_action_schedule(void) {
 
 static int loan_borrow(struct task_action *owner,struct thread *p,int *alive,int *stopped) {
     if (!p || !p->pid || p->resources.files!=owner->loan_table || p->terminal_stop || p->resume_lost) return 0;
-    if (retained_task_held(p) || p->signal_return_pending || (p!=owner->requester && p->pid!=owner->retirement.task
+    if (retained_task_held(p) || p->signals.return_pending || (p!=owner->requester && p->pid!=owner->retirement.task
             && !task_action_borrowable(p,owner->requester))) {
         *alive=1; return 0;
     }
@@ -823,10 +823,10 @@ void task_call_resume(struct thread *t,struct md_task_call *call,int signal) {
 }
 
 struct md_task_call *task_call_continuation(struct thread *t) {
-    if (t->signal_control && t->signal_control->started && !t->signal_control->retiring)
-        return md_task_signal_control_call(&t->signal_control->control);
-    if (t->notification && !t->notification->promoting) return &t->notification->call;
-    struct filter_install *install=t->filter_install;
+    if (t->signals.control && t->signals.control->started && !t->signals.control->retiring)
+        return md_task_signal_control_call(&t->signals.control->control);
+    if (t->seccomp.notification && !t->seccomp.notification->promoting) return &t->seccomp.notification->call;
+    struct filter_install *install=t->seccomp.install;
     if (install && !install->retiring) {
         if (install->admission.stage && !install->admitted) return &install->admission;
         if (install->copy.scratch) return &install->copy.call;
@@ -871,7 +871,7 @@ int task_call_signal(struct thread *t,struct md_task_call *call,int status) {
     siginfo_t info;
     if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"task-call-signal")) return 1;
     if (md_signal_synchronous(&info)) return 0;
-    int retained=md_signal_delivery_retain(&t->signal_delivery,t->pid,&info); CHECK(retained>=0);
+    int retained=md_signal_delivery_retain(&t->signals.delivery,t->pid,&info); CHECK(retained>=0);
     task_call_resume(t,call,retained);
     return 1;
 }
@@ -946,16 +946,19 @@ int task_action_event(pid_t pid,int status,const struct rusage *usage) {
 }
 
 static void fd_loan_closed(struct thread *t,long result) {
-    if (!result && t->fd_job==MD_FD_DUPLICATE_BEGIN) {
+    if (!result && t->descriptors.job==MD_FD_DUPLICATE_BEGIN) {
         /* fd_start validated discovery before retirement. This close owns the
          * same uninterrupted table turn: do not retry our own generation bump
          * and let the waiter lend the just-retired slot again indefinitely. */
-        CHECK(md_fd_order_state(&t->fd_order)==MD_RESOURCE_ORDER_RUNNING);
+        CHECK(md_fd_order_state(&t->descriptors.order)==MD_RESOURCE_ORDER_RUNNING);
         struct md_fd_observation view;
-        result=md_fd_origins_observe(t->resources.files,(int)t->original.regs[0],&view);
-        if (!result) t->fd_registers.regs[1]=view.generation;
+        result=md_fd_origins_observe(t->resources.files,(int)t->execution.request.args[0],&view);
+        if (!result) {
+            t->descriptors.registers.regs[1]=view.generation;
+            t->descriptors.request.args[0]=view.generation;
+        }
     }
-    if (result) { fd_discard(t); return_value(t,&t->fd_registers,result); }
+    if (result) { fd_discard(t); return_value(t,&t->descriptors.registers,result); }
     else fd_start(t);
 }
 
@@ -965,21 +968,21 @@ static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int numb
      * A fork copy belongs to a different kernel table and closes independently. */
     for (struct task_action *s=loan_retirements;s;s=s->next)
         if (s->loan==loan && s->loan_table==mutator->resources.files && s->number==number) {
-            CHECK(!md_fd_order_complete(&mutator->fd_order));
-            CHECK(md_fd_order_begin(mutator->resources.files,&mutator->fd_order,fd_wakeup)>=0);
+            CHECK(!md_fd_order_complete(&mutator->descriptors.order));
+            CHECK(md_fd_order_begin(mutator->resources.files,&mutator->descriptors.order,fd_wakeup)>=0);
             retry_wait(mutator,RETRY_FD); return 0;
         }
     if (!md_fd_loan_active_in(loan,mutator->resources.files)) {
         struct task_action *retirement=calloc(1,sizeof(*retirement));
         if (!retirement) {
-            fd_discard(mutator); return_value(mutator,&mutator->fd_registers,-ENOMEM); return 0;
+            fd_discard(mutator); return_value(mutator,&mutator->descriptors.registers,-ENOMEM); return 0;
         }
         int selected=-1;
-        CHECK(md_fd_origins_loan_range(&mutator->fd_order,number,number,&selected,&retirement->loan)==1);
+        CHECK(md_fd_origins_loan_range(&mutator->descriptors.order,number,number,&selected,&retirement->loan)==1);
         CHECK(selected==number && retirement->loan==loan);
         retirement->number=number;
         retirement->loan_table=md_fd_origins_pin(mutator->resources.files);
-        loan_retire(retirement,mutator,&mutator->fd_order,fd_loan_closed);
+        loan_retire(retirement,mutator,&mutator->descriptors.order,fd_loan_closed);
         return 0;
     }
     for (struct thread *p=threads;p;p=p->next) {
@@ -994,8 +997,8 @@ static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int numb
         if (!o->parked) {
             /* EVENT_WAIT: the calling thread leaves its exact native wait
              * before a destructive table mutation. No table lock spans IO. */
-            if (p->phase==EPOLL_WAIT && !p->socket_waking) {
-                p->socket_waking=1;
+            if (p->phase==EPOLL_WAIT && !p->io.socket_waking) {
+                p->io.socket_waking=1;
                 tracee_request(p,PTRACE_INTERRUPT,NULL,NULL,"epoll-loan-revoke");
             }
             retry_wait(mutator,RETRY_FD); return 0;
@@ -1003,7 +1006,7 @@ static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int numb
         struct task_action *retirement=owned->retirement;
         owned->retirement=NULL; owned->number=-1;
         retirement->loan_waiter=p->pid;
-        loan_retire(retirement,mutator,&mutator->fd_order,fd_loan_closed);
+        loan_retire(retirement,mutator,&mutator->descriptors.order,fd_loan_closed);
         return 0;
     }
     CHECK(0); return 0;
@@ -1011,17 +1014,17 @@ static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int numb
 
 int fd_loans_ready(struct thread *t) {
     if (!md_fd_origins_has_loans(t->resources.files)) return 1;
-    const struct user_pt_regs *r=t->fd_job==MD_FD_DUPLICATE_BEGIN ? &t->original : &t->fd_registers;
+    const struct user_pt_regs *r=t->descriptors.job==MD_FD_DUPLICATE_BEGIN ? &t->execution.registers : &t->descriptors.registers;
     unsigned long a[6]; for (unsigned i=0;i<6;++i) a[i]=r->regs[i];
     long nr=r->regs[8];
-    int copying=(md_clone_call(nr) && !(t->cloning&CLONE_FILES))
+    int copying=(md_clone_call(nr) && !(t->process_op.cloning&CLONE_FILES))
         || (nr==SYS_unshare && (a[0]&CLONE_FILES))
         || (nr==SYS_close_range && (a[2]&CLOSE_RANGE_UNSHARE));
     struct md_fd_loan *loan=NULL;
     int number=-1;
-    int result=copying ? md_fd_origins_loan_range(&t->fd_order,0,UINT_MAX,&number,&loan)
-        : md_fd_mutation_loan(&t->fd_order,nr,a,&number,&loan);
-    if (result<0) { fd_discard(t); return_value(t,&t->fd_registers,result); return 0; }
+    int result=copying ? md_fd_origins_loan_range(&t->descriptors.order,0,UINT_MAX,&number,&loan)
+        : md_fd_mutation_loan(&t->descriptors.order,nr,a,&number,&loan);
+    if (result<0) { fd_discard(t); return_value(t,&t->descriptors.registers,result); return 0; }
     if (!result) return 1;
     int ready=fd_loan_evict(t,loan,number);
     md_fd_loan_release(loan);
@@ -1031,9 +1034,9 @@ int fd_loans_ready(struct thread *t) {
 void selector_progress(struct thread *t) {
     retry_clear(t,RETRY_TASK_ACTION);
     if (t->action) { task_action_start(t); return; }
-    if (md_task_helper_retiring(helpers,t->tgid,t->selector_exit)) { retry_wait(t,RETRY_TASK_ACTION); return; }
+    if (md_task_helper_retiring(helpers,t->tgid,t->descriptors.selector_exit)) { retry_wait(t,RETRY_TASK_ACTION); return; }
     struct user_pt_regs r;
-    t->selector_exit=0;
+    t->descriptors.selector_exit=0;
     if (registers(t->pid,&r)) {
         r.regs[0]=0;
         if (set_registers(t->pid,&r)) resume(t->pid,0);

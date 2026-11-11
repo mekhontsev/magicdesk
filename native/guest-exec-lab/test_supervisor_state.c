@@ -101,9 +101,9 @@ static void native_child_membership(void) {
         t->terminal_stop=1;
         assert(!retained_retirement_group_ready(parent.pid));
         assert(retained_retirement_group_ready(-1));
-        t->terminal_stop=0; t->robust_terminal=1;
+        t->terminal_stop=0; t->robust.terminal=1;
         assert(!retained_retirement_group_ready(parent.pid));
-        t->robust_terminal=0;
+        t->robust.terminal=0;
         assert(retained_retirement_group_ready(parent.pid));
     }
     threads=saved;
@@ -179,12 +179,12 @@ static void private_wait_buffer_cancel(void) {
     struct user_pt_regs regs={.regs={[8]=SYS_waitid,[0]=P_ALL,[3]=WEXITED|__WALL}};
     for (unsigned retry=0;retry<2;++retry) {
         debugger_wait(t.pid,&regs,retry ? MD_DEBUG_WAIT_REPROBE : MD_DEBUG_WAIT_PROBE);
-        assert(t.phase==DEBUG_WAIT_BUFFER && t.debug_wait_output);
-        assert(!t.debug_wait_output->buffer.pool);
-        assert(!memcmp(&t.debug_wait_output->registers,&regs,sizeof(regs)));
-        assert(t.debug_wait_output->action==(retry ? MD_DEBUG_WAIT_REPROBE : MD_DEBUG_WAIT_PROBE));
+        assert(t.phase==DEBUG_WAIT_BUFFER && t.debug.wait_output);
+        assert(!t.debug.wait_output->buffer.pool);
+        assert(!memcmp(&t.debug.wait_output->registers,&regs,sizeof(regs)));
+        assert(t.debug.wait_output->action==(retry ? MD_DEBUG_WAIT_REPROBE : MD_DEBUG_WAIT_PROBE));
         debugger_wait_release(&t);
-        assert(!t.debug_wait_output && !t.retries[0].node.list && !t.retries[1].node.list);
+        assert(!t.debug.wait_output && !t.retries[0].node.list && !t.retries[1].node.list);
     }
     assert(!md_buffer_release(&held));
     assert(!md_buffers_take(md_memory_buffers(t.memory),&held));
@@ -211,13 +211,13 @@ static void parked_checkpoint_ownership(void) {
     md_task_checkpoint_restore(&checkpoints,t.pid);
 
     struct signal_control owner={.checkpoint_suspended=1};
-    t.phase=SIGNAL_CONTROL; t.signal_control=&owner;
+    t.phase=SIGNAL_CONTROL; t.signals.control=&owner;
     uint64_t mask=UINT64_C(1)<<(SIGUSR1-1);
     unsigned char scratch[sizeof(struct md_task_copy_scratch)+sizeof(siginfo_t)];
     struct md_signal_wait_exchange page;
     struct user_pt_regs regs={.pc=0x3004,.regs={[8]=SYS_rt_sigtimedwait,[0]=(uintptr_t)&mask,[3]=8}};
     assert(md_task_signal_wait_begin(&owner.control,parked_checkpoint_trace,t.pid,&regs,
-        0x1000,0x1004,NULL,&t.host_signal_blocked,NULL,NULL,scratch,(uintptr_t)scratch,sizeof(scratch))
+        0x1000,0x1004,NULL,&t.signals.host_blocked,NULL,NULL,scratch,(uintptr_t)scratch,sizeof(scratch))
         ==MD_SIGNAL_WAIT_RELEASE);
     assert(md_task_signal_wait_park(&owner.control,(uintptr_t)&page)==MD_SIGNAL_WAIT_PARKED);
     owner.control.boundary=MD_TASK_CALL_EXIT;
@@ -333,14 +333,14 @@ static void borrowed_continuations(void) {
         struct guest_notification notification={0};
         struct filter_install filter={0};
         struct md_task_copy_scratch scratch={0};
-        struct thread t={.pid=123,.kernel_stopped=1,.signal_shielded=1};
+        struct thread t={.pid=123,.kernel_stopped=1,.signals.shielded=1};
         if (owner<2) {
-            t.phase=SIGNAL_CONTROL; t.signal_control=&signal;
+            t.phase=SIGNAL_CONTROL; t.signals.control=&signal;
             signal.control.invoking=owner==0; signal.control.copying=owner==1;
         } else if (owner==2) {
-            t.phase=GUEST_NOTIFICATION; t.notification=&notification;
+            t.phase=GUEST_NOTIFICATION; t.seccomp.notification=&notification;
         } else {
-            t.phase=FILTER_CAPTURE; t.filter_install=&filter;
+            t.phase=FILTER_CAPTURE; t.seccomp.install=&filter;
             if (owner==3) filter.admission.stage=1;
             else filter.copy.scratch=&scratch;
         }
@@ -410,7 +410,7 @@ static long debug_host_trace(int request,pid_t pid,void *address,void *data) {
     return 1;
 }
 static void debug_host_exit(void) {
-    struct thread t={.pid=123,.entered=1,.host_signals=1,.debug_call_active=1};
+    struct thread t={.pid=123,.entered=1,.signals.host=1,.debug.call_active=1};
     struct user_pt_regs regs={.pc=0x12345678,.regs={[8]=SYS_setresgid,[0]=81}};
     debug_host_signal=(siginfo_t){.si_signo=SIGSYS,.si_code=SYS_SECCOMP};
     debug_host_signal.si_arch=AUDIT_ARCH_AARCH64;
@@ -418,10 +418,10 @@ static void debug_host_exit(void) {
     debug_host_signal.si_call_addr=(void *)(uintptr_t)regs.pc;
     checkpoints.trace=debug_host_trace; debug_host_scans=0;
     assert(debug_host_policy_pending(&t,&regs)==1 && debug_host_scans==1);
-    t.host_signals=0; assert(!debug_host_policy_pending(&t,&regs) && debug_host_scans==1);
-    t.host_signals=1; t.debug_call_active=0;
+    t.signals.host=0; assert(!debug_host_policy_pending(&t,&regs) && debug_host_scans==1);
+    t.signals.host=1; t.debug.call_active=0;
     assert(!debug_host_policy_pending(&t,&regs) && debug_host_scans==1);
-    t.debug_call_active=1;
+    t.debug.call_active=1;
     ++regs.pc; assert(!debug_host_policy_pending(&t,&regs)); --regs.pc;
     debug_host_signal.si_code=SI_QUEUE; assert(!debug_host_policy_pending(&t,&regs));
     debug_host_signal.si_code=SYS_SECCOMP;
@@ -430,9 +430,9 @@ static void debug_host_exit(void) {
     for (unsigned i=0;i<sizeof(actions)/sizeof(*actions);++i) {
         struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,actions[i])};
         struct sock_fprog program={1,code};
-        assert(!md_seccomp_policy_capture(NULL,&program,&t.policy));
+        assert(!md_seccomp_policy_capture(NULL,&program,&t.seccomp.policy));
         assert(debug_host_policy_pending(&t,&regs)==(i<5));
-        md_seccomp_policy_release(t.policy); t.policy=NULL;
+        md_seccomp_policy_release(t.seccomp.policy); t.seccomp.policy=NULL;
     }
     regs.regs[8]=debug_host_signal.si_syscall=SYS_getpid;
     assert(!debug_host_policy_pending(&t,&regs));
@@ -517,7 +517,7 @@ static void pending_signal_ownership(void) {
     assert(md_signal_pending_origin(peer,&notice)->uid==1000);
     md_signal_pending_consumed(peer,&notice);
     assert(!md_signal_pending_origin(peer,&notice));
-    struct thread t={.pid=123,.signal_pending=peer};
+    struct thread t={.pid=123,.signals.pending=peer};
     int old_collection=pid_collection_pending;
     checkpoints.trace=pending_child_trace;
     int stopped=(PTRACE_EVENT_STOP<<16) | (SIGTRAP<<8) | 0x7f;
@@ -540,14 +540,14 @@ static long shield_test_trace(int request,pid_t pid,void *address,void *data) {
     return 0;
 }
 static void signal_shield_ownership(void) {
-    struct thread t={.pid=123,.mask=MD_SIGNAL_SYS_BIT};
+    struct thread t={.pid=123,.execution.mask=MD_SIGNAL_SYS_BIT};
     checkpoints.trace=shield_test_trace;
     for (int app=0;app<2;++app) {
-        t.host_signals=app;
-        assert(shield(&t) && t.signal_shielded);
+        t.signals.host=app;
+        assert(shield(&t) && t.signals.shielded);
         assert(!!(shield_test_mask&MD_SIGNAL_SYS_BIT)==!app);
         assert(shield_test_mask&(UINT64_C(1)<<(SIGUSR1-1)));
-        assert(restore_mask(&t) && !t.signal_shielded && shield_test_mask==t.mask);
+        assert(restore_mask(&t) && !t.signals.shielded && shield_test_mask==t.execution.mask);
     }
     checkpoints.trace=NULL;
     puts("PASS signal shield: native pending SIGSYS retained, app gate available, guest mask restored");
@@ -559,14 +559,14 @@ static void metadata_mask_mutation(void) {
     const int actions[]={SIG_BLOCK,SIG_UNBLOCK,SIG_SETMASK};
     for (unsigned host=0;host<2;++host) for (unsigned i=0;i<2;++i)
             for (unsigned j=0;j<sizeof(actions)/sizeof(*actions);++j) {
-        t.host_signals=host;
+        t.signals.host=host;
         struct md_task_signal_stop stop={.has_info=1,.has_regs=1,
             .info={.si_signo=SIGALRM,.si_code=SI_KERNEL},.regs={.pc=0x400004}};
         stop.regs.regs[8]=SYS_rt_sigprocmask;
         stop.regs.regs[0]=actions[j]; stop.regs.regs[1]=inputs[i];
         stop.regs.regs[2]=0x2000; stop.regs.regs[3]=8;
         assert(!interrupted_metadata_event(&t,(SIGALRM<<8)|0x7f,NULL,&stop));
-        assert(!t.metadata_restart && !t.broker_event.held && !t.signal_shielded);
+        assert(!t.metadata_restart && !t.broker_event.held && !t.signals.shielded);
     }
     md_memory_release(t.memory);
     puts("PASS metadata admission: signal-mask mutations retain their native completion owner");
@@ -615,7 +615,7 @@ static void metadata_replay_completion(void) {
     const long values[]={0,-EACCES,-3};
     for (unsigned host=0;host<2;++host) for (unsigned blocked=0;blocked<2;++blocked)
             for (unsigned i=0;i<sizeof(values)/sizeof(*values);++i) {
-        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.host_signals=host,
+        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.signals.host=host,
             .memory=md_memory_new(),.metadata_restart=calloc(1,sizeof(struct metadata_restart))};
         assert(t.memory && t.metadata_restart);
         metadata_replay_saved=(struct user_pt_regs){.pc=0x123400,.sp=0x567800,.pstate=0x60000000};
@@ -629,9 +629,9 @@ static void metadata_replay_completion(void) {
         thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=metadata_replay_trace;
         int status=((SIGTRAP|0x80)<<8)|0x7f;
         assert(metadata_restart_event(&t,status) && metadata_replay_step==5);
-        assert(t.metadata_restart->stage==METADATA_WAIT && t.signal_shielded);
+        assert(t.metadata_restart->stage==METADATA_WAIT && t.signals.shielded);
         assert(metadata_restart_event(&t,status) && metadata_replay_step==10);
-        assert(!t.metadata_restart && !t.broker_event.held && !t.signal_shielded
+        assert(!t.metadata_restart && !t.broker_event.held && !t.signals.shielded
             && !t.kernel_stopped && t.metadata_signal_requeued==SIGALRM && t.phase==IDLE);
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
         md_memory_release(t.memory);
@@ -697,29 +697,29 @@ static void metadata_policy_delivery(void) {
     r->saved.regs[0]=(unsigned long)-3; r->saved.regs[8]=SYS_fstat;
     assert(save_signal_mask(&t,&r->mask,"test-replay-mask"));
     siginfo_t pending={.si_signo=SIGALRM,.si_code=SI_KERNEL};
-    assert(!md_signal_delivery_hold(&t.signal_delivery,&pending));
+    assert(!md_signal_delivery_hold(&t.signals.delivery,&pending));
     t.broker_event.held=t.broker_event.has_info=1;
     uintptr_t gate=abi.raw_gate; abi.raw_gate=(uintptr_t)test_wait_svc+4;
     assert(shield(&t));
     metadata_restart_enter(&t);
     while (waitpid(pid,&status,0)==pid && WIFSTOPPED(status)) {
         t.kernel_stopped=1; t.interrupt_pending=0;
-        md_signal_delivery_checkpoint(&t.signal_delivery,status);
+        md_signal_delivery_checkpoint(&t.signals.delivery,status);
         if ((unsigned)status>>16==PTRACE_EVENT_STOP) { resume(pid,0); continue; }
         if (metadata_restart_event(&t,status)) continue;
         int signal=WSTOPSIG(status),deliver=signal;
-        int owned=md_signal_delivery_event(&t.signal_delivery,pid,signal,&deliver);
+        int owned=md_signal_delivery_event(&t.signals.delivery,pid,signal,&deliver);
         assert(owned>=0);
         if (signal==SIGSYS) {
             struct user_pt_regs regs; assert(registers(pid,&regs));
             assert(regs.pc==return_pc && regs.regs[0]==(unsigned long)-3);
             siginfo_t info; assert(!ptrace(PTRACE_GETSIGINFO,pid,NULL,&info));
-            assert(!md_signal_delivery_before_handler(&t.signal_delivery,pid,&info));
+            assert(!md_signal_delivery_before_handler(&t.signals.delivery,pid,&info));
         }
         resume(pid,deliver);
     }
     assert(WIFEXITED(status) && !WEXITSTATUS(status));
-    abi.raw_gate=gate; md_signal_delivery_clear(&t.signal_delivery); md_memory_release(t.memory);
+    abi.raw_gate=gate; md_signal_delivery_clear(&t.signals.delivery); md_memory_release(t.memory);
     thread_index[(unsigned)pid%THREAD_BUCKETS]=NULL;
     md_debugger_destroy(debugger); debugger=NULL;
     puts("PASS metadata replay: pending policy signal retains original call before asynchronous delivery");
@@ -734,7 +734,7 @@ static long external_signal_trace(int request,pid_t pid,void *address,void *data
 static void external_signal_target(void) {
     struct md_signal_pending *pending=md_signal_pending_new(); assert(pending);
     struct md_signal_pending *peer=md_signal_pending_fork(pending,1,1); assert(peer);
-    struct thread t={.pid=123,.host_signals=1,.entered=1,.host_signal_blocked=1,.signal_pending=pending};
+    struct thread t={.pid=123,.signals.host=1,.entered=1,.signals.host_blocked=1,.signals.pending=pending};
     thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=external_signal_trace;
     const int codes[]={SI_USER,SI_TKILL,SI_QUEUE,SI_TIMER};
     for (unsigned i=0;i<sizeof(codes)/sizeof(*codes);++i) {
@@ -767,31 +767,31 @@ static long policy_signal_trace(int request,pid_t pid,void *address,void *data) 
     return 0;
 }
 static void policy_signal_observation(void) {
-    struct thread t={.pid=123,.phase=IDLE,.entered=1,.signal_actions=md_signal_actions_new()};
-    assert(t.signal_actions);
+    struct thread t={.pid=123,.phase=IDLE,.entered=1,.signals.actions=md_signal_actions_new()};
+    assert(t.signals.actions);
     struct md_kernel_action action={.handler=0x5678};
-    assert(!md_signal_actions_commit(t.signal_actions,SIGSYS,&action));
+    assert(!md_signal_actions_commit(t.signals.actions,SIGSYS,&action));
     checkpoints.trace=policy_signal_trace;
     for (unsigned cookie=19;cookie<21;++cookie) {
         struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRAP|cookie)};
         struct sock_fprog program={1,code};
-        assert(!md_seccomp_policy_capture(NULL,&program,&t.policy));
+        assert(!md_seccomp_policy_capture(NULL,&program,&t.seccomp.policy));
         struct md_task_signal_stop stop;
         md_task_signal_stop_init(&stop,native_trace);
         policy_info_reads=policy_register_reads=policy_info_writes=0;
-        t.host_signals=0;
+        t.signals.host=0;
         assert(!host_policy_signal(&t,&stop));
         assert(!policy_info_reads && !policy_register_reads && !policy_info_writes);
-        t.host_signals=1;
+        t.signals.host=1;
         assert(signal_observe(&t,&stop,1));
         assert(!host_policy_signal(&t,&stop) && stop.info.si_errno==(int)cookie);
         assert(signal_observe(&t,&stop,1));
         assert(signal_replace_info(&t,&stop,&stop.info));
         assert(policy_info_reads==1 && policy_register_reads==1 && policy_info_writes==(cookie!=19));
-        md_seccomp_policy_release(t.policy); t.policy=NULL;
+        md_seccomp_policy_release(t.seccomp.policy); t.seccomp.policy=NULL;
     }
     checkpoints.trace=checkpoint_native_trace;
-    md_signal_actions_release(t.signal_actions);
+    md_signal_actions_release(t.signals.actions);
     puts("PASS policy signal observation: one native snapshot, exact changed siginfo, no host gate for shell");
 }
 static void trace_policy_admission(void) {
@@ -801,8 +801,8 @@ static void trace_policy_admission(void) {
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_SIGNAL),
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
     struct sock_fprog program={sizeof(code)/sizeof(*code),code};
-    struct thread t={.host_signals=1,.entered=1,.phase=IDLE};
-    assert(!md_seccomp_policy_capture(NULL,&program,&t.policy));
+    struct thread t={.signals.host=1,.entered=1,.phase=IDLE};
+    assert(!md_seccomp_policy_capture(NULL,&program,&t.seccomp.policy));
     struct seccomp_data call={.arch=AUDIT_ARCH_AARCH64,.nr=SYS_newfstatat,.instruction_pointer=0x12345678};
     assert(guest_trace_rejected(&t,&call));
     call.nr=SYS_openat; assert(!guest_trace_rejected(&t,&call));
@@ -820,14 +820,15 @@ static void trace_policy_admission(void) {
     abi.code_begin=begin; abi.code_end=end;
     call.instruction_pointer=0x12345678;
     t.phase=DISPATCHING; assert(!guest_trace_rejected(&t,&call));
-    t.phase=IDLE; t.host_signals=0; assert(guest_trace_rejected(&t,&call));
-    t.host_signals=1; t.entered=0; assert(!guest_trace_rejected(&t,&call));
-    md_seccomp_policy_release(t.policy);
+    t.phase=IDLE; t.signals.host=0; assert(guest_trace_rejected(&t,&call));
+    t.signals.host=1; t.entered=0; assert(!guest_trace_rejected(&t,&call));
+    md_seccomp_policy_release(t.seccomp.policy);
     puts("PASS original TRACE admission: notification calls, selector collision and owned-gate isolation");
 }
 
 static void filter_result(struct thread *caller,long result) {
-    struct user_pt_regs regs=caller->original;
+    execution_capture(caller,&caller->execution.registers);
+    struct user_pt_regs regs=caller->execution.registers;
     regs.regs[0]=result;
     assert(!filter_observed(caller,&regs));
 }
@@ -838,60 +839,60 @@ static void filter_publication(void) {
     struct thread peer={.pid=2,.tgid=1,.next=&retired};
     struct thread caller={.pid=1,.tgid=1,.entered=1,.next=&peer};
     threads=&caller;
-    caller.original.regs[8]=SYS_seccomp;
-    caller.original.regs[0]=SECCOMP_SET_MODE_FILTER;
-    caller.original.regs[1]=SECCOMP_FILTER_FLAG_TSYNC;
+    caller.execution.registers.regs[8]=SYS_seccomp;
+    caller.execution.registers.regs[0]=SECCOMP_SET_MODE_FILTER;
+    caller.execution.registers.regs[1]=SECCOMP_FILTER_FLAG_TSYNC;
     filter_result(&caller,2);
-    assert(!caller.application_filter && !peer.application_filter);
+    assert(!caller.seccomp.application_filter && !peer.seccomp.application_filter);
     filter_result(&caller,-EINVAL);
-    assert(!caller.application_filter && !peer.application_filter);
+    assert(!caller.seccomp.application_filter && !peer.seccomp.application_filter);
     filter_result(&caller,0);
-    assert(caller.application_filter && peer.application_filter);
-    assert(!outside.application_filter && !retired.application_filter);
-    caller.application_filter=peer.application_filter=0;
-    caller.original.regs[1]=SECCOMP_FILTER_FLAG_NEW_LISTENER;
+    assert(caller.seccomp.application_filter && peer.seccomp.application_filter);
+    assert(!outside.seccomp.application_filter && !retired.seccomp.application_filter);
+    caller.seccomp.application_filter=peer.seccomp.application_filter=0;
+    caller.execution.registers.regs[1]=SECCOMP_FILTER_FLAG_NEW_LISTENER;
     filter_result(&caller,5);
-    assert(caller.application_filter && !peer.application_filter);
-    caller.application_filter=0;
+    assert(caller.seccomp.application_filter && !peer.seccomp.application_filter);
+    caller.seccomp.application_filter=0;
     filter_result(&caller,0);
-    assert(caller.application_filter && !peer.application_filter);
-    caller.application_filter=0; caller.entered=0;
-    filter_result(&caller,5); assert(!caller.application_filter);
-    caller.entered=1; caller.original.regs[8]=SYS_prctl;
-    caller.original.regs[0]=PR_SET_SECCOMP; caller.original.regs[1]=SECCOMP_MODE_STRICT;
-    filter_result(&caller,0); assert(!caller.application_filter);
-    caller.original.regs[1]=SECCOMP_MODE_FILTER;
-    filter_result(&caller,0); assert(caller.application_filter && !peer.application_filter);
+    assert(caller.seccomp.application_filter && !peer.seccomp.application_filter);
+    caller.seccomp.application_filter=0; caller.entered=0;
+    filter_result(&caller,5); assert(!caller.seccomp.application_filter);
+    caller.entered=1; caller.execution.registers.regs[8]=SYS_prctl;
+    caller.execution.registers.regs[0]=PR_SET_SECCOMP; caller.execution.registers.regs[1]=SECCOMP_MODE_STRICT;
+    filter_result(&caller,0); assert(!caller.seccomp.application_filter);
+    caller.execution.registers.regs[1]=SECCOMP_MODE_FILTER;
+    filter_result(&caller,0); assert(caller.seccomp.application_filter && !peer.seccomp.application_filter);
     struct md_interception_buffers *pool=NULL;
     assert(!md_buffers_create_readonly(1,sizeof(struct md_seccomp_image),&pool));
     const long outcomes[]={-EINVAL,23,0};
     for (unsigned i=0;i<sizeof(outcomes)/sizeof(*outcomes);++i) {
-        caller.application_filter=peer.application_filter=0;
-        caller.original.regs[8]=SYS_seccomp;
-        caller.original.regs[0]=SECCOMP_SET_MODE_FILTER;
-        caller.original.regs[1]=SECCOMP_FILTER_FLAG_TSYNC;
-        caller.filter_install=calloc(1,sizeof(*caller.filter_install)); assert(caller.filter_install);
+        caller.seccomp.application_filter=peer.seccomp.application_filter=0;
+        caller.execution.registers.regs[8]=SYS_seccomp;
+        caller.execution.registers.regs[0]=SECCOMP_SET_MODE_FILTER;
+        caller.execution.registers.regs[1]=SECCOMP_FILTER_FLAG_TSYNC;
+        caller.seccomp.install=calloc(1,sizeof(*caller.seccomp.install)); assert(caller.seccomp.install);
         struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES)};
         struct sock_fprog program={1,code};
-        assert(!md_seccomp_capture_prepare(&caller.filter_install->capture,pool,0x100000,
+        assert(!md_seccomp_capture_prepare(&caller.seccomp.install->capture,pool,0x100000,
             NULL,&program,NULL,0,0,NULL));
         policy_admission_retain(&peer,1);
         filter_result(&caller,outcomes[i]);
-        assert(!caller.filter_install);
-        assert(!!caller.policy==(outcomes[i]==0) && caller.policy==peer.policy);
-        assert(!outside.policy && !retired.policy);
+        assert(!caller.seccomp.install);
+        assert(!!caller.seccomp.policy==(outcomes[i]==0) && caller.seccomp.policy==peer.seccomp.policy);
+        assert(!outside.seccomp.policy && !retired.seccomp.policy);
         uint32_t admitted;
-        assert(peer.admission_policy_valid && peer.admission_policy_pending);
+        assert(peer.seccomp.admission_policy_valid && peer.seccomp.admission_policy_pending);
         assert(!md_seccomp_policy_eval(admission_policy(&peer),&(struct seccomp_data){.nr=SYS_mount},&admitted));
         assert(admitted==SECCOMP_RET_ALLOW);
-        md_seccomp_policy_release(peer.admission_policy); peer.admission_policy=NULL;
-        peer.admission_policy_valid=peer.admission_policy_pending=0;
-        if (caller.policy) {
+        md_seccomp_policy_release(peer.seccomp.admission_policy); peer.seccomp.admission_policy=NULL;
+        peer.seccomp.admission_policy_valid=peer.seccomp.admission_policy_pending=0;
+        if (caller.seccomp.policy) {
             uint32_t decision;
-            assert(!md_seccomp_policy_eval(caller.policy,&(struct seccomp_data){.nr=SYS_mount},&decision));
+            assert(!md_seccomp_policy_eval(caller.seccomp.policy,&(struct seccomp_data){.nr=SYS_mount},&decision));
             assert(decision==(SECCOMP_RET_ERRNO|EACCES));
-            md_seccomp_policy_replace(&caller.policy,NULL);
-            md_seccomp_policy_replace(&peer.policy,NULL);
+            md_seccomp_policy_replace(&caller.seccomp.policy,NULL);
+            md_seccomp_policy_replace(&peer.seccomp.policy,NULL);
         }
         struct md_interception_buffer loan={0};
         assert(!md_buffers_take(pool,&loan) && !md_buffer_release(&loan));
@@ -911,11 +912,11 @@ static void filter_birth_order(void) {
         assert(!md_resource_order_start(&install));
         struct user_pt_regs registers={0}; registers.regs[8]=numbers[i];
         fd_begin(&t,&registers,MD_INTERCEPT_FD);
-        assert(md_resource_order_state(&t.fd_policy_order)==MD_RESOURCE_ORDER_QUEUED);
-        assert(!t.fd_order.table && !debugger_at_boundary(&t) && !entry_fence_boundary(&t));
-        assert(!memcmp(&t.fd_registers,&registers,sizeof(registers)));
+        assert(md_resource_order_state(&t.descriptors.policy_order)==MD_RESOURCE_ORDER_QUEUED);
+        assert(!t.descriptors.order.table && !debugger_at_boundary(&t) && !entry_fence_boundary(&t));
+        assert(!memcmp(&t.descriptors.registers,&registers,sizeof(registers)));
         fd_discard(&t);
-        assert(!t.fd_policy_order.queue && debugger_at_boundary(&t));
+        assert(!t.descriptors.policy_order.queue && debugger_at_boundary(&t));
         assert(!md_resource_order_complete(&install));
         md_fd_origins_release(t.resources.files); md_memory_release(t.memory);
     }
@@ -924,7 +925,7 @@ static void filter_birth_order(void) {
 static struct md_resource_order filter_replay_waiter;
 static long filter_replay_trace(int request,pid_t pid,void *address,void *data) {
     assert(request==PTRACE_SETREGSET && pid==123 && (uintptr_t)address==NT_PRSTATUS && data);
-    assert(!find_thread(pid)->filter_install);
+    assert(!find_thread(pid)->seccomp.install);
     assert(md_resource_order_state(&filter_replay_waiter)==MD_RESOURCE_ORDER_READY);
     /* Stop at the first kernel publication, before restoring the signal mask. */
     errno=ESRCH; return -1;
@@ -932,17 +933,17 @@ static long filter_replay_trace(int request,pid_t pid,void *address,void *data) 
 static void filter_replay_ownership(void) {
     const long outcomes[]={0,-ENOMEM,-EINVAL};
     for (unsigned i=0;i<sizeof(outcomes)/sizeof(*outcomes);++i) {
-        struct thread t={.pid=123,.phase=DISPATCHING,.filter_preflight=1,.memory=md_memory_new()};
+        struct thread t={.pid=123,.phase=DISPATCHING,.seccomp.preflight=1,.memory=md_memory_new()};
         assert(t.memory);
-        t.original.regs[8]=SYS_seccomp; t.original.pc=0x1000;
-        t.filter_install=calloc(1,sizeof(*t.filter_install)); assert(t.filter_install);
-        t.filter_install->source=-1;
-        assert(md_memory_order_begin(t.memory,&t.filter_install->memory,NULL)==1);
-        assert(!md_resource_order_start(&t.filter_install->memory));
+        t.execution.request.nr=SYS_seccomp; t.execution.request.instruction_pointer=0x1000;
+        t.seccomp.install=calloc(1,sizeof(*t.seccomp.install)); assert(t.seccomp.install);
+        t.seccomp.install->source=-1;
+        assert(md_memory_order_begin(t.memory,&t.seccomp.install->memory,NULL)==1);
+        assert(!md_resource_order_start(&t.seccomp.install->memory));
         assert(!md_memory_order_begin(t.memory,&filter_replay_waiter,NULL));
         checkpoints.trace=filter_replay_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
         dispatch_complete(&t,outcomes[i]);
-        assert(t.resume_lost && !t.filter_install && !t.filter_preflight && t.registration_revoked);
+        assert(t.resume_lost && !t.seccomp.install && !t.seccomp.preflight && t.entry.registration_revoked);
         assert(!md_resource_order_start(&filter_replay_waiter));
         assert(!md_resource_order_complete(&filter_replay_waiter));
         thread_index[t.pid%THREAD_BUCKETS]=NULL; checkpoints.trace=checkpoint_native_trace;
@@ -954,37 +955,38 @@ static void filter_listener_ownership(void) {
     const long outcomes[]={-EINVAL,0,5};
     for (unsigned i=0;i<sizeof(outcomes)/sizeof(*outcomes);++i) {
         struct thread caller={.pid=1,.tgid=1,.entered=1};
-        caller.original.regs[8]=SYS_seccomp;
-        caller.original.regs[0]=SECCOMP_SET_MODE_FILTER;
-        caller.original.regs[1]=SECCOMP_FILTER_FLAG_NEW_LISTENER;
+        caller.execution.registers.regs[8]=SYS_seccomp;
+        caller.execution.registers.regs[0]=SECCOMP_SET_MODE_FILTER;
+        caller.execution.registers.regs[1]=SECCOMP_FILTER_FLAG_NEW_LISTENER;
+        execution_capture(&caller,&caller.execution.registers);
         caller.resources.files=md_fd_origins_new(); assert(caller.resources.files);
-        caller.filter_install=calloc(1,sizeof(*caller.filter_install)); assert(caller.filter_install);
-        caller.filter_install->virtual_listener=1; caller.filter_install->source=-1;
+        caller.seccomp.install=calloc(1,sizeof(*caller.seccomp.install)); assert(caller.seccomp.install);
+        caller.seccomp.install->virtual_listener=1; caller.seccomp.install->source=-1;
         struct md_interception_buffers *pool=NULL;
         assert(!md_buffers_create_readonly(1,sizeof(struct md_seccomp_image),&pool));
         struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF)};
         struct sock_fprog program={1,code};
-        assert(!md_seccomp_capture_prepare(&caller.filter_install->capture,pool,0x100000,
+        assert(!md_seccomp_capture_prepare(&caller.seccomp.install->capture,pool,0x100000,
             NULL,&program,NULL,0,0,NULL));
         struct md_fd_order previous={0};
         assert(md_fd_order_begin(caller.resources.files,&previous,NULL)==1);
         assert(!md_fd_order_start(&previous));
         assert(filter_listener_prepare(&caller)==-EAGAIN);
-        assert(caller.filter_install->capture.policy && !caller.filter_install->listener.table);
+        assert(caller.seccomp.install->capture.policy && !caller.seccomp.install->listener.table);
         assert(!md_fd_order_complete(&previous));
         assert(!filter_listener_prepare(&caller));
         assert(!filter_listener_prepare(&caller));
-        assert(md_fd_order_state(&caller.filter_install->files)==MD_RESOURCE_ORDER_RUNNING);
+        assert(md_fd_order_state(&caller.seccomp.install->files)==MD_RESOURCE_ORDER_RUNNING);
         if (outcomes[i]>=0) {
-            caller.filter_install->loan->number=outcomes[i];
-            caller.filter_install->admitted=1;
+            caller.seccomp.install->loan->number=outcomes[i];
+            caller.seccomp.install->admitted=1;
             filter_result(&caller,outcomes[i]);
         } else filter_install_discard(&caller);
-        assert(!caller.filter_install);
+        assert(!caller.seccomp.install);
         struct md_fd_object *object=md_fd_origins_object(caller.resources.files,(int)outcomes[i],NULL);
         assert(!!object==(outcomes[i]>=0));
         if (object) {
-            assert(md_seccomp_listener_policy(object)==caller.policy);
+            assert(md_seccomp_listener_policy(object)==caller.seccomp.policy);
             struct md_fd_origins *copy=md_fd_origins_fork(caller.resources.files,0); assert(copy);
             struct md_fd_object *forked=md_fd_origins_object(copy,(int)outcomes[i],NULL);
             assert(forked==object); md_fd_object_release(forked);
@@ -999,19 +1001,19 @@ static void filter_listener_ownership(void) {
             struct md_fd_object *received=md_fd_origins_object(destination,number,NULL);
             assert(received==object);
             md_fd_object_release(received);
-            struct md_fd_object *other=md_seccomp_listener_new(caller.policy); assert(other && other!=object);
+            struct md_fd_object *other=md_seccomp_listener_new(caller.seccomp.policy); assert(other && other!=object);
             assert(!md_fd_origins_prepare_object(destination,other,FD_CLOEXEC,&update));
             md_fd_origins_finish(&update,number);
             received=md_fd_origins_object(destination,number,NULL);
             assert(received==other && received!=object);
             md_fd_object_release(received); md_fd_object_release(other);
             md_fd_origins_release(destination);
-            md_seccomp_policy_replace(&caller.policy,NULL);
+            md_seccomp_policy_replace(&caller.seccomp.policy,NULL);
             uint32_t action;
             assert(!md_seccomp_policy_eval(md_seccomp_listener_policy(object),&(struct seccomp_data){0},&action)
                 && action==SECCOMP_RET_USER_NOTIF);
         }
-        md_fd_object_release(object); md_seccomp_policy_replace(&caller.policy,NULL);
+        md_fd_object_release(object); md_seccomp_policy_replace(&caller.seccomp.policy,NULL);
         md_fd_origins_release(caller.resources.files); md_buffers_release(pool);
     }
     puts("PASS listener ownership: ordered publication, FD zero, failure, fork, SCM_RIGHTS and descriptor reuse");
@@ -1096,7 +1098,7 @@ static long memory_context_trace(int request,pid_t pid,void *address,void *data)
     return 0;
 }
 static void memory_context_capture(void) {
-    struct thread t={.pid=123,.memory_arguments_only=1};
+    struct thread t={.pid=123,.memory_op.arguments_only=1};
     thread_index[t.pid%THREAD_BUCKETS]=&t;
     checkpoints.trace=memory_context_trace;
     memory_saved=md_task_registers_entry(0x1004,0x8000,UINT64_C(1)<<12);
@@ -1104,12 +1106,12 @@ static void memory_context_capture(void) {
     memory_saved.regs[8]=SYS_mmap;
     struct user_pt_regs operands={.pc=memory_saved.pc,.sp=memory_saved.sp};
     assert(memory_context(&t,&operands));
-    assert(!t.memory_arguments_only && memory_reads==1);
+    assert(!t.memory_op.arguments_only && memory_reads==1);
     assert(!memcmp(&operands,&memory_saved,sizeof(operands)));
-    assert(!memcmp(&t.original,&memory_saved,sizeof(t.original)));
+    assert(!memcmp(&t.execution.registers,&memory_saved,sizeof(t.execution.registers)));
     assert(memory_context(&t,&operands) && memory_reads==1);
-    t.memory_arguments_only=1; memory_read_error=1;
-    assert(!memory_context(&t,&operands) && t.resume_lost && t.memory_arguments_only);
+    t.memory_op.arguments_only=1; memory_read_error=1;
+    assert(!memory_context(&t,&operands) && t.resume_lost && t.memory_op.arguments_only);
     assert(memory_reads==2 && !memcmp(&operands,&memory_saved,sizeof(operands)));
     memory_read_error=0; checkpoints.trace=checkpoint_native_trace;
     thread_index[t.pid%THREAD_BUCKETS]=NULL;
@@ -1123,7 +1125,7 @@ static void entry_revocation_lost_stop(void) {
     t.resume_lost=0;
     struct user_pt_regs regs={.regs={[8]=SYS_seccomp,[1]=SECCOMP_FILTER_FLAG_TSYNC}};
     assert(!filter_revoke_entry(&t,&regs) && t.resume_lost && r->revoke_pending);
-    assert(!t.filter_install && !t.cooperative_blocked);
+    assert(!t.seccomp.install && !t.entry.blocked);
     md_memory_release(t.memory);
     puts("PASS entry revocation: lost stop retains mm retry without committing a filter");
 }
@@ -1156,14 +1158,14 @@ static void memory_observation_routes(void) {
     assert(!memory_observation(&t,&info,&observed,&alias));
     info.instruction_pointer=0x3004; r->disabled=1;
     assert(!memory_observation(&t,&info,&observed,&alias)); r->disabled=0;
-    t.application_filter=1;
-    assert(!memory_observation(&t,&info,&observed,&alias)); t.application_filter=0;
-    t.cooperative_blocked=1;
-    assert(!memory_observation(&t,&info,&observed,&alias)); t.cooperative_blocked=0;
-    t.debug_options=1;
-    assert(!memory_observation(&t,&info,&observed,&alias)); t.debug_options=0;
-    t.entry_fence_result=-EPERM;
-    assert(!memory_observation(&t,&info,&observed,&alias)); t.entry_fence_result=0;
+    t.seccomp.application_filter=1;
+    assert(!memory_observation(&t,&info,&observed,&alias)); t.seccomp.application_filter=0;
+    t.entry.blocked=1;
+    assert(!memory_observation(&t,&info,&observed,&alias)); t.entry.blocked=0;
+    t.debug.options=1;
+    assert(!memory_observation(&t,&info,&observed,&alias)); t.debug.options=0;
+    t.entry.fence_result=-EPERM;
+    assert(!memory_observation(&t,&info,&observed,&alias)); t.entry.fence_result=0;
     info.seccomp.ret_data=MD_INTERCEPT_PROC;
     assert(!memory_observation(&t,&info,&observed,&alias));
     md_memory_release(t.memory);
@@ -1178,14 +1180,14 @@ static void machine_context_admission(void) {
     assert(!md_memory_svc_set(t.memory,r));
     r->pool_count=1; r->pools[0]=(struct md_svc_code_pool){.address=0x3000,.used=8};
     assert(machine_context(&t,&info) && machine_discovery(&t));
-    t.notification_continued=1;
+    t.seccomp.notification_continued=1;
     assert(!machine_discovery(&t));
-    t.notification_continued=0; t.admission_policy_valid=1;
+    t.seccomp.notification_continued=0; t.seccomp.admission_policy_valid=1;
     assert(!machine_discovery(&t));
-    t.admission_policy_valid=0;
+    t.seccomp.admission_policy_valid=0;
     for (unsigned i=0;i<4;++i) {
-        t.application_filter=i==0; t.cooperative_blocked=i==1;
-        t.debug_options=i==2; r->disabled=i==3;
+        t.seccomp.application_filter=i==0; t.entry.blocked=i==1;
+        t.debug.options=i==2; r->disabled=i==3;
         assert(!machine_discovery(&t) && !machine_context(&t,&info));
         info.instruction_pointer=0x3004;
         assert(machine_context(&t,&info));
@@ -1194,7 +1196,7 @@ static void machine_context_admission(void) {
         info.stack_pointer=0x800000;
         assert(machine_context(&t,NULL));
     }
-    t.application_filter=t.cooperative_blocked=0; t.debug_options=0; r->disabled=0;
+    t.seccomp.application_filter=t.entry.blocked=0; t.debug.options=0; r->disabled=0;
     t.entered=0;
     assert(!machine_discovery(&t) && !machine_context(&t,&info));
     t.entered=1;
@@ -1211,16 +1213,16 @@ static void machine_context_admission(void) {
     assert(machine_context(&t,&info));
     t.phase=DISPATCHING;
     assert(!machine_context(&t,&info) && !machine_context(&t,NULL));
-    t.phase=IDLE; t.application_filter=1;
+    t.phase=IDLE; t.seccomp.application_filter=1;
     struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
     struct sock_fprog program={1,code};
-    assert(!md_seccomp_policy_capture(NULL,&program,&t.policy));
+    assert(!md_seccomp_policy_capture(NULL,&program,&t.seccomp.policy));
     assert(!machine_discovery(&t));
-    md_seccomp_policy_bind_entry(t.policy,r->image);
+    md_seccomp_policy_bind_entry(t.seccomp.policy,r->image);
     assert(!machine_discovery(&t));
     struct md_interception_buffers *pool=NULL;
     assert(!md_buffers_create_readonly(1,128,&pool));
-    assert(!md_memory_snapshot_publish(t.memory,md_seccomp_policy_identity(t.policy),pool,0x200000));
+    assert(!md_memory_snapshot_publish(t.memory,md_seccomp_policy_identity(t.seccomp.policy),pool,0x200000));
     assert(machine_discovery(&t));
     const long mapping_calls[]={SYS_mmap,SYS_munmap,SYS_mprotect,SYS_mremap};
     for (unsigned i=0;i<sizeof(mapping_calls)/sizeof(*mapping_calls);++i) {
@@ -1242,13 +1244,13 @@ static void machine_context_admission(void) {
     assert(!machine_discovery(&child)); md_memory_release(image);
     md_memory_snapshots_invalidate(t.memory);
     assert(!machine_discovery(&t));
-    md_buffers_release(pool); md_seccomp_policy_release(t.policy);
+    md_buffers_release(pool); md_seccomp_policy_release(t.seccomp.policy);
     md_memory_release(t.memory);
     puts("PASS machine context: lazy discovery capture, revoked entry recovery and task-owned dispatch");
     puts("PASS policy entry admission: published view, exact image, fork/exec and mapping mutation scope");
 }
 static void native_alias_routing(void) {
-    struct thread t={.pid=123,.entered=1,.application_filter=1,.memory=md_memory_new()};
+    struct thread t={.pid=123,.entered=1,.seccomp.application_filter=1,.memory=md_memory_new()};
     assert(t.memory);
     struct md_svc_registry *r=md_svc_registry_new(0x1000000,0x4000); assert(r);
     assert(!md_memory_svc_set(t.memory,r));
@@ -1263,11 +1265,11 @@ static void native_alias_routing(void) {
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES)};
     struct sock_fprog program={sizeof(code)/sizeof(*code),code};
-    assert(!md_seccomp_policy_capture(NULL,&program,&t.policy));
-    md_seccomp_policy_bind_entry(t.policy,r->image);
+    assert(!md_seccomp_policy_capture(NULL,&program,&t.seccomp.policy));
+    md_seccomp_policy_bind_entry(t.seccomp.policy,r->image);
     struct md_interception_buffers *pool=NULL;
     assert(!md_buffers_create_readonly(1,128,&pool));
-    assert(!md_memory_snapshot_publish(t.memory,md_seccomp_policy_identity(t.policy),pool,0x200000));
+    assert(!md_memory_snapshot_publish(t.memory,md_seccomp_policy_identity(t.seccomp.policy),pool,0x200000));
     struct user_pt_regs regs=md_task_registers_entry(0x3004,0x800000,0);
     const long calls[]={SYS_getpid,SYS_munmap,SYS_close};
     const unsigned expected[]={MD_INTERCEPT_NATIVE,MD_INTERCEPT_MEMORY,MD_INTERCEPT_CLOSE|7};
@@ -1278,14 +1280,14 @@ static void native_alias_routing(void) {
         regs.regs[0]=17; cookie=MD_INTERCEPT_TASK;
         assert(!machine_native_entry(&t,&regs,&cookie) && cookie==MD_INTERCEPT_TASK);
     }
-    regs.regs[8]=SYS_getpid; regs.regs[0]=7; t.pid_filter=1;
+    regs.regs[8]=SYS_getpid; regs.regs[0]=7; t.process_op.filter=1;
     unsigned long cookie=MD_INTERCEPT_TASK;
     assert(machine_native_entry(&t,&regs,&cookie)==1 && cookie==MD_INTERCEPT_PROCESS);
     regs.regs[8]=SYS_openat; cookie=MD_INTERCEPT_TASK;
     assert(!machine_native_entry(&t,&regs,&cookie) && cookie==MD_INTERCEPT_TASK);
     regs.regs[8]=SYS_prctl; regs.regs[0]=PR_SET_SECCOMP; regs.regs[1]=SECCOMP_MODE_FILTER;
     assert(!machine_native_entry(&t,&regs,&cookie));
-    md_buffers_release(pool); md_seccomp_policy_release(t.policy); md_memory_release(t.memory);
+    md_buffers_release(pool); md_seccomp_policy_release(t.seccomp.policy); md_memory_release(t.memory);
     puts("PASS native alias: original IP/arguments, shared native/PID/memory/FD routes and notification/filter fallback");
 }
 static void execution_context_contract(void) {
@@ -1545,7 +1547,7 @@ static void readiness_admission_order(void) {
     assert(files && group && queue);
     struct readiness_owner prior={.loans={{.number=-1},{.number=-1}}},activation={0};
     struct thread t={.pid=123,.phase=DISPATCHING,.readiness=&prior};
-    t.resources.files=files; t.original.regs[0]=5; t.original.regs[8]=SYS_epoll_pwait;
+    t.resources.files=files; t.execution.request.args[0]=5; t.execution.request.nr=SYS_epoll_pwait;
     assert(md_fd_order_begin(files,&prior.files,NULL)==1);
     activation.admission=md_fd_admission_new(md_control_epoll_object(queue),1U<<MD_FD_SELECTOR_EPOLL);
     assert(activation.admission && !md_fd_admission_add(activation.admission,files,group));
@@ -1588,7 +1590,7 @@ static void readiness_entry_interrupt(void) {
         struct readiness_owner owner={.evicting=evict,
             .native_call={.number=numbers[i],.value={35,0x4000,2,1000,0,8}}};
         struct thread t={.pid=123,.phase=EPOLL_CALL,.kernel_stopped=1,
-            .socket_waking=1,.signal_shielded=1,.readiness=&owner};
+            .io.socket_waking=1,.signals.shielded=1,.readiness=&owner};
         readiness_before_call=(struct user_pt_regs){.pc=abi.task_call};
         readiness_before_call.regs[8]=numbers[i];
         memcpy(readiness_before_call.regs,owner.native_call.value,sizeof(owner.native_call.value));
@@ -1597,7 +1599,7 @@ static void readiness_entry_interrupt(void) {
         int status=(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f;
         assert(readiness_native_event(&t,status));
         assert(readiness_entry_reads==1 && readiness_entry_resumes==1);
-        assert(t.phase==EPOLL_CALL && !t.socket_waking && !t.kernel_stopped && t.signal_shielded);
+        assert(t.phase==EPOLL_CALL && !t.io.socket_waking && !t.kernel_stopped && t.signals.shielded);
         assert(!owner.done && !owner.finishing && !owner.parked && owner.evicting==(int)evict);
         assert(!readiness_native_event(&t,(SIGUSR1<<8)|0x7f));
         assert(readiness_entry_reads==1 && readiness_entry_resumes==1);
@@ -1643,9 +1645,9 @@ static void readiness_signal_return(void) {
     for (unsigned i=0;i<sizeof(parked)/sizeof(*parked);++i) {
         t.phase=parked[i];
         assert(task_parked(&t) && freezer_parked(&t) && task_action_borrowable(&t,NULL));
-        t.signal_return_pending=1;
+        t.signals.return_pending=1;
         assert(!task_action_borrowable(&t,NULL));
-        t.signal_return_pending=0;
+        t.signals.return_pending=0;
         t.interrupt_pending=1;
         assert(!task_action_borrowable(&t,NULL));
         t.interrupt_pending=0;
@@ -1657,7 +1659,7 @@ static void readiness_signal_return(void) {
         assert(!task_parked(&t) && !task_action_borrowable(&t,NULL));
     }
     t.phase=IDLE;
-    t.signal_return_pending=1;
+    t.signals.return_pending=1;
     assert(!task_action_borrowable(&t,NULL));
     struct task_action owner={.loan_table=files};
     for (unsigned mode=0;mode<3;++mode) {
@@ -1668,16 +1670,16 @@ static void readiness_signal_return(void) {
     }
     /* Even a queued carrier must not rewrite an atomic wait's pending mask. */
     siginfo_t signal={.si_signo=SIGUSR2,.si_code=SI_USER};
-    assert(!md_signal_delivery_hold(&t.signal_delivery,&signal));
+    assert(!md_signal_delivery_hold(&t.signals.delivery,&signal));
     t.ready=0; t.kernel_stopped=1;
     thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=readiness_entry_trace;
     readiness_entry_reads=readiness_entry_resumes=0;
     resume(t.pid,0);
     assert(readiness_entry_resumes==1 && !readiness_entry_reads && !t.kernel_stopped);
-    assert(t.signal_return_pending && !t.signal_delivery.active
-        && md_signal_delivery_pending(&t.signal_delivery));
+    assert(t.signals.return_pending && !t.signals.delivery.active
+        && md_signal_delivery_pending(&t.signals.delivery));
     checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
-    md_signal_delivery_clear(&t.signal_delivery); md_fd_origins_release(files);
+    md_signal_delivery_clear(&t.signals.delivery); md_fd_origins_release(files);
     puts("PASS readiness signal return: no borrowed FD action or carrier before next kernel entry");
 }
 static void retained_continuation_custody(void) {
@@ -1688,8 +1690,8 @@ static void retained_continuation_custody(void) {
     const enum phase phases[]={IDLE,EPOLL_WAIT,PROCESS_OBSERVING};
     for (unsigned phase=0;phase<sizeof(phases)/sizeof(*phases);++phase)
         for (unsigned state=0;state<3;++state) for (unsigned mode=0;mode<3;++mode) {
-            t.phase=phases[phase]; t.robust_registering=state==0;
-            t.robust_terminal=state;
+            t.phase=phases[phase]; t.robust.registering=state==0;
+            t.robust.terminal=state;
             owner.requester=mode==1 ? &t : NULL;
             owner.retirement.task=mode==2 ? t.pid : 0;
             for (int stopped=0;stopped<2;++stopped) {
@@ -1702,18 +1704,18 @@ static void retained_continuation_custody(void) {
             }
             /* A resource becoming ready cannot replace the held lifecycle
              * stop with the preceding selector continuation either. */
-            t.selector_exit=456; t.kernel_stopped=1;
+            t.descriptors.selector_exit=456; t.kernel_stopped=1;
             thread_index[t.pid%THREAD_BUCKETS]=&t;
             assert(!task_completion_available(t.pid));
             assert(!task_continuation_available(&t));
             retry_wait(&t,RETRY_TASK_ACTION);
             retry_dispatch(0);
-            assert(t.selector_exit==456 && !t.resume_lost && retained_task_held(&t));
+            assert(t.descriptors.selector_exit==456 && !t.resume_lost && retained_task_held(&t));
             assert(t.retries[0].mask==RETRY_TASK_ACTION && t.retries[0].node.list);
             retry_clear(&t,RETRY_TASK_ACTION);
             thread_index[t.pid%THREAD_BUCKETS]=NULL;
         }
-    t.robust_registering=t.robust_terminal=0;
+    t.robust.registering=t.robust.terminal=0;
     assert(task_continuation_available(&t));
     md_fd_origins_release(files);
     puts("PASS retained continuation custody: registration, terminal cleanup and replay exclude every borrowed actor role");
@@ -1730,14 +1732,14 @@ static long readiness_interrupted_trace(int request,pid_t pid,void *address,void
         break;
     case 1: {
         assert(request==PTRACE_SETREGSET && (uintptr_t)address==NT_PRSTATUS);
-        struct user_pt_regs expected=t->original; expected.regs[0]=(uint64_t)-EINTR;
+        struct user_pt_regs expected=t->execution.registers; expected.regs[0]=(uint64_t)-EINTR;
         assert(!memcmp(((struct iovec *)data)->iov_base,&expected,sizeof(expected)));
-        assert(t->signal_return_pending && !t->readiness);
+        assert(t->signals.return_pending && !t->readiness);
         break;
     }
     case 2:
         assert(request==PTRACE_SYSCALL && !address && !data);
-        assert(t->signal_return_pending && t->phase==IDLE && !t->signal_shielded);
+        assert(t->signals.return_pending && t->phase==IDLE && !t->signals.shielded);
         break;
     default: assert(!"unexpected mask change or injected call after interrupted wait");
     }
@@ -1747,12 +1749,13 @@ static void readiness_parked_signal_return(void) {
     struct thread t={.pid=123,.phase=SOCKET_WAITING,.kernel_stopped=1,
         .memory=md_memory_new(),.readiness=calloc(1,sizeof(struct readiness_owner))};
     assert(t.memory && t.readiness);
-    t.original=(struct user_pt_regs){.pc=0x1004,.regs={7,0x2000,3,4000,0,8}};
-    t.original.regs[8]=SYS_epoll_pwait;
+    t.execution.registers=(struct user_pt_regs){.pc=0x1004,.regs={7,0x2000,3,4000,0,8}};
+    t.execution.registers.regs[8]=SYS_epoll_pwait;
+    execution_capture(&t,&t.execution.registers);
     readiness_interrupted_step=0;
     thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=readiness_interrupted_trace;
     socket_wait_complete(&t);
-    assert(readiness_interrupted_step==3 && !t.kernel_stopped && t.signal_return_pending);
+    assert(readiness_interrupted_step==3 && !t.kernel_stopped && t.signals.return_pending);
     checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
     md_memory_release(t.memory);
     puts("PASS readiness parked signal return: original EINTR, no mask rewrite and deferred cleanup");
@@ -1804,7 +1807,7 @@ static void readiness_cancel_entry(void) {
     fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd_ready>=0);
     int status=((SIGTRAP|0x80)<<8)|0x7f;
     assert(readiness_native_event(&t,status));
-    assert(t.phase==WAIT_CANCEL_EXIT && t.wait_resume==EPOLL_CALL && !owner.parked);
+    assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==EPOLL_CALL && !owner.parked);
     assert(readiness_cancel_step==4);
     uint64_t events;
     assert(read(fd_ready,&events,sizeof(events))==-1 && errno==EAGAIN);
@@ -1813,7 +1816,7 @@ static void readiness_cancel_entry(void) {
     assert(!owner.parked && readiness_cancel_step==4);
     t.kernel_stopped=1;
     assert(readiness_native_event(&t,status));
-    assert(owner.parked && t.phase==DISPATCHING && t.wait_resume==IDLE && readiness_cancel_step==5);
+    assert(owner.parked && t.phase==DISPATCHING && t.execution.wait_resume==IDLE && readiness_cancel_step==5);
     assert(read(fd_ready,&events,sizeof(events))==sizeof(events) && events==1);
     /* A failed observer registration has the same entry/exit fence, but
      * returns its error instead of parking for another file-table owner. */
@@ -1825,13 +1828,13 @@ static void readiness_cancel_entry(void) {
         .queue=md_control_epoll_object(queue)};
     t.phase=EPOLL_CALL; t.kernel_stopped=1; readiness_cancel_step=0;
     assert(readiness_native_event(&t,status));
-    assert(t.phase==WAIT_CANCEL_EXIT && t.wait_resume==EPOLL_CALL && owner.finishing && !owner.done);
+    assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==EPOLL_CALL && owner.finishing && !owner.done);
     readiness_cancel_error=owner.finish_result; assert(readiness_cancel_error<0);
     assert(readiness_cancel_step==4 && !owner.parked);
     assert(read(fd_ready,&events,sizeof(events))==-1 && errno==EAGAIN);
     t.kernel_stopped=1;
     assert(readiness_native_event(&t,status));
-    assert(owner.done && !owner.parked && t.phase==DISPATCHING && t.wait_resume==IDLE);
+    assert(owner.done && !owner.parked && t.phase==DISPATCHING && t.execution.wait_resume==IDLE);
     assert(readiness_cancel_step==7);
     assert(read(fd_ready,&events,sizeof(events))==-1 && errno==EAGAIN);
     assert(!owner.wait.job.started);
@@ -1854,14 +1857,15 @@ static void duplicate_retirement_order(void) {
         struct md_fd_origins *files=md_fd_origins_new(); assert(files);
         struct md_fd_observation view;
         assert(!md_fd_origins_observe(files,5,&view));
-        struct thread t={.pid=123,.fd_job=MD_FD_DUPLICATE_BEGIN};
-        t.resources.files=files; t.original.regs[0]=5; t.original.regs[8]=SYS_dup3;
-        t.fd_registers.regs[1]=view.generation;
-        assert(md_fd_order_begin(files,&t.fd_order,NULL)==1);
-        assert(!md_fd_order_start(&t.fd_order));
-        assert(!md_fd_origins_validate(&t.fd_order,view.generation));
+        struct thread t={.pid=123,.descriptors.job=MD_FD_DUPLICATE_BEGIN};
+        t.resources.files=files; t.execution.request.args[0]=5; t.execution.request.nr=SYS_dup3;
+        t.descriptors.registers.regs[1]=view.generation;
+        t.descriptors.request=control_description(&t.descriptors.registers);
+        assert(md_fd_order_begin(files,&t.descriptors.order,NULL)==1);
+        assert(!md_fd_order_start(&t.descriptors.order));
+        assert(!md_fd_origins_validate(&t.descriptors.order,view.generation));
         assert(!md_fd_origins_close_range(files,10,10,0));
-        assert(md_fd_origins_validate(&t.fd_order,view.generation)==-EAGAIN);
+        assert(md_fd_origins_validate(&t.descriptors.order,view.generation)==-EAGAIN);
         thread_index[t.pid%THREAD_BUCKETS]=&t;
         checkpoints.trace=duplicate_return_trace;
         duplicate_reply=owned ? 0 : -EAGAIN;
@@ -1871,10 +1875,10 @@ static void duplicate_retirement_order(void) {
         thread_index[t.pid%THREAD_BUCKETS]=NULL;
         assert(t.resume_lost && !t.retries[0].mask && !t.retries[1].mask);
         if (owned) {
-            assert(t.fd_job==MD_FD_DUPLICATE_BEGIN);
-            assert(!md_fd_origins_validate(&t.fd_order,t.fd_registers.regs[1]));
-            assert(!md_fd_order_complete(&t.fd_order));
-        } else assert(!t.fd_job && !t.fd_order.table);
+            assert(t.descriptors.job==MD_FD_DUPLICATE_BEGIN);
+            assert(!md_fd_origins_validate(&t.descriptors.order,t.descriptors.registers.regs[1]));
+            assert(!md_fd_order_complete(&t.descriptors.order));
+        } else assert(!t.descriptors.job && !t.descriptors.order.table);
         md_fd_origins_release(files);
     }
     puts("PASS duplicate admission: foreign generation retries, owned loan retirement retains its table turn");
@@ -1905,20 +1909,20 @@ static void orphan_loan_retirement(void) {
         parent_task.resources.files=home;
         if (copied && !ended) threads=&parent_task;
         struct thread t={.pid=123}; t.resources.files=files;
-        t.fd_registers.regs[8]=SYS_close; t.fd_registers.regs[0]=14;
-        assert(md_fd_order_begin(files,&t.fd_order,NULL)==1);
-        assert(!md_fd_order_start(&t.fd_order));
+        t.descriptors.registers.regs[8]=SYS_close; t.descriptors.registers.regs[0]=14;
+        assert(md_fd_order_begin(files,&t.descriptors.order,NULL)==1);
+        assert(!md_fd_order_start(&t.descriptors.order));
         assert(!fd_loans_ready(&t));
         struct task_action *action=t.action;
         assert(action && loan_retirements==action && task_action_calls==1);
         assert(action->loan==loan && action->loan_table==files && action->number==14);
-        assert(action->loan_turn==&t.fd_order && action->complete==fd_loan_closed);
-        assert(md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_RUNNING);
+        assert(action->loan_turn==&t.descriptors.order && action->complete==fd_loan_closed);
+        assert(md_fd_order_state(&t.descriptors.order)==MD_RESOURCE_ORDER_RUNNING);
         assert(!parent_wait.evicting && parent_wait.loans[0].retirement==&parent_retirement);
         assert(!md_fd_origins_close_range(files,14,14,0));
         t.action=NULL; task_action_release(action);
         assert(fd_loans_ready(&t));
-        assert(!md_fd_order_complete(&t.fd_order));
+        assert(!md_fd_order_complete(&t.descriptors.order));
         if (copied) {
             struct md_fd_order parent={0}; int number=-1;
             assert(md_fd_order_begin(home,&parent,NULL)==1 && !md_fd_order_start(&parent));
@@ -1947,27 +1951,27 @@ static void queued_loan_retirement(void) {
         assert(!md_fd_origins_prepare_loan(&update,loan)); md_fd_origins_finish(&update,14);
         struct thread t={.pid=123};
         t.resources.files=copied ? md_fd_origins_fork(home,0) : home; assert(t.resources.files);
-        t.fd_registers.regs[8]=SYS_close; t.fd_registers.regs[0]=14;
-        assert(md_fd_order_begin(t.resources.files,&t.fd_order,NULL)==1);
-        assert(!md_fd_order_start(&t.fd_order));
+        t.descriptors.registers.regs[8]=SYS_close; t.descriptors.registers.regs[0]=14;
+        assert(md_fd_order_begin(t.resources.files,&t.descriptors.order,NULL)==1);
+        assert(!md_fd_order_start(&t.descriptors.order));
         struct task_action *prior=calloc(1,sizeof(*prior)); assert(prior);
         prior->loan=loan; prior->loan_table=md_fd_origins_pin(home); prior->number=14;
         loan_retire(prior,NULL,NULL,NULL);
         assert(!fd_loans_ready(&t));
         if (copied) {
             assert(t.action && t.action!=prior && task_action_calls==2);
-            assert(md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_RUNNING);
+            assert(md_fd_order_state(&t.descriptors.order)==MD_RESOURCE_ORDER_RUNNING);
             struct task_action *local=t.action; t.action=NULL; task_action_release(local);
             md_fd_origins_release(t.resources.files);
         } else {
             assert(!t.action && task_action_calls==1);
             assert(md_fd_order_state(&prior->files)==MD_RESOURCE_ORDER_READY);
-            assert(md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_QUEUED);
+            assert(md_fd_order_state(&t.descriptors.order)==MD_RESOURCE_ORDER_QUEUED);
             retry_clear(&t,RETRY_FD);
         }
         task_action_release(prior);
-        if (md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_READY) assert(!md_fd_order_start(&t.fd_order));
-        assert(!md_fd_order_complete(&t.fd_order));
+        if (md_fd_order_state(&t.descriptors.order)==MD_RESOURCE_ORDER_READY) assert(!md_fd_order_start(&t.descriptors.order));
+        assert(!md_fd_order_complete(&t.descriptors.order));
         assert(!loan_retirements && !task_action_calls);
         md_fd_origins_release(home);
     }
@@ -1999,28 +2003,28 @@ static void exclusive_signal_entry(void) {
     debugger=md_debugger_create(&(struct md_debugger_host){0}); assert(debugger);
     for (unsigned reset=0;reset<2;++reset) for (unsigned sys=0;sys<2;++sys)
             for (unsigned blocked=0;blocked<2;++blocked) for (unsigned nodefer=0;nodefer<2;++nodefer) {
-        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.entered=1,.host_signals=1,
-            .memory=md_memory_new(),.signal_actions=md_signal_actions_new()};
-        assert(t.memory && t.signal_actions);
+        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.entered=1,.signals.host=1,
+            .memory=md_memory_new(),.signals.actions=md_signal_actions_new()};
+        assert(t.memory && t.signals.actions);
         signal_delivery_number=sys ? SIGSYS : SIGALRM;
         struct md_kernel_action action={.handler=0x1234,
             .mask=(UINT64_C(1)<<(SIGUSR2-1))|(blocked ? MD_SIGNAL_SYS_BIT : 0),
             .flags=(reset ? SA_RESETHAND : 0)|(nodefer ? SA_NODEFER : 0)};
-        assert(!md_signal_actions_commit(t.signal_actions,signal_delivery_number,&action));
+        assert(!md_signal_actions_commit(t.signals.actions,signal_delivery_number,&action));
         assert(signal_frame_native(&t));
-        t.host_signal_blocked=1; assert(!signal_frame_native(&t));
-        t.host_signal_blocked=0; t.signal_wait_view.active=1;
+        t.signals.host_blocked=1; assert(!signal_frame_native(&t));
+        t.signals.host_blocked=0; t.signals.wait_view.active=1;
         assert(!signal_frame_native(&t));
-        t.signal_wait_view.active=0;
+        t.signals.wait_view.active=0;
         signal_delivery_queries=signal_delivery_resumes=0;
         checkpoints.trace=signal_delivery_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
         assert(signal_control_delivery(&t,signal_delivery_number,NULL));
-        assert(signal_delivery_queries==1 && signal_delivery_resumes==1 && !t.signal_control
-            && t.phase==IDLE && !t.kernel_stopped && t.host_signal_blocked==!!(blocked || (sys && !nodefer)));
-        assert(!md_signal_actions_read(t.signal_actions,signal_delivery_number,&action));
+        assert(signal_delivery_queries==1 && signal_delivery_resumes==1 && !t.signals.control
+            && t.phase==IDLE && !t.kernel_stopped && t.signals.host_blocked==!!(blocked || (sys && !nodefer)));
+        assert(!md_signal_actions_read(t.signals.actions,signal_delivery_number,&action));
         assert(action.handler==(reset ? (uintptr_t)SIG_DFL : 0x1234));
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
-        md_signal_actions_release(t.signal_actions); md_memory_release(t.memory);
+        md_signal_actions_release(t.signals.actions); md_memory_release(t.memory);
     }
     md_debugger_destroy(debugger); debugger=NULL;
     puts("PASS exclusive signal entry: native frame delivery without an interrupt or register rewrite");
@@ -2044,8 +2048,8 @@ static void native_signal_query(void) {
     debugger=md_debugger_create(&(struct md_debugger_host){0}); assert(debugger);
     for (unsigned blocked=0;blocked<2;++blocked) for (unsigned output=0;output<2;++output)
             for (unsigned input=0;input<2;++input) {
-        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.entered=1,.host_signals=1,
-            .host_signal_blocked=blocked,.memory=md_memory_new()};
+        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.entered=1,.signals.host=1,
+            .signals.host_blocked=blocked,.memory=md_memory_new()};
         assert(t.memory);
         uint64_t before=UINT64_C(1)<<(SIGUSR2-1);
         signal_query_mask=before;
@@ -2067,12 +2071,12 @@ static void native_signal_query(void) {
             assert(signal_query_reads==blocked+input && signal_query_writes==blocked+expected_blocked);
         } else assert(!signal_query_reads && !signal_query_writes && !signal_query_calls);
         assert(t.phase==IDLE && signal_query_returns==1 && signal_query_mask==before
-            && t.host_signal_blocked==(int)expected_blocked && !t.signal_control && !t.signal_query_active);
+            && t.signals.host_blocked==(int)expected_blocked && !t.signals.control && !t.signals.query_active);
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
         md_memory_release(t.memory);
     }
     struct thread pending={.pid=123,.phase=SIGNAL_NATIVE_EXIT,.kernel_stopped=1,
-        .entered=1,.host_signals=1,.signal_delivery={.active=1},.memory=md_memory_new()};
+        .entered=1,.signals.host=1,.signals.delivery={.active=1},.memory=md_memory_new()};
     assert(pending.memory);
     signal_query_calls=signal_query_returns=0;
     checkpoints.trace=signal_query_trace; thread_index[pending.pid%THREAD_BUCKETS]=&pending;
@@ -2112,8 +2116,8 @@ static long direct_query_trace(int request,pid_t pid,void *address,void *data) {
 }
 static void direct_signal_query(void) {
     debugger=md_debugger_create(&(struct md_debugger_host){0}); assert(debugger);
-    struct thread t={.pid=getpid(),.phase=IDLE,.kernel_stopped=1,.entered=1,.host_signals=1,
-        .host_signal_blocked=1,.memory=md_memory_new()}; assert(t.memory);
+    struct thread t={.pid=getpid(),.phase=IDLE,.kernel_stopped=1,.entered=1,.signals.host=1,
+        .signals.host_blocked=1,.memory=md_memory_new()}; assert(t.memory);
     uint64_t *output=mmap(NULL,getpagesize(),PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert(output!=MAP_FAILED);
     thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=direct_query_trace;
@@ -2121,7 +2125,7 @@ static void direct_signal_query(void) {
         if (fault) assert(!mprotect(output,getpagesize(),PROT_READ));
         query_register_reads=query_register_writes=query_resumes=0; t.kernel_stopped=1;
         assert(signal_native_call(&t,SYS_rt_sigprocmask,0,(uintptr_t)output,8));
-        assert(t.phase==IDLE && !t.signal_query_active && !t.kernel_stopped && t.host_signal_blocked);
+        assert(t.phase==IDLE && !t.signals.query_active && !t.kernel_stopped && t.signals.host_blocked);
         assert(query_register_reads==0 && query_register_writes==2 && query_resumes==1);
         assert((long)query_completed.regs[0]==(fault ? -EFAULT : 0));
         assert(*output==((UINT64_C(1)<<(SIGUSR2-1))|MD_SIGNAL_SYS_BIT));
@@ -2143,32 +2147,32 @@ static long signal_frame_trace(int request,pid_t pid,void *address,void *data) {
 static void logical_signal_frame(void) {
     debugger=md_debugger_create(&(struct md_debugger_host){0}); assert(debugger);
     for (unsigned blocked=0;blocked<2;++blocked) for (unsigned action_bit=0;action_bit<2;++action_bit) {
-        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.entered=1,.host_signals=1,
-            .host_signal_blocked=blocked,.memory=md_memory_new(),.signal_actions=md_signal_actions_new()};
-        assert(t.memory && t.signal_actions);
-        struct md_signal_actions *peer=md_signal_actions_fork(t.signal_actions,1,0); assert(peer);
+        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1,.entered=1,.signals.host=1,
+            .signals.host_blocked=blocked,.memory=md_memory_new(),.signals.actions=md_signal_actions_new()};
+        assert(t.memory && t.signals.actions);
+        struct md_signal_actions *peer=md_signal_actions_fork(t.signals.actions,1,0); assert(peer);
         uint64_t before=UINT64_C(1)<<(SIGUSR2-1);
         struct md_kernel_action action={.handler=0x1234,.mask=action_bit ? MD_SIGNAL_SYS_BIT : 0};
-        assert(!md_signal_actions_commit(t.signal_actions,SIGALRM,&action));
+        assert(!md_signal_actions_commit(t.signals.actions,SIGALRM,&action));
         signal_query_mask=before;
         signal_query_reads=signal_query_writes=signal_query_calls=signal_query_returns=0;
         signal_frame_interrupts=signal_frame_deliveries=0;
         checkpoints.trace=signal_frame_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
         assert(signal_control_delivery(&t,SIGALRM,NULL));
-        assert(t.phase==SIGNAL_ENTRY && t.signal_control && !t.signal_control->scratch.pool
+        assert(t.phase==SIGNAL_ENTRY && t.signals.control && !t.signals.control->scratch.pool
             && signal_query_reads==1 && signal_query_writes==blocked
             && signal_query_mask==(before|(blocked ? MD_SIGNAL_SYS_BIT : 0))
             && signal_frame_interrupts==1 && signal_frame_deliveries==1);
         signal_query_mask|=UINT64_C(1)<<(SIGALRM-1);
         t.kernel_stopped=1;
         assert(signal_control_event(&t,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f));
-        assert(t.phase==IDLE && !t.signal_control && !t.kernel_stopped
-            && t.host_signal_blocked==!!(blocked|action_bit)
+        assert(t.phase==IDLE && !t.signals.control && !t.kernel_stopped
+            && t.signals.host_blocked==!!(blocked|action_bit)
             && signal_query_mask==(before|(UINT64_C(1)<<(SIGALRM-1)))
             && signal_query_reads==1 && signal_query_writes==2*blocked
             && !signal_query_calls && signal_query_returns==1);
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
-        md_signal_actions_release(peer); md_signal_actions_release(t.signal_actions); md_memory_release(t.memory);
+        md_signal_actions_release(peer); md_signal_actions_release(t.signals.actions); md_memory_release(t.memory);
     }
     md_debugger_destroy(debugger); debugger=NULL;
     puts("PASS logical signal frame: kernel mask publication, no buffer or register copy, native handler mask restored");
@@ -2176,28 +2180,28 @@ static void logical_signal_frame(void) {
 static void native_signal_entry(void) {
     for (unsigned reset=0;reset<2;++reset) {
         struct thread t={.pid=123,.phase=SIGNAL_ENTRY,.kernel_stopped=1,
-            .memory=md_memory_new(),.signal_actions=md_signal_actions_new()};
-        assert(t.memory && t.signal_actions);
+            .memory=md_memory_new(),.signals.actions=md_signal_actions_new()};
+        assert(t.memory && t.signals.actions);
         struct signal_control *owner=calloc(1,sizeof(*owner)); assert(owner);
-        t.signal_control=owner; owner->started=1; owner->signal=SIGALRM;
+        t.signals.control=owner; owner->started=1; owner->signal=SIGALRM;
         owner->action=(struct md_kernel_action){.handler=0x1234,
             .mask=UINT64_C(1)<<(SIGUSR2-1),.flags=reset ? SA_RESETHAND : 0};
-        assert(!md_signal_actions_commit(t.signal_actions,SIGALRM,&owner->action));
+        assert(!md_signal_actions_commit(t.signals.actions,SIGALRM,&owner->action));
         assert(md_memory_order_begin(t.memory,&owner->memory,NULL)==1);
         assert(!md_resource_order_start(&owner->memory));
         fd_expected_resume=PTRACE_CONT; fd_resume_calls=0;
         checkpoints.trace=fd_resume_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
         assert(signal_control_event(&t,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f));
-        assert(fd_resume_calls==1 && !t.signal_control && t.phase==IDLE
-            && !t.kernel_stopped && !t.host_signal_blocked);
+        assert(fd_resume_calls==1 && !t.signals.control && t.phase==IDLE
+            && !t.kernel_stopped && !t.signals.host_blocked);
         struct md_kernel_action action;
-        assert(!md_signal_actions_read(t.signal_actions,SIGALRM,&action));
+        assert(!md_signal_actions_read(t.signals.actions,SIGALRM,&action));
         assert(action.handler==(reset ? (uintptr_t)SIG_DFL : 0x1234));
         struct md_resource_order next={0};
         assert(md_memory_order_begin(t.memory,&next,NULL)==1);
         assert(!md_resource_order_start(&next) && !md_resource_order_complete(&next));
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
-        md_signal_actions_release(t.signal_actions); md_memory_release(t.memory);
+        md_signal_actions_release(t.signals.actions); md_memory_release(t.memory);
     }
     puts("PASS native signal entry: no register or mask rewrite, one-shot action reset and released admission");
 }
@@ -2212,8 +2216,8 @@ static void pending_signal_wakeup(void) {
     for (unsigned state=0;state<4;++state) for (unsigned held=0;held<4;++held) {
         struct md_signal_entry packet={.pending=1};
         struct signal_control owner={.returning=state==2,.entry_packet=state==1 ? &packet : NULL};
-        struct thread t={.pid=123,.signal_control=state ? &owner : NULL,
-            .host_signal_blocked=held==1,.kernel_stopped=held==2,.interrupt_pending=held==3};
+        struct thread t={.pid=123,.signals.control=state ? &owner : NULL,
+            .signals.host_blocked=held==1,.kernel_stopped=held==2,.interrupt_pending=held==3};
         pending_signal_interrupts=0;
         assert(!signal_pending_wake(&t));
         assert(pending_signal_interrupts==(unsigned)(state!=3 && !held));
@@ -2226,26 +2230,26 @@ static void pending_signal_wakeup(void) {
 static void notification_signal_entry(void) {
     for (unsigned reset=0;reset<2;++reset) {
         struct thread t={.pid=123,.phase=SIGNAL_ENTRY,.kernel_stopped=1,
-            .signal_actions=md_signal_actions_new()};
-        assert(t.signal_actions);
+            .signals.actions=md_signal_actions_new()};
+        assert(t.signals.actions);
         struct signal_control *owner=calloc(1,sizeof(*owner)); assert(owner);
         struct md_signal_entry packet={.pending=1};
-        t.signal_control=owner; owner->signal=SIGALRM; owner->started=1;
+        t.signals.control=owner; owner->signal=SIGALRM; owner->started=1;
         owner->entry_packet=&packet; owner->entry_thread=&t;
         owner->entry_previous=&signal_entries; signal_entries=owner;
         struct md_kernel_action action={.handler=0x1234,.flags=reset ? SA_RESETHAND : 0};
-        assert(!md_signal_actions_commit(t.signal_actions,SIGALRM,&action));
+        assert(!md_signal_actions_commit(t.signals.actions,SIGALRM,&action));
         signal_entries_progress();
-        assert(t.signal_control==owner && t.phase==SIGNAL_ENTRY);
+        assert(t.signals.control==owner && t.phase==SIGNAL_ENTRY);
         /* The handler acknowledges entry after the global scan but before its
          * syscall is admitted. No ptrace stop is needed to retire the packet. */
         atomic_store_explicit(&packet.pending,0,memory_order_release);
         owner->returning=1; assert(!signal_entry_committed(&t)); owner->returning=0;
-        assert(signal_entry_committed(&t) && !t.signal_control && t.phase==IDLE && !signal_entries);
+        assert(signal_entry_committed(&t) && !t.signals.control && t.phase==IDLE && !signal_entries);
         assert(!signal_entry_committed(&t));
-        assert(!md_signal_actions_read(t.signal_actions,SIGALRM,&action));
+        assert(!md_signal_actions_read(t.signals.actions,SIGALRM,&action));
         assert(action.handler==(reset ? (uintptr_t)SIG_DFL : 0x1234));
-        md_signal_actions_release(t.signal_actions);
+        md_signal_actions_release(t.signals.actions);
     }
     puts("PASS signal-entry acknowledgement at notification admission after the earlier global scan");
 }
@@ -2269,8 +2273,8 @@ static void fd_native_retirement(void) {
         }
         if (mode==1) peer=md_fd_origins_fork(files,1);
         if (mode==3) assert(!md_fd_origins_abandon_range(files,5,5));
-        if (mode==4 && operation) t.debug_options=PTRACE_O_TRACEEXEC;
-        if (mode==5) t.application_filter=1;
+        if (mode==4 && operation) t.debug.options=PTRACE_O_TRACEEXEC;
+        if (mode==5) t.seccomp.application_filter=1;
         /* Abandoning an ordinary origin removes it; it is not an uncertain
          * infrastructure slot. Close remains metadata-free, flags do not. */
         int direct=mode==0 || mode==5 || (!operation && mode==3);
@@ -2279,18 +2283,21 @@ static void fd_native_retirement(void) {
         fd_resume_calls=0; checkpoints.trace=fd_resume_trace;
         thread_index[t.pid%THREAD_BUCKETS]=&t;
         if (operation) {
-            t.fd_registers.regs[8]=SYS_fcntl; t.fd_registers.regs[0]=5;
-            t.fd_registers.regs[1]=(UINT64_C(1)<<32)|F_SETFD;
-            t.fd_registers.regs[2]=mode==2 ? 0 : FD_CLOEXEC;
-            assert(md_fd_order_begin(files,&t.fd_order,NULL)==1 && !md_fd_order_start(&t.fd_order));
+            t.descriptors.registers.regs[8]=SYS_fcntl; t.descriptors.registers.regs[0]=5;
+            t.descriptors.registers.regs[1]=(UINT64_C(1)<<32)|F_SETFD;
+            t.descriptors.registers.regs[2]=mode==2 ? 0 : FD_CLOEXEC;
+            assert(md_fd_order_begin(files,&t.descriptors.order,NULL)==1 && !md_fd_order_start(&t.descriptors.order));
             fd_native_start(&t);
         } else {
             struct ptrace_syscall_info info={.op=PTRACE_SYSCALL_INFO_SECCOMP,.arch=AUDIT_ARCH_AARCH64,
                 .seccomp={.nr=SYS_close,.args={5}}};
+            memset(&t.descriptors.registers,0xa5,sizeof(t.descriptors.registers));
+            struct user_pt_regs untouched=t.descriptors.registers;
             assert(fd_close_compact(&t,MD_INTERCEPT_FD,&info));
+            assert(!memcmp(&untouched,&t.descriptors.registers,sizeof(untouched)));
         }
-        assert(fd_resume_calls==1 && !t.resume_lost && t.fd_running==!direct);
-        assert(!!t.fd_order.table==!direct);
+        assert(fd_resume_calls==1 && !t.resume_lost && t.descriptors.running==!direct);
+        assert(!!t.descriptors.order.table==!direct);
         if (!direct) fd_finish(&t,-EPERM);
         checkpoints.trace=checkpoint_native_trace;
         thread_index[t.pid%THREAD_BUCKETS]=NULL;
@@ -2302,12 +2309,12 @@ static void fd_native_retirement(void) {
 static void duplicate_prepared_admission(void) {
     struct thread t={.pid=123,.phase=IDLE,.ready=1};
     t.resources.files=md_fd_origins_new(); assert(t.resources.files);
-    t.fd_selector=md_fd_selector_new(); assert(t.fd_selector);
+    t.descriptors.selector=md_fd_selector_new(); assert(t.descriptors.selector);
     struct user_pt_regs regs={0}; regs.regs[8]=SYS_fcntl;
     regs.regs[0]=5; regs.regs[1]=F_DUPFD_CLOEXEC;
     assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
     for (unsigned kind=0;kind<MD_FD_SELECTOR_KINDS;++kind)
-        if (MD_FD_SANDBOX_SELECTORS&(1U<<kind)) assert(!md_fd_selector_mark(t.fd_selector,kind,-1));
+        if (MD_FD_SANDBOX_SELECTORS&(1U<<kind)) assert(!md_fd_selector_mark(t.descriptors.selector,kind,-1));
     struct md_fd_object *object=md_descriptor_inode_new(&t.identity,S_IFIFO|0600); assert(object);
     struct md_fd_origin_update update;
     assert(!md_fd_origins_prepare_object(t.resources.files,object,0,&update));
@@ -2319,17 +2326,17 @@ static void duplicate_prepared_admission(void) {
         regs.regs[2]=operation==3 ? O_CLOEXEC : 0;
         assert(fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
         assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_PROC));
-        t.debug_options=PTRACE_O_TRACEEXEC;
-        assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH)); t.debug_options=0;
-        t.application_filter=1;
+        t.debug.options=PTRACE_O_TRACEEXEC;
+        assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH)); t.debug.options=0;
+        t.seccomp.application_filter=1;
         assert(fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
         fd_expected_resume=PTRACE_SYSCALL; fd_resume_calls=0;
         checkpoints.trace=fd_resume_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
         fd_begin(&t,&regs,MD_INTERCEPT_FD);
-        assert(fd_resume_calls==1 && t.fd_running && t.fd_order.table);
+        assert(fd_resume_calls==1 && t.descriptors.running && t.descriptors.order.table);
         struct md_fd_object *before=md_fd_origins_object(peer,6,NULL); assert(!before);
         fd_finish(&t,success ? 6 : -EPERM);
-        assert(!t.fd_running && !t.fd_order.table);
+        assert(!t.descriptors.running && !t.descriptors.order.table);
         unsigned flags=0;
         struct md_fd_object *after=md_fd_origins_object(peer,6,&flags);
         assert(after==(success ? object : NULL));
@@ -2341,7 +2348,7 @@ static void duplicate_prepared_admission(void) {
     regs.regs[8]=SYS_fcntl; regs.regs[1]=F_SETFL;
     assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
     md_fd_object_release(object); md_fd_origins_release(peer); md_fd_origins_release(t.resources.files);
-    md_fd_selector_release(t.fd_selector);
+    md_fd_selector_release(t.descriptors.selector);
     puts("PASS prepared duplicate: all-selector admission, shared authority, kernel failure, CLOEXEC and debugger fallback");
 }
 static long watch_mask_trace(int request,pid_t pid,void *address,void *data) {
@@ -2351,7 +2358,7 @@ static long watch_mask_trace(int request,pid_t pid,void *address,void *data) {
 static void native_ioctl_route(void) {
     const unsigned commands[]={FIONBIO,0x12345678,FIONREAD};
     for (unsigned i=0;i<sizeof(commands)/sizeof(*commands);++i) {
-        struct thread t={.pid=123,.phase=IDLE,.ready=1,.application_filter=1};
+        struct thread t={.pid=123,.phase=IDLE,.ready=1,.seccomp.application_filter=1};
         t.resources.files=md_fd_origins_new(); assert(t.resources.files);
         struct user_pt_regs regs={0}; regs.regs[8]=SYS_ioctl; regs.regs[0]=5;
         regs.regs[1]=commands[i]; regs.regs[2]=1;
@@ -2359,7 +2366,7 @@ static void native_ioctl_route(void) {
         checkpoints.trace=i==2 ? watch_mask_trace : fd_resume_trace;
         thread_index[t.pid%THREAD_BUCKETS]=&t;
         proc_lookup_begin(&t,&regs);
-        assert(fd_resume_calls==1 && !t.proc_lookup.table && t.phase==IDLE);
+        assert(fd_resume_calls==1 && !t.proc.lookup.table && t.phase==IDLE);
         assert(t.resume_lost==(i==2));
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
         md_fd_origins_release(t.resources.files);
@@ -2371,8 +2378,8 @@ static void readiness_admission_identity(void) {
     struct readiness_owner owner={.loans={{.number=-1},{.number=-1}}};
     struct thread t={.readiness=&owner};
     struct seccomp_data call={.nr=SYS_epoll_pwait,.args={3,0x1234,8,100,0x4567,8}};
-    t.original.regs[8]=call.nr;
-    for (unsigned i=0;i<6;++i) t.original.regs[i]=call.args[i];
+    t.execution.request.nr=call.nr;
+    for (unsigned i=0;i<6;++i) t.execution.request.args[i]=call.args[i];
     assert(!readiness_admission_purpose(&t,&call));
     assert(md_fd_order_begin(files,&owner.files,NULL)==1 && !md_fd_order_start(&owner.files));
     assert(readiness_admission_purpose(&t,&call)==MD_FS_BUFFER_EPOLL_ADMIT);
@@ -2392,15 +2399,15 @@ static void readiness_admission_identity(void) {
 static void entry_fence_ownership(void) {
     int previous=fd_ready;
     fd_ready=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd_ready>=0);
-    struct thread a={.pid=123,.entry_fence_waiting=1,.entry_fence_status=17},
-        b={.pid=124,.entry_fence_waiting=1,.entry_fence_status=19};
+    struct thread a={.pid=123,.entry.fence_waiting=1,.entry.fence_status=17},
+        b={.pid=124,.entry.fence_waiting=1,.entry.fence_status=19};
     a.next=&b; threads=&a; entry_fence_waiters=2;
     entry_fence_memory=md_memory_new(); assert(entry_fence_memory);
     a.memory=b.memory=entry_fence_memory;
     entry_fence_stage=2; entry_fence_error=-EBUSY;
     int status; struct rusage usage;
     assert(entry_fence_take(&status,&usage)==123 && status==17);
-    assert(a.entry_fence_result==-EBUSY && !a.entry_fence_waiting && entry_fence_waiters==1);
+    assert(a.entry.fence_result==-EBUSY && !a.entry.fence_waiting && entry_fence_waiters==1);
     assert(entry_fence_owner==&a);
     assert(!entry_fence_take(&status,&usage));
     entry_fence_owner=NULL;
@@ -2418,8 +2425,8 @@ static void entry_fence_ownership(void) {
     peer.phase=IDLE;
     assert(entry_fence_boundary(&peer) && entry_fence_adapt(&peer));
     peer.machine.draining=1; assert(!entry_fence_adapt(&peer)); peer.machine.draining=0;
-    peer.direct=DIRECT_RESULT; assert(!entry_fence_adapt(&peer)); peer.direct=DIRECT_NONE;
-    peer.entry_fence_waiting=1; assert(!entry_fence_adapt(&peer)); peer.entry_fence_waiting=0;
+    peer.fs.direct=DIRECT_RESULT; assert(!entry_fence_adapt(&peer)); peer.fs.direct=DIRECT_NONE;
+    peer.entry.fence_waiting=1; assert(!entry_fence_adapt(&peer)); peer.entry.fence_waiting=0;
     assert(entry_fence_adapt(&peer));
     entry_fence_stage=3; assert(!entry_fence_adapt(&peer));
     assert(!entry_fence_adapt(&peer));
@@ -2440,18 +2447,18 @@ static void entry_fence_ownership(void) {
     peer.phase=PROCESS_OBSERVING;
     const long waits[]={SYS_wait4,SYS_waitid};
     for (unsigned i=0;i<sizeof(waits)/sizeof(*waits);++i) {
-        peer.original.regs[8]=waits[i]; assert(entry_fence_drained(&peer));
+        peer.execution.request.nr=waits[i]; assert(entry_fence_drained(&peer));
         peer.machine.draining=1; assert(!entry_fence_drained(&peer)); peer.machine.draining=0;
     }
-    peer.original.regs[8]=SYS_rt_sigtimedwait; assert(!entry_fence_drained(&peer));
-    peer.original.regs[8]=SYS_process_vm_writev; assert(!entry_fence_drained(&peer));
+    peer.execution.request.nr=SYS_rt_sigtimedwait; assert(!entry_fence_drained(&peer));
+    peer.execution.request.nr=SYS_process_vm_writev; assert(!entry_fence_drained(&peer));
     md_memory_release(entry_fence_memory); entry_fence_memory=NULL; entry_fence_stage=0;
     close(fd_ready); fd_ready=previous;
     puts("PASS supervisor entry fence: waiter retirement, transition ownership, private drain and admission hold");
 }
 static void control_deadlines(void) {
     struct md_control_pending late={.deadline=500},early={.deadline=100};
-    struct thread a={.pid=123,.control_pending=&late},b={.pid=124,.control_pending=&early},idle={.pid=125};
+    struct thread a={.pid=123,.control.pending=&late},b={.pid=124,.control.pending=&early},idle={.pid=125};
     assert(!control_deadline_owner());
     retry_wait(&idle,RETRY_PROC_IO);
     retry_wait(&a,RETRY_CONTROL);
@@ -2526,7 +2533,7 @@ static long completion_write(void *p,const struct md_control_actor *actor,const 
 static void completion_commit(void *context,size_t copied) {
     struct completion_probe *p=context;
     struct md_buffer_span span;
-    assert(!md_buffer_span(&p->task->buffer,&span) && !memcmp(span.data,"data",4));
+    assert(!md_buffer_span(&p->task->fs.buffer,&span) && !memcmp(span.data,"data",4));
     ++p->commits; p->copied=copied;
 }
 static void terminal_buffer_completion(void) {
@@ -2540,19 +2547,19 @@ static void terminal_buffer_completion(void) {
     struct md_interception_buffers *pool=NULL;
     assert(!md_buffers_create(1,4096,0,0,&pool));
     for (unsigned terminal=0;terminal<2;++terminal) for (unsigned mode=0;mode<5;++mode) {
-        struct thread t={.buffer_open.fd=-1,.proc_image_fd=-1,.control_mapping_fd=-1};
+        struct thread t={.fs.open.fd=-1,.proc.image_fd=-1,.control.mapping_fd=-1};
         struct completion_probe probe={.task=&t};
-        assert(!md_buffers_take(pool,&t.buffer));
+        assert(!md_buffers_take(pool,&t.fs.buffer));
         struct md_proc_file *file=NULL;
         if (mode!=3) {
             file=md_proc_file_open_control(&ops,&probe,&(struct md_control_opener){.identity=&t.identity},O_RDONLY); assert(file);
-            assert(md_proc_file_io_begin(&t.proc_io,file,MD_PROC_FILE_READ,0,0,0,4,NULL)==1);
-            struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
-            assert(md_proc_file_io_execute(&t.proc_io,&t.identity,NULL,span.data,span.size,4096)==4);
-            assert(!md_proc_file_io_offer(&t.proc_io));
+            assert(md_proc_file_io_begin(&t.proc.io,file,MD_PROC_FILE_READ,0,0,0,4,NULL)==1);
+            struct md_buffer_span span; assert(!md_buffer_span(&t.fs.buffer,&span));
+            assert(md_proc_file_io_execute(&t.proc.io,&t.identity,NULL,span.data,span.size,4096)==4);
+            assert(!md_proc_file_io_offer(&t.proc.io));
         }
         struct outgoing_owner busy={.stage=OUTGOING_SEND};
-        if (mode==4) t.outgoing=&busy;
+        if (mode==4) t.io.outgoing=&busy;
         long copied=mode==1 ? 2 : mode==2 ? -EFAULT : 4;
         if (terminal) {
             long result=buffer_result_finish(&t,copied,copied);
@@ -2563,35 +2570,35 @@ static void terminal_buffer_completion(void) {
             assert(result.released==(mode==4 ? -EBUSY : 0));
         }
         assert(probe.commits==(mode!=3) && probe.copied==(mode==3 || copied<0 ? 0 : (size_t)copied));
-        assert(!t.proc_io.file && !!t.buffer.pool==(mode==4));
-        t.outgoing=NULL;
+        assert(!t.proc.io.file && !!t.fs.buffer.pool==(mode==4));
+        t.io.outgoing=NULL;
         assert(!buffer_cleanup(&t));
         md_proc_file_release(file);
         /* The sole slot is reusable immediately, including a failed finish. */
-        assert(!md_buffers_take(pool,&t.buffer) && !md_buffer_release(&t.buffer));
+        assert(!md_buffers_take(pool,&t.fs.buffer) && !md_buffer_release(&t.fs.buffer));
     }
     for (unsigned seek=0;seek<2;++seek) {
-        struct thread t={.buffer_open.fd=-1,.proc_image_fd=-1,.control_mapping_fd=-1};
+        struct thread t={.fs.open.fd=-1,.proc.image_fd=-1,.control.mapping_fd=-1};
         struct completion_probe probe={.task=&t};
-        assert(!md_buffers_take(pool,&t.buffer));
+        assert(!md_buffers_take(pool,&t.fs.buffer));
         struct md_proc_file *file=md_proc_file_open_control(&ops,&probe,&(struct md_control_opener){.identity=&t.identity},O_RDWR); assert(file);
-        assert(md_proc_file_io_begin(&t.proc_io,file,seek ? MD_PROC_FILE_SEEK : MD_PROC_FILE_WRITE,
+        assert(md_proc_file_io_begin(&t.proc.io,file,seek ? MD_PROC_FILE_SEEK : MD_PROC_FILE_WRITE,
             0,seek ? 7 : 0,SEEK_SET,seek ? 0 : 4,NULL)==1);
-        struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
+        struct md_buffer_span span; assert(!md_buffer_span(&t.fs.buffer,&span));
         memcpy(span.data,"data",4);
         long expected=seek ? 7 : 4;
-        assert(md_proc_file_io_execute(&t.proc_io,&t.identity,NULL,span.data,span.size,4096)==expected);
-        assert(!md_proc_file_io_offer(&t.proc_io));
+        assert(md_proc_file_io_execute(&t.proc.io,&t.identity,NULL,span.data,span.size,4096)==expected);
+        assert(!md_proc_file_io_offer(&t.proc.io));
         assert(buffer_result_finish(&t,0,expected)==expected);
-        assert(!probe.commits && !t.proc_io.file && !t.buffer.pool);
+        assert(!probe.commits && !t.proc.io.file && !t.fs.buffer.pool);
         md_proc_file_release(file);
     }
     for (unsigned mode=0;mode<3;++mode) {
-        struct thread t={.buffer_open.fd=-1,.proc_image_fd=-1,.control_mapping_fd=-1};
-        assert(!md_buffers_take(pool,&t.buffer));
+        struct thread t={.fs.open.fd=-1,.proc.image_fd=-1,.control.mapping_fd=-1};
+        assert(!md_buffers_take(pool,&t.fs.buffer));
         long result=mode==0 ? -EAGAIN : mode==1 ? 32 : MD_CALL_NATIVE;
-        assert(buffer_result_finish(&t,0,result)==result && !t.buffer.pool);
-        assert(!md_buffers_take(pool,&t.buffer) && !md_buffer_release(&t.buffer));
+        assert(buffer_result_finish(&t,0,result)==result && !t.fs.buffer.pool);
+        assert(!md_buffers_take(pool,&t.fs.buffer) && !md_buffer_release(&t.fs.buffer));
     }
     md_buffers_release(pool);
     puts("PASS terminal buffer completion: commit before release, partial copy, EFAULT, failed finish and independent cleanup error");
@@ -2605,8 +2612,8 @@ struct ioctl_publication_probe {
 static void ioctl_publication_copied(struct md_control_pending *pending,long result) {
     struct ioctl_publication_probe *p=(void *)pending;
     struct md_buffer_span span;
-    assert(!p->copied && !p->disposed && !p->task->control_publication);
-    assert(!md_buffer_span(&p->task->buffer,&span));
+    assert(!p->copied && !p->disposed && !p->task->control.publication);
+    assert(!md_buffer_span(&p->task->fs.buffer,&span));
     assert(!memcmp(span.data,"reply",6));
     ++p->copied; p->result=result;
 }
@@ -2618,16 +2625,16 @@ static void ioctl_publication_completion(void) {
     struct md_interception_buffers *pool=NULL;
     assert(!md_buffers_create(1,4096,0,0,&pool));
     for (unsigned mode=0;mode<6;++mode) {
-        struct thread t={.buffer_open.fd=-1,.proc_image_fd=-1,.control_mapping_fd=-1};
+        struct thread t={.fs.open.fd=-1,.proc.image_fd=-1,.control.mapping_fd=-1};
         struct ioctl_publication_probe p={.pending={.copied=ioctl_publication_copied,
             .dispose=ioctl_publication_dispose},.task=&t};
-        assert(!md_buffers_take(pool,&t.buffer));
-        struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
+        assert(!md_buffers_take(pool,&t.fs.buffer));
+        struct md_buffer_span span; assert(!md_buffer_span(&t.fs.buffer,&span));
         memcpy(span.data,"reply",6);
-        t.control_pending=&p.pending;
+        t.control.pending=&p.pending;
         if (mode==5) p.pending.copied=NULL;
         control_pending_complete(&t,mode==4 ? -ENOENT : 0);
-        assert(!t.control_pending && !!t.control_publication==(mode<4));
+        assert(!t.control.pending && !!t.control.publication==(mode<4));
         assert(p.disposed==(mode>=4) && !p.copied);
         long result=mode==1 ? -EFAULT : 0;
         if (mode==2) assert(!buffer_cleanup(&t));
@@ -2635,11 +2642,11 @@ static void ioctl_publication_completion(void) {
             control_publication_finish(&t,-ECANCELED);
             assert(!buffer_cleanup(&t));
         } else assert(buffer_result_finish(&t,0,result)==result);
-        assert(p.disposed==1 && p.copied==(mode<4) && !t.control_publication);
+        assert(p.disposed==1 && p.copied==(mode<4) && !t.control.publication);
         if (mode<4) assert(p.result==(mode>=2 ? -ECANCELED : result));
         control_publication_finish(&t,0);
         assert(!buffer_cleanup(&t) && p.disposed==1);
-        assert(!md_buffers_take(pool,&t.buffer) && !md_buffer_release(&t.buffer));
+        assert(!md_buffers_take(pool,&t.fs.buffer) && !md_buffer_release(&t.fs.buffer));
     }
     md_buffers_release(pool);
     assert(md_control_ioctl_size(&(struct md_control_ioctl){.size=8,.direction=MD_CONTROL_ACK})==-EPROTO);
@@ -2682,13 +2689,13 @@ static void notification_queue(void) {
     assert(file.ops->poll(file.context)==0 && poll(&watch,1,0)==0);
     uint64_t last=0;
     for (unsigned mode=0;mode<7;++mode) {
-        struct thread t={.buffer_open.fd=-1,.proc_image_fd=-1,.control_mapping_fd=-1};
-        assert(!md_buffers_take(pool,&t.buffer));
-        struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
+        struct thread t={.fs.open.fd=-1,.proc.image_fd=-1,.control.mapping_fd=-1};
+        assert(!md_buffers_take(pool,&t.fs.buffer));
+        struct md_buffer_span span; assert(!md_buffer_span(&t.fs.buffer,&span));
         struct seccomp_notif *received=span.data;
         memset(received,0,sizeof(*received));
-        assert(notify_ioctl(file,SECCOMP_IOCTL_NOTIF_RECV,received,sizeof(*received),&t.control_pending)==-EINPROGRESS);
-        assert(t.control_pending && t.control_pending->deadline==INT64_MAX);
+        assert(notify_ioctl(file,SECCOMP_IOCTL_NOTIF_RECV,received,sizeof(*received),&t.control.pending)==-EINPROGRESS);
+        assert(t.control.pending && t.control.pending->deadline==INT64_MAX);
         struct seccomp_data call={.nr=SYS_getpid,.arch=AUDIT_ARCH_AARCH64,.instruction_pointer=0x12345004,
             .args={1,2,3,4,5,6}};
         struct md_seccomp_notification *request=NULL;
@@ -2697,7 +2704,7 @@ static void notification_queue(void) {
         /* Pending receive captured zero-initialization once. A later guest
          * write cannot retarget the queued operation. */
         memset(received,0x55,sizeof(*received));
-        assert(t.control_pending->resume(t.control_pending,received,sizeof(*received))==0);
+        assert(t.control.pending->resume(t.control.pending,received,sizeof(*received))==0);
         uint64_t id=received->id;
         assert(id>last && received->pid==456 && !received->flags && !memcmp(&received->data,&call,sizeof(call)));
         last=id;
@@ -2714,7 +2721,7 @@ static void notification_queue(void) {
         long copy=mode>=2 ? -EFAULT : 0;
         if (mode==3) assert(!buffer_cleanup(&t));
         else assert(buffer_result_finish(&t,0,copy)==copy);
-        assert(!t.control_pending && !t.control_publication);
+        assert(!t.control.pending && !t.control.publication);
         if (mode==4) {
             assert(notify_valid(file,id)==-ENOENT);
             assert(notify_send(file,expected)==-ENOENT);
@@ -2724,9 +2731,9 @@ static void notification_queue(void) {
         if (mode>=2 && mode!=5) {
             assert(file.ops->poll(file.context)==(POLLIN|POLLRDNORM));
             assert(notify_valid(file,id)==-ENOENT && notify_send(file,expected)==-EINPROGRESS);
-            assert(!md_buffers_take(pool,&t.buffer) && !md_buffer_span(&t.buffer,&span));
+            assert(!md_buffers_take(pool,&t.fs.buffer) && !md_buffer_span(&t.fs.buffer,&span));
             received=span.data; memset(received,0,sizeof(*received));
-            assert(!notify_ioctl(file,SECCOMP_IOCTL_NOTIF_RECV,received,sizeof(*received),&t.control_pending));
+            assert(!notify_ioctl(file,SECCOMP_IOCTL_NOTIF_RECV,received,sizeof(*received),&t.control.pending));
             assert(received->id==id);
             control_pending_complete(&t,0);
             assert(!buffer_result_finish(&t,0,0));
@@ -2866,18 +2873,18 @@ static void notification_policy_binding(void) {
 }
 void md_test_seccomp_notify(void);
 static void buffered_io_pressure(void) {
-    struct thread t={.pid=123,.phase=DISPATCHING,.memory=md_memory_new(),.buffer_waiting=1};
+    struct thread t={.pid=123,.phase=DISPATCHING,.memory=md_memory_new(),.fs.waiting=1};
     assert(t.memory && !md_memory_buffers_prepare(t.memory,1,4096,0,0));
-    t.buffer_registers.regs[0]=MD_BUFFER_PROC_START;
-    t.buffer_registers.regs[1]=4;
+    t.fs.request.command=MD_BUFFER_PROC_START;
+    t.fs.request.args[0]=4;
     struct md_interception_buffer held={0};
     assert(!md_buffers_take(md_memory_buffers(t.memory),&held));
     buffer_take(&t);
-    assert(t.buffer_waiting && !t.buffer.pool && !t.proc_io.file && !t.proc_io.turn.queue);
+    assert(t.fs.waiting && !t.fs.buffer.pool && !t.proc.io.file && !t.proc.io.turn.queue);
     assert(t.retries[RETRY_BUFFER>=RETRY_FD].mask==RETRY_BUFFER);
     /* Cancellation while waiting has neither provider work nor a buffer to
      * retire; freeing capacity cannot resurrect the removed continuation. */
-    retry_clear(&t,RETRY_BUFFER); t.buffer_waiting=0;
+    retry_clear(&t,RETRY_BUFFER); t.fs.waiting=0;
     assert(!md_buffer_release(&held));
     assert(!md_buffers_take(md_memory_buffers(t.memory),&held));
     assert(!md_buffer_release(&held));
@@ -2890,10 +2897,10 @@ static void signal_buffer_pressure(void) {
     struct md_interception_buffer held={0};
     assert(!md_buffers_take(md_memory_buffers(t.memory),&held));
     for (int returning=0;returning<2;++returning) {
-        t.signal_control=calloc(1,sizeof(*t.signal_control)); assert(t.signal_control);
-        t.signal_control->started=t.signal_control->reacquiring=returning;
+        t.signals.control=calloc(1,sizeof(*t.signals.control)); assert(t.signals.control);
+        t.signals.control->started=t.signals.control->reacquiring=returning;
         signal_control_progress(&t);
-        assert(!t.signal_control->scratch.pool && !t.signal_control->memory.queue);
+        assert(!t.signals.control->scratch.pool && !t.signals.control->memory.queue);
         struct md_resource_order other={0};
         assert(md_memory_order_begin(t.memory,&other,NULL)==1);
         assert(!md_resource_order_start(&other) && !md_resource_order_complete(&other));
@@ -2903,8 +2910,8 @@ static void signal_buffer_pressure(void) {
     puts("PASS signal buffer pressure: initial and returning waits never hold memory admission while awaiting a pool slot");
 }
 static void prepared_input(void) {
-    struct thread t={.memory=md_memory_new(),.buffer_open.fd=-1,
-        .proc_image_fd=-1,.control_mapping_fd=-1};
+    struct thread t={.memory=md_memory_new(),.fs.open.fd=-1,
+        .proc.image_fd=-1,.control.mapping_fd=-1};
     struct md_identity identity=md_identity_new(1000,1000);
     struct md_process_limits limits;
     assert(!md_process_limits_read(&limits));
@@ -2912,45 +2919,45 @@ static void prepared_input(void) {
     assert(t.memory && t.resources.process);
     assert(!md_memory_buffers_prepare(t.memory,1,sizeof(union md_adapter_frame),0,0));
     struct md_interception_buffers *pool=md_memory_buffers(t.memory);
-    t.original.regs[8]=SYS_recvmsg;
-    assert(!dispatch_input(&t,0) && !t.buffer.pool && !t.dispatch_prepared);
+    t.execution.request.nr=SYS_recvmsg;
+    assert(!dispatch_input(&t,0) && !t.fs.buffer.pool && !t.execution.prepared);
     assert(!md_memory_buffers_mapped(t.memory,0x100000,md_buffers_size(pool)));
-    t.original.regs[8]=SYS_execve;
-    assert(!dispatch_input(&t,0) && !t.buffer.pool);
+    t.execution.request.nr=SYS_execve;
+    assert(!dispatch_input(&t,0) && !t.fs.buffer.pool);
     strcpy(t.endpoint,"managed");
     unsigned calls[]={SYS_recvmsg,SYS_recvmmsg,SYS_ppoll,SYS_pselect6,SYS_execve,SYS_execveat};
     unsigned adapters[]={MD_DISPATCH_NETWORK_DATA,MD_DISPATCH_NETWORK_CONTROL,MD_DISPATCH_DEVICE_EVENTS};
     for (unsigned i=0;i<sizeof(calls)/sizeof(*calls);++i) {
-        t.original.regs[8]=calls[i]; t.original.regs[0]=t.original.regs[1]=8;
+        t.execution.request.nr=calls[i]; t.execution.request.args[0]=t.execution.request.args[1]=8;
         for (unsigned j=0;j<sizeof(adapters)/sizeof(*adapters);++j)
-            assert(!dispatch_input(&t,MD_DISPATCH_PATHS|adapters[j]) && !t.buffer.pool && !t.dispatch_prepared);
-        assert(dispatch_input(&t,0)==0x100000 && t.dispatch_prepared);
+            assert(!dispatch_input(&t,MD_DISPATCH_PATHS|adapters[j]) && !t.fs.buffer.pool && !t.execution.prepared);
+        assert(dispatch_input(&t,0)==0x100000 && t.execution.prepared);
         struct md_interception_buffer held={0};
         assert(md_buffers_take(pool,&held)==-EAGAIN);
         struct md_buffer_span span;
-        assert(!md_buffer_span(&t.buffer,&span));
+        assert(!md_buffer_span(&t.fs.buffer,&span));
         memset(span.data,0xa5,span.size);
         /* An entry-prepared receive keeps its exact input/result frame when
          * the guest publication continuation acquires its adapter stack. */
-        assert(dispatch_input(&t,0)==0x100000 && t.dispatch_prepared);
+        assert(dispatch_input(&t,0)==0x100000 && t.execution.prepared);
         for (size_t byte=0;byte<span.size;++byte)
             assert(((unsigned char *)span.data)[byte]==0xa5);
         assert(md_buffers_take(pool,&held)==-EAGAIN);
         /* Early validation failure and ordinary FINISH share exact cleanup. */
-        assert(!buffer_cleanup(&t) && !t.dispatch_prepared && !t.buffer.pool);
+        assert(!buffer_cleanup(&t) && !t.execution.prepared && !t.fs.buffer.pool);
         assert(!md_buffers_take(pool,&held));
-        assert(!dispatch_input(&t,0) && !t.dispatch_prepared && !t.buffer.pool);
+        assert(!dispatch_input(&t,0) && !t.execution.prepared && !t.fs.buffer.pool);
         assert(!md_buffer_release(&held));
     }
-    t.original.regs[8]=SYS_ppoll;
-    t.original.regs[1]=md_process_native_nofile(t.resources.process)+1;
-    assert(!dispatch_input(&t,0) && !t.buffer.pool);
-    t.original.regs[8]=SYS_pselect6; t.original.regs[0]=ULONG_MAX;
-    assert(!dispatch_input(&t,0) && !t.buffer.pool);
-    t.original.regs[0]=INT_MAX;
-    assert(!dispatch_input(&t,0) && !t.buffer.pool);
-    t.original.regs[8]=SYS_write;
-    assert(!dispatch_input(&t,0) && !t.buffer.pool);
+    t.execution.request.nr=SYS_ppoll;
+    t.execution.request.args[1]=md_process_native_nofile(t.resources.process)+1;
+    assert(!dispatch_input(&t,0) && !t.fs.buffer.pool);
+    t.execution.request.nr=SYS_pselect6; t.execution.request.args[0]=ULONG_MAX;
+    assert(!dispatch_input(&t,0) && !t.fs.buffer.pool);
+    t.execution.request.args[0]=INT_MAX;
+    assert(!dispatch_input(&t,0) && !t.fs.buffer.pool);
+    t.execution.request.nr=SYS_write;
+    assert(!dispatch_input(&t,0) && !t.fs.buffer.pool);
     md_process_member_release(t.resources.process);
     md_identity_release(&identity); md_memory_release(t.memory);
     puts("PASS prepared input: recv/poll/exec admission, native limits, unmapped and exhausted pool, early cleanup");
@@ -2968,17 +2975,17 @@ static void readiness_transport_pressure(void) {
     assert(!md_buffers_take(pool,&held));
     assert(!readiness_restore(&t,READINESS_RESTORE_REPLY,1));
     assert(owner->restoring==READINESS_RESTORE_REPLY && owner->restore_result==1);
-    assert(t.retries[1].mask==RETRY_READINESS && !t.buffer.pool && owner->detached);
+    assert(t.retries[1].mask==RETRY_READINESS && !t.fs.buffer.pool && owner->detached);
     struct md_buffer_span span;
     assert(!readiness_frame(&t,&span) && span.data==owner->detached);
     assert(!md_buffer_release(&held));
     retry_clear(&t,RETRY_READINESS);
     assert(readiness_restore(&t,READINESS_RESTORE_REPLY,1));
-    assert(!owner->detached && !owner->restoring && t.buffer.pool);
+    assert(!owner->detached && !owner->restoring && t.fs.buffer.pool);
     assert(!readiness_frame(&t,&span));
     struct md_epoll_frame *frame=span.data;
     assert(frame->events[0].data.u64==73 && frame->timeout.tv_sec==19);
-    assert(!md_buffer_release(&t.buffer));
+    assert(!md_buffer_release(&t.fs.buffer));
     free(owner); md_memory_release(t.memory);
     puts("PASS readiness transport: exact detached result survives capacity wait and reattachment");
 }
@@ -3018,11 +3025,11 @@ static void image_entry_identity(void) {
     tasks=md_task_registry_create(); assert(tasks);
     for (unsigned mode=0;mode<6;++mode) {
         unsigned secure=mode&1, machine=mode>=2;
-        struct thread t={.pid=getpid(),.tgid=getpid(),.ready=1,.mapped_image=1,
-            .identity=md_identity_new(1000,1234),.exec_backings={-1,-1},.memory=md_memory_new()};
+        struct thread t={.pid=getpid(),.tgid=getpid(),.ready=1,.image.mapped=1,
+            .identity=md_identity_new(1000,1234),.image.backings={-1,-1},.memory=md_memory_new()};
         assert(t.memory && !md_resources_init(&t.resources,NULL));
-        t.pending_identity=(struct md_exec_identity){.value=t.identity,.secure=secure};
-        if (secure) t.pending_identity.value.uid.effective=0;
+        t.image.pending_identity=(struct md_exec_identity){.value=t.identity,.secure=secure};
+        if (secure) t.image.pending_identity.value.uid.effective=0;
         Elf64_auxv_t aux[]={{.a_type=AT_UID},{.a_type=AT_EUID},{.a_type=AT_GID},
             {.a_type=AT_EGID},{.a_type=AT_SECURE},{0}};
         struct md_process_image image={.auxv_bytes=sizeof(aux)};
@@ -3034,14 +3041,14 @@ static void image_entry_identity(void) {
         size_t page=(size_t)getpagesize(); assert(!ftruncate(retained,page));
         void *mapping=mode>=4 ? MAP_FAILED : mmap(NULL,page,PROT_READ,MAP_PRIVATE,retained,0);
         assert(mode>=4 || mapping!=MAP_FAILED);
-        t.exec_backings[0]=retained;
+        t.image.backings[0]=retained;
         assert(!image_enter(&t,(uintptr_t)&image,(uintptr_t)aux,5,machine));
         assert(md_process_dumpable(t.resources.access)==!secure);
-        assert(t.entered && !t.mapped_image && t.exec_backings[0]==-1);
-        assert(t.image_backings_ready==(machine && mode<4));
+        assert(t.entered && !t.image.mapped && t.image.backings[0]==-1);
+        assert(t.image.backings_ready==(machine && mode<4));
         int backing=-1; uint64_t offset=1;
-        assert(md_memory_file_view(t.memory,(uintptr_t)mapping,page,&backing,&offset)==t.image_backings_ready);
-        if (t.image_backings_ready) assert(backing>=0 && !offset && fcntl(backing,F_GETFD)>=0);
+        assert(md_memory_file_view(t.memory,(uintptr_t)mapping,page,&backing,&offset)==t.image.backings_ready);
+        if (t.image.backings_ready) assert(backing>=0 && !offset && fcntl(backing,F_GETFD)>=0);
         assert(fcntl(retained,F_GETFD)<0 && errno==EBADF);
         assert(aux[0].a_un.a_val==1000 && aux[1].a_un.a_val==(secure ? 0 : 1000));
         assert(aux[2].a_un.a_val==1234 && aux[3].a_un.a_val==1234 && aux[4].a_un.a_val==secure);
@@ -3059,47 +3066,47 @@ static void captured_writes(void) {
     assert(t.memory && !md_memory_buffers_prepare(t.memory,1,sizeof(struct md_fs_buffer_frame),0,0));
     const struct md_control_file_ops ops={.retain=completion_retain,.release=completion_release,
         .access=completion_access,.write=completion_write};
-    t.proc_file=md_proc_file_open_control(&ops,&t,&(struct md_control_opener){.identity=&t.identity},O_WRONLY); assert(t.proc_file);
+    t.proc.file=md_proc_file_open_control(&ops,&t,&(struct md_control_opener){.identity=&t.identity},O_WRONLY); assert(t.proc.file);
     char bytes[MD_CONTROL_IO_MAX]; memset(bytes,'x',sizeof(bytes)); memcpy(bytes,"data",4);
     size_t total;
     for (unsigned vector=0;vector<2;++vector) {
         struct iovec iov[3]={{(void *)1,0},{bytes,2},{bytes+2,2}};
-        t.original.regs[8]=vector ? SYS_writev : SYS_write;
-        t.original.regs[1]=(uintptr_t)(vector ? (void *)iov : bytes);
-        t.original.regs[2]=vector ? 3 : 4;
+        t.execution.request.nr=vector ? SYS_writev : SYS_write;
+        t.execution.request.args[1]=(uintptr_t)(vector ? (void *)iov : bytes);
+        t.execution.request.args[2]=vector ? 3 : 4;
         assert(proc_write_capture(&t,&total) && total==4);
-        struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
-        assert(!memcmp(span.data,"data",4) && !t.proc_io.file && !t.proc_io.turn.queue);
-        assert(!md_buffer_release(&t.buffer));
+        struct md_buffer_span span; assert(!md_buffer_span(&t.fs.buffer,&span));
+        assert(!memcmp(span.data,"data",4) && !t.proc.io.file && !t.proc.io.turn.queue);
+        assert(!md_buffer_release(&t.fs.buffer));
         struct md_interception_buffer held={0};
         assert(!md_buffers_take(md_memory_buffers(t.memory),&held));
-        assert(!proc_write_capture(&t,&total) && !t.buffer.pool && !t.proc_io.file);
+        assert(!proc_write_capture(&t,&total) && !t.fs.buffer.pool && !t.proc.io.file);
         assert(!md_buffer_release(&held));
     }
     struct iovec iov[3]={{bytes,sizeof(bytes)},{(void *)1,10}};
-    t.original.regs[1]=(uintptr_t)iov; t.original.regs[2]=2;
+    t.execution.request.args[1]=(uintptr_t)iov; t.execution.request.args[2]=2;
     /* Only the prefix accepted by control IO is copied; untouched trailing
      * vectors cannot cause a fault or change the amount offered to the OFD. */
     assert(proc_write_capture(&t,&total) && total==sizeof(bytes)+10);
-    struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
-    assert(!memcmp(span.data,bytes,sizeof(bytes)) && !md_buffer_release(&t.buffer));
+    struct md_buffer_span span; assert(!md_buffer_span(&t.fs.buffer,&span));
+    assert(!memcmp(span.data,bytes,sizeof(bytes)) && !md_buffer_release(&t.fs.buffer));
     for (unsigned mode=0;mode<6;++mode) {
         iov[0]=(struct iovec){bytes,2}; iov[1]=(struct iovec){bytes+2,2};
-        t.original.regs[1]=(uintptr_t)iov; t.original.regs[2]=2;
+        t.execution.request.args[1]=(uintptr_t)iov; t.execution.request.args[2]=2;
         if (mode==0) iov[1].iov_base=(void *)1;
-        if (mode==1) t.original.regs[1]=1;
-        if (mode==2) t.original.regs[2]=MD_PROC_IO_VECTORS+1;
+        if (mode==1) t.execution.request.args[1]=1;
+        if (mode==2) t.execution.request.args[2]=MD_PROC_IO_VECTORS+1;
         if (mode==3) iov[0].iov_len=PTRDIFF_MAX;
         if (mode==4) iov[0].iov_len=iov[1].iov_len=0;
-        if (mode==5) t.debug_call_active=1;
-        assert(!proc_write_capture(&t,&total) && !t.buffer.pool && !t.proc_io.file);
-        t.debug_call_active=0;
+        if (mode==5) t.debug.call_active=1;
+        assert(!proc_write_capture(&t,&total) && !t.fs.buffer.pool && !t.proc.io.file);
+        t.debug.call_active=0;
     }
     size_t page=(size_t)getpagesize();
     char *mapping=mmap(NULL,page*2,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert(mapping!=MAP_FAILED && !mprotect(mapping+page,page,PROT_NONE));
-    t.original.regs[8]=SYS_write; t.original.regs[1]=(uintptr_t)(mapping+page-2); t.original.regs[2]=4;
-    assert(!proc_write_capture(&t,&total) && !t.buffer.pool && !t.proc_io.file);
+    t.execution.request.nr=SYS_write; t.execution.request.args[1]=(uintptr_t)(mapping+page-2); t.execution.request.args[2]=4;
+    assert(!proc_write_capture(&t,&total) && !t.fs.buffer.pool && !t.proc.io.file);
     assert(!munmap(mapping,page*2));
     int ready[2]; assert(!pipe(ready));
     pid_t child=fork(); assert(child>=0);
@@ -3108,17 +3115,17 @@ static void captured_writes(void) {
         assert(write(ready[1],"x",1)==1); for (;;) pause();
     }
     close(ready[1]); char value; assert(read(ready[0],&value,1)==1); close(ready[0]);
-    t.pid=child; t.original.regs[1]=(uintptr_t)bytes;
-    assert(!proc_write_capture(&t,&total) && !t.buffer.pool && !t.proc_io.file);
+    t.pid=child; t.execution.request.args[1]=(uintptr_t)bytes;
+    assert(!proc_write_capture(&t,&total) && !t.fs.buffer.pool && !t.proc.io.file);
     assert(!kill(child,SIGKILL)); int status; assert(waitpid(child,&status,0)==child && WIFSIGNALED(status));
-    md_proc_file_release(t.proc_file); md_memory_release(t.memory);
+    md_proc_file_release(t.proc.file); md_memory_release(t.memory);
     puts("PASS write capture: scalar/vector prefix, empty vector, overflow, partial fault, protected caller and pressure without IO effects");
 }
 static void repair_events(void) {
     int previous=fd_ready;
     fd_ready=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd_ready>=0);
-    struct thread caller={.pid=123,.phase=OBSERVING,.memory_action=MEMORY_KERNEL};
-    caller.original.regs[8]=SYS_mprotect;
+    struct thread caller={.pid=123,.phase=OBSERVING,.memory_op.action=MEMORY_KERNEL};
+    caller.execution.request.nr=SYS_mprotect;
     thread_index[caller.pid%THREAD_BUCKETS]=&caller;
     struct thread actor={.pid=456};
     struct mapping_owner mapping={.caller=actor.pid};
@@ -3141,9 +3148,9 @@ static void repair_events(void) {
         else if (mode==7) { policy_installer=&actor; barrier=&policy_barrier; }
         else { task_action_releasing=1; barrier=&task_action_barrier; }
         *barrier=md_task_quiesce_new(no_trace); assert(*barrier);
-        caller.original.regs[8]=SYS_mmap;
+        caller.execution.request.nr=SYS_mmap;
         assert(!quiescence_repair_event(caller.pid,status,&usage));
-        caller.original.regs[8]=SYS_mprotect;
+        caller.execution.request.nr=SYS_mprotect;
         assert(!quiescence_repair_event(caller.pid,(SIGUSR1<<8)|0x7f,&usage));
         assert(!quiescence_repair_event(caller.pid,(PTRACE_EVENT_EXIT<<16)|(SIGTRAP<<8)|0x7f,&usage));
         memory.actor=&caller; action.actor=&caller; mapping.caller=caller.pid;
@@ -3229,7 +3236,7 @@ static void repair_preparation_terminal(void) {
     for (unsigned own=0;own<2;++own)
       for (unsigned stage=MEMORY_WRITERS;stage<MEMORY_MAP;++stage)
         for (unsigned i=0;i<sizeof(terminal)/sizeof(*terminal);++i) {
-            struct thread actor={.pid=123,.phase=OBSERVING,.memory_action=MEMORY_KERNEL};
+            struct thread actor={.pid=123,.phase=OBSERVING,.memory_op.action=MEMORY_KERNEL};
             struct memory_execution *memory=calloc(1,sizeof(*memory)); assert(memory);
             *memory=(struct memory_execution){.actor=&actor,.stage=stage,
                 .status=(SIGTRAP|0x80)<<8|0x7f,.usage={.ru_stime.tv_usec=456}};
@@ -3241,7 +3248,7 @@ static void repair_preparation_terminal(void) {
             struct rusage usage={.ru_stime.tv_usec=789};
             pid_t subject=own ? actor.pid : 457;
             assert(memory_event(subject,terminal[i],&usage)==1 && !memory_execution);
-            assert(actor.phase==OBSERVING && actor.memory_action==MEMORY_KERNEL);
+            assert(actor.phase==OBSERVING && actor.memory_op.action==MEMORY_KERNEL);
             assert(!quiescence_busy(NULL));
             int status=0; struct rusage replay={0};
             assert(md_task_quiesce_take(memory_barrier,&status,&replay)==subject);
@@ -3260,7 +3267,7 @@ static void repair_retirement(void) {
     int previous=fd_ready;
     fd_ready=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd_ready>=0);
     for (unsigned stage=MEMORY_WRITERS;stage<=MEMORY_WORKER;++stage) {
-        struct thread actor={.pid=123,.phase=OBSERVING,.memory_action=MEMORY_KERNEL};
+        struct thread actor={.pid=123,.phase=OBSERVING,.memory_op.action=MEMORY_KERNEL};
         struct task_action retirement={.retirement={.task=456,.complete=unused_retirement}};
         struct memory_execution *memory=calloc(1,sizeof(*memory)); assert(memory);
         *memory=(struct memory_execution){.actor=&actor,.stage=stage,
@@ -3273,7 +3280,7 @@ static void repair_retirement(void) {
         memory->stage=MEMORY_VALIDATE; assert(!memory_yield_retirement(memory));
         memory->stage=stage;
         assert(memory_yield_retirement(memory) && !memory_execution);
-        assert(loan_retirements==&retirement && actor.phase==OBSERVING && actor.memory_action==MEMORY_KERNEL);
+        assert(loan_retirements==&retirement && actor.phase==OBSERVING && actor.memory_op.action==MEMORY_KERNEL);
         assert(!quiescence_busy(NULL));
         int status=0; struct rusage usage={0};
         assert(md_task_quiesce_take(memory_barrier,&status,&usage)==actor.pid);
@@ -3294,7 +3301,7 @@ static void repair_late_terminal(void) {
     for (unsigned stage=MEMORY_MAP;stage<=MEMORY_REPLACE;++stage)
       for (unsigned calling=0;calling<2;++calling)
         for (unsigned i=0;i<sizeof(terminal)/sizeof(*terminal);++i) {
-            struct thread caller={.pid=123,.phase=OBSERVING,.memory_action=MEMORY_KERNEL};
+            struct thread caller={.pid=123,.phase=OBSERVING,.memory_op.action=MEMORY_KERNEL};
             struct retained_memory executor={.ready=1,.retained={.actor=789}};
             struct memory_execution memory={.actor=&caller,.executor=&executor,
                 .stage=stage,.calling=calling};
@@ -3306,7 +3313,7 @@ static void repair_late_terminal(void) {
             assert(memory_execution==&memory && memory.terminal && memory.error==-ECANCELED);
             assert(memory.calling==(int)calling && memory.replacement.cancelled);
             assert(executor.ready && !executor.retiring && !executor.dead);
-            assert(caller.phase==OBSERVING && caller.memory_action==MEMORY_KERNEL);
+            assert(caller.phase==OBSERVING && caller.memory_op.action==MEMORY_KERNEL);
             int status; struct rusage replay;
             assert(!deferred_event(&status,&replay));
             assert(!md_task_quiesce_release(memory_barrier));
@@ -3392,7 +3399,7 @@ static void quiescent_task_ownership(void) {
             struct thread t={.pid=123,.born=1,.initial_stop=1,.kernel_resume=continuations[request]};
             t.kernel_stopped=mode==1;
             t.listening=mode==2;
-            t.vfork_child=mode==3 ? 456 : 0;
+            t.process_op.vfork_child=mode==3 ? 456 : 0;
             t.interrupt_pending=mode==5;
             if (mode==6) t.initial_stop=0;
             struct md_task_quiesce *barrier=md_task_quiesce_new(debugger_quiesce_trace); assert(barrier);
@@ -3419,7 +3426,7 @@ static void quiescent_task_ownership(void) {
 static void debugger_quiescence(void) {
     const int continuations[]={PTRACE_CONT,PTRACE_SYSCALL,PTRACE_SINGLESTEP,PTRACE_SYSEMU};
     for (unsigned mode=0;mode<sizeof(continuations)/sizeof(*continuations);++mode) {
-        struct thread t={.pid=123,.born=1,.initial_stop=1,.entered=1,.process_image=1};
+        struct thread t={.pid=123,.born=1,.initial_stop=1,.entered=1,.image.process_image=1};
         assert(!debugger && !thread_index[t.pid%THREAD_BUCKETS]);
         thread_index[t.pid%THREAD_BUCKETS]=&t;
         checkpoints.trace=debugger_quiesce_trace;
@@ -3429,7 +3436,7 @@ static void debugger_quiescence(void) {
         assert(!md_task_quiesce_stop(barrier) && debugger_interrupts==1);
         assert(!quiesce_event(barrier,t.pid,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
         assert(md_task_quiesce_ready(barrier) && !md_task_quiesce_release(barrier));
-        assert(debugger_continuations==1 && !t.memory_resume && !t.interrupt_pending);
+        assert(debugger_continuations==1 && !t.memory_op.resume && !t.interrupt_pending);
         assert(t.kernel_resume==continuations[mode]);
         md_task_quiesce_destroy(barrier);
         thread_index[t.pid%THREAD_BUCKETS]=NULL;
@@ -3468,7 +3475,7 @@ static void debugger_quiescence(void) {
     }
     host.seccomp_events=0;
     for (unsigned mode=0;mode<sizeof(continuations)/sizeof(*continuations);++mode) for (unsigned seized=0;seized<2;++seized) {
-        struct thread t={.pid=123,.born=1,.initial_stop=1,.entered=1,.process_image=1};
+        struct thread t={.pid=123,.born=1,.initial_stop=1,.entered=1,.image.process_image=1};
         assert(!thread_index[t.pid%THREAD_BUCKETS]); thread_index[t.pid%THREAD_BUCKETS]=&t;
         checkpoints.trace=debugger_quiesce_trace;
         debugger_interrupts=debugger_continuations=0;
@@ -3487,7 +3494,7 @@ static void debugger_quiescence(void) {
          * must return to dispatcher admission before any guest continuation. */
         assert(!quiesce_event(barrier,t.pid,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
         assert(md_task_quiesce_ready(barrier) && !md_task_quiesce_release(barrier));
-        assert(!debugger_continuations && t.memory_resume && t.kernel_stopped && !t.interrupt_pending);
+        assert(!debugger_continuations && t.memory_op.resume && t.kernel_stopped && !t.interrupt_pending);
         assert(md_debugger_boundary(debugger,t.pid));
         assert(md_debugger_stopped_by(debugger,t.pid,getpid()));
         md_task_quiesce_destroy(barrier);
@@ -3577,53 +3584,53 @@ static void completed_open(unsigned mode,int signal) {
     assert(completed_notification_event(&t,status,&usage)==(mode==3));
     assert(!t.broker_completion && adoption_calls==(mode!=0));
     if (mode!=3) {
-        assert(!t.broker_event.held && !t.buffer.pool && !t.buffer_call);
-        assert(!md_signal_delivery_pending(&t.signal_delivery) && !t.retained_signal);
+        assert(!t.broker_event.held && !t.fs.buffer.pool && !t.fs.call);
+        assert(!md_signal_delivery_pending(&t.signals.delivery) && !t.signals.retained);
         struct user_pt_regs result;
         io=(struct iovec){&result,sizeof(result)};
         assert(!ptrace(PTRACE_GETREGSET,pid,(void *)NT_PRSTATUS,&io));
         assert((long)result.regs[0]==(!mode ? -EAGAIN : adoption_error));
         assert(!ptrace(PTRACE_CONT,pid,NULL,(void *)(intptr_t)signal));
     } else {
-        assert(t.broker_event.held && t.buffer.pool && t.buffer_call);
-        assert(md_signal_delivery_pending(&t.signal_delivery));
+        assert(t.broker_event.held && t.fs.buffer.pool && t.fs.call);
+        assert(md_signal_delivery_pending(&t.signals.delivery));
         /* Simulate worker completion at an internal checkpoint. The old
          * delivery stop is suppressed; only the queue publishes the signal. */
-        assert(!md_signal_delivery_publish(&t.signal_delivery,pid,pid));
+        assert(!md_signal_delivery_publish(&t.signals.delivery,pid,pid));
         assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
         assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status) && WSTOPSIG(status)==signal);
         int deliver=signal;
-        assert(md_signal_delivery_event(&t.signal_delivery,pid,signal,&deliver)>=0);
-        assert(deliver==signal && !md_signal_delivery_pending(&t.signal_delivery));
+        assert(md_signal_delivery_event(&t.signals.delivery,pid,signal,&deliver)>=0);
+        assert(deliver==signal && !md_signal_delivery_pending(&t.signals.delivery));
         assert(!ptrace(PTRACE_CONT,pid,NULL,(void *)(intptr_t)deliver));
-        md_fs_buffer_open_release(&adopted); t.buffer_call=NULL;
+        md_fs_buffer_open_release(&adopted); t.fs.call=NULL;
     }
     assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
-    assert(!md_buffer_release(&held) && !md_buffer_release(&t.buffer));
-    md_signal_delivery_clear(&t.signal_delivery); md_memory_release(t.memory);
+    assert(!md_buffer_release(&held) && !md_buffer_release(&t.fs.buffer));
+    md_signal_delivery_clear(&t.signals.delivery); md_memory_release(t.memory);
     thread_index[(unsigned)pid%THREAD_BUCKETS]=NULL;
 }
 extern void test_wait_svc(void);
 __asm__(".text\n.balign 4\ntest_wait_svc:\nsvc #0\nret\n");
 static void provider_wait_restarts(void) {
-    struct thread t={.original={.regs={[8]=SYS_read}}};
+    struct thread t={.execution.request={.nr=SYS_read}};
     assert(control_wait_restart(&t)==RESTART_SIGNAL);
-    t.proc_io.executed=1;
+    t.proc.io.executed=1;
     assert(!control_wait_restart(&t));
     struct md_control_pending pending={.retry_preparation=1};
     for (unsigned io=0;io<2;++io) {
-        t.control_pending=io ? NULL : &pending;
-        t.proc_io.pending=io ? &pending : NULL;
+        t.control.pending=io ? NULL : &pending;
+        t.proc.io.pending=io ? &pending : NULL;
         assert(control_wait_restart(&t)==RESTART_PREPARATION);
         pending.retry_preparation=0;
         assert(!control_wait_restart(&t));
         pending.retry_preparation=1;
-        t.proc_io.transferred=1;
+        t.proc.io.transferred=1;
         assert(!control_wait_restart(&t));
-        t.proc_io.transferred=0;
-        t.original.regs[8]=SYS_splice;
+        t.proc.io.transferred=0;
+        t.execution.request.nr=SYS_splice;
         assert(!control_wait_restart(&t));
-        t.original.regs[8]=SYS_read;
+        t.execution.request.nr=SYS_read;
         assert(control_wait_restart(&t)==RESTART_PREPARATION);
     }
     puts("PASS provider wait restart: direct/IO preparation, committed effects, partial data and splice");
@@ -3656,11 +3663,11 @@ static void provider_wait_boundaries(void) {
             (PTRACE_O_EXITKILL|PTRACE_O_TRACESYSGOOD|PTRACE_O_TRACESECCOMP)));
         assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
         assert(waitpid(pid,&status,0)==pid && (unsigned)status>>16==PTRACE_EVENT_SECCOMP);
-        struct thread t={.pid=pid,.phase=phases[p],.host_signals=md_app_uid_active};
+        struct thread t={.pid=pid,.phase=phases[p],.signals.host=md_app_uid_active};
         assert(!thread_index[(unsigned)pid%THREAD_BUCKETS]);
         thread_index[(unsigned)pid%THREAD_BUCKETS]=&t;
-        assert(registers(pid,&t.original) && skip(pid));
-        t.buffer_registers=t.close_registers=t.original;
+        assert(registers(pid,&t.execution.registers) && skip(pid));
+        t.fs.registers=t.close.registers=t.execution.registers;
         if (!pending_exit) {
             assert(!ptrace(PTRACE_SYSCALL,pid,NULL,NULL));
             assert(waitpid(pid,&status,0)==pid && WSTOPSIG(status)==(SIGTRAP|0x80));
@@ -3681,10 +3688,10 @@ static void provider_wait_boundaries(void) {
         /* Provider completion may precede entry. Cancel only the actual poll,
          * drain its exit, then publish the application's retained result. */
         wait_cancel_entry(&t,FILE_WAITING);
-        assert(t.phase==WAIT_CANCEL_EXIT && t.wait_resume==FILE_WAITING);
+        assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==FILE_WAITING);
         assert(waitpid(pid,&status,0)==pid && WSTOPSIG(status)==(SIGTRAP|0x80));
-        t.original.regs[0]=pid;
-        assert(set_registers(pid,&t.original));
+        t.execution.registers.regs[0]=pid;
+        assert(set_registers(pid,&t.execution.registers));
         assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
         assert(waitpid(pid,&status,0)==pid);
         if (!WIFEXITED(status) || WEXITSTATUS(status))
@@ -3700,26 +3707,26 @@ static void checkpoint_admission(void) {
     assert(checkpoint_restricted(t.pid));
     thread_index[t.pid%THREAD_BUCKETS]=&t;
     assert(!checkpoint_restricted(t.pid));
-    t.application_filter=1; assert(checkpoint_restricted(t.pid));
+    t.seccomp.application_filter=1; assert(checkpoint_restricted(t.pid));
     struct md_svc_registry *r=md_svc_registry_new(0x1000000,0x4000); assert(r);
     assert(!md_memory_svc_set(t.memory,r) && checkpoint_restricted(t.pid));
     struct sock_filter allow[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
     struct sock_fprog program={1,allow};
     struct md_seccomp_policy *parent=NULL,*child=NULL,*grandchild=NULL;
     assert(!md_seccomp_policy_capture(NULL,&program,&parent));
-    t.policy=parent; assert(checkpoint_restricted(t.pid));
+    t.seccomp.policy=parent; assert(checkpoint_restricted(t.pid));
     md_seccomp_policy_bind_entry(parent,r->image);
     for (unsigned host=0;host<2;++host) {
-        t.host_signals=host; assert(!checkpoint_restricted(t.pid));
+        t.signals.host=host; assert(!checkpoint_restricted(t.pid));
     }
     assert(!md_seccomp_policy_capture(parent,&program,&child));
-    t.policy=child; assert(checkpoint_restricted(t.pid));
+    t.seccomp.policy=child; assert(checkpoint_restricted(t.pid));
     md_seccomp_policy_bind_entry(child,r->image+1);
     assert(checkpoint_restricted(t.pid));
     assert(!md_seccomp_policy_capture(child,&program,&grandchild));
     md_seccomp_policy_bind_entry(grandchild,r->image);
-    t.policy=grandchild;
-    assert(md_seccomp_policy_entry_compatible(t.policy,r->image) && checkpoint_restricted(t.pid));
+    t.seccomp.policy=grandchild;
+    assert(md_seccomp_policy_entry_compatible(t.seccomp.policy,r->image) && checkpoint_restricted(t.pid));
     md_seccomp_policy_release(grandchild); md_seccomp_policy_release(child); md_seccomp_policy_release(parent);
     md_memory_release(t.memory); thread_index[t.pid%THREAD_BUCKETS]=NULL;
     puts("PASS checkpoint admission: exact chain gates avoid emulation; inherited and unbound policies retain it");
@@ -3738,7 +3745,7 @@ static long checkpoint_barrier_trace(int request,pid_t pid,void *address,void *d
     return 0;
 }
 static void checkpoint_quiescence(void) {
-    struct thread t={.pid=123,.application_filter=1};
+    struct thread t={.pid=123,.seccomp.application_filter=1};
     thread_index[t.pid%THREAD_BUCKETS]=&t;
     struct md_task_checkpoints saved=checkpoints;
     checkpoints=(struct md_task_checkpoints){.trace=checkpoint_barrier_trace,
@@ -3909,16 +3916,16 @@ static void completed_notification_orders(unsigned order,int descriptor) {
     assert(adoption_calls==descriptor);
     struct user_pt_regs regs; assert(registers(pid,&regs));
     if (descriptor) {
-        assert(t.phase==DISPATCHING && t.broker_event.held && t.buffer_call && adopted.fd>=0);
+        assert(t.phase==DISPATCHING && t.broker_event.held && t.fs.call && adopted.fd>=0);
         char byte=1; assert(read(adopted.fd,&byte,1)==1 && !byte);
-        md_fs_buffer_open_release(&adopted); t.buffer_call=NULL;
+        md_fs_buffer_open_release(&adopted); t.fs.call=NULL;
         /* FD installation has its own result-custody suite. End this fixture
          * at the proven single adoption without executing its fake adapter. */
-        regs=t.original; regs.regs[0]=-EINTR; assert(set_registers(pid,&regs));
+        regs=t.execution.registers; regs.regs[0]=-EINTR; assert(set_registers(pid,&regs));
     } else assert(t.phase==IDLE && (long)regs.regs[0]==-EOPNOTSUPP);
     assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
     assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
-    assert(!md_buffer_release(&t.buffer)); md_memory_release(t.memory);
+    assert(!md_buffer_release(&t.fs.buffer)); md_memory_release(t.memory);
     thread_index[pid%THREAD_BUCKETS]=NULL;
     close(channel[0]); close(listener); listener=-1;
 }
@@ -4014,13 +4021,13 @@ static void completed_notification_bind(unsigned order,int descriptor) {
         assert(!memcmp(&before,&after,sizeof(before)));
         if (order>=4) {
             assert(notification_unexecuted(&t));
-            assert(interrupted_operation(&t) && t.phase==IDLE && !t.signal_shielded);
+            assert(interrupted_operation(&t) && t.phase==IDLE && !t.signals.shielded);
         } else assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
         bind=admission_request();
         if (order==4 || order==5) completed_notification(pid,&result);
     }
     handle_notification(&bind);
-    assert(!!t.broker_completion==(order<2 || order>=4) && !t.cooperative_buffer.pool && !adoption_calls);
+    assert(!!t.broker_completion==(order<2 || order>=4) && !t.entry.buffer.pool && !adoption_calls);
     struct seccomp_notif retry=admission_request();
     assert(notification_same_call(&t,&first.data,&retry.data));
     handle_notification(&retry);
@@ -4033,17 +4040,17 @@ static void completed_notification_bind(unsigned order,int descriptor) {
     assert(!t.broker_completion && adoption_calls==descriptor);
     struct user_pt_regs returned; assert(registers(pid,&returned));
     if (descriptor) {
-        assert(t.phase==DISPATCHING && t.buffer_call && adopted.fd>=0);
+        assert(t.phase==DISPATCHING && t.fs.call && adopted.fd>=0);
         char byte=1; assert(read(adopted.fd,&byte,1)==1 && !byte);
-        md_fs_buffer_open_release(&adopted); t.buffer_call=NULL;
-        returned=t.original; returned.regs[0]=-EINTR; assert(set_registers(pid,&returned));
+        md_fs_buffer_open_release(&adopted); t.fs.call=NULL;
+        returned=t.execution.registers; returned.regs[0]=-EINTR; assert(set_registers(pid,&returned));
     }
     assert(returned.sp==original.sp && returned.pc==first.data.instruction_pointer);
     assert(!memcmp(returned.regs+1,original.regs+1,30*sizeof(original.regs[0])));
     assert(returned.pstate==original.pstate);
     assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
     assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
-    assert(!md_buffer_release(&t.buffer)); md_memory_release(t.memory);
+    assert(!md_buffer_release(&t.fs.buffer)); md_memory_release(t.memory);
     md_task_registry_destroy(tasks); tasks=NULL;
     md_debugger_destroy(debugger); debugger=NULL;
     thread_index[pid%THREAD_BUCKETS]=NULL;
@@ -4092,10 +4099,10 @@ static void admission_quiescence(void) {
         struct mapping_owner execution={0}; mapping_execution=&execution;
         mapping_barrier=md_task_quiesce_new(quiesce_trace); assert(mapping_barrier);
         assert(!md_task_quiesce_add(mapping_barrier,pid,0,PTRACE_CONT));
-        if (early) { handle_notification(&q); assert(t.memory_notification); }
+        if (early) { handle_notification(&q); assert(t.memory_op.notification); }
         assert(!md_task_quiesce_stop(mapping_barrier));
         if (!early) handle_notification(&q);
-        assert(!t.memory_notification && !t.buffer_admission_pending);
+        assert(!t.memory_op.notification && !t.fs.admission_pending);
         int status;
         /* EVENT_WAIT: the real kernel interrupt; the suite alarm bounds failure. */
         assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status));
@@ -4112,7 +4119,7 @@ static void admission_quiescence(void) {
         struct seccomp_notif_addfd add={.id=q.id,.srcfd=source,
             .flags=SECCOMP_ADDFD_FLAG_SEND,.newfd_flags=O_CLOEXEC};
         assert(ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add)>=0); close(source);
-        t.buffer_admission_id=q.id; t.buffer_admission_pending=1;
+        t.fs.admission_id=q.id; t.fs.admission_pending=1;
         buffer_admission_yield(&t); /* Expired publication cannot be replayed. */
         assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
         close(channel[0]); close(listener); listener=-1;
@@ -4140,7 +4147,8 @@ static void descriptor_command_selection(void) {
             assert(md_domain_native_call(call.nr,args));
             struct thread t={0};
             struct user_pt_regs regs={.regs={[8]=SYS_ioctl,[0]=17,[1]=args[1],[2]=args[2]}};
-            assert(!domain_call(&t,&regs,MD_INTERCEPT_FD));
+            struct seccomp_data request=syscall_description(&regs);
+            assert(!domain_call(&t,&request,&regs,MD_INTERCEPT_FD));
         }
     }
     puts("PASS descriptor command selection: shared app/shell filter, unsigned ioctl command and FD owner");
@@ -4236,7 +4244,7 @@ static void signal_descriptor_rollback(void) {
     int previous=fd_ready; fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd_ready>=0);
     struct thread t={.pid=123};
     t.resources.files=md_fd_origins_new(); assert(t.resources.files);
-    struct signal_control *owner=calloc(1,sizeof(*owner)); assert(owner); t.signal_control=owner;
+    struct signal_control *owner=calloc(1,sizeof(*owner)); assert(owner); t.signals.control=owner;
     assert(md_fd_order_begin(t.resources.files,&owner->files,NULL)==1);
     assert(!md_fd_order_start(&owner->files));
     owner->descriptor=md_signal_fd_object(md_signal_fd_new()); assert(owner->descriptor);
@@ -4257,7 +4265,7 @@ static void signal_descriptor_rollback(void) {
     assert(object==owner->descriptor && !flags); md_fd_object_release(object);
     assert(!md_fd_origins_close_range(t.resources.files,17,17,0));
     t.action=NULL; task_action_release(action);
-    signal_control_discard(&t); assert(!t.signal_control && !loan_retirements && !task_action_calls);
+    signal_control_discard(&t); assert(!t.signals.control && !loan_retirements && !task_action_calls);
     md_fd_origins_release(t.resources.files); close(fd_ready); fd_ready=previous;
     puts("PASS signalfd rollback: exact provisional slot, retained table turn, real flags and shared retirement owner");
 }
@@ -4296,6 +4304,42 @@ static void socket_wait_selection(void) {
     assert(!md_socket_wait_call(SYS_bind,args[2],args[3]));
     puts("PASS native socket waits: per-call nonblocking flags and independent accept4 flags");
 }
+static unsigned control_continuations;
+static void control_checkpoint_resume(struct thread *t) {
+    assert(!t->entry.stop.resume && t->entry.stop.reason==MD_CONTEXT_COUNT);
+    assert(t->phase==DISPATCHING && t->control.result==123);
+    assert(t->fs.request.command==MD_BUFFER_EPOLL_BEGIN && t->fs.registers.pc==0x4004);
+    ++control_continuations;
+}
+static void execution_request_boundary(void) {
+    struct user_pt_regs registers={.pc=0x1004,.sp=0x2000,.pstate=0xa0000000};
+    for (unsigned i=0;i<31;++i) registers.regs[i]=UINT64_C(0xf000000000000000)+i;
+    registers.regs[8]=SYS_umask;
+    struct thread t={0};
+    execution_capture(&t,&registers);
+    assert(!memcmp(&t.execution.registers,&registers,sizeof(registers)));
+    assert(t.execution.request.nr==SYS_umask && t.execution.request.arch==AUDIT_ARCH_AARCH64);
+    assert(t.execution.request.instruction_pointer==registers.pc);
+    for (unsigned i=0;i<6;++i) assert(t.execution.request.args[i]==registers.regs[i]);
+    /* A resident request has no machine frame. Poison the retained frame to
+     * ensure common execution reads only the admitted description. */
+    memset(&t.execution.registers,0xa5,sizeof(t.execution.registers));
+    struct md_guest_execution call=execution_prepare(&t);
+    assert(call.number==SYS_umask && call.control==-1 && !call.prepared);
+    for (unsigned i=0;i<6;++i) assert(call.args[i]==registers.regs[i]);
+    t.phase=DISPATCHING; t.control.result=123;
+    registers.pc=0x4004; registers.regs[0]=MD_BUFFER_EPOLL_BEGIN;
+    struct supervisor_control_request control=control_description(&registers);
+    t.fs.request=control;
+    t.entry.stop.reason=MD_CONTEXT_WAIT; t.entry.stop.resume=control_checkpoint_resume;
+    control_continuations=0;
+    buffer_control(&t,&control,&registers);
+    assert(control_continuations==1 && t.control.result==123);
+    t.entry.stop.reason=MD_CONTEXT_DESCRIPTOR; t.entry.stop.resume=control_checkpoint_resume;
+    cooperative_buffer_release(&t);
+    assert(!t.entry.stop.resume && t.entry.stop.reason==MD_CONTEXT_COUNT && control_continuations==1);
+    puts("PASS execution request: transport-neutral arguments, exact checkpoint continuation and cancellation");
+}
 static void execution_completion(void) {
     const struct { long value; enum execution_continuation next; } cases[]={
         {0,EXECUTION_RETURN},{123,EXECUTION_RETURN},{-EFAULT,EXECUTION_RETURN},
@@ -4303,35 +4347,36 @@ static void execution_completion(void) {
         {MD_IPC_WAIT,EXECUTION_IPC_WAIT},{MD_WATCH_WAIT,EXECUTION_WATCH_WAIT},
         {MD_CALL_NATIVE,EXECUTION_NATIVE}};
     for (unsigned i=0;i<sizeof(cases)/sizeof(*cases);++i) {
-        struct thread t={.pid=123,.phase=DISPATCHING,.stack=0x8000,.mask=0x400,
-            .original={.pc=0x1004,.sp=0x2000,.regs={[8]=SYS_uname}},.epoll_started=1};
-        struct user_pt_regs original=t.original;
+        struct thread t={.pid=123,.phase=DISPATCHING,.execution.stack=0x8000,.execution.mask=0x400,
+            .execution.registers={.pc=0x1004,.sp=0x2000,.regs={[8]=SYS_uname}},.execution.epoll_started=1};
+        execution_capture(&t,&t.execution.registers);
+        struct user_pt_regs original=t.execution.registers;
         assert(execution_complete(&t,cases[i].value)==cases[i].next);
-        assert(!t.epoll_started && !t.resume_lost && t.phase==DISPATCHING);
-        assert(t.stack==0x8000 && t.mask==0x400);
-        assert(!memcmp(&original,&t.original,sizeof(original)));
+        assert(!t.execution.epoll_started && !t.resume_lost && t.phase==DISPATCHING);
+        assert(t.execution.stack==0x8000 && t.execution.mask==0x400);
+        assert(!memcmp(&original,&t.execution.registers,sizeof(original)));
     }
     for (int filter=0;filter<2;++filter) for (int error=0;error<2;++error) {
-        struct thread t={.pid=123,.phase=DISPATCHING,.pid_preflight=!filter,.filter_preflight=filter,
-            .debug_call_active=1,.debug_adapter=1,.stack=0x8000};
+        struct thread t={.pid=123,.phase=DISPATCHING,.process_op.preflight=!filter,.seccomp.preflight=filter,
+            .debug.call_active=1,.debug.adapter=1,.execution.stack=0x8000};
         assert(execution_complete(&t,error ? -EINVAL : 0)
             ==(error ? EXECUTION_PREFLIGHT_RETURN : EXECUTION_PREFLIGHT_REPLAY));
-        assert(!t.pid_preflight && !t.filter_preflight && t.registration_revoked==filter);
-        assert(t.debug_replay_entry==!error && t.debug_adapter==error);
-        assert(!t.resume_lost && t.phase==DISPATCHING && t.stack==0x8000);
+        assert(!t.process_op.preflight && !t.seccomp.preflight && t.entry.registration_revoked==filter);
+        assert(t.debug.replay_entry==!error && t.debug.adapter==error);
+        assert(!t.resume_lost && t.phase==DISPATCHING && t.execution.stack==0x8000);
     }
-    struct thread clone={.pid=123,.phase=DISPATCHING,.original={.regs={[8]=SYS_clone3}},
-        .memory=md_memory_new(),.stack=0x8000};
+    struct thread clone={.pid=123,.phase=DISPATCHING,.execution.request={.nr=SYS_clone3},
+        .memory=md_memory_new(),.execution.stack=0x8000};
     assert(clone.memory && !md_memory_buffers_prepare(clone.memory,1,4096,0,0));
-    assert(!md_buffers_take(md_memory_buffers(clone.memory),&clone.buffer));
+    assert(!md_buffers_take(md_memory_buffers(clone.memory),&clone.fs.buffer));
     assert(execution_complete(&clone,MD_CALL_CLONE)==EXECUTION_CLONE);
-    assert(clone.clone_prepared && clone.buffer.pool && clone.stack==0x8000 && !clone.resume_lost);
-    assert(!md_buffer_release(&clone.buffer)); md_memory_release(clone.memory);
+    assert(clone.process_op.clone_prepared && clone.fs.buffer.pool && clone.execution.stack==0x8000 && !clone.resume_lost);
+    assert(!md_buffer_release(&clone.fs.buffer)); md_memory_release(clone.memory);
     puts("PASS execution completion: resource retirement and continuations without register or resume transport");
 }
 static void execution_register_boundary(void) {
-    struct thread t={.stack=0x8000,.original={.pc=0x1004,.sp=0x2000,.pstate=0xa0000000}};
-    for (unsigned i=0;i<31;++i) t.original.regs[i]=UINT64_C(0xf000000000000000)+i;
+    struct thread t={.execution.stack=0x8000,.execution.registers={.pc=0x1004,.sp=0x2000,.pstate=0xa0000000}};
+    for (unsigned i=0;i<31;++i) t.execution.registers.regs[i]=UINT64_C(0xf000000000000000)+i;
     struct md_interception_abi saved=abi;
     abi.dispatch=0x4000; abi.done_entry=0x5000;
     struct md_guest_execution call={.number=SYS_recvmsg,.policy=MD_DISPATCH_PATHS|MD_DISPATCH_NETWORK_SCOPED,
@@ -4340,13 +4385,13 @@ static void execution_register_boundary(void) {
     for (int kind=-1;kind<8;++kind) {
         call.control=kind;
         struct user_pt_regs r=dispatch_registers(&t,&call);
-        assert(r.pc==abi.dispatch && r.sp==t.stack && r.regs[30]==abi.done_entry);
+        assert(r.pc==abi.dispatch && r.sp==t.execution.stack && r.regs[30]==abi.done_entry);
         assert(r.regs[0]==(unsigned long)call.number && r.regs[10]==call.prepared);
         assert(md_dispatch_control_kind(r.regs[9])==kind && (r.regs[9]&0xffffU)==call.policy);
         for (unsigned i=0;i<6;++i) assert(r.regs[i+1]==call.args[i]);
-        assert(r.regs[7]==t.original.regs[7] && r.regs[8]==t.original.regs[8]);
-        for (unsigned i=11;i<30;++i) assert(r.regs[i]==t.original.regs[i]);
-        assert(r.pstate==t.original.pstate && t.original.pc==0x1004 && t.original.sp==0x2000);
+        assert(r.regs[7]==t.execution.registers.regs[7] && r.regs[8]==t.execution.registers.regs[8]);
+        for (unsigned i=11;i<30;++i) assert(r.regs[i]==t.execution.registers.regs[i]);
+        assert(r.pstate==t.execution.registers.pstate && t.execution.registers.pc==0x1004 && t.execution.registers.sp==0x2000);
     }
     abi=saved;
     puts("PASS execution register boundary: full-width arguments, typed control, prepared input and preserved caller");
@@ -4356,8 +4401,8 @@ static void descriptor_capture_admission(void) {
     abi.capture_gate=0x1004;
     struct thread t={.memory=md_memory_new()}; assert(t.memory);
     assert(!md_memory_buffers_prepare(t.memory,1,sizeof(struct md_fs_buffer_frame),0,0));
-    assert(!md_buffers_take(md_memory_buffers(t.memory),&t.buffer));
-    uintptr_t path=md_memory_buffer_address(t.memory,&t.buffer)+offsetof(struct md_fs_buffer_frame,source);
+    assert(!md_buffers_take(md_memory_buffers(t.memory),&t.fs.buffer));
+    uintptr_t path=md_memory_buffer_address(t.memory,&t.fs.buffer)+offsetof(struct md_fs_buffer_frame,source);
     struct user_pt_regs r={.pc=abi.capture_gate,
         .regs={[8]=SYS_openat,[0]=(unsigned long)AT_FDCWD,[1]=path,[2]=O_PATH|O_CLOEXEC}};
     const int origins[]={0,17,AT_FDCWD};
@@ -4380,27 +4425,28 @@ static void descriptor_capture_admission(void) {
     r.regs[4]=(unsigned long)MD_FS_BUFFER_SOURCE;
     for (unsigned caller=0;caller<2;++caller) for (unsigned append=0;append<2;++append)
             for (unsigned directory=0;directory<2;++directory) {
-        t.buffer_open.fd=17;
-        t.buffer_open.flags=O_RDWR|O_CLOEXEC|O_NOFOLLOW|(append ? O_APPEND : 0)|(directory ? O_DIRECTORY : 0);
-        t.buffer_open.completion.kind=caller ? MD_OPEN_CALLER : MD_OPEN_READY;
-        r.regs[2]=caller ? t.buffer_open.flags
-            : O_PATH|(t.buffer_open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW));
+        t.fs.open.fd=17;
+        t.fs.open.flags=O_RDWR|O_CLOEXEC|O_NOFOLLOW|(append ? O_APPEND : 0)|(directory ? O_DIRECTORY : 0);
+        t.fs.open.completion.kind=caller ? MD_OPEN_CALLER : MD_OPEN_READY;
+        r.regs[2]=caller ? t.fs.open.flags
+            : O_PATH|(t.fs.open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW));
         assert(fd_capture_valid(&t,&r));
         for (unsigned invalid=0;invalid<4;++invalid) {
             struct user_pt_regs bad=r;
             if (invalid==0) ++bad.regs[1];
             if (invalid==1) bad.regs[2]|=O_TRUNC;
             if (invalid==2) bad.regs[2]^=O_CLOEXEC;
-            if (invalid==3) t.buffer_open.fd=-1;
+            if (invalid==3) t.fs.open.fd=-1;
             assert(!fd_capture_valid(&t,&bad));
-            t.buffer_open.fd=17;
+            t.fs.open.fd=17;
         }
         if (caller && append) { r.regs[2]&=~O_APPEND; assert(fd_capture_valid(&t,&r)); }
     }
-    assert(!md_buffer_release(&t.buffer)); md_memory_release(t.memory); abi=saved;
+    assert(!md_buffer_release(&t.fs.buffer)); md_memory_release(t.memory); abi=saved;
     puts("PASS descriptor capture: exact carrier, ordinary and pinned paths, O_PATH flags and caller append retry");
 }
 int main(void) {
+    execution_request_boundary();
     execution_completion();
     execution_register_boundary();
     descriptor_capture_admission();

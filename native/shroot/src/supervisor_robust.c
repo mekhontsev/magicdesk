@@ -53,7 +53,7 @@ static void retained_retirement_progress(void);
 int retained_task_held(const struct thread *t) {
     /* Registration and terminal cleanup own the exact stopped continuation,
      * including the interval before their deferred event is replayed. */
-    return t->robust_registering || t->robust_terminal;
+    return t->robust.registering || t->robust.terminal;
 }
 
 struct retained_memory *retained_actor(pid_t pid) {
@@ -93,55 +93,55 @@ struct retained_memory *retained_memory_get(struct thread *t) {
 
 void retained_detach(struct thread *t) {
     struct retained_memory *m=t->memory_actor;
-    t->memory_actor=NULL; t->robust_head=0; t->robust_tid=0; t->robust_registering=0;
+    t->memory_actor=NULL; t->robust.head=0; t->robust.tid=0; t->robust.registering=0;
     if (!m) return;
     CHECK(m->members && m->terminal!=t && m->creator!=t);
     if (!--m->members) { m->memory=NULL; m->retiring=1; retained_schedule(m); }
 }
 
 static void robust_register_complete(struct thread *t,long error) {
-    struct user_pt_regs regs=t->robust_registers;
-    t->robust_registering=0;
+    struct user_pt_regs regs=t->robust.registers;
+    t->robust.registering=0;
     if (!error) {
-        t->robust_head=regs.regs[0];
-        t->robust_tid=(uint32_t)visible_pid(t,t->pid);
+        t->robust.head=regs.regs[0];
+        t->robust.tid=(uint32_t)visible_pid(t,t->pid);
     }
-    return_task_value(t,&regs,error,t->robust_boundary);
+    return_task_value(t,&regs,error,t->robust.boundary);
 }
 
-int robust_call(struct thread *t,struct user_pt_regs *regs,enum md_task_call_boundary boundary) {
-    long nr=regs->regs[8];
+int robust_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *regs,enum md_task_call_boundary boundary) {
+    long nr=call->nr;
     if ((nr!=SYS_set_robust_list && nr!=SYS_get_robust_list) || !robust_managed(t)) return 0;
     if (entry_context(t,MD_CONTEXT_PROCESS)) return 1;
     if (nr==SYS_get_robust_list) {
-        pid_t target=(pid_t)regs->regs[0];
+        pid_t target=(pid_t)call->args[0];
         struct thread *subject=target ? find_thread(native_pid(t,target)) : t;
         long error=0;
         if (!subject || !subject->born || subject->terminal_stop) error=-ESRCH;
         else if (subject!=t && !inspect_allowed(t->pid,subject->pid,0)) error=-EPERM;
         if (!error) {
-            uintptr_t head=subject->robust_head;
+            uintptr_t head=subject->robust.head;
             size_t size=sizeof(struct md_robust_head);
             /* Native ordering: publish the size before the head, and preserve
              * a partial result if the second userspace pointer faults. */
-            ssize_t copied=md_task_copy_direct(t->pid,regs->regs[2],&size,sizeof(size),1);
-            if (copied==sizeof(size)) copied=md_task_copy_direct(t->pid,regs->regs[1],&head,sizeof(head),1);
+            ssize_t copied=md_task_copy_direct(t->pid,call->args[2],&size,sizeof(size),1);
+            if (copied==sizeof(size)) copied=md_task_copy_direct(t->pid,call->args[1],&head,sizeof(head),1);
             if (copied!=sizeof(head)) error=copied<0 ? copied : -EFAULT;
         }
         return_task_value(t,regs,error,boundary); return 1;
     }
-    if (regs->regs[1]!=sizeof(struct md_robust_head)) {
+    if (call->args[1]!=sizeof(struct md_robust_head)) {
         return_task_value(t,regs,-EINVAL,boundary); return 1;
     }
-    t->robust_registers=*regs; t->robust_boundary=boundary;
-    if (!regs->regs[0]) { robust_register_complete(t,0); return 1; }
+    t->robust.registers=*regs; t->robust.boundary=boundary;
+    if (!call->args[0]) { robust_register_complete(t,0); return 1; }
     t->terminal_observation=1; t->trace_options_dirty=1;
-    int error=debugger_options(t->pid,t->debug_options);
+    int error=debugger_options(t->pid,t->debug.options);
     if (error) { robust_register_complete(t,error); return 1; }
     struct retained_memory *m=retained_memory_get(t);
     if (!m) { robust_register_complete(t,-ENOMEM); return 1; }
     if (m->ready) { robust_register_complete(t,0); return 1; }
-    t->robust_registering=1;
+    t->robust.registering=1;
     retained_schedule(m);
     /* EVENT_WAIT: one mm's first registration creates its private executor;
      * other registrations wait for the same birth, never another actor. */
@@ -159,7 +159,7 @@ static void retained_creation_finish(struct retained_memory *m,long error) {
     m->error=error; m->ready=!error;
     if (t && !m->retained.parent_terminal) {
         t->kernel_stopped=1;
-        t->robust_boundary=m->retained.parent.boundary;
+        t->robust.boundary=m->retained.parent.boundary;
     }
     if (error) {
         /* A cancelled birth can still own a native child. Keep its exact PID
@@ -170,9 +170,9 @@ static void retained_creation_finish(struct retained_memory *m,long error) {
         }
         m->memory=NULL;
     }
-    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->robust_registering
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->robust.registering
             && (p->memory_actor==m || (error && p->memory==t->memory))) {
-        if (p==t && m->retained.parent_terminal) p->robust_registering=0;
+        if (p==t && m->retained.parent_terminal) p->robust.registering=0;
         else robust_register_complete(p,error);
     }
     task_action_unpark();
@@ -183,7 +183,7 @@ void retained_creation_begin(struct retained_memory *m,struct thread *t,
     CHECK(!retained_creation && !m->ready && !m->creator && !m->retiring);
     m->creator=t; retained_creation=m;
     t->terminal_observation=1; t->trace_options_dirty=1;
-    int error=debugger_options(t->pid,t->debug_options);
+    int error=debugger_options(t->pid,t->debug.options);
     if (error) { retained_creation_finish(m,error); return; }
     int boundary=md_task_checkpoint_suspend(&checkpoints,t->pid);
     if (boundary<0) { retained_creation_finish(m,boundary); return; }
@@ -217,8 +217,8 @@ static void robust_cleanup_complete(struct retained_memory *m,int state) {
     }
     if (state!=1) { m->cleaning=state==2 ? 2 : 1; return; }
     struct thread *t=m->terminal;
-    t->robust_subject->robust_head=0;
-    t->robust_subject=NULL; t->robust_terminal=2; ++robust_replays;
+    t->robust.subject->robust.head=0;
+    t->robust.subject=NULL; t->robust.terminal=2; ++robust_replays;
     m->terminal=NULL; m->cleaning=0;
     m->cleanup=(struct md_task_robust){0};
 }
@@ -233,22 +233,22 @@ void retained_progress(void) {
         }
         if (m->cleaning==2) robust_cleanup_complete(m,md_task_robust_progress(&m->cleanup));
         if (m->pending && m->ready && !m->cleaning && !m->retiring && !quiescence_busy(NULL)) {
-            for (struct thread *t=threads;t;t=t->next) if (t->pid && t->memory_actor==m && t->robust_terminal==1) {
+            for (struct thread *t=threads;t;t=t->next) if (t->pid && t->memory_actor==m && t->robust.terminal==1) {
                 --m->pending;
                 m->terminal=t;
                 robust_cleanup_complete(m,md_task_robust_begin(&m->cleanup,native_trace,m->retained.actor,
-                    &abi,t->robust_subject->robust_head,t->robust_subject->robust_tid));
+                    &abi,t->robust.subject->robust.head,t->robust.subject->robust.tid));
                 break;
             }
         }
         if (m->ready || m->retiring || m->creator || retained_barrier || quiescence_busy(NULL)) continue;
         struct thread *t;
-        for (t=threads;t;t=t->next) if (t->pid && t->memory_actor==m && t->robust_registering) break;
+        for (t=threads;t;t=t->next) if (t->pid && t->memory_actor==m && t->robust.registering) break;
         if (!t) continue;
         if (!m->order.queue) CHECK(md_memory_order_begin(t->memory,&m->order,fd_wakeup)>=0);
         if (md_resource_order_state(&m->order)!=MD_RESOURCE_ORDER_READY) continue;
         CHECK(!md_resource_order_start(&m->order));
-        retained_creation_begin(m,t,&t->robust_registers,t->robust_boundary);
+        retained_creation_begin(m,t,&t->robust.registers,t->robust.boundary);
     }
 }
 
@@ -424,11 +424,11 @@ pid_t retained_take(int *status,struct rusage *usage) {
         md_task_quiesce_destroy(retained_barrier); retained_barrier=NULL;
         CHECK(!md_event_signal(fd_ready));
     }
-    if (robust_replays) for (struct thread *t=threads;t;t=t->next) if (t->pid && t->robust_terminal==2) {
+    if (robust_replays) for (struct thread *t=threads;t;t=t->next) if (t->pid && t->robust.terminal==2) {
         --robust_replays;
-        *status=t->robust_status; if (usage) *usage=t->robust_usage;
+        *status=t->robust.status; if (usage) *usage=t->robust.usage;
         if (filesystem) memory_completions_pending=1;
-        t->robust_terminal=0; t->robust_replay=1; return t->pid;
+        t->robust.terminal=0; t->robust.replay=1; return t->pid;
     }
     return 0;
 }
@@ -483,7 +483,7 @@ int retained_event(pid_t pid,int status,const struct rusage *usage) {
     }
     struct thread *t=find_thread(pid);
     if (!t) return 0;
-    if (t->robust_replay) { t->robust_replay=0; return 0; }
+    if (t->robust.replay) { t->robust.replay=0; return 0; }
     if (!WIFSTOPPED(status) || (event!=PTRACE_EVENT_EXIT && event!=PTRACE_EVENT_EXEC)) return 0;
     struct thread *subject=t;
     if (event==PTRACE_EVENT_EXEC) {
@@ -491,13 +491,13 @@ int retained_event(pid_t pid,int status,const struct rusage *usage) {
         if (native_trace(PTRACE_GETEVENTMSG,pid,NULL,&old)<0) { CHECK(errno==ESRCH); return 1; }
         if (old && old!=(unsigned)pid) subject=find_thread((pid_t)old);
     }
-    if (!subject || !subject->robust_head) return 0;
+    if (!subject || !subject->robust.head) return 0;
     CHECK(subject->memory_actor && subject->memory_actor->ready && t->memory_actor==subject->memory_actor);
-    CHECK(!t->robust_terminal);
+    CHECK(!t->robust.terminal);
     ++subject->memory_actor->pending; retained_schedule(subject->memory_actor);
-    t->kernel_stopped=1; t->robust_subject=subject;
-    t->robust_terminal=1; t->robust_status=status;
-    t->robust_usage=usage ? *usage : (struct rusage){0};
+    t->kernel_stopped=1; t->robust.subject=subject;
+    t->robust.terminal=1; t->robust.status=status;
+    t->robust.usage=usage ? *usage : (struct rusage){0};
     return 1;
 }
 

@@ -93,7 +93,7 @@ void memory_buffers_discard(struct thread *t);
 void memory_operation_discard(struct thread *t);
 int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
         struct buffer_mapping *owner);
-void memory_buffer_control(struct thread *t,const struct user_pt_regs *r);
+void memory_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r);
 int svc_revoke_entry(struct thread *t);
 void memory_access_capture(struct thread *t);
 

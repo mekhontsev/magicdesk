@@ -63,7 +63,7 @@ int signal_control_begin(struct thread *t,const struct user_pt_regs *r,int signa
 int signal_control_event(struct thread *t,int status);
 void child_signals_observe(struct thread *t,int status);
 
-void signals_buffer_control(struct thread *t,const struct user_pt_regs *r);
+void signals_buffer_control(struct thread *t,const struct supervisor_control_request *control);
 void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_signal_stop *signal_stop,int restored_signal);
 
 #endif

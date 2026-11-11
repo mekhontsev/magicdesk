@@ -103,7 +103,8 @@ Android kernel: actual task lifetime, descriptors, data IO and native checks
 
 The supervisor operation modules are separate translation units in the same
 process and event thread. Their private headers describe continuation state and
-direct calls; `supervisor_thread.h` owns the shared task record and
+direct calls; `supervisor_thread.h` embeds each operation owner's state in the
+shared task record, without per-call allocation or another dispatch layer, and
 `supervisor_internal.h` exposes coordinator services. These are not guest ABI or
 worker RPC interfaces. Each operation owner handles its control messages,
 continuations and cancellation; the coordinator preserves event custody and

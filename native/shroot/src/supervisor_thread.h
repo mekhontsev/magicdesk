@@ -19,6 +19,7 @@
 #include "pending.h"
 #include "elf_admission.h"
 #include "task_mapping.h"
+#include "supervisor_request.h"
 #include <linux/seccomp.h>
 #include <sys/resource.h>
 
@@ -74,215 +75,344 @@ struct retry_owner {
     unsigned mask;
 };
 
+struct supervisor_robust_state {
+    uintptr_t head;
+    uint32_t tid;
+    int registering;
+    int terminal;
+    int replay;
+    int status;
+    struct rusage usage;
+    struct user_pt_regs registers;
+    enum md_task_call_boundary boundary;
+    struct thread *subject;
+};
+
+struct supervisor_memory_op_state {
+    struct md_interception_memory *remote;
+    struct md_interception_memory *exposure;
+    int resume;
+    int signal;
+    struct seccomp_notif *notification;
+    struct buffer_mapping *buffer_mapping;
+    struct mapping_owner *mapping;
+    struct memory_capture *capture;
+    int backing_pending;
+    struct md_resource_order order;
+    enum memory_action action;
+    int arguments_only;
+    struct md_fd_order files;
+    struct md_mapping_change change;
+    int access_pending;
+};
+
+struct supervisor_entry_state {
+    int fence_waiting;
+    int fence_held;
+    int fence_replay;
+    int fence_status;
+    int fence_result;
+    struct rusage fence_usage;
+    struct md_interception_buffer buffer;
+    const struct md_fd_selector *selectors;
+    uint64_t selector_revision;
+    unsigned int route_flags;
+    struct md_entry_channel *control;
+    struct md_entry_channel *execution;
+    int kernel_context;
+    struct {
+        enum md_execution_context reason;
+        void (*resume)(struct thread *);
+    } stop;
+    void (*effect)(struct thread *, long);
+    int error;
+    int blocked;
+    int registration_revoked;
+};
+
+struct supervisor_fs_state {
+    uint64_t admission_id;
+    int admission_pending;
+    unsigned int admission_yields;
+    struct md_interception_buffer buffer;
+    struct md_fs_buffer_request *call;
+    enum { DIRECT_NONE, DIRECT_STATUS, DIRECT_OPEN, DIRECT_PREPARE_RESULT, DIRECT_ADMIT, DIRECT_RESULT } direct;
+    unsigned int direct_flags;
+    unsigned int direct_mode;
+    struct md_fs_buffer_open open;
+    int result_replay;
+    struct user_pt_regs registers;
+    struct supervisor_control_request request;
+    struct md_fd_order descriptor_order;
+    unsigned int descriptor_operation;
+    unsigned long descriptor_argument;
+    struct md_fd_return returned;
+    int return_waiting;
+    int rights_delivered;
+    int waiting;
+};
+
+struct supervisor_signals_state {
+    int retained;
+    struct md_signal_delivery delivery;
+    struct md_signal_origin origin;
+    int shielded;
+    int return_pending;
+    struct md_signal_actions *actions;
+    struct signal_control *control;
+    int host;
+    int host_blocked;
+    int native_query;
+    uint64_t handler_mask;
+    int handler_mask_known;
+    struct md_signal_wait_view wait_view;
+    uint64_t query_mask;
+    int query_active;
+    struct md_signal_pending *pending;
+};
+
+struct supervisor_descriptors_state {
+    struct md_fd_capture pidfd_capture;
+    struct md_fd_selector *selector;
+    struct md_fd_selector *fork_selector;
+    struct md_fd_selector *deferred_selector;
+    pid_t selector_exit;
+    struct md_mount_copy_request *mount_copy;
+    struct md_fd_order order;
+    struct md_fs_order fs_order;
+    struct md_fs_anchor *origin;
+    struct md_fd_mutation mutation;
+    struct md_fd_origin_update pair_updates[2];
+    struct user_pt_regs registers;
+    struct supervisor_control_request request;
+    int running;
+    int cwd;
+    int capture;
+    int task;
+    unsigned int job;
+    int duplicate_attempted;
+    int duplicate_result;
+    struct md_fd_exchange *exchange;
+    struct md_resource_order policy_order;
+};
+
+struct supervisor_io_state {
+    struct outgoing_owner *outgoing;
+    struct receive_owner *receive;
+    int socket_waking;
+    int socket_sigpipe;
+    struct md_ipc_pending *pending;
+    struct md_ipc_transport transport;
+    int cancel;
+    int waking;
+    uint64_t event;
+};
+
+struct supervisor_proc_state {
+    struct md_fd_install delivery;
+    struct md_fs_buffer_request *snapshot;
+    struct seccomp_notif snapshot_notification;
+    int image_fd;
+    struct md_proc_file *file;
+    int splice_write;
+    struct md_proc_file_io io;
+    struct md_fd_order lookup;
+    int waiting;
+    int direct;
+};
+
+struct supervisor_control_state {
+    struct md_fd_capture capture;
+    struct md_received_fds *input;
+    struct md_fd_object *origin;
+    int input_number;
+    struct md_control_pending *pending;
+    struct md_control_pending *publication;
+    size_t size;
+    int done;
+    long result;
+    int mapping_fd;
+};
+
+struct supervisor_close_state {
+    struct md_fd_closed closed;
+    struct md_control_pending *pending;
+    struct user_pt_regs registers;
+    enum phase phase;
+    uint64_t mask;
+    int mask_shielded;
+    long result;
+    int done;
+    int errors;
+    int terminal_pending;
+    unsigned int event;
+    unsigned long message;
+};
+
+struct supervisor_execution_state {
+    enum phase wait_resume;
+    int wait_error;
+    int prepared;
+    int64_t epoll_started;
+    uint64_t stack;
+    uint64_t mask;
+    struct user_pt_regs registers;
+    struct seccomp_data request;
+    enum call_restart restart;
+};
+
+struct supervisor_seccomp_state {
+    int length;
+    int application_filter;
+    struct md_seccomp_policy *policy;
+    struct md_seccomp_policy *admission_policy;
+    int admission_policy_valid;
+    int admission_policy_pending;
+    int admission_application_filter;
+    struct filter_install *install;
+    struct guest_notification *notification;
+    int notification_continued;
+    int preflight;
+};
+
+struct supervisor_process_op_state {
+    unsigned long cloning;
+    int clone_prepared;
+    struct md_fs_anchor *clone_cgroup;
+    pid_t vfork_child;
+    int vfork_borrowed;
+    int filter;
+    int preflight;
+    struct md_pid_identity *pid_reservation;
+    struct md_process_member *reservation;
+    long result;
+    struct { uintptr_t address; pid_t value; } stores[2];
+    unsigned int store_count;
+    uintptr_t parent_address;
+    struct thread *birth_parent;
+    struct thread *birth_child;
+    int birth_waiting;
+    int birth_signal;
+    int init_pending;
+    struct user_pt_regs returned;
+    int inspection_denied;
+    int info_code;
+    pid_t info_native;
+};
+
+struct supervisor_image_state {
+    struct md_exec_identity pending_identity;
+    int images[3];
+    int backings[2];
+    struct md_process_executable *executable;
+    struct md_process_executable *prepared_executable;
+    struct md_fs_anchor *executable_origin;
+    struct md_fs_anchor *prepared_executable_origin;
+    int images_ready;
+    unsigned int mount_flags;
+    struct md_exec_image *setid;
+    int mapped;
+    int backings_ready;
+    uintptr_t process_image;
+};
+
+struct supervisor_debug_state {
+    int step_call;
+    int birth;
+    pid_t exec_old;
+    int call_active;
+    int adapter;
+    unsigned long options;
+    uint64_t wait_mask;
+    struct debug_wait_output *wait_output;
+    int wait_waking;
+    int replay_entry;
+};
+
+struct supervisor_identity_copy_state {
+    uint32_t *buffer;
+    unsigned int count;
+    unsigned int copied;
+    uintptr_t address;
+    int loading;
+    int stage;
+    int result;
+};
+
 struct thread {
     struct thread *next;
     struct thread *indexed;
     struct retry_owner retries[2];
     struct md_interception_memory *memory;
     struct retained_memory *memory_actor;
-    uintptr_t robust_head;
-    uint32_t robust_tid;
-    int robust_registering, robust_terminal, robust_replay;
-    int robust_status;
-    struct rusage robust_usage;
-    struct user_pt_regs robust_registers;
-    enum md_task_call_boundary robust_boundary;
-    struct thread *robust_subject;
-    struct md_interception_memory *remote_memory;
-    struct md_interception_memory *memory_exposure;
-    int memory_resume, memory_signal;
     struct md_svc_machine_thread machine;
-    int entry_fence_waiting, entry_fence_held, entry_fence_replay;
-    int entry_fence_status, entry_fence_result;
-    struct rusage entry_fence_usage;
-    struct seccomp_notif *memory_notification;
-    uint64_t buffer_admission_id;
-    int buffer_admission_pending;
-    unsigned buffer_admission_yields;
     struct md_broker_completion *broker_completion;
     struct { int held, status, has_info; struct rusage usage; siginfo_t info; } broker_event;
-    int retained_signal;
     struct metadata_restart *metadata_restart;
-    int metadata_signal_restored, metadata_signal_requeued;
-    struct md_signal_delivery signal_delivery;
-    struct md_signal_origin signal_origin;
-    int signal_shielded;
-    int signal_return_pending;
+    int metadata_signal_restored;
+    int metadata_signal_requeued;
     struct thread *broker_next;
-    struct md_interception_buffer buffer;
-    struct md_interception_buffer cooperative_buffer;
-    const struct md_fd_selector *entry_selectors;
-    uint64_t entry_selector_revision;
-    unsigned entry_route_flags;
-    struct md_entry_channel *entry_control;
-    struct md_entry_channel *entry_execution;
-    int entry_kernel_context;
-    void (*entry_resume)(struct thread *);
-    void (*entry_effect)(struct thread *,long);
-    int entry_error;
-    int cooperative_blocked, registration_revoked;
-    struct md_fs_buffer_request *buffer_call;
-    enum { DIRECT_NONE, DIRECT_STATUS, DIRECT_OPEN, DIRECT_PREPARE_RESULT, DIRECT_ADMIT, DIRECT_RESULT } direct;
-    unsigned direct_flags, direct_mode;
     struct capture_owner *capture;
     struct probe_owner *probe;
-    struct buffer_mapping *buffer_mapping;
-    struct md_fd_capture pidfd_capture;
-    struct outgoing_owner *outgoing;
-    struct receive_owner *receive;
-    struct md_fs_buffer_open buffer_open;
-    int result_replay;
-    struct user_pt_regs buffer_registers;
-    struct md_fd_install proc_delivery;
-    struct md_fs_buffer_request *proc_snapshot;
-    struct seccomp_notif proc_snapshot_notification;
-    int proc_image_fd;
-    struct md_proc_file *proc_file;
-    int proc_splice_write;
-    struct md_proc_file_io proc_io;
-    struct md_fd_order proc_lookup;
-    struct md_fd_order buffer_descriptor_order;
-    unsigned buffer_descriptor_operation;
-    unsigned long buffer_descriptor_argument;
-    struct md_fd_capture control_capture;
-    struct md_received_fds *control_input;
-    struct md_fd_object *control_origin;
-    int control_input_number;
-    int proc_waiting, proc_direct;
-    struct md_control_pending *control_pending;
-    struct md_control_pending *control_publication;
-    struct md_fd_closed closed;
-    struct md_control_pending *close_pending;
-    struct user_pt_regs close_registers;
-    enum phase close_phase;
-    uint64_t close_mask;
-    int close_mask_shielded;
-    long close_result;
-    int close_done,close_errors,terminal_close_pending;
-    unsigned close_event;
-    unsigned long close_message;
-    size_t control_size;
-    int control_done;
-    long control_result;
-    int control_mapping_fd;
-    enum phase wait_resume;
-    int wait_error;
-    struct md_fd_return buffer_return;
-    int buffer_return_waiting;
-    int buffer_rights_delivered;
-    int buffer_waiting;
-    int dispatch_prepared;
-    struct md_fd_selector *fd_selector;
-    struct md_fd_selector *fork_selector;
-    struct md_fd_selector *deferred_selector;
     struct task_action *action;
     struct readiness_owner *readiness;
-    int64_t epoll_started;
-    pid_t selector_exit;
-    pid_t pid, tgid, parent;
-    int ready, born, initial_stop, resume_lost, listening, terminal_stop;
+    pid_t pid;
+    pid_t tgid;
+    pid_t parent;
+    int ready;
+    int born;
+    int initial_stop;
+    int resume_lost;
+    int listening;
+    int terminal_stop;
     enum phase phase;
-    uint64_t stack, mask;
-    struct user_pt_regs original;
-    unsigned calls;
+    unsigned int calls;
     char endpoint[108];
-    int filter_length;
-    int application_filter;
-    struct md_seccomp_policy *policy;
-    struct md_seccomp_policy *admission_policy;
-    int admission_policy_valid, admission_policy_pending, admission_application_filter;
-    struct filter_install *filter_install;
-    struct guest_notification *notification;
-    int notification_continued;
-    struct md_signal_actions *signal_actions;
-    struct signal_control *signal_control;
-    int host_signals, host_signal_blocked;
-    int native_signal_query;
-    uint64_t signal_handler_mask;
-    int signal_handler_mask_known;
-    struct md_signal_wait_view signal_wait_view;
-    uint64_t signal_query_mask;
-    int signal_query_active;
-    struct md_signal_pending *signal_pending;
-    int socket_waking;
-    int socket_sigpipe;
     struct metadata_operation metadata;
     struct md_task_resources resources;
     struct md_resource_change resource_change;
-    struct md_mount_copy_request *mount_copy;
-    struct md_fd_order fd_order;
-    struct md_fs_order fs_order;
-    struct md_fs_anchor *fd_origin;
-    struct md_fd_mutation fd_mutation;
-    struct md_fd_origin_update pair_updates[2];
-    struct user_pt_regs fd_registers;
-    int fd_running, fd_cwd, fd_capture, fd_task;
-    unsigned fd_job;
-    int duplicate_attempted, duplicate_result;
-    struct md_fd_exchange *fd_exchange;
-    unsigned long cloning;
-    int clone_prepared;
-    struct md_fs_anchor *clone_cgroup;
     struct md_identity identity;
-    struct md_exec_identity pending_identity;
-    int exec_images[3];
-    int exec_backings[2];
     struct md_fs_anchor *execfd_origin;
-    struct md_process_executable *executable, *prepared_executable;
-    struct md_fs_anchor *executable_origin, *prepared_executable_origin;
-    int exec_images_ready;
-    unsigned exec_mount_flags;
-    struct md_exec_image *exec_setid;
-    int mapped_image, entered, image_backings_ready;
-    int debug_step_call, debug_birth;
-    pid_t debug_exec_old;
-    int kernel_stopped, kernel_resume, interrupt_pending, trace_options_dirty, debug_call_active, debug_adapter;
-    int freezer_resume, freezer_signal;
-    pid_t vfork_child;
-    int vfork_borrowed;
+    int entered;
+    int kernel_stopped;
+    int kernel_resume;
+    int interrupt_pending;
+    int trace_options_dirty;
+    int freezer_resume;
+    int freezer_signal;
     int terminal_observation;
-    unsigned long debug_options;
-    uint64_t debug_wait_mask;
-    struct debug_wait_output *debug_wait_output;
-    int debug_wait_waking;
-    enum call_restart call_restart;
     struct rusage usage;
-    uintptr_t process_image;
     int watch_wait;
-    uint32_t *identity_buffer;
-    unsigned identity_count, identity_copied;
-    uintptr_t identity_address;
-    int identity_loading, identity_stage, identity_result;
     struct md_shm_space *shm_space;
-    struct mapping_owner *mapping;
-    struct memory_capture *memory_capture;
-    int memory_backing_pending;
-    struct md_resource_order memory_order;
-    struct md_resource_order fd_policy_order;
-    enum memory_action memory_action;
-    int memory_arguments_only;
-    struct md_fd_order memory_files;
-    struct md_mapping_change memory_change;
-    int pid_filter, pid_preflight, filter_preflight, debug_replay_entry;
-    struct md_pid_identity *pid_reservation;
-    struct md_process_member *process_reservation;
-    long pid_result;
-    struct { uintptr_t address; pid_t value; } pid_stores[2];
-    unsigned pid_store_count;
-    uintptr_t pid_parent_address;
-    struct thread *pid_birth_parent, *pid_birth_child;
-    int pid_birth_waiting, pid_birth_signal;
-    int pid_init_pending;
-    int memory_access_pending;
-    struct user_pt_regs process_return;
-    int process_inspection_denied;
-    int process_info_code;
-    pid_t process_info_native;
-    struct md_ipc_pending *ipc_pending;
-    struct md_ipc_transport ipc_transport;
-    int ipc_cancel, ipc_waking;
-    uint64_t ipc_event;
     struct md_task_wait_member wait_member;
+
+    struct supervisor_robust_state robust;
+    struct supervisor_memory_op_state memory_op;
+    struct supervisor_entry_state entry;
+    struct supervisor_fs_state fs;
+    struct supervisor_signals_state signals;
+    struct supervisor_descriptors_state descriptors;
+    struct supervisor_io_state io;
+    struct supervisor_proc_state proc;
+    struct supervisor_control_state control;
+    struct supervisor_close_state close;
+    struct supervisor_execution_state execution;
+    struct supervisor_seccomp_state seccomp;
+    struct supervisor_process_op_state process_op;
+    struct supervisor_image_state image;
+    struct supervisor_debug_state debug;
+    struct supervisor_identity_copy_state identity_copy;
 };
+
+/* Only a stopped-task ingress may retain a machine frame. */
+static inline void execution_capture(struct thread *t,const struct user_pt_regs *regs) {
+    t->execution.registers=*regs;
+    t->execution.request=syscall_description(regs);
+}
+
+static inline void buffer_capture(struct thread *t,const struct user_pt_regs *regs) {
+    t->fs.registers=*regs;
+    t->fs.request=control_description(regs);
+}
 
 #endif

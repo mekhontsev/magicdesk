@@ -40,7 +40,7 @@ int buffer_cleanup(struct thread *t);
 long buffer_result_finish(struct thread *t,long copied,long result);
 void buffer_take(struct thread *t);
 void buffer_return_progress(struct thread *t);
-void fs_buffer_control(struct thread *t,const struct user_pt_regs *r);
+void fs_buffer_control(struct thread *t,const struct supervisor_control_request *control);
 int direct_begin(struct thread *t);
 void file_wait_complete(struct thread *t);
 int fs_result_exit(struct thread *t,pid_t pid);

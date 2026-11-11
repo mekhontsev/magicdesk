@@ -31,9 +31,9 @@ static int debug_host_policy_visit(void *context,const siginfo_t *info);
 
 void debugger_wait_release(struct thread *t) {
     retry_clear(t,RETRY_DEBUG_WAIT);
-    if (t->debug_wait_output) {
-        CHECK(!md_buffer_release(&t->debug_wait_output->buffer));
-        free(t->debug_wait_output); t->debug_wait_output=NULL;
+    if (t->debug.wait_output) {
+        CHECK(!md_buffer_release(&t->debug.wait_output->buffer));
+        free(t->debug.wait_output); t->debug.wait_output=NULL;
     }
 }
 
@@ -66,13 +66,13 @@ int debugger_signal_mask(pid_t pid,int writing,uint64_t *mask) {
     struct thread *t=find_thread(pid);
     if (!t) return -ESRCH;
     uint64_t native=writing ? *mask : 0;
-    if (writing && t->host_signals) native&=~MD_SIGNAL_SYS_BIT;
+    if (writing && t->signals.host) native&=~MD_SIGNAL_SYS_BIT;
     if (native_trace(writing ? PTRACE_SETSIGMASK : PTRACE_GETSIGMASK,pid,
             (void *)sizeof(native),&native)<0) return -errno;
     if (writing) {
-        t->signal_handler_mask_known=0;
-        if (t->host_signals) t->host_signal_blocked=!!(*mask&MD_SIGNAL_SYS_BIT);
-    } else *mask=t->host_signals ? md_signal_view_mask(native,t->host_signal_blocked) : native;
+        t->signals.handler_mask_known=0;
+        if (t->signals.host) t->signals.host_blocked=!!(*mask&MD_SIGNAL_SYS_BIT);
+    } else *mask=t->signals.host ? md_signal_view_mask(native,t->signals.host_blocked) : native;
     return 0;
 }
 
@@ -145,15 +145,15 @@ void debugger_complete(pid_t pid, struct user_pt_regs *regs, long value) {
 int debugger_attachable(pid_t caller, pid_t pid) {
     struct thread *t=find_thread(pid);
     if (!t || debugger_group(caller)==debugger_group(pid) || !debugger_allowed(caller,pid)
-            || !t->entered || !t->process_image) {
+            || !t->entered || !t->image.process_image) {
         SUPERVISOR_TRACE("PROBE debugger admission caller=%d target=%d state-or-identity-denied\n",caller,pid);
         return 0;
     }
     char byte;
-    struct iovec local={&byte,1}, remote={(void *)t->process_image,1};
+    struct iovec local={&byte,1}, remote={(void *)t->image.process_image,1};
     ssize_t result=process_vm_readv(pid,&local,1,&remote,1,0);
     if (result!=1) SUPERVISOR_TRACE("PROBE debugger admission caller=%d target=%d image=%#lx read=%zd errno=%d\n",
-        caller,pid,(unsigned long)t->process_image,result,errno);
+        caller,pid,(unsigned long)t->image.process_image,result,errno);
     return result==1;
 }
 
@@ -182,8 +182,8 @@ int debugger_observe(pid_t owner) {
 int debugger_options(pid_t pid, unsigned long options) {
     struct thread *t=find_thread(pid);
     if (!t) return -ESRCH;
-    int changed=((t->debug_options^options)&PTRACE_O_TRACEEXIT) && !t->terminal_observation;
-    t->debug_options=options;
+    int changed=((t->debug.options^options)&PTRACE_O_TRACEEXIT) && !t->terminal_observation;
+    t->debug.options=options;
     if (!changed && !t->trace_options_dirty) return 0;
     t->trace_options_dirty=1;
     if (!t->kernel_stopped) return debugger_interrupt(pid);
@@ -208,9 +208,9 @@ int debugger_listen(pid_t pid) {
 
 void debugger_wait_wake(pid_t pid) {
     struct thread *t=find_thread(pid);
-    if (!t || t->debug_wait_waking) return;
+    if (!t || t->debug.wait_waking) return;
     CHECK(t->phase==DEBUG_PARK_ENTRY || t->phase==DEBUG_PARK_EXIT);
-    t->debug_wait_waking=1;
+    t->debug.wait_waking=1;
     /* EVENT_WAIT: the exact native poll stop must precede register changes.
      * An event before poll entry is consumed there without entering the wait. */
     if (t->phase==DEBUG_PARK_EXIT && !t->listening) {
@@ -235,8 +235,8 @@ void debugger_wait(pid_t pid, const struct user_pt_regs *original, enum md_debug
     if ((action==MD_DEBUG_WAIT_PROBE || action==MD_DEBUG_WAIT_REPROBE)
             && regs.regs[8]==SYS_waitid && !regs.regs[2]) {
         retry_clear(t,RETRY_DEBUG_WAIT);
-        if (!t->debug_wait_output) t->debug_wait_output=calloc(1,sizeof(*t->debug_wait_output));
-        struct debug_wait_output *out=t->debug_wait_output;
+        if (!t->debug.wait_output) t->debug.wait_output=calloc(1,sizeof(*t->debug.wait_output));
+        struct debug_wait_output *out=t->debug.wait_output;
         int error=out ? md_buffers_take(md_memory_buffers(t->memory),&out->buffer) : -ENOMEM;
         if (error==-EAGAIN) {
             out->registers=*original; out->action=action;
@@ -250,12 +250,12 @@ void debugger_wait(pid_t pid, const struct user_pt_regs *original, enum md_debug
         memset(span.data,0,sizeof(siginfo_t));
         regs.regs[2]=md_memory_buffer_address(t->memory,&out->buffer); CHECK(regs.regs[2]);
     }
-    if (action==MD_DEBUG_WAIT_RESTART) { restart_call(t,original,t->debug_wait_mask,RESTART_SIGNAL); return; }
+    if (action==MD_DEBUG_WAIT_RESTART) { restart_call(t,original,t->debug.wait_mask,RESTART_SIGNAL); return; }
     if (action==MD_DEBUG_WAIT_PARK) {
         /* EVENT_WAIT: native interruptible poll delivers arbitrary guest
          * signals. Inferior events cancel it with INTERRUPT; no periodic wake
          * or descriptor is needed, and ordinary execution never enters here. */
-        t->original=*original; t->debug_wait_waking=0;
+        execution_capture(t,original); t->debug.wait_waking=0;
         if (!shield(t)) return;
         regs.pc=abi.task_call; regs.regs[8]=SYS_ppoll;
         for (unsigned i=0;i<6;i++) regs.regs[i]=0;
@@ -268,7 +268,7 @@ void debugger_wait(pid_t pid, const struct user_pt_regs *original, enum md_debug
     else {
         /* Only the nonblocking probe is shielded. A handler must not replace
          * the replayed syscall; native blocking waits retain ordinary signals. */
-        if (!save_signal_mask(t,&t->debug_wait_mask,"debug-wait-mask")
+        if (!save_signal_mask(t,&t->debug.wait_mask,"debug-wait-mask")
                 || !shield(t)) return;
         regs.regs[regs.regs[8]==SYS_waitid ? 3 : 2]|=WNOHANG;
         t->phase=action==MD_DEBUG_WAIT_PROBE ? DEBUG_WAIT_EXIT : DEBUG_WAIT_ENTRY;
@@ -277,15 +277,15 @@ void debugger_wait(pid_t pid, const struct user_pt_regs *original, enum md_debug
 }
 
 void debugger_wait_retry(struct thread *t) {
-    struct debug_wait_output *out=t->debug_wait_output;
+    struct debug_wait_output *out=t->debug.wait_output;
     CHECK(out && t->phase==DEBUG_WAIT_BUFFER);
     struct user_pt_regs regs=out->registers;
     debugger_wait(t->pid,&regs,out->action);
 }
 
 int debug_syscall_exit(struct thread *t, const struct user_pt_regs *regs) {
-    int active=t->debug_call_active;
-    t->debug_call_active=t->debug_adapter=0;
+    int active=t->debug.call_active;
+    t->debug.call_active=t->debug.adapter=0;
     return active && md_debugger_syscall(debugger,t->pid,regs,0);
 }
 
@@ -297,7 +297,7 @@ static int debug_host_policy_visit(void *context,const siginfo_t *info) {
 }
 
 int debug_host_policy_pending(struct thread *t,const struct user_pt_regs *regs) {
-    if (!t->host_signals || !t->debug_call_active || !t->entered) return 0;
+    if (!t->signals.host || !t->debug.call_active || !t->entered) return 0;
     struct seccomp_data call={.nr=regs->regs[8],.arch=AUDIT_ARCH_AARCH64,.instruction_pointer=regs->pc};
     memcpy(call.args,regs->regs,sizeof(call.args));
     int pending=md_task_pending_scan(native_trace,t->pid,debug_host_policy_visit,&call);
@@ -313,8 +313,8 @@ int debug_host_policy_pending(struct thread *t,const struct user_pt_regs *regs) 
 }
 
 int debugger_at_boundary(const struct thread *t) {
-    return t->phase==IDLE && !t->metadata_restart && !t->fd_running && !t->fd_order.table && !t->fs_order.fs
-        && !t->fd_policy_order.queue && !t->signal_delivery.active;
+    return t->phase==IDLE && !t->metadata_restart && !t->descriptors.running && !t->descriptors.order.table && !t->descriptors.fs_order.fs
+        && !t->descriptors.policy_order.queue && !t->signals.delivery.active;
 }
 
 int debugger_boundary(struct thread *t) {
@@ -336,11 +336,11 @@ void debugger_park_complete(struct thread *t) {
     struct user_pt_regs regs;
     if (!registers(t->pid,&regs)) return;
     long value=(long)regs.regs[0];
-    int waking=t->debug_wait_waking; t->debug_wait_waking=0;
+    int waking=t->debug.wait_waking; t->debug.wait_waking=0;
     int interrupted=md_syscall_restarting(value);
     SUPERVISOR_TRACE("PROBE debugger park pid=%d value=%ld waking=%d\n",t->pid,value,waking);
     t->phase=IDLE;
-    if (!signal_mask(t,t->debug_wait_mask,"debug-park-unmask")) return;
+    if (!signal_mask(t,t->debug.wait_mask,"debug-park-unmask")) return;
     md_debugger_wait_resumed(debugger,t->pid,waking && (interrupted || value==-ENOSYS || !value) ? 0
         : interrupted ? -512 : value<0 ? value : -EIO);
 }
@@ -352,11 +352,11 @@ int debug_wait_exit(struct thread *t,pid_t pid) {
     if (t->phase==DEBUG_WAIT_EXIT) {
         struct user_pt_regs regs;
         if (!registers(pid,&regs)) return 1;
-        if (!signal_mask(t,t->debug_wait_mask,"debug-wait-unmask")) return 1;
+        if (!signal_mask(t,t->debug.wait_mask,"debug-wait-unmask")) return 1;
         siginfo_t info,*captured=NULL;
-        if (t->debug_wait_output) {
+        if (t->debug.wait_output) {
             struct md_buffer_span span;
-            CHECK(!md_buffer_span(&t->debug_wait_output->buffer,&span));
+            CHECK(!md_buffer_span(&t->debug.wait_output->buffer,&span));
             memcpy(&info,span.data,sizeof(info)); captured=&info;
             debugger_wait_release(t);
         }
@@ -366,12 +366,12 @@ int debug_wait_exit(struct thread *t,pid_t pid) {
         return 1;
     }
     if (t->phase==DEBUG_PARK_ENTRY) {
-        if (t->debug_wait_waking) {
+        if (t->debug.wait_waking) {
             if (md_app_uid_active) {
                 if (!tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"debug-park-ready-entry")) return 1;
             } else
             if (!skip(pid)) return 1;
-        } else if (!signal_mask(t,t->debug_wait_mask,"debug-park-unmask")) return 1;
+        } else if (!signal_mask(t,t->debug.wait_mask,"debug-park-unmask")) return 1;
         t->phase=DEBUG_PARK_EXIT; resume(pid,0); return 1;
     }
     if (t->phase==DEBUG_PARK_EXIT) { debugger_park_complete(t); return 1; }

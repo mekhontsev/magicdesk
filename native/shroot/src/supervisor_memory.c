@@ -71,8 +71,8 @@ struct memory_execution *memory_execution;
 
 static void probe_complete(void *context, struct md_task_helper_result result);
 void memory_capture_discard(struct thread *t) {
-    if (t->memory_capture) {
-        t->memory_capture->caller=0; t->memory_capture=NULL;
+    if (t->memory_op.capture) {
+        t->memory_op.capture->caller=0; t->memory_op.capture=NULL;
         CHECK(!md_task_helper_detach(helpers,t->pid));
     }
 }
@@ -82,25 +82,25 @@ void memory_buffers_discard(struct thread *t) {
         t->probe->caller=0; t->probe=NULL;
         CHECK(!md_task_helper_detach(helpers,t->pid));
     }
-    if (t->buffer_mapping) {
-        t->buffer_mapping->caller=0; t->buffer_mapping=NULL;
+    if (t->memory_op.buffer_mapping) {
+        t->memory_op.buffer_mapping->caller=0; t->memory_op.buffer_mapping=NULL;
         CHECK(!md_task_helper_detach(helpers,t->pid));
     }
 }
 
 void memory_operation_discard(struct thread *t) {
-    if (t->mapping) {
-        struct mapping_owner *owner=t->mapping;
-        owner->caller=0; t->mapping=NULL;
+    if (t->memory_op.mapping) {
+        struct mapping_owner *owner=t->memory_op.mapping;
+        owner->caller=0; t->memory_op.mapping=NULL;
         if (owner->started) CHECK(!md_task_helper_detach(helpers,t->pid));
         else mapping_discard(owner);
     }
-    if (t->memory_order.queue && md_resource_order_cancel(&t->memory_order)==1)
-        CHECK(!md_resource_order_complete(&t->memory_order));
-    if (t->memory_files.table && md_fd_order_cancel(&t->memory_files)==1)
-        CHECK(!md_fd_order_complete(&t->memory_files));
-    md_memory_mapping_abandon(t->memory,&t->memory_change);
-    t->memory_action=0; t->memory_arguments_only=0;
+    if (t->memory_op.order.queue && md_resource_order_cancel(&t->memory_op.order)==1)
+        CHECK(!md_resource_order_complete(&t->memory_op.order));
+    if (t->memory_op.files.table && md_fd_order_cancel(&t->memory_op.files)==1)
+        CHECK(!md_fd_order_complete(&t->memory_op.files));
+    md_memory_mapping_abandon(t->memory,&t->memory_op.change);
+    t->memory_op.action=0; t->memory_op.arguments_only=0;
 }
 
 static void probe_begin(struct thread *t, const struct user_pt_regs *regs);
@@ -132,9 +132,9 @@ static void memory_replay_unmodified(struct memory_execution *execution,int stat
 static int memory_yield_retirement(struct memory_execution *execution);
 
 void entry_fence_cancel(struct thread *t) {
-    if (t->entry_fence_waiting) {
+    if (t->entry.fence_waiting) {
         CHECK(entry_fence_waiters); --entry_fence_waiters;
-        t->entry_fence_waiting=0;
+        t->entry.fence_waiting=0;
     }
 }
 
@@ -149,7 +149,7 @@ static void probe_complete(void *context, struct md_task_helper_result result) {
     if (result.descriptor>=0) close(result.descriptor);
     if (t && t->probe==owner) {
         t->probe=NULL; t->kernel_stopped=1;
-        t->buffer_registers=owner->continuation;
+        buffer_capture(t,&owner->continuation);
         buffer_reply(t,error);
     }
     free(owner);
@@ -161,12 +161,12 @@ static void probe_begin(struct thread *t, const struct user_pt_regs *regs) {
     if (!error) {
         *owner=(struct probe_owner){t->pid,*regs};
         t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug_options);
+        error=debugger_options(t->pid,t->debug.options);
     }
     if (!error) {
         struct md_task_helper_request request={.kind=MD_TASK_HELPER_CAPTURE,
             .path="/proc/thread-self",.flags=O_PATH|O_DIRECTORY};
-        error=md_task_helper_begin(helpers,t->pid,t->tgid,regs,&abi,t->memory,&t->buffer,
+        error=md_task_helper_begin(helpers,t->pid,t->tgid,regs,&abi,t->memory,&t->fs.buffer,
             &request,probe_complete,owner);
     }
     if (error) { free(owner); buffer_reply(t,error); }
@@ -191,7 +191,7 @@ static void buffer_mapping_complete(void *context,struct md_task_helper_result r
     struct buffer_mapping *owner=context;
     struct thread *t=owner->caller ? find_thread(owner->caller) : NULL;
     CHECK(result.descriptor<0 && !result.received);
-    if (t && t->buffer_mapping==owner) {
+    if (t && t->memory_op.buffer_mapping==owner) {
         long error=result.value;
         if (error>=0 && owner->policy) {
             uintptr_t base=(uintptr_t)error;
@@ -214,14 +214,14 @@ static void buffer_mapping_complete(void *context,struct md_task_helper_result r
             error=md_memory_channels_publish(t->memory,owner->buffers,(uintptr_t)error);
         else if (error>=0) error=md_memory_readonly_mapped(t->memory,(uintptr_t)error,
                 md_buffers_size(owner->buffers));
-        t->buffer_mapping=NULL; t->kernel_stopped=1;
+        t->memory_op.buffer_mapping=NULL; t->kernel_stopped=1;
         buffer_mapping_turn_end(owner);
         if (error>=0 && owner->channels) error=cooperative_bind(t);
         if (owner->policy) {
             SUPERVISOR_TRACE("PROBE filter-entry-mapped pid=%d result=%ld\n",t->pid,error);
             filter_entry_complete(t,&owner->continuation);
         } else {
-            t->buffer_registers=owner->continuation;
+            buffer_capture(t,&owner->continuation);
             buffer_reply(t,error);
         }
     }
@@ -234,7 +234,7 @@ int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
     int error=md_buffers_take(md_memory_buffers(t->memory),&owner->scratch);
     if (!error) {
         t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug_options);
+        error=debugger_options(t->pid,t->debug.options);
     }
     if (!error) {
         struct md_interception_buffers *buffers=owner->buffers;
@@ -250,7 +250,7 @@ int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
     if (error) {
         buffer_mapping_release(owner);
     } else {
-        t->buffer_mapping=owner; t->kernel_stopped=0;
+        t->memory_op.buffer_mapping=owner; t->kernel_stopped=0;
         if (owner->policy) t->phase=FILTER_MAPPING;
     }
     return error;
@@ -290,54 +290,54 @@ static void entry_mapping_begin(struct thread *t,const struct user_pt_regs *regs
     if (error) buffer_reply(t,error);
 }
 
-void memory_buffer_control(struct thread *t,const struct user_pt_regs *r) {
+void memory_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r) {
     long result=-EINVAL;
-    switch (r->regs[0]) {
+    switch (control->command) {
     case MD_BUFFER_PROBE:
-        if (t->entered || t->phase!=IDLE || !t->buffer.pool || t->probe
-                || t->capture || t->mapping || r->regs[1] || r->regs[2]) break;
+        if (t->entered || t->phase!=IDLE || !t->fs.buffer.pool || t->probe
+                || t->capture || t->memory_op.mapping || control->args[0] || control->args[1]) break;
         /* EVENT_WAIT: the production helper's private table is fully reaped
          * before readiness; the launch deadline bounds missing completion. */
         probe_begin(t,r); return;
     case MD_BUFFER_MAPPED:
         if (t->entered || t->phase!=IDLE) break;
-        result=md_memory_buffers_mapped(t->memory,r->regs[1],r->regs[2]);
-        SUPERVISOR_TRACE("PROBE buffer-mapping pid=%d bytes=%llu result=%ld\n",t->pid,r->regs[2],result);
+        result=md_memory_buffers_mapped(t->memory,control->args[0],control->args[1]);
+        SUPERVISOR_TRACE("PROBE buffer-mapping pid=%d bytes=%llu result=%ld\n",t->pid,control->args[1],result);
         break;
     case MD_BUFFER_READONLY_MAPPED:
-        if ((t->entered || t->phase!=IDLE) && !(t->filter_preflight && t->phase==DISPATCHING
-                && t->filter_install && md_resource_order_state(&t->filter_install->memory)==MD_RESOURCE_ORDER_RUNNING)) break;
-        result=md_memory_readonly_mapped(t->memory,r->regs[1],r->regs[2]);
+        if ((t->entered || t->phase!=IDLE) && !(t->seccomp.preflight && t->phase==DISPATCHING
+                && t->seccomp.install && md_resource_order_state(&t->seccomp.install->memory)==MD_RESOURCE_ORDER_RUNNING)) break;
+        result=md_memory_readonly_mapped(t->memory,control->args[0],control->args[1]);
         break;
     case MD_BUFFER_READONLY_INSTALL:
-        if (r->regs[1] || r->regs[2] || t->buffer_mapping || !t->filter_preflight
-                || t->phase!=DISPATCHING || !t->filter_install
-                || md_resource_order_state(&t->filter_install->memory)!=MD_RESOURCE_ORDER_RUNNING
+        if (control->args[0] || control->args[1] || t->memory_op.buffer_mapping || !t->seccomp.preflight
+                || t->phase!=DISPATCHING || !t->seccomp.install
+                || md_resource_order_state(&t->seccomp.install->memory)!=MD_RESOURCE_ORDER_RUNNING
                 || !md_memory_readonly_buffers(t->memory) || md_memory_readonly_base(t->memory)) break;
         buffer_mapping_begin(t,r); return;
     case MD_BUFFER_CHANNEL_INSTALL:
-        if (r->regs[1] || r->regs[2] || t->buffer_mapping) break;
+        if (control->args[0] || control->args[1] || t->memory_op.buffer_mapping) break;
         entry_mapping_begin(t,r,0); return;
     case MD_BUFFER_CLIENT_INSTALL:
-        if (r->regs[1]>=MD_SVC_CLIENT_BUCKETS || r->regs[2] || t->buffer_mapping
-                || !t->entered || t->phase!=IDLE || t->cooperative_blocked || !filter_entry_eligible(t)) break;
+        if (control->args[0]>=MD_SVC_CLIENT_BUCKETS || control->args[1] || t->memory_op.buffer_mapping
+                || !t->entered || t->phase!=IDLE || t->entry.blocked || !filter_entry_eligible(t)) break;
         entry_mapping_begin(t,r,1); return;
     case MD_BUFFER_MEMORY_OPEN: {
-        if (t->phase!=DISPATCHING || (r->regs[2]&~(unsigned long)O_PATH)) break;
-        struct thread *target=find_thread((pid_t)r->regs[1]);
-        if (!target || (!(r->regs[2]&O_PATH) && !proc_allowed(t->pid,target->pid))) {
+        if (t->phase!=DISPATCHING || (control->args[1]&~(unsigned long)O_PATH)) break;
+        struct thread *target=find_thread((pid_t)control->args[0]);
+        if (!target || (!(control->args[1]&O_PATH) && !proc_allowed(t->pid,target->pid))) {
             result=-EACCES; break;
         }
         /* O_PATH admits only the dentry, but its retained pin can outlive a
          * later access-policy change. Keep exposure tracking for both kinds. */
-        result=md_memory_exposure_begin(target->memory,&t->memory_exposure);
+        result=md_memory_exposure_begin(target->memory,&t->memory_op.exposure);
         break;
     }
     case MD_BUFFER_MEMORY_OPEN_RESULT:
-        if (t->phase!=DISPATCHING || r->regs[2]) break;
+        if (t->phase!=DISPATCHING || control->args[1]) break;
         SUPERVISOR_TRACE("PROBE memory-open-result pid=%d result=%ld tracked=%d\n",
-            t->pid,(long)r->regs[1],t->memory_exposure!=NULL);
-        md_memory_exposure_end(&t->memory_exposure,(long)r->regs[1]>=0);
+            t->pid,(long)control->args[0],t->memory_op.exposure!=NULL);
+        md_memory_exposure_end(&t->memory_op.exposure,(long)control->args[0]>=0);
         result=0; break;
     }
     buffer_reply(t,result); adapter_progress();
@@ -402,10 +402,10 @@ static void mapping_complete(void *context, struct md_task_helper_result result)
         CHECK(!md_resource_order_complete(&owner->order));
     md_memory_release(owner->memory);
     struct thread *t=owner->caller ? find_thread(owner->caller) : NULL;
-    if (t && t->mapping==owner) {
+    if (t && t->memory_op.mapping==owner) {
         struct user_pt_regs regs=owner->continuation;
         regs.regs[0]=value;
-        t->mapping=NULL; t->kernel_stopped=1;
+        t->memory_op.mapping=NULL; t->kernel_stopped=1;
         if (set_registers(t->pid,&regs)) resume(t->pid,0);
     }
     free(owner);
@@ -442,10 +442,10 @@ static void mapping_discard(struct mapping_owner *owner) {
 }
 
 static int mapping_helper_start(struct thread *t) {
-    struct mapping_owner *owner=t->mapping;
+    struct mapping_owner *owner=t->memory_op.mapping;
     struct md_task_helper_request request={.kind=MD_TASK_HELPER_MAP,.mapping=owner->request};
     int error=md_task_helper_begin(helpers,t->pid,t->tgid,&owner->continuation,&abi,
-        owner->memory,&t->buffer,&request,mapping_complete,owner);
+        owner->memory,&t->fs.buffer,&request,mapping_complete,owner);
     if (!error) {
         owner->started=1; t->kernel_stopped=0;
         close(owner->request.source); owner->request.source=-1;
@@ -454,7 +454,7 @@ static int mapping_helper_start(struct thread *t) {
 }
 
 int mapping_notification(struct thread *t,const struct seccomp_notif *q) {
-    struct mapping_owner *owner=t->mapping;
+    struct mapping_owner *owner=t->memory_op.mapping;
     if (!owner || !md_task_mapping_notification(&owner->direct,q)) return 0;
     CHECK(owner->loan && md_fd_order_state(&owner->files)==MD_RESOURCE_ORDER_RUNNING);
     struct seccomp_notif_addfd add={.id=q->id,.flags=SECCOMP_ADDFD_FLAG_SEND,
@@ -475,7 +475,7 @@ int mapping_notification(struct thread *t,const struct seccomp_notif *q) {
 
 int mapping_event(pid_t pid,int status) {
     struct thread *t=find_thread(pid);
-    struct mapping_owner *owner=t ? t->mapping : NULL;
+    struct mapping_owner *owner=t ? t->memory_op.mapping : NULL;
     if (!owner || !owner->direct.call.stage || owner->direct.stage==MD_TASK_MAPPING_DONE) return 0;
     unsigned event=(unsigned)status>>16;
     if (!WIFSTOPPED(status) || event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC) return 0;
@@ -506,7 +506,7 @@ int mapping_event(pid_t pid,int status) {
 }
 
 static int mapping_direct_start(struct thread *t) {
-    struct mapping_owner *owner=t->mapping;
+    struct mapping_owner *owner=t->memory_op.mapping;
     if (!owner->files.table) {
         int error=md_fd_order_begin(t->resources.files,&owner->files,fd_wakeup);
         if (error<0) return error;
@@ -558,7 +558,7 @@ static int mapping_direct_start(struct thread *t) {
 
 void mapping_start(struct thread *t) {
     retry_clear(t,RETRY_MAPPING);
-    struct mapping_owner *owner=t->mapping;
+    struct mapping_owner *owner=t->memory_op.mapping;
     if (md_resource_order_state(&owner->order)==MD_RESOURCE_ORDER_RUNNING) {
         int error=mapping_direct_start(t);
         if (error) mapping_complete(owner,(struct md_task_helper_result){.value=error,.descriptor=-1});
@@ -575,7 +575,7 @@ void mapping_start(struct thread *t) {
             owner->request.source,owner->request.offset);
     }
     t->terminal_observation=1; t->trace_options_dirty=1;
-    if (!error) error=debugger_options(t->pid,t->debug_options);
+    if (!error) error=debugger_options(t->pid,t->debug.options);
     if (!error && owner->file) {
         owner->guarded=!md_task_mapping_safe(owner->request.source);
         error=mapping_direct_start(t);
@@ -601,7 +601,7 @@ void mapping_progress(void) {
             int observed=native_trace(PTRACE_GETSIGINFO,p->pid,NULL,&info)<0 ? -errno : info.si_code;
             fprintf(stderr,"Shroot: mapping peer pid=%d born=%d initial=%d stopped=%d phase=%d resume=%d terminal=%d nr=%lu stop=%d notification=%d readiness=%d\n",
                 p->pid,p->born,p->initial_stop,p->kernel_stopped,p->phase,p->kernel_resume,p->terminal_stop,
-                (unsigned long)p->original.regs[8],observed,p->memory_notification!=NULL,p->readiness!=NULL);
+                (unsigned long)p->execution.request.nr,observed,p->memory_op.notification!=NULL,p->readiness!=NULL);
             md_broker_describe_task(broker,p->pid,STDERR_FILENO);
             if (observed<0) {
                 char path[80],state[256];
@@ -611,7 +611,7 @@ void mapping_progress(void) {
                 if (fd>=0) close(fd);
                 if (size>=0) state[size]=0;
                 fprintf(stderr,"Shroot: admission peer=%d pending=%d yields=%u gate=%#lx syscall=%s\n",
-                    p->pid,p->buffer_admission_pending,p->buffer_admission_yields,
+                    p->pid,p->fs.admission_pending,p->fs.admission_yields,
                     (unsigned long)abi.buffer_admit,size>=0 ? state : "unavailable");
             }
         }
@@ -619,7 +619,7 @@ void mapping_progress(void) {
     }
     if (!owner->direct.stage && md_task_quiesce_ready(mapping_barrier)) {
         struct thread *t=find_thread(owner->caller);
-        CHECK(t && t->mapping==owner);
+        CHECK(t && t->memory_op.mapping==owner);
         int error=mapping_direct_start(t);
         if (error) mapping_complete(owner,(struct md_task_helper_result){.value=error,.descriptor=-1});
     }
@@ -640,16 +640,16 @@ int mapping_guard_event(pid_t pid,int status,const struct rusage *usage) {
 
 void mapping_begin(struct thread *t, struct user_pt_regs *regs) {
     struct md_shm *shm=NULL;
-    int file=t->original.regs[8]==SYS_mmap;
+    int file=t->execution.request.nr==SYS_mmap;
     long error=file ? 0 : md_ipc_namespace_memory(t->resources.ipc,&shm);
-    if (!error && (t->phase!=DISPATCHING || (!file && t->original.regs[8]!=SYS_shmat)
-            || t->mapping || !t->buffer.pool || t->buffer_call || t->ipc_transport.packet)) error=-EPERM;
-    unsigned flags=t->original.regs[2];
-    uintptr_t address=t->original.regs[1];
+    if (!error && (t->phase!=DISPATCHING || (!file && t->execution.request.nr!=SYS_shmat)
+            || t->memory_op.mapping || !t->fs.buffer.pool || t->fs.call || t->io.transport.packet)) error=-EPERM;
+    unsigned flags=t->execution.request.args[2];
+    uintptr_t address=t->execution.request.args[1];
     if (!file) {
         if (flags&SHM_RND) address&=~(md_page_size-1);
         if (!error && ((flags&~(SHM_RDONLY|SHM_RND|SHM_EXEC)) || (address&(md_page_size-1)))) error=-EINVAL;
-    } else if (!t->proc_file || t->control_mapping_fd<0) error=-EBADF;
+    } else if (!t->proc.file || t->control.mapping_fd<0) error=-EBADF;
     struct mapping_owner *owner=error ? NULL : calloc(1,sizeof(*owner));
     if (!error && !owner) error=-ENOMEM;
     int fd=-1;
@@ -661,31 +661,31 @@ void mapping_begin(struct thread *t, struct user_pt_regs *regs) {
         if (!owner->space || !owner->memory) error=-ENOMEM;
     }
     if (!error && !file) {
-        unsigned long args[4]={t->original.regs[0],flags};
+        unsigned long args[4]={t->execution.request.args[0],flags};
         fd=(int)md_shm_call(shm,owner->space,&owner->pending,&t->identity,t->tgid,t->resources.pid_group,MD_SHM_OPEN,args,NULL);
         if (fd<0) error=fd;
     }
     if (!error) {
         if (file) {
-            struct md_control_file control=md_proc_file_control(t->proc_file);
+            struct md_control_file control=md_proc_file_control(t->proc.file);
             struct md_fs_anchor *origin=control.ops->origin ? control.ops->origin(control.context) : NULL;
             owner->noexec=!!(md_fs_anchor_policy(origin)&MD_MOUNT_NOEXEC);
-            owner->readonly=control.ops->mapping_readonly && (t->original.regs[3]&MAP_SHARED);
-            owner->request=(struct md_task_mapping_request){.source=t->control_mapping_fd,
-                .address=t->original.regs[0],.size=t->original.regs[1],.protection=t->original.regs[2],
-                .flags=t->original.regs[3],.offset=t->original.regs[5]};
-            t->control_mapping_fd=-1;
+            owner->readonly=control.ops->mapping_readonly && (t->execution.request.args[3]&MAP_SHARED);
+            owner->request=(struct md_task_mapping_request){.source=t->control.mapping_fd,
+                .address=t->execution.request.args[0],.size=t->execution.request.args[1],.protection=t->execution.request.args[2],
+                .flags=t->execution.request.args[3],.offset=t->execution.request.args[5]};
+            t->control.mapping_fd=-1;
             if (owner->noexec && (owner->request.protection&PROT_EXEC)) error=-EPERM;
         } else owner->request=(struct md_task_mapping_request){.source=fd,.address=address,
                 .size=md_shm_pending_size(owner->pending),.flags=MAP_SHARED|(address ? MAP_FIXED_NOREPLACE : 0),
                 .protection=PROT_READ|((flags&SHM_RDONLY) ? 0 : PROT_WRITE)|((flags&SHM_EXEC) ? PROT_EXEC : 0)};
         fd=-1;
         if (!error) error=md_memory_order_begin(owner->memory,&owner->order,fd_wakeup);
-        if (error>=0) { t->mapping=owner; mapping_start(t); return; }
+        if (error>=0) { t->memory_op.mapping=owner; mapping_start(t); return; }
     }
     if (fd>=0) close(fd);
     if (!error) return;
-    t->mapping=NULL;
+    t->memory_op.mapping=NULL;
     if (owner) {
         CHECK(!md_shm_abort(&owner->pending));
         CHECK(!md_shm_space_release(owner->space));
@@ -701,61 +701,64 @@ void mapping_begin(struct thread *t, struct user_pt_regs *regs) {
 /* A native observation needs operands, not a restorable GPR image. Capture
  * the latter only before an error rewrite or task-affine adapter takes over. */
 static int memory_context(struct thread *t,struct user_pt_regs *regs) {
-    if (!t->memory_arguments_only) return 1;
-    if (!registers(t->pid,&t->original)) return 0;
-    t->memory_arguments_only=0; *regs=t->original;
+    if (!t->memory_op.arguments_only) return 1;
+    if (!registers(t->pid,&t->execution.registers)) return 0;
+    t->execution.request=syscall_description(&t->execution.registers);
+    t->memory_op.arguments_only=0; *regs=t->execution.registers;
     return 1;
 }
 
 void memory_start(struct thread *t) {
     retry_clear(t,RETRY_MEMORY);
-    enum md_resource_order_state state=md_resource_order_state(&t->memory_order);
-    if (state==MD_RESOURCE_ORDER_READY) CHECK(!md_resource_order_start(&t->memory_order));
+    enum md_resource_order_state state=md_resource_order_state(&t->memory_op.order);
+    if (state==MD_RESOURCE_ORDER_READY) CHECK(!md_resource_order_start(&t->memory_op.order));
     else if (state!=MD_RESOURCE_ORDER_RUNNING) { retry_wait(t,RETRY_MEMORY); return; }
-    struct user_pt_regs regs=t->original;
-    if (t->memory_action==MEMORY_DETACH) {
-        if (!save_signal_mask(t,&t->mask,"memory-mask")
+    const struct seccomp_data *call=&t->execution.request;
+    struct user_pt_regs regs;
+    if (!t->memory_op.arguments_only) regs=t->execution.registers;
+    if (t->memory_op.action==MEMORY_DETACH) {
+        if (!save_signal_mask(t,&t->execution.mask,"memory-mask")
                 || !shield(t) || !skip(t->pid)) return;
         dispatch_with_stack(t);
-    } else if (t->memory_action==MEMORY_FORK) {
+    } else if (t->memory_op.action==MEMORY_FORK) {
         t->phase=IDLE;
         fd_begin(t,&regs,MD_INTERCEPT_FD);
     } else {
-        long nr=regs.regs[8];
+        long nr=call->nr;
         int error=0, noexec=0;
         struct md_svc_registry *machine=md_memory_svc(t->memory);
         if (machine) {
-            if (nr!=SYS_mmap || (regs.regs[3]&MAP_FIXED))
-                error=md_svc_registry_unpatch(machine,t->pid,regs.regs[0],regs.regs[1]);
-            if (!error && nr==SYS_mremap && (regs.regs[3]&MREMAP_FIXED))
-                error=md_svc_registry_unpatch(machine,t->pid,regs.regs[4],regs.regs[2]);
+            if (nr!=SYS_mmap || (call->args[3]&MAP_FIXED))
+                error=md_svc_registry_unpatch(machine,t->pid,call->args[0],call->args[1]);
+            if (!error && nr==SYS_mremap && (call->args[3]&MREMAP_FIXED))
+                error=md_svc_registry_unpatch(machine,t->pid,call->args[4],call->args[2]);
         }
-        int file=nr==SYS_mmap && !(regs.regs[3]&MAP_ANONYMOUS);
+        int file=nr==SYS_mmap && !(call->args[3]&MAP_ANONYMOUS);
         struct md_fd_native native={0};
         if (file && !error) {
-            if (!t->memory_files.table) {
-                error=md_fd_order_begin(t->resources.files,&t->memory_files,fd_wakeup);
+            if (!t->memory_op.files.table) {
+                error=md_fd_order_begin(t->resources.files,&t->memory_op.files,fd_wakeup);
                 if (error>=0) error=0;
             }
-            if (!error && md_fd_order_state(&t->memory_files)!=MD_RESOURCE_ORDER_READY) { retry_wait(t,RETRY_MEMORY); return; }
+            if (!error && md_fd_order_state(&t->memory_op.files)!=MD_RESOURCE_ORDER_READY) { retry_wait(t,RETRY_MEMORY); return; }
             if (!error) {
-                CHECK(!md_fd_order_start(&t->memory_files));
-                int ordinary=md_fd_origins_native(&t->memory_files,(int)regs.regs[4],&native);
-                struct md_proc_file *control=ordinary ? NULL : proc_file_capture(t,(int)regs.regs[4]);
+                CHECK(!md_fd_order_start(&t->memory_op.files));
+                int ordinary=md_fd_origins_native(&t->memory_op.files,(int)call->args[4],&native);
+                struct md_proc_file *control=ordinary ? NULL : proc_file_capture(t,(int)call->args[4]);
                 if (control) {
-                    error=md_proc_file_mapping(control,(unsigned)regs.regs[2],(unsigned)regs.regs[3]);
+                    error=md_proc_file_mapping(control,(unsigned)call->args[2],(unsigned)call->args[3]);
                     struct md_control_file file=md_proc_file_control(control);
                     if (!error && file.ops->mapping) {
-                        if (!regs.regs[1] || regs.regs[1]>SIZE_MAX-(md_page_size-1)
-                                || (regs.regs[5]&(md_page_size-1))) error=-EINVAL;
+                        if (!call->args[1] || call->args[1]>SIZE_MAX-(md_page_size-1)
+                                || (call->args[5]&(md_page_size-1))) error=-EINVAL;
                         else {
                             /* Capture the exact OFD, then release both turns
                              * before asking its userspace provider for data. */
                             if (!memory_context(t,&regs)) { md_proc_file_release(control); return; }
-                            CHECK(!md_fd_order_complete(&t->memory_files));
-                            CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
-                            t->proc_file=control;
-                            if (!save_signal_mask(t,&t->mask,"mapping-mask")
+                            CHECK(!md_fd_order_complete(&t->memory_op.files));
+                            CHECK(!md_resource_order_complete(&t->memory_op.order)); t->memory_op.action=0;
+                            t->proc.file=control;
+                            if (!save_signal_mask(t,&t->execution.mask,"mapping-mask")
                                     || !shield(t) || !skip(t->pid)) return;
                             dispatch_with_stack(t); return;
                         }
@@ -763,57 +766,57 @@ void memory_start(struct thread *t) {
                     md_proc_file_release(control);
                 }
                 struct md_fs_anchor *origin=ordinary ? native.origin
-                    : md_fd_origins_get(t->resources.files,(int)regs.regs[4],NULL);
+                    : md_fd_origins_get(t->resources.files,(int)call->args[4],NULL);
                 noexec=!!(md_fs_anchor_policy(origin)&MD_MOUNT_NOEXEC);
                 if (!ordinary) md_fs_anchor_release(origin);
-                if (!error && noexec && (regs.regs[2]&PROT_EXEC)) error=-EPERM;
+                if (!error && noexec && (call->args[2]&PROT_EXEC)) error=-EPERM;
             }
         }
-        if (!error && nr==SYS_mprotect) error=md_memory_protect_check(t->memory,regs.regs[0],regs.regs[1],regs.regs[2]);
-        int overlap=md_shm_intersects(t->shm_space,regs.regs[0],regs.regs[1]);
-        if (nr==SYS_mremap && (regs.regs[3]&MREMAP_FIXED))
-            overlap|=md_shm_intersects(t->shm_space,regs.regs[4],regs.regs[2]);
+        if (!error && nr==SYS_mprotect) error=md_memory_protect_check(t->memory,call->args[0],call->args[1],call->args[2]);
+        int overlap=md_shm_intersects(t->shm_space,call->args[0],call->args[1]);
+        if (nr==SYS_mremap && (call->args[3]&MREMAP_FIXED))
+            overlap|=md_shm_intersects(t->shm_space,call->args[4],call->args[2]);
         if (!error && overlap && nr==SYS_mremap) error=-ENOTSUP;
         int source=-1; uint64_t offset=0;
         int repair=nr==SYS_mprotect && md_memory_private_access(t->memory)
-            && md_memory_file_view(t->memory,regs.regs[0],regs.regs[1],&source,&offset);
-        int tracked=nr!=SYS_mprotect && md_memory_mapping_observe(t->memory,regs.regs[0],
-            nr==SYS_mremap && !regs.regs[1] ? 1 : regs.regs[1]);
-        if (nr==SYS_mremap && (regs.regs[3]&MREMAP_FIXED))
-            tracked|=md_memory_mapping_observe(t->memory,regs.regs[4],regs.regs[2]);
+            && md_memory_file_view(t->memory,call->args[0],call->args[1],&source,&offset);
+        int tracked=nr!=SYS_mprotect && md_memory_mapping_observe(t->memory,call->args[0],
+            nr==SYS_mremap && !call->args[1] ? 1 : call->args[1]);
+        if (nr==SYS_mremap && (call->args[3]&MREMAP_FIXED))
+            tracked|=md_memory_mapping_observe(t->memory,call->args[4],call->args[2]);
         int observe=repair || (nr!=SYS_mprotect && (file || overlap || tracked));
         SUPERVISOR_TRACE("PROBE memory-plan pid=%d nr=%ld address=%#llx size=%llu protection=%#llx flags=%#llx file=%d tracked=%d repair=%d sole=%d\n",
-            t->pid,nr,regs.regs[0],regs.regs[1],regs.regs[2],regs.regs[3],file,tracked,repair,
+            t->pid,nr,call->args[0],call->args[1],call->args[2],call->args[3],file,tracked,repair,
             md_memory_sole_owner(t->memory));
-        if (!error && observe && nr!=SYS_mprotect) error=md_memory_mapping_prepare(t->memory,&t->memory_change,
+        if (!error && observe && nr!=SYS_mprotect) error=md_memory_mapping_prepare(t->memory,&t->memory_op.change,
             nr==SYS_mmap ? MD_MAPPING_MAP : nr==SYS_munmap ? MD_MAPPING_UNMAP : MD_MAPPING_REMAP,
-            regs.regs[0],regs.regs[1],nr==SYS_mremap ? regs.regs[2] : 0,(unsigned)regs.regs[3],noexec);
-        if (!error && file && !noexec && (regs.regs[3]&MAP_TYPE)==MAP_PRIVATE
+            call->args[0],call->args[1],nr==SYS_mremap ? call->args[2] : 0,(unsigned)call->args[3],noexec);
+        if (!error && file && !noexec && (call->args[3]&MAP_TYPE)==MAP_PRIVATE
                 && md_memory_private_access(t->memory)) {
-            int number=(int)regs.regs[4],captured=0;
+            int number=(int)call->args[4],captured=0;
             /* The running file-table turn authenticates this immutable pin.
              * Typed providers, uncertain slots and denied pin access still
              * take the exact kernel-descriptor capture path below. */
             if (native.kind==S_IFREG) {
-                captured=md_memory_mapping_pin(t->memory,&t->memory_change,
-                    md_fs_anchor_fd(native.origin),regs.regs[5]);
+                captured=md_memory_mapping_pin(t->memory,&t->memory_op.change,
+                    md_fs_anchor_fd(native.origin),call->args[5]);
             }
             if (captured<=0) {
                 int fd=duplicate_fd(t->pid,number);
-                t->memory_backing_pending=fd<0;
-                captured=fd<0 ? fd : md_memory_mapping_backing(t->memory,&t->memory_change,fd,regs.regs[5]);
+                t->memory_op.backing_pending=fd<0;
+                captured=fd<0 ? fd : md_memory_mapping_backing(t->memory,&t->memory_op.change,fd,call->args[5]);
                 if (fd>=0) close(fd);
             }
             /* This optional authority cannot fail native mmap or relax noexec.
              * Denied direct access uses task-affine capture after native mmap. */
             SUPERVISOR_TRACE("PROBE memory-backing pid=%d fd=%d retained=%d result=%d\n",
-                t->pid,number,!!t->memory_change.backing,captured);
+                t->pid,number,!!t->memory_op.change.backing,captured);
         }
         if (error || !observe) {
             if (error && !memory_context(t,&regs)) return;
-            if (t->memory_files.table) CHECK(!md_fd_order_complete(&t->memory_files));
-            CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
-            t->memory_arguments_only=0;
+            if (t->memory_op.files.table) CHECK(!md_fd_order_complete(&t->memory_op.files));
+            CHECK(!md_resource_order_complete(&t->memory_op.order)); t->memory_op.action=0;
+            t->memory_op.arguments_only=0;
             t->phase=IDLE;
             if (error) return_value(t,&regs,error); else resume(t->pid,0);
         } else { t->phase=OBSERVING; resume(t->pid,0); }
@@ -822,10 +825,14 @@ void memory_start(struct thread *t) {
 
 void memory_begin(struct thread *t, const struct user_pt_regs *regs, enum memory_action action,int arguments_only) {
     if (entry_context(t,MD_CONTEXT_MEMORY)) return;
-    CHECK(!t->memory_order.queue && !t->memory_action);
-    t->memory_arguments_only=arguments_only;
-    t->original=*regs; t->memory_action=action; t->phase=MEMORY_WAIT; t->memory_backing_pending=0;
-    CHECK(md_memory_order_begin(t->memory,&t->memory_order,fd_wakeup)>=0);
+    CHECK(!t->memory_op.order.queue && !t->memory_op.action);
+    t->memory_op.arguments_only=arguments_only;
+    if (arguments_only) {
+        CHECK(action==MEMORY_KERNEL);
+        t->execution.request=syscall_description(regs);
+    } else execution_capture(t,regs);
+    t->memory_op.action=action; t->phase=MEMORY_WAIT; t->memory_op.backing_pending=0;
+    CHECK(md_memory_order_begin(t->memory,&t->memory_op.order,fd_wakeup)>=0);
     /* EVENT_WAIT: address-space publication precedes competing unmap/fork;
      * task exit cancels its queued turn. fd_ready drives progress, not polling. */
     memory_start(t);
@@ -847,9 +854,9 @@ static int memory_observation(struct thread *t,const struct ptrace_syscall_info 
     long nr=(long)info->seccomp.nr;
     if (info->arch!=AUDIT_ARCH_AARCH64
             || (nr!=SYS_mmap && nr!=SYS_munmap && nr!=SYS_mprotect && nr!=SYS_mremap)
-            || info->seccomp.ret_data!=MD_INTERCEPT_MEMORY || t->entry_fence_result
-            || t->memory_order.queue || t->memory_action || t->debug_options
-            || t->debug_call_active || t->debug_step_call || md_debugger_traced(debugger,t->pid)) return 0;
+            || info->seccomp.ret_data!=MD_INTERCEPT_MEMORY || t->entry.fence_result
+            || t->memory_op.order.queue || t->memory_op.action || t->debug.options
+            || t->debug.call_active || t->debug.step_call || md_debugger_traced(debugger,t->pid)) return 0;
     struct md_svc_registry *machine=md_memory_svc(t->memory);
     *observed=(struct user_pt_regs){.pc=info->instruction_pointer,.sp=info->stack_pointer};
     observed->regs[8]=nr;
@@ -886,16 +893,16 @@ static void memory_capture_complete(void *context,struct md_task_helper_result r
     struct thread *t=capture->caller ? find_thread(capture->caller) : NULL;
     CHECK(result.descriptor==-1);
     if (t) {
-        CHECK(t->memory_capture==capture);
+        CHECK(t->memory_op.capture==capture);
         int error=(int)result.value;
         if (!error && result.received && result.received->count==1)
-            error=md_memory_mapping_backing(t->memory,&t->memory_change,result.received->fds[0],t->original.regs[5]);
-        SUPERVISOR_TRACE("PROBE memory-backing-export pid=%d retained=%d result=%d\n",t->pid,!!t->memory_change.backing,error);
-        md_memory_mapping_finish(t->memory,&t->memory_change,(long)capture->returned.regs[0]);
-        if (t->memory_files.table) CHECK(!md_fd_order_complete(&t->memory_files));
-        CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
-        t->memory_arguments_only=0;
-        t->memory_capture=NULL; t->kernel_stopped=1; t->phase=IDLE;
+            error=md_memory_mapping_backing(t->memory,&t->memory_op.change,result.received->fds[0],t->execution.request.args[5]);
+        SUPERVISOR_TRACE("PROBE memory-backing-export pid=%d retained=%d result=%d\n",t->pid,!!t->memory_op.change.backing,error);
+        md_memory_mapping_finish(t->memory,&t->memory_op.change,(long)capture->returned.regs[0]);
+        if (t->memory_op.files.table) CHECK(!md_fd_order_complete(&t->memory_op.files));
+        CHECK(!md_resource_order_complete(&t->memory_op.order)); t->memory_op.action=0;
+        t->memory_op.arguments_only=0;
+        t->memory_op.capture=NULL; t->kernel_stopped=1; t->phase=IDLE;
         if (set_registers(t->pid,&capture->returned)
                 && signal_mask(t,capture->mask,"memory-capture-mask"))
             resume(t->pid,0);
@@ -908,17 +915,17 @@ static void memory_capture_complete(void *context,struct md_task_helper_result r
 static void memory_captured(void *context) {
     struct memory_capture *capture=context;
     struct thread *t=capture->caller ? find_thread(capture->caller) : NULL;
-    if (t && t->memory_files.table) CHECK(!md_fd_order_complete(&t->memory_files));
+    if (t && t->memory_op.files.table) CHECK(!md_fd_order_complete(&t->memory_op.files));
 }
 
 int memory_capture_begin(struct thread *t,const struct user_pt_regs *returned) {
     /* Optional backing capture must not add clone/sendmsg requirements to an
      * already successful mmap. A filter can kill, not merely reject, the
      * helper's creation. Retain the ordinary memory path in that domain. */
-    if (t->application_filter || !t->memory_backing_pending || (long)returned->regs[0]<0
-            || t->memory_change.backing || t->memory_change.restrictions
-            || t->original.regs[8]!=SYS_mmap || (t->original.regs[3]&MAP_ANONYMOUS)
-            || (t->original.regs[3]&MAP_TYPE)!=MAP_PRIVATE || !md_memory_private_access(t->memory)) return 0;
+    if (t->seccomp.application_filter || !t->memory_op.backing_pending || (long)returned->regs[0]<0
+            || t->memory_op.change.backing || t->memory_op.change.restrictions
+            || t->execution.request.nr!=SYS_mmap || (t->execution.request.args[3]&MAP_ANONYMOUS)
+            || (t->execution.request.args[3]&MAP_TYPE)!=MAP_PRIVATE || !md_memory_private_access(t->memory)) return 0;
     struct memory_capture *capture=calloc(1,sizeof(*capture));
     if (!capture) return 0;
     capture->caller=t->pid; capture->returned=*returned;
@@ -926,12 +933,12 @@ int memory_capture_begin(struct thread *t,const struct user_pt_regs *returned) {
     if (error) { free(capture); return 0; }
     if (!save_signal_mask(t,&capture->mask,"memory-capture-mask")
             || !shield(t)) { md_buffer_release(&capture->buffer); free(capture); return 0; }
-    int fd=(int)t->original.regs[4];
+    int fd=(int)t->execution.request.args[4];
     struct md_task_helper_request request={.kind=MD_TASK_HELPER_EXPORT,.descriptors=&fd,.descriptor_count=1,
         .captured=memory_captured};
     t->terminal_observation=1; t->trace_options_dirty=1;
-    error=debugger_options(t->pid,t->debug_options);
-    t->memory_capture=capture;
+    error=debugger_options(t->pid,t->debug.options);
+    t->memory_op.capture=capture;
     if (!error) error=md_task_helper_begin(helpers,t->pid,t->tgid,returned,&abi,t->memory,&capture->buffer,
         &request,memory_capture_complete,capture);
     if (error) memory_capture_complete(capture,(struct md_task_helper_result){.value=error,.descriptor=-1});
@@ -940,10 +947,10 @@ int memory_capture_begin(struct thread *t,const struct user_pt_regs *returned) {
 }
 
 static int entry_fence_adapter_drained(const struct thread *t) {
-    return !t->metadata_restart && !t->fd_running && !t->fd_order.table && !t->fs_order.fs
-        && !t->fd_policy_order.queue
-        && !t->signal_delivery.active && !t->machine.draining && !t->machine.syscall_exit
-        && !t->machine.signal_alias && !t->direct && !t->buffer_call && !t->buffer_waiting
+    return !t->metadata_restart && !t->descriptors.running && !t->descriptors.order.table && !t->descriptors.fs_order.fs
+        && !t->descriptors.policy_order.queue
+        && !t->signals.delivery.active && !t->machine.draining && !t->machine.syscall_exit
+        && !t->machine.signal_alias && !t->fs.direct && !t->fs.call && !t->fs.waiting
         && !t->broker_completion;
 }
 
@@ -958,7 +965,7 @@ int entry_fence_drained(const struct thread *t) {
      * across TSYNC instead of waiting for the application event. */
     if (!entry_fence_adapter_drained(t)) return 0;
     if (signal_control_parked(t)) return 1;
-    if (t->phase==PROCESS_OBSERVING && (t->original.regs[8]==SYS_wait4 || t->original.regs[8]==SYS_waitid)) return 1;
+    if (t->phase==PROCESS_OBSERVING && (t->execution.request.nr==SYS_wait4 || t->execution.request.nr==SYS_waitid)) return 1;
     /* Native fallback and broker-owned reads have already admitted the original
      * call and released task-affine preparation. A blocking inotify read may
      * itself await the installer. MSG_PEEK is only a preparatory wait and must
@@ -970,7 +977,7 @@ int entry_fence_drained(const struct thread *t) {
 
 int entry_fence_adapt(const struct thread *t) {
     return entry_fence_memory && entry_fence_stage!=3 && t
-        && t->memory==entry_fence_memory && t!=entry_fence_owner && !t->entry_fence_waiting
+        && t->memory==entry_fence_memory && t!=entry_fence_owner && !t->entry.fence_waiting
         && entry_fence_boundary(t);
 }
 
@@ -985,7 +992,7 @@ int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,int stat
         md_memory_snapshots_invalidate(t->memory);
         if (!svc_revoke_entry(t)) return 1;
         for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
-            p->cooperative_blocked=1; md_broker_cooperative_revoke(broker,p->pid);
+            p->entry.blocked=1; md_broker_cooperative_revoke(broker,p->pid);
         }
         return 0;
     }
@@ -994,7 +1001,7 @@ int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,int stat
     if (filter) {
         int group=md_seccomp_filter_flags(r->regs[8],r->regs[1])&SECCOMP_FILTER_FLAG_TSYNC;
         for (struct thread *p=threads;p;p=p->next) if (p->pid
-                && (p==t || (group && p->tgid==t->tgid)) && !p->application_filter) {
+                && (p==t || (group && p->tgid==t->tgid)) && !p->seccomp.application_filter) {
             unrestricted=1; break;
         }
     }
@@ -1004,16 +1011,16 @@ int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,int stat
     if (snapshot) {
         if (!svc_revoke_entry(t)) return 1;
         for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
-            p->cooperative_blocked=1; md_broker_cooperative_revoke(broker,p->pid);
+            p->entry.blocked=1; md_broker_cooperative_revoke(broker,p->pid);
         }
     } else if (!filter_revoke_entry(t,r)) return 1;
     if (!md_svc_registry_resident(registry) && !unrestricted) {
         if (registry) registry->entry_fence_drained=1;
         return 0;
     }
-    CHECK(!t->entry_fence_waiting);
-    ++entry_fence_waiters; t->entry_fence_waiting=1; t->entry_fence_status=status;
-    if (usage) t->entry_fence_usage=*usage;
+    CHECK(!t->entry.fence_waiting);
+    ++entry_fence_waiters; t->entry.fence_waiting=1; t->entry.fence_status=status;
+    if (usage) t->entry.fence_usage=*usage;
     return 1;
 }
 
@@ -1021,7 +1028,7 @@ void entry_fence_progress(void) {
     if (!entry_fence_memory) {
         if (!entry_fence_waiters || quiescence_busy(NULL)) return;
         struct thread *caller=threads;
-        while (caller && (!caller->pid || !caller->entry_fence_waiting)) caller=caller->next;
+        while (caller && (!caller->pid || !caller->entry.fence_waiting)) caller=caller->next;
         if (!caller) return;
         entry_fence_memory=md_memory_fork(caller->memory,1); CHECK(entry_fence_memory);
         entry_fence_stage=2; entry_fence_slots=0; entry_fence_retry_at=0;
@@ -1044,7 +1051,7 @@ pid_t entry_fence_take(int *status,struct rusage *usage) {
             if (entry_fence_retry_at>now) return 0;
             entry_fence_retry_at=0;
             struct thread *reader=threads;
-            while (reader && (!reader->pid || reader->memory!=entry_fence_memory || !reader->entry_fence_waiting))
+            while (reader && (!reader->pid || reader->memory!=entry_fence_memory || !reader->entry.fence_waiting))
                 reader=reader->next;
             uint64_t slots=0;
             int error=reader ? md_svc_registry_occupied(md_memory_svc(entry_fence_memory),reader->pid,&slots) : 0;
@@ -1059,25 +1066,25 @@ pid_t entry_fence_take(int *status,struct rusage *usage) {
             }
         }
         for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory
-                && !p->entry_fence_waiting && !p->terminal_stop && !p->vfork_child
+                && !p->entry.fence_waiting && !p->terminal_stop && !p->process_op.vfork_child
                 && !entry_fence_drained(p)) return 0;
         struct md_svc_registry *registry=md_memory_svc(entry_fence_memory);
         if (registry) registry->entry_fence_drained=1;
     }
-    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory && p->entry_fence_waiting) {
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory && p->entry.fence_waiting) {
         entry_fence_cancel(p);
         entry_fence_owner=p;
-        p->entry_fence_result=entry_fence_error; *status=p->entry_fence_status;
-        if (usage) *usage=p->entry_fence_usage;
+        p->entry.fence_result=entry_fence_error; *status=p->entry.fence_status;
+        if (usage) *usage=p->entry.fence_usage;
         return p->pid;
     }
     if (entry_fence_stage!=3) {
         entry_fence_stage=3;
         task_action_unpark();
     }
-    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->entry_fence_held) {
-        p->entry_fence_held=0; *status=p->entry_fence_status;
-        if (usage) *usage=p->entry_fence_usage;
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->entry.fence_held) {
+        p->entry.fence_held=0; *status=p->entry.fence_status;
+        if (usage) *usage=p->entry.fence_usage;
         return p->pid;
     }
     md_memory_release(entry_fence_memory); entry_fence_memory=NULL; entry_fence_stage=0; entry_fence_error=0;
@@ -1172,9 +1179,9 @@ static void memory_finish(struct memory_execution *execution) {
     memory_execution=NULL;
     free(execution);
     task_action_unpark();
-    if (t->memory_files.table) CHECK(!md_fd_order_complete(&t->memory_files));
-    CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
-    t->memory_arguments_only=0;
+    if (t->memory_op.files.table) CHECK(!md_fd_order_complete(&t->memory_op.files));
+    CHECK(!md_resource_order_complete(&t->memory_op.order)); t->memory_op.action=0;
+    t->memory_op.arguments_only=0;
     t->phase=IDLE;
     if (!terminal) resume(t->pid,0);
 }
@@ -1333,8 +1340,8 @@ int quiescence_repair_event(pid_t pid,int status,const struct rusage *usage) {
     if (!barrier || !WIFSTOPPED(status) || (unsigned)status>>16
             || WSTOPSIG(status)!=(SIGTRAP|0x80)) return 0;
     struct thread *t=find_thread(pid);
-    if (!t || t->phase!=OBSERVING || t->memory_action!=MEMORY_KERNEL
-            || t->original.regs[8]!=SYS_mprotect) return 0;
+    if (!t || t->phase!=OBSERVING || t->memory_op.action!=MEMORY_KERNEL
+            || t->execution.request.nr!=SYS_mprotect) return 0;
     if ((retained_creation && retained_creation->creator==t)
             || (retained_retirement && retained_retirement->actor==t)
             || policy_installer==t
@@ -1417,7 +1424,7 @@ int memory_event(pid_t pid,int status,const struct rusage *usage) {
         if (helper && !execution->global && helper!=execution->actor->memory) { ++execution->other_events; return 0; }
         struct thread *t=find_thread(pid);
         int hold=execution->global || !t || !t->born || t->memory==execution->actor->memory
-            || t->remote_memory==execution->actor->memory;
+            || t->memory_op.remote==execution->actor->memory;
         if (!hold && WIFSTOPPED(status)) {
             unsigned event=(unsigned)status>>16;
             if (event==PTRACE_EVENT_SECCOMP || event==MD_TASK_CHECKPOINT_EVENT) {
@@ -1455,8 +1462,8 @@ int memory_event(pid_t pid,int status,const struct rusage *usage) {
 int memory_repair(struct thread *t,const struct user_pt_regs *returned,int status,const struct rusage *usage) {
     const struct md_private_memory_access *access=md_memory_private_access(t->memory);
     if (!access) return 0;
-    struct md_private_memory mapping={.address=t->original.regs[0],.length=t->original.regs[1],
-        .page_size=md_page_size,.protection=(int)t->original.regs[2],.source=-1};
+    struct md_private_memory mapping={.address=t->execution.request.args[0],.length=t->execution.request.args[1],
+        .page_size=md_page_size,.protection=(int)t->execution.request.args[2],.source=-1};
     if (mapping.length>SIZE_MAX-(md_page_size-1)) return 0;
     mapping.length=(mapping.length+md_page_size-1)&~(md_page_size-1);
     if (!md_memory_file_view(t->memory,mapping.address,mapping.length,&mapping.source,&mapping.offset)) return 0;
@@ -1477,7 +1484,7 @@ int memory_repair(struct thread *t,const struct user_pt_regs *returned,int statu
     execution->deadline=execution->timing[0]+5000000000LL;
     memory_execution=execution;
     for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid
-            && (execution->global || peer->memory==t->memory || peer->remote_memory==t->memory))
+            && (execution->global || peer->memory==t->memory || peer->memory_op.remote==t->memory))
         CHECK(!quiesce_task_add(memory_barrier,peer,peer==t));
     CHECK(!md_task_helpers_visit(helpers,execution->global ? NULL : t->memory,memory_participant,memory_barrier));
     CHECK(!md_task_quiesce_stop(memory_barrier));
