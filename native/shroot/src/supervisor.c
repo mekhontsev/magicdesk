@@ -528,6 +528,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             progress_budget=PROGRESS_BATCH;
         }
         --progress_budget;
+        int entry_pending=md_broker_entry_progress(broker);
         /* Progress callbacks can finish the last private task without leaving
          * another kernel event. The outer loop uses this same lifetime owner. */
         if (!tasks_pending()) return 0;
@@ -564,7 +565,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             errno=ECHILD;
         }
         CHECK(pid == 0 || errno == EINTR);
-        if (memory_runnable() || retained_runnable()) continue;
+        if (memory_runnable() || retained_runnable() || entry_pending) continue;
         /* EVENT_WAIT: task/resource progress, signal or cancellation timer.
          * The timer is serviced even while ptrace continuously has work. */
         int64_t bound = INT64_MAX;

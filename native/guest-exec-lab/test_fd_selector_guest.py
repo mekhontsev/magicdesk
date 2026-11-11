@@ -115,14 +115,30 @@ def rejected_write(fd, expected):
 
 def netlink(fd):
     rejected_write(fd, errno.EINVAL)
+    for datagram in (False, True):
+        netlink_exchange(fd, datagram)
+
+
+def netlink_exchange(fd, datagram):
     request = struct.pack('=IHHII', 32, 18, 0x301, 42, 0) + bytes(16)
-    assert os.write(fd, request) == len(request)
+    # Addressless send/receive are native for ordinary sockets, but retain
+    # the same provider ownership as read/write for a virtual control socket.
+    if datagram:
+        data = ctypes.create_string_buffer(request)
+        assert checked(libc.syscall(206, fd, data, len(request), socket.MSG_DONTWAIT, 0, 0)) == len(request)
+    else:
+        assert os.write(fd, request) == len(request)
     poll = select.poll()
     poll.register(fd, select.POLLIN)
     while True:
         # EVENT_WAIT: netlink dump completion; missing response is failure.
         assert poll.poll(2000), 'typed netlink response missing'
-        packet = os.read(fd, 65536)
+        if datagram:
+            data = ctypes.create_string_buffer(65536)
+            length = checked(libc.syscall(207, fd, data, len(data), socket.MSG_DONTWAIT, 0, 0))
+            packet = data.raw[:length]
+        else:
+            packet = os.read(fd, 65536)
         offset = 0
         while offset < len(packet):
             size, kind, _, seq, _ = struct.unpack_from('=IHHII', packet, offset)

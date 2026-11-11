@@ -295,6 +295,7 @@ int cooperative_copying(struct thread *t) {
 }
 
 void cooperative_buffer_release(struct thread *t) {
+    md_uts_namespace_unsubscribe(&t->entry.uts);
     t->entry.selectors=NULL; t->entry.selector_revision=0; t->entry.route_flags=0;
     t->entry.control=NULL;
     t->entry.stop.resume=NULL;
@@ -331,12 +332,18 @@ void cooperative_routes_publish(struct thread *t) {
     t->entry.selectors=t->descriptors.selector; t->entry.selector_revision=revision; t->entry.route_flags=flags;
 }
 
+static void cooperative_values_publish(struct thread *t,struct md_entry_channel *c) {
+    md_identity_view_publish(&c->identity,&t->identity);
+    md_uts_namespace_subscribe(t->resources.uts,&t->entry.uts,&c->uts);
+}
+
 void cooperative_memory_publish(struct thread *t,int eligible) {
     if (!t->entry.buffer.pool) return;
     cooperative_routes_publish(t);
     struct md_buffer_span span;
     CHECK(!md_buffer_span(&t->entry.buffer,&span) && span.size>=sizeof(struct md_entry_channel));
     struct md_entry_channel *c=span.data;
+    cooperative_values_publish(t,c);
     atomic_store_explicit(&c->policy,md_memory_snapshot_address(t->memory,
         md_seccomp_policy_identity(t->seccomp.policy)),memory_order_release);
     md_memory_admission_publish(t->memory,&c->memory,eligible && !md_shm_space_used(t->shm_space));
@@ -421,11 +428,22 @@ int entry_context(struct thread *t,enum md_execution_context reason) {
     return entry_reply(t,reason,0);
 }
 
-void native_resume(struct thread *t) {
+static void entry_native_complete(struct thread *t,long result) {
+    CHECK(t->entry.control && !t->entry.execution && t->phase==IDLE);
+    t->entry.control->execution_action=MD_EXECUTION_RESULT;
+    if (statistics) ++statistics->entry_completions;
+    CHECK(entry_reply(t,result,0));
+}
+
+void native_continue(struct thread *t) {
     if (!entry_pending(t)) { resume(t->pid,0); return; }
-    t->entry.control->execution_action=MD_EXECUTION_KERNEL;
     if (statistics) ++statistics->entry_native;
-    CHECK(entry_reply(t,0,0));
+    struct md_entry_request *call=&t->entry.control->call;
+    enum md_execution_context reason=md_execution_context_needed(call->number,call->args,MD_INTERCEPT_NATIVE);
+    if (reason!=MD_CONTEXT_COUNT) { entry_context(t,reason); return; }
+    /* The owner has already classified this operation as native. Retain the
+     * exact effect/receipt protocol, not a second entry through FD selectors. */
+    entry_effect(t,call->number,call->args,entry_native_complete);
 }
 
 void control_return(struct thread *t,struct user_pt_regs *regs,long value,uintptr_t extra) {
@@ -439,6 +457,7 @@ void return_value(struct thread *t, struct user_pt_regs *regs, long value) {
         struct md_entry_channel *channel=t->entry.control;
         CHECK(t->phase==IDLE && !t->entry.execution);
         CHECK(!md_task_registry_publish(tasks,t->pid,t->tgid,&t->identity,&t->resources));
+        cooperative_values_publish(t,channel);
         channel->execution_action=MD_EXECUTION_RESULT;
         if (statistics) ++statistics->entry_completions;
         CHECK(entry_reply(t,value,0));
@@ -583,6 +602,7 @@ static enum execution_continuation execution_complete(struct thread *t,long valu
 }
 
 void dispatch_complete(struct thread *t,long value) {
+    CHECK(!t->entry.execution);
     enum execution_continuation next=execution_complete(t,value);
     pid_t pid=t->pid;
     struct user_pt_regs regs=t->execution.registers;
@@ -694,7 +714,7 @@ static void entry_begin(struct thread *t,struct md_entry_channel *channel) {
         entry_context(t,call.nr==SYS_ptrace ? MD_CONTEXT_DEBUG : MD_CONTEXT_WAIT); return;
     }
     if (resource_call(t,&call,NULL,&cookie)) return;
-    if (cookie==MD_INTERCEPT_NATIVE) { native_resume(t); return; }
+    if (cookie==MD_INTERCEPT_NATIVE) { native_continue(t); return; }
     if (cookie==MD_INTERCEPT_OBSERVE) { entry_context(t,MD_CONTEXT_PROCESS); return; }
     CHECK(cookie==MD_INTERCEPT_DISPATCH || cookie==MD_INTERCEPT_READINESS);
     execution_begin(t,&call,NULL,"entry-dispatch");
@@ -844,6 +864,14 @@ static void buffer_control(struct thread *t,const struct supervisor_control_requ
     if (t->fs.returned.files.table && control->command!=MD_FS_BUFFER_RIGHTS_READY
             && control->command!=MD_FS_BUFFER_RIGHTS_DONE && control->command!=MD_FS_BUFFER_CHANNEL_OBSERVED) {
         buffer_reply(t,-EBUSY); return;
+    }
+    if (!t->fs.buffer.pool && md_adapter_buffer_query(control->command)) {
+        if (t->phase!=DISPATCHING || (control->command==MD_BUFFER_UTS && t->execution.request.nr!=SYS_uname)) {
+            buffer_reply(t,-EINVAL); return;
+        }
+        /* EVENT_WAIT: the existing buffer owner resumes this same query when
+         * a slot becomes available; cancellation retires its ordinary lease. */
+        t->fs.waiting=1; buffer_take(t); return;
     }
     switch (control->command) {
     case MD_FS_BUFFER_RESULT_REPLAY:

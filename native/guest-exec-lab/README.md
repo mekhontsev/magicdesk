@@ -499,6 +499,9 @@ taskset mask to both runtime process trees for a controlled follow-up; reports
 retain that mask and CPU-frequency observations. This changes neither governor
 nor host frequency limits, and pinned results do not certify unpinned performance.
 `--application-filter` measures the same workloads after guest seccomp admission.
+Focused `--workload` selections include `identity` (four UID/GID reads), `uname`,
+`ipc-nowait` (a SysV send/receive pair) and `socket-nowait` (a datagram pair).
+These retain their normal owners and guest filters; setup is outside the timed loop.
 Use `--statistics` in a separate run to record syscall, checkpoint, ptrace and
 supervisor CPU counters; instrumented timings are not a performance baseline.
 

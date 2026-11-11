@@ -545,8 +545,16 @@ static struct {
     struct md_namespace_broker *broker;
     struct md_fs_worker *worker;
     struct md_entry_channel channel;
-    int listener,received;
+    int listener,received,control;
+    pid_t owner;
 } registration;
+static void registration_control(pid_t pid,struct md_entry_channel *c) {
+    assert(syscall(SYS_gettid)==registration.owner && pid==c->owner);
+    assert(c->call.reserved==MD_ENTRY_BUFFER_CONTROL && atomic_load(&c->state)==MD_ENTRY_RUNNING);
+    int stopped=0;
+    assert(md_broker_native_borrow(registration.broker,pid,&stopped)==-EBUSY);
+    md_broker_entry_reply(registration.broker,c,MD_ENTRY_COMPLETED,0);
+}
 static void registration_delegate(const struct seccomp_notif *request) {
     assert(request->data.nr==SYS_gettid && !registration.received++);
     struct md_entry_channel *c=&registration.channel;
@@ -557,6 +565,7 @@ static void registration_delegate(const struct seccomp_notif *request) {
     /* Publish the next caller request while this delegated operation still
      * owns the task. Force the worker's pre-wait scan to precede retirement. */
     c->sequence=1; c->call.number=SYS_getuid;
+    c->call.reserved=registration.control ? MD_ENTRY_BUFFER_CONTROL : MD_ENTRY_SYSCALL;
     atomic_store(&c->awake,1); atomic_store(&c->sleeping,1);
     atomic_store(&c->state,MD_ENTRY_REQUEST);
     md_fs_worker_wake(registration.worker);
@@ -564,7 +573,7 @@ static void registration_delegate(const struct seccomp_notif *request) {
     while (atomic_load(&c->awake)) sched_yield();
     assert(atomic_load(&c->state)==MD_ENTRY_REQUEST);
 }
-static void registration_retirement(const char *store) {
+static void registration_retirement(const char *store,int control) {
     unsigned before=descriptors();
     int sockets[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC,0,sockets));
     pid_t parent=getpid(),child=fork(); assert(child>=0);
@@ -579,6 +588,7 @@ static void registration_retirement(const char *store) {
         assert(read(sockets[1],&byte,1)==1 && byte=='c'); _exit(0);
     }
     close(sockets[1]); memset(&registration,0,sizeof(registration));
+    registration.control=control; registration.owner=syscall(SYS_gettid);
     registration.listener=receive_listener(sockets[0]);
     struct md_task_registry *tasks=md_task_registry_create(); assert(tasks);
     char endpoint[80]; snprintf(endpoint,sizeof(endpoint),"md-entry-retirement-%d",parent);
@@ -589,6 +599,7 @@ static void registration_retirement(const char *store) {
     struct md_identity identity=md_identity_new(0,0);
     assert(!md_task_registry_publish(tasks,child,child,&identity,&resources));
     registration.broker=md_broker_create(registration.worker,0,registration_delegate);
+    md_broker_entry_handler(registration.broker,registration_control);
     assert(registration.broker && !md_broker_task(registration.broker,child,MD_BROKER_READ,0,0,NULL,1));
     md_broker_listen(registration.broker,registration.listener);
     assert(write(sockets[0],"r",1)==1);
@@ -599,6 +610,7 @@ static void registration_retirement(const char *store) {
     }
     struct md_entry_channel *c=&registration.channel;
     for (;;) {
+        if (control) md_broker_entry_progress(registration.broker);
         unsigned state=atomic_load(&c->state);
         if (state==MD_ENTRY_RESPONSE) break;
         assert(state==MD_ENTRY_REQUEST || state==MD_ENTRY_RUNNING);
@@ -610,6 +622,17 @@ static void registration_retirement(const char *store) {
     }
     assert(atomic_load(&c->state)==MD_ENTRY_RESPONSE && c->receipt==1
         && c->outcome==MD_ENTRY_COMPLETED && !c->result);
+    if (control) for (unsigned update=0;update<2;++update) {
+        assert(!atomic_load(&c->control_awake));
+        c->sequence=update+2;
+        atomic_store(&c->state,MD_ENTRY_REQUEST);
+        if (update) assert(!md_broker_task(registration.broker,child,MD_BROKER_COOPERATIVE,0,0,NULL,1));
+        else md_broker_resumed(registration.broker,child);
+        /* Resumption alone must target the supervisor, not the worker. */
+        md_broker_entry_progress(registration.broker);
+        assert(atomic_load(&c->state)==MD_ENTRY_RESPONSE && c->receipt==update+2
+            && c->outcome==MD_ENTRY_COMPLETED && !c->result);
+    }
     assert(write(sockets[0],"c",1)==1); int status;
     assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
     md_broker_forget(registration.broker,child);
@@ -660,6 +683,6 @@ void md_test_namespace_broker(const char *root) {
     stopped_queued_entry(store,(PTRACE_EVENT_EXEC<<16)|(SIGTRAP<<8)|0x7f,-ESRCH);
     stopped_queued_entry(store,(PTRACE_EVENT_EXIT<<16)|(SIGTRAP<<8)|0x7f,-ESRCH);
     stopped_queued_entry(store,SIGKILL,-ESRCH);
-    discovery(store); registration_retirement(store); alarm(0);
+    discovery(store); registration_retirement(store,0); registration_retirement(store,1); alarm(0);
     puts("PASS broker directory notification ownership");
 }

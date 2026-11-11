@@ -205,11 +205,13 @@ rather than uploading a separate native runtime build.
 changing frames using the installed software profile without the `noshm` bypass.
 
 `test_sysv_runtime.py --case shm-slots --case shm-denied` checks repeated zero-slot
-and one-slot attachment/detachment and rejected mmap, with ordinary and
-nondumpable callers. Failed attachment leaves no logical reference or backing FD;
-no protected metadata channel is primed and a real filter rejects guest fstat.
-`shm-terminal` adds fatal helper filters before mmap/close_range, clone denial,
-and surviving CLONE_VM/CLONE_FILES peers with full tables. `shm-concurrent` checks
+and one-slot attachment/detachment and rejected shmat, with ordinary and
+virtually nondumpable callers. Failed attachment leaves no logical reference or
+backing FD. Filters reject guest fstat/mmap without rejecting internal attachment
+work: guest policy applies to the original syscall, not its implementation.
+`shm-terminal` checks that helper-only mmap/close_range/clone restrictions do not
+affect shmat, while explicit shmat denial and KILL_THREAD remain effective, with
+surviving CLONE_VM/CLONE_FILES peers and full tables. `shm-concurrent` checks
 six shared-memory callers with repeated attachments and forked readers.
 `shm-owner-death` checks caller-group cancellation during repeated mapping work;
 the next address-space turn verifies both kernel mappings and logical references.

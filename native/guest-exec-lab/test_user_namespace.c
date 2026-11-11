@@ -4,6 +4,7 @@
 #include "proc_file.h"
 #include "guest_identity.h"
 #include "identity_snapshot.h"
+#include "identity_view.h"
 #include "sealed_manifest.h"
 #include "uts_namespace.h"
 #include "ipc_permissions.h"
@@ -567,15 +568,26 @@ void test_user_namespace(void) {
     md_user_namespace_release(child); md_user_namespace_release(n);
 
     struct md_identity identity=md_identity_new(2000,2000);
+    struct md_identity_view view={0}; int64_t observed=-1;
+    md_identity_view_publish(&view,&identity);
+    assert(md_identity_view_read(&view,SYS_getuid,&observed) && observed==2000);
     assert(!md_identity_enter_user_namespace(&identity));
+    md_identity_view_publish(&view,&identity);
+    assert(!md_identity_view_read(&view,SYS_getuid,&observed));
+    assert(!md_identity_view_read(&view,SYS_getgid,&observed));
     n=identity.user_namespace;
     assert(md_identity_visible_id(&identity,0,identity.uid.real)==65534);
     assert(md_identity_capable(&identity,CAP_SYS_ADMIN));
     assert(!md_identity_capable_in(&identity,NULL,CAP_DAC_OVERRIDE));
     assert(md_identity_setuid(&identity,0)==-EINVAL);
     assert(!publish(n,0,n,2000,2000,identity.caps.effective,&uid,1));
+    md_identity_view_publish(&view,&identity);
+    assert(md_identity_view_read(&view,SYS_getuid,&observed) && observed==0);
+    assert(!md_identity_view_read(&view,SYS_getgid,&observed));
     assert(!md_user_namespace_setgroups(n,0));
     assert(!publish(n,1,n,2000,2000,identity.caps.effective,&gid,1));
+    md_identity_view_publish(&view,&identity);
+    assert(md_identity_view_read(&view,SYS_getgid,&observed) && observed==0);
     assert(md_identity_visible_id(&identity,0,identity.uid.real)==0);
     assert(md_identity_root(&identity)==2000);
     assert(!md_identity_setuid(&identity,0) && identity.uid.effective==2000);

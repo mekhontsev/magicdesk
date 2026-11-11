@@ -92,7 +92,7 @@ offered calls as follows:
 | Route | Ownership |
 | --- | --- |
 | Worker | Stat/statx/statfs, directory reads, readlink, mkdir/unlink/rename/link/symlink, access/ownership/mode/timestamp operations and path/link/FD xattrs use the existing filesystem dispatcher and checked task-memory copying. |
-| Value | Scalar UID/GID reads use current registry credentials and the same user-namespace translation as the ordinary supervisor path. They neither retain a filesystem operation window nor cache caller credentials. |
+| Value | Scalar UID/GID reads use owner-published atomic values with the same user-namespace translation as the ordinary supervisor path. Publication is valid only after the complete namespace-map chain is immutable; an unfinished map retains registry-backed execution. |
 | FD | Existing regular-file/directory `openat` and `openat2`, including O_PATH and writable/append/truncate flags, can use a checked native plan. Known ordinary-file close, dup/dup3, lseek and supported fcntl commands share that protocol and the existing file-table owner. Other open/fsopen calls retain their exact kernel publication carrier. |
 | Memory | The resident SVC driver can execute private untracked `munmap`/nonfixed `mremap`, ordinary-range `mprotect` and anonymous private `MAP_FIXED` replacement directly in the caller, using a supervisor-published exclusion snapshot. Shared address spaces, tracked mappings and generic API callers keep ordered kernel interception. |
 | Task | Default route. The guest evaluates the shared interception programs against the published selector inventory, choosing native execution, a direct error, an operation-owned context requirement or the common C executor. The supervisor retains ownership of shared process/resource state. |
@@ -126,6 +126,20 @@ and known context requirements need no preliminary supervisor exchange.
 `execution_context` names the original-stack, mask, publication or lifecycle
 requirement. A state-dependent owner can request context before its first effect;
 an already-started operation instead retains its exact continuation.
+Explicit `MSG_DONTWAIT` socket calls and `IPC_NOWAIT` message operations do not
+acquire a blocking-context requirement. The socket adapter and ingress share
+the same flag classifier. Descriptor publication and other independent context
+requirements still apply; an FD's mutable `O_NONBLOCK` flag alone is not proof.
+Addressless `sendto`/`recvfrom` use native payload IO in the shared kernel
+selector program, in both Base and lazy execution. Provider FD selectors retain
+virtual control sockets, including duplicated descriptors and reused numbers.
+No peer address or ancillary data translation is bypassed.
+
+UID/GID views are refreshed at credential publication. UTS namespaces publish
+atomic-word snapshots to their subscribed channels; namespace replacement and
+channel teardown release the subscription. Resident `uname` reads one coherent
+snapshot and uses the existing checked guest copy. A concurrent publication
+selects the ordinary owner instead of spinning on a descheduled writer.
 
 The supervisor's `resource_call` routes both TRACE and channel ingress through
 the same process, identity, domain, descriptor and memory owners, in that order.
@@ -191,12 +205,37 @@ operation before publishing its result. Resource state is not copied into a
 second guest-side implementation. Scalar controls also borrow this channel from
 an existing Base C adapter when the thread already owns one; they do not require
 lazy admission to be re-enabled during that adapter.
+Buffer completion returns to a resident C frame; only its END retires the guest
+operation. A Base terminal checkpoint can retire directly after acquiring the
+original stopped context. The two deliveries share resource cleanup, not a
+register-restoration path.
+Resident internal controls reuse the client belonging to their claimed private
+frame, without another thread-ID syscall or client lookup. The pointer is scoped
+to that runtime stack; ordinary Base adapters retain identity-based lookup.
+
+`cooperative_exchange` owns the shared publication and park handshake, separately
+from channel layout and operation semantics. Filesystem requests run on the
+worker; controls run directly on the supervisor. A control request does not
+allocate a filesystem operation or traverse the worker completion queue.
+The single notification listener remains worker-owned and forwards a cold
+supervisor wake; hot control exchanges need no worker round trip.
+Control bursts retain the existing 32-operation/100-microsecond fairness bound
+and round-robin channel selection. Idle spinning is adaptive and bounded; no
+additional service thread is created and native event handling keeps its turn.
 
 Control and terminal replies can offer a journaled native effect to the common
 caller-action driver. The effect's completion is acknowledged on the same channel
 before its owner releases the resource turn. A stopped caller's journal distinguishes an
 unstarted action from an executed result; teardown never repeats an uncertain
-effect. Existing worker/FD/value fast paths do not acquire an extra supervisor
+effect. Native decisions for admitted nonblocking journal operations also use
+this protocol, without returning through the original SVC and repeating FD
+classification. Blocking or context-dependent native decisions retain that SVC.
+The exact journal gate does not carry another syscall allow-list: the operation
+owner admits the effect, and the common context classifier decides whether it
+can run on the resident frame. A supervisor reply either supplies a result, an
+executor operation or an explicit context requirement, never an ambiguous
+"native" instruction which silently repeats admission.
+Existing worker/FD/value fast paths do not acquire an extra supervisor
 round trip.
 
 When an internal operation needs actual stopped registers, its owner retains
@@ -211,7 +250,7 @@ The first actual checkpoint captures the resident caller's signal mask. A helper
 temporary shield ends before returning to that resident frame, whose own signal
 deferral remains authoritative. Pure channel calls neither read nor change the
 kernel mask. Internal controls and effect acknowledgements survive a stop before
-worker admission: they continue an owned operation, unlike a fresh BEGIN that
+owner admission: they continue an owned operation, unlike a fresh BEGIN that
 may still decline without an effect. Task teardown remains their cancellation owner.
 An unadmitted BEGIN takes the terminal kernel continuation without reading an
 execution descriptor; a previous request's action cannot cause a second effect.
@@ -225,7 +264,11 @@ native effects; broker controls are counted separately from guest calls.
 `MD_EXECUTION_LOCAL_NATIVE` and `MD_EXECUTION_LOCAL_CONTEXT` identify guest-local
 routing, while `MD_EXECUTION_NATIVE` and `MD_EXECUTION_CONTEXT` identify decisions
 requiring shared state. `MD_EXECUTION_STOP` records the reasons for promoting
-already-owned operations. These counters are enabled only by `--statistics`.
+already-owned operations. Native decisions are a subset of task entries, not a
+separate outcome: their journaled result counts as a completion, or their explicit
+original-context continuation counts in `MD_EXECUTION_CONTEXT`. For fully retired
+calls, task entries equal completions plus original-context continuations.
+These counters are enabled only by `--statistics`.
 
 Checkpoint admission uses the installed policy chain's exact runtime-image
 identity. When every filter admits those internal gates, checkpoints keep the
@@ -638,32 +681,33 @@ waits for the peer. Temporary signal shields do not become application masks.
 
 A release-published request has a monotonic sequence and one response receipt.
 Conditional wakeups use sequentially consistent wait registration and state
-publication. The existing worker drains a round-robin burst, bounded by 32
+publication. Each execution owner drains a round-robin burst, bounded by 32
 requests and a 100 us between-request budget, then services other work. An idle
-channel does not add a periodic polling loop. The worker uses a bounded 25 us
+channel does not add a periodic polling loop. Each owner uses a bounded 25 us
 spin; the caller uses at most 32768 state-check iterations, without reading a
 clock. Four unsuccessful spins select immediate parking for 128 subsequent waits.
 Caller feedback is independent for an open plan, completion of its native
 effect, and an ordinary reply. A slow creation therefore cannot put unrelated
 short metadata replies into the same cooldown. All caller phases retain the same
-iteration limit; no additional worker or supervisor spin is introduced.
-Only progress observed before parking counts as a caller hit. The worker also
-requires progress before its deadline. A reply already ready after a blocking
+iteration limit; supervisor control bursts have independent feedback from
+filesystem work. Only progress observed before parking counts as a caller hit.
+Each owner also requires progress before its deadline. A reply already ready after a blocking
 wake cannot reset the miss history. The notification wake is acknowledged
 after its immediate work (or resource-queue admission), avoiding a redundant
 client wake/park. This is local feedback, not CPU-affinity or scheduler policy.
 When an FD request is already visible, an idle worker yields to its listener
 instead of spending the remaining spin budget waiting for another memory request.
-Awake publication ends at the service's actual poll boundary, not after each
-burst. The shared request/native-result check and producer's wake check form a
+The worker clears its awake publication at the actual poll boundary; the
+supervisor clears its control publication when leaving its bounded burst.
+The shared request/native-result check and producer's wake check form a
 sequentially consistent handshake: work observed during parking forces a
 nonblocking poll, which still services other sources before the next burst.
 Eligibility changes participate in the same protocol: retiring a delegated
-operation wakes a parked worker if the caller has already published its next
-request. Registration replies may resume the caller before supervisor-side
+operation wakes the next request's owner if the caller has already published its
+next request. Registration replies may resume the caller before supervisor-side
 retirement; that overlap must not require a later unrelated syscall to progress.
 The broker fixture forces this ordering and waits without any further guest IO.
-Worker clock reads are batched every eight empty iterations. The caller bounds
+Owner clock reads are batched every eight empty iterations. The caller bounds
 active work rather than wall time: iteration duration depends on CPU and cache
 behavior. It never replenishes the budget after a wake or spurious futex return.
 At the request/time burst limit, the worker releases the store window and may
@@ -892,12 +936,16 @@ dumpability, credentials, mounts/chroot, private PID namespaces, debugger fallba
 and actual TSYNC denials. It checks kernel continuations including argument- and
 instruction-pointer-sensitive filters, FD results and exclusive creation without
 replay, and signal-handler `siglongjmp` with reused output memory. It also
-exercises Landlock's distinction between metadata and file-data
+checks that repeated native socket payloads need only cold discovery stops,
+with and without a guest argument-sensitive seccomp filter. Denials must still
+leave the peer queue unchanged. This checks the mechanism, not a timing limit.
+It additionally exercises Landlock's distinction between metadata and file-data
 access, and repeated SIGKILL/exit_group while peers use active channels.
 The native journal fixture stops real `openat`, `close`, `F_SETFD`, `dup`, `dup3`,
-`F_DUPFD_CLOEXEC`, `epoll_ctl` and `epoll_pwait` at every instruction around the
-effect, including failed open. It verifies the actual FD table, ONESHOT event
-consumption and restart classification. Entry tests additionally
+`F_DUPFD_CLOEXEC`, `epoll_ctl`, `epoll_pwait`, `sendto` and `recvfrom` at every
+instruction around the effect, including failed open. It verifies the actual
+FD table, ONESHOT event consumption, exactly-once datagram transfer and restart
+classification. Entry tests additionally
 hold 192 live opens, replace FD flags, use dup/close_range, replace/unlink a pinned
 path, cancel a pending plan, exit before its effect and check exact inotify
 open/close events. These complement the existing shared-table thread tests.

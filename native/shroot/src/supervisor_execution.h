@@ -26,7 +26,7 @@ int cooperative_native_observe(pid_t pid,struct md_entry_native *native);
 int entry_reply(struct thread *t,long value,uintptr_t extra);
 int entry_pending(const struct thread *t);
 int entry_context(struct thread *t,enum md_execution_context reason);
-void native_resume(struct thread *t);
+void native_continue(struct thread *t);
 void control_return(struct thread *t,struct user_pt_regs *regs,long value,uintptr_t extra);
 void return_value(struct thread *t, struct user_pt_regs *regs, long value);
 void return_scalar(struct thread *t,long value);

@@ -71,8 +71,13 @@ def main():
                         counts = re.search(r'MD_EXECUTION taskEntries=(\d+) completed=(\d+)', output)
                         contexts = sum(map(int, re.findall(r'MD_EXECUTION_CONTEXT reason=\w+ calls=(\d+)', output)))
                         native = re.search(r'MD_EXECUTION_NATIVE calls=(\d+)', output)
-                        assert counts and native and int(counts[1]) == int(counts[2]) + contexts + int(native[1]), output
-                        assert int(counts[2]) >= (66 if policy else 98), output
+                        assert counts and native and int(counts[1]) == int(counts[2]) + contexts, output
+                        assert int(native[1]) <= int(counts[1]), output
+                        # prctl still needs its owner; uname may read its published
+                        # UTS view. Both must complete through the resident entry.
+                        assert int(counts[2]) >= 32, output
+                        completed = sum(item['completed'] for item in records(output, 'SVC_RUNTIME_STATS '))
+                        assert completed >= 160 + (64 if policy else 0), output
                         assert re.search(r'MD_EXECUTION_LOCAL_CONTEXT reason=memory calls=[1-9]', output), output
                         local_native = re.search(r'MD_EXECUTION_LOCAL_NATIVE calls=(\d+)', output)
                         assert local_native and (policy or int(local_native[1]) >= 64), output

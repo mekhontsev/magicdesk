@@ -43,6 +43,10 @@ int md_adapter_readonly_install(void) {
 long md_adapter_buffer_take(void) {
     return enabled ? md_guest_buffer_control(MD_BUFFER_TAKE,0,0) : -ENOTSUP;
 }
+struct md_adapter_input md_adapter_buffer_begin(unsigned command,unsigned long argument) {
+    return enabled ? md_guest_buffer_start(command,argument,0)
+        : (struct md_adapter_input){.value=-ENOTSUP};
+}
 long md_adapter_buffer_release(void) {
     return md_guest_buffer_control(MD_BUFFER_RELEASE,0,0);
 }

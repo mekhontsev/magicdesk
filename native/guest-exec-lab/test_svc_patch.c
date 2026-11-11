@@ -510,6 +510,16 @@ static void lazy_stack_guards(void) {
     assert(protection_at((uintptr_t)frames+MD_SVC_GUARD_OFFSET)==(PROT_READ|PROT_WRITE));
     state.admitted=1;
     assert(!md_svc_payload_dispatch(registers,&state,0x1234) && *ready==1);
+    uintptr_t base=(uintptr_t)frames;
+    struct md_entry_client scoped={0};
+    *(struct md_entry_client **)(frames+MD_SVC_CLIENT_OFFSET)=&scoped;
+    assert(md_svc_frame_client(base,base+MD_SVC_SLOT_SIZE-32)==&scoped);
+    assert(!md_svc_frame_client(base,base+MD_SVC_FRAME_OFFSET));
+    assert(!md_svc_frame_client(base,base+MD_SVC_GUARD_OFFSET));
+    assert(!md_svc_frame_client(base,base-16));
+    assert(!md_svc_frame_client(base,base+MD_SVC_POOL_SIZE));
+    assert(!md_svc_payload_dispatch(registers,&state,0x1234));
+    assert(!md_svc_frame_client(base,base+MD_SVC_SLOT_SIZE-32));
     assert(protection_at((uintptr_t)frames+MD_SVC_GUARD_OFFSET)==PROT_NONE);
     assert(protection_at((uintptr_t)frames)==(PROT_READ|PROT_WRITE));
     assert(protection_at((uintptr_t)frames+MD_SVC_GUARD_OFFSET+MD_SVC_GUARD_SIZE)==(PROT_READ|PROT_WRITE));

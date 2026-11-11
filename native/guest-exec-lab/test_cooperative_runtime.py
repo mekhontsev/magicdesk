@@ -12,7 +12,7 @@ def main():
     parser.add_argument('--entry-only', action='store_true')
     parser.add_argument('--diagnostics', action='store_true')
     add_machine_entry_argument(parser)
-    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'cursor-lease', 'xattr-pins', 'signal-abandon'), default='all')
+    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'cursor-lease', 'xattr-pins', 'signal-abandon', 'native-payload'), default='all')
     args = parser.parse_args()
     suite = Suite(Path('build/cooperative-runtime'), args.build, machine_entry=args.machine_entry)
     runner = [suite.runner, *suite.entry_options]
@@ -68,6 +68,19 @@ def main():
         # Distribution imports carry virtual ownership; a host-directory import
         # without it deliberately retains real Android permission semantics.
         suite.command([suite.base + '/service', '--import', root, suite.base + '/store', '--preserve-ownership'])
+        if args.case in ('all', 'native-payload'):
+            for filtered in (0, 1):
+                output = suite.command([*runner, '--statistics', '--store', suite.base + '/store',
+                                        '--user', '0:0', '--', '/bin/probe', '--native-payload', str(filtered)])
+                assert f'PASS native payload: filtered={filtered}' in output
+                if args.machine_entry is not False:
+                    stops = sum(int(trace) + int(notifications) for trace, notifications in re.findall(
+                        r'MD_SYSCALL nr=(?:206|207) trace=(\d+) notification=(\d+)', output))
+                    assert stops <= 4, ('native payload repeated interception after discovery', filtered, stops)
+            if args.case == 'native-payload':
+                suite.report['passed'] = True
+                suite.command(['rm', '-rf', suite.base])
+                return
         if args.case in ('all', 'proc-discovery'):
             output = suite.command(['timeout', '30', *runner, '--store', suite.base + '/store',
                                    '--user', '0:0', '--', '/bin/probe', '--proc-discovery'])

@@ -7,6 +7,14 @@
 /* Supervisor-owned names. Shared by fork/exec; NEWUTS copies before commit. */
 struct md_uts_namespace;
 struct md_control_event;
+struct md_uts_view;
+struct md_uts_subscription {
+    struct md_uts_namespace *owner;
+    struct md_uts_subscription *next;
+    struct md_uts_view *view;
+};
+void md_uts_namespace_subscribe(struct md_uts_namespace *,struct md_uts_subscription *,struct md_uts_view *);
+void md_uts_namespace_unsubscribe(struct md_uts_subscription *);
 /* Borrowed table notification source. Like Linux's UTS sysctl table, namespace
  * copies share notifications, while reads still select the actor's names. */
 struct md_control_event *md_uts_namespace_event(const struct md_uts_namespace *,int domain);

@@ -53,11 +53,18 @@ static long execute_files(const struct md_fs *fs,const struct md_guest_execution
         return fs->endpoint[0] ? md_namespace_call(fs,md_executable,nr,args) : RAW3(ioctl,a0,a1,args[2]);
     if (nr==SYS_uname || nr==SYS_sethostname || nr==SYS_setdomainname) {
         if (nr!=SYS_uname && a1>=sizeof(((struct utsname *)0)->nodename)) return -EINVAL;
+        if (nr==SYS_uname) {
+            struct md_adapter_input input=md_adapter_buffer_begin(MD_BUFFER_UTS,0);
+            if (!input.buffer) return input.value;
+            long result=input.value;
+            if (!result) result=md_write_memory((void *)a0,input.buffer,sizeof(struct utsname));
+            long released=md_adapter_buffer_release();
+            return result ? result : released;
+        }
         long memory=md_adapter_buffer_take();
         if (memory<0) return memory;
-        long result=nr==SYS_uname ? 0 : md_read_memory((void *)memory,(void *)a0,a1);
+        long result=md_read_memory((void *)memory,(void *)a0,a1);
         if (!result) result=md_guest_buffer_control(MD_BUFFER_UTS,0,0);
-        if (!result && nr==SYS_uname) result=md_write_memory((void *)a0,(void *)memory,sizeof(struct utsname));
         long released=md_adapter_buffer_release();
         return result ? result : released;
     }

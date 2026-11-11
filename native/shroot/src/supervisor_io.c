@@ -504,7 +504,7 @@ static void receive_complete(void *context, struct md_task_helper_result result)
             struct md_buffer_span span;
             CHECK(!md_buffer_span(&t->fs.buffer,&span));
             struct md_task_receive_frame *frame=span.data;
-            if (result.value<0 && owner->request.finish_error
+            if (result.value<0 && owner->request.finish_error && !t->entry.execution
                     && (!owner->request.batch || !owner->io.initialized || !frame->io.batch_count)
                     && (t->execution.request.nr==SYS_recvmsg || t->execution.request.nr==SYS_recvmmsg)) {
                 /* No committed message or caller-side allocation remains.

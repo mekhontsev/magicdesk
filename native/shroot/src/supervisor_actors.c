@@ -438,7 +438,7 @@ static void task_action_call_start(struct task_action *owner) {
     if (!error && (!address || span.size<sizeof(struct md_task_filter_image))) error=-EINVAL;
     if (!error) {
         /* seccomp reports the PC after SVC, not the address used to enter it. */
-        struct md_fd_filter_gates gates={RAW_GATE,abi.watch_return,abi.task_return,abi.native_return};
+        struct md_fd_filter_gates gates=md_fd_filter_runtime_gates(&abi);
         struct md_task_filter_image *image=span.data;
         if (owner->pid_filter) {
             struct md_pid_filter_program program;

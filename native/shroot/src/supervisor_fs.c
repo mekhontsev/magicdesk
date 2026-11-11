@@ -23,6 +23,7 @@
 #include "guest_debugger.h"
 #include "guest_domain.h"
 #include "guest_execution.h"
+#include "supervisor_domain.h"
 #include "guest_identity.h"
 #include "interception.h"
 #include "interception_buffers.h"
@@ -428,7 +429,8 @@ void external_stat(void) {
 
 void buffer_reply_signal(struct thread *t, long result, const siginfo_t *signal) {
     uintptr_t extra=t->fs.request.args[0];
-    if (t->fs.request.command==MD_BUFFER_PROC_START || t->fs.request.command==MD_BUFFER_EPOLL_WAIT)
+    if (t->fs.request.command==MD_BUFFER_PROC_START || t->fs.request.command==MD_BUFFER_EPOLL_WAIT
+            || md_adapter_buffer_query(t->fs.request.command))
         extra=md_memory_buffer_address(t->memory,&t->fs.buffer);
     if (t->entry.control) {
         CHECK(!signal);
@@ -694,12 +696,18 @@ long buffer_result_finish(struct thread *t,long copied,long result) {
 void buffer_take(struct thread *t) {
     retry_clear(t,RETRY_BUFFER);
     int start=t->fs.request.command==MD_BUFFER_PROC_START;
-    int error=md_buffers_take_sized(md_memory_buffers(t->memory),start ? 0 : t->fs.request.args[0],&t->fs.buffer);
+    int query=md_adapter_buffer_query(t->fs.request.command);
+    int error=md_buffers_take_sized(md_memory_buffers(t->memory),start || query ? 0 : t->fs.request.args[0],&t->fs.buffer);
     if (error==-EAGAIN) { retry_wait(t,RETRY_BUFFER); return; }
     t->fs.waiting=0;
     uintptr_t address=error ? 0 : md_memory_buffer_address(t->memory,&t->fs.buffer);
     if (!error && !address) { CHECK(!buffer_release(t)); error=-EINVAL; }
     if (!error && start) { proc_io_begin(t); return; }
+    if (!error && query) {
+        if (t->fs.request.command==MD_BUFFER_UTS) domain_buffer_control(t,&t->fs.request);
+        else io_buffer_control(t,&t->fs.request,NULL);
+        return;
+    }
     buffer_reply(t,error ? error : (long)address);
 }
 
@@ -724,6 +732,16 @@ void buffer_return_progress(struct thread *t) {
     }
     t->fs.return_waiting=0;
     buffer_reply(t,result);
+}
+
+static void buffer_finish_control(struct thread *t) {
+    if (!t->entry.execution && entry_require_stop(t,MD_CONTEXT_PROCESS,buffer_finish_control)) return;
+    long result=buffer_result_finish(t,(long)t->fs.request.args[0],(long)t->fs.request.args[1]);
+    /* A resident adapter still owns its C frame. Return to it; END retires the
+     * syscall. Only a Base adapter can bypass its frame at a terminal checkpoint. */
+    if (t->entry.execution) buffer_reply(t,result);
+    else dispatch_complete(t,result);
+    adapter_progress();
 }
 
 void fs_buffer_control(struct thread *t,const struct supervisor_control_request *control) {
@@ -799,8 +817,7 @@ void fs_buffer_control(struct thread *t,const struct supervisor_control_request 
         if (t->phase!=DISPATCHING || (long)control->args[0]<-4095
                 || (value<-4095 && value!=MD_CALL_NATIVE
                     && value!=RESTART_SIGNAL && value!=RESTART_PREPARATION)) break;
-        result=buffer_result_finish(t,(long)control->args[0],value);
-        dispatch_complete(t,result); adapter_progress(); return;
+        buffer_finish_control(t); return;
     }
     case MD_FS_BUFFER_ACK:
         if (control->args[1] || (long)control->args[0]>0 || (long)control->args[0]<-4095) break;

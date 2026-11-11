@@ -3,6 +3,8 @@
 #include "identity_call.h"
 #include "seccomp_install.h"
 #include "terminal_calls.h"
+#include "socket_calls.h"
+#include <linux/ipc.h>
 
 enum md_execution_context md_execution_context_needed(long nr,const uint64_t args[6],unsigned cookie) {
     if (cookie&MD_INTERCEPT_CLOSE) cookie=MD_INTERCEPT_FD;
@@ -39,11 +41,12 @@ enum md_execution_context md_execution_context_needed(long nr,const uint64_t arg
      * the original mask and restart boundary, not a resident C stack. */
     if (nr==SYS_epoll_pwait2 || nr==SYS_ppoll || nr==SYS_pselect6 || nr==SYS_rt_sigsuspend
             || (nr==SYS_epoll_pwait && ((int)args[3] || args[4]))
-            || nr==SYS_semop || nr==SYS_semtimedop || nr==SYS_msgsnd || nr==SYS_msgrcv
+            || nr==SYS_semop || nr==SYS_semtimedop
+            || (nr==SYS_msgsnd && !(args[3]&IPC_NOWAIT))
+            || (nr==SYS_msgrcv && !(args[4]&IPC_NOWAIT))
             || nr==SYS_read || nr==SYS_readv || nr==SYS_write || nr==SYS_writev
             || nr==SYS_futex || nr==SYS_clock_nanosleep || nr==SYS_nanosleep || nr==SYS_io_uring_enter
             || nr==SYS_splice || nr==SYS_tee || nr==SYS_sendfile
-            || nr==SYS_accept || nr==SYS_accept4 || nr==SYS_recvfrom || nr==SYS_recvmsg || nr==SYS_recvmmsg
-            || nr==SYS_connect || nr==SYS_sendto || nr==SYS_sendmsg || nr==SYS_sendmmsg) return MD_CONTEXT_WAIT;
+            || md_socket_wait_call(nr,args[2],args[3])) return MD_CONTEXT_WAIT;
     return MD_CONTEXT_COUNT;
 }

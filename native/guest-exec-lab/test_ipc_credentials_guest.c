@@ -376,7 +376,11 @@ static void nonunix_rights(void) {
     errno=0; ssize_t sent=sendmsg(fd,&message,MSG_NOSIGNAL);
     if (sent!=1) fprintf(stderr,"non-Unix send result=%zd errno=%d\n",sent,errno);
     CHECK(sent==1);
-    byte=0; CHECK(recvmsg(fd,&message,MSG_DONTWAIT)==1 && byte=='n' && !message.msg_controllen);
+    byte=0; ssize_t received=recvmsg(fd,&message,MSG_DONTWAIT);
+    if (received!=1 || byte!='n' || message.msg_controllen)
+        fprintf(stderr,"non-Unix receive result=%zd errno=%d byte=%d control=%zu flags=%#x\n",
+            received,errno,byte,message.msg_controllen,message.msg_flags);
+    CHECK(received==1 && byte=='n' && !message.msg_controllen);
     CHECK(recv(fd,&byte,1,MSG_DONTWAIT)==-1 && errno==EAGAIN);
     pid_t child=fork(); CHECK(child>=0);
     if (!child) {

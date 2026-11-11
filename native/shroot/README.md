@@ -366,7 +366,7 @@ adaptation.
 | Contract | Responsibility |
 | --- | --- |
 | [Interception](interception.md) | Selectors, task-affine calls, protected processes, exec, application filters and private-memory repair |
-| [Cooperative entry](cooperative-entry.md) | Shared direct entry, worker ownership, bounded operation windows, fallback and filter limits |
+| [Cooperative entry](cooperative-entry.md) | Shared exchange, guest/worker/supervisor execution ownership, bounded operation windows, fallback and filter limits |
 | [Process lifetime](process-lifetime.md) | Launch ownership, cancellation, reaping and teardown |
 | [Process resources](process-resources.md) | Sharing, mounts, namespace providers, descriptor custody, network, terminals and cgroups |
 | [Namespace execution](namespace-execution.md) | Path/FD dispatch, cwd, metadata and proc object identity |

@@ -374,6 +374,11 @@ Typed descriptor IO without an input payload acquires its buffer and begins the
 operation in one request. Buffer exhaustion retains no OFD turn; ordinary pool
 release resumes admission. Provider completion returns both the result and the
 leased address, including interrupted or failed IO that still needs cleanup.
+UTS queries, shared-memory status and SysV packet preparation use the same
+combined acquisition principle: their first owner request leases and fills the
+buffer. Pool exhaustion retains that request without starting the operation;
+failure after acquisition still returns the lease for ordinary cleanup. UTS
+mutations retain explicit input capture before their owner changes the namespace.
 Typed descriptor IO combines its final copy acknowledgement, buffer release
 and syscall completion in one checkpoint. Intermediate pages retain the OFD turn
 and buffer; the last acknowledgement commits only confirmed bytes before releasing

@@ -23,6 +23,8 @@ struct md_user_namespace *md_user_namespace_retain(struct md_user_namespace *);
 void md_user_namespace_release(struct md_user_namespace *);
 uint32_t md_user_namespace_into(const struct md_user_namespace *, int group, uint32_t);
 uint32_t md_user_namespace_from(const struct md_user_namespace *, int group, uint32_t);
+/* All translations in this chain are immutable once their maps are written. */
+int md_user_namespace_map_stable(const struct md_user_namespace *,int group);
 int md_user_namespace_contains(const struct md_user_namespace *ancestor, const struct md_user_namespace *);
 int md_user_namespace_same(const struct md_user_namespace *, const struct md_user_namespace *);
 int md_user_namespace_capable(const struct md_user_namespace *actor, uint32_t effective_uid,

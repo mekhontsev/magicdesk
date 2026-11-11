@@ -232,12 +232,15 @@ static void shm_slots(int denied) {
                 BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_fstat,0,1),
                 BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|ENOMSG),
                 BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_mmap,0,1),
+                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+                BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_shmat,0,1),
                 BPF_STMT(BPF_RET|BPF_K,denied ? SECCOMP_RET_ERRNO|EACCES : SECCOMP_RET_ALLOW),
                 BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
             };
             struct sock_fprog program={sizeof(code)/sizeof(*code),code};
             assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
             assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+            assert(mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0)==MAP_FAILED && errno==EACCES);
             struct rlimit limit; assert(!getrlimit(RLIMIT_NOFILE,&limit));
             limit.rlim_cur=64; assert(!setrlimit(RLIMIT_NOFILE,&limit));
             int last=-1, fd;
@@ -277,22 +280,30 @@ static int shared_wait(void *data) {
     assert(!semop(id,&op,1));
     return 0;
 }
-struct shm_attempt { int id, mode, protected; void *address; };
+struct shm_attempt { int id, mode, protected; };
 static int shm_attempt(void *data) {
     struct shm_attempt *a=data;
     if (a->protected) assert(!prctl(PR_SET_DUMPABLE,0));
+    unsigned denied_call=a->mode==0 ? SYS_mmap : a->mode==1 ? SYS_close_range : a->mode==2 ? SYS_clone : SYS_shmat;
+    unsigned action=a->mode==2 || a->mode==3 ? SECCOMP_RET_ERRNO|EACCES : SECCOMP_RET_KILL_THREAD;
     struct sock_filter code[]={
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,a->mode==0 ? SYS_mmap : a->mode==1 ? SYS_close_range : SYS_clone,0,1),
-        BPF_STMT(BPF_RET|BPF_K,a->mode==2 ? SECCOMP_RET_ERRNO|EACCES : SECCOMP_RET_KILL_THREAD),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,denied_call,0,1),
+        BPF_STMT(BPF_RET|BPF_K,action),
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
     };
     struct sock_fprog program={sizeof(code)/sizeof(*code),code};
     assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
     for (unsigned n=0;n<8;++n) {
-        assert(shmat(a->id,a->address,0)==(void *)-1);
-        assert(errno==(a->mode==2 ? EACCES : ECANCELED));
+        char *address=shmat(a->id,NULL,0);
+        assert(a->mode!=4);
+        if (a->mode==3) assert(address==(void *)-1 && errno==EACCES);
+        else {
+            assert(address!=(void *)-1);
+            address[0]='F';
+            assert(!shmdt(address));
+        }
         struct shmid_ds info;
         assert(!shmctl(a->id,IPC_STAT,&info) && !info.shm_nattch);
     }
@@ -309,16 +320,20 @@ static void shm_terminal(void) {
     int filled[64]; unsigned count=0; int fd;
     while ((fd=fcntl(STDERR_FILENO,F_DUPFD_CLOEXEC,0))>=0) { assert(count<64); filled[count++]=fd; }
     assert(errno==EMFILE);
-    for (int protected=0;protected<2;++protected) for (int mode=0;mode<3;++mode) {
-        struct shm_attempt a={id,mode,protected,warm};
+    for (int protected=0;protected<2;++protected) for (int mode=0;mode<5;++mode) {
+        struct shm_attempt a={id,mode,protected};
         pid_t child=clone(shm_attempt,(char *)stack+65536,CLONE_VM|CLONE_FILES|SIGCHLD,&a);
-        assert(child>0); exited(child);
+        assert(child>0);
+        if (mode==4) {
+            int status;
+            assert(waitpid(child,&status,0)==child && WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
+        } else exited(child);
         for (int n=0;n<64;++n) assert(fcntl(n,F_GETFD)>=0);
         assert(fcntl(STDERR_FILENO,F_DUPFD_CLOEXEC,0)==-1 && errno==EMFILE);
         assert(!prctl(PR_SET_DUMPABLE,1));
         struct shmid_ds info;
         assert(!shmctl(id,IPC_STAT,&info) && !info.shm_nattch);
-        char *p=shmat(id,warm,0); assert(p==warm);
+        char *p=shmat(id,NULL,0); assert(p!=(void *)-1);
         p[0]='T'; assert(!shmdt(p));
     }
     while (count) assert(!close(filled[--count]));

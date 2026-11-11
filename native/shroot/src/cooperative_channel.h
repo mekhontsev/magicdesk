@@ -12,6 +12,8 @@
 #include "memory_admission.h"
 #include "guest_execution.h"
 #include "interception_route.h"
+#include "identity_view.h"
+#include "uts_view.h"
 
 static inline int md_entry_open(int number) {
     return number==SYS_openat || number==SYS_openat2;
@@ -61,7 +63,7 @@ static inline enum md_entry_wait md_entry_wait_kind(int number,int native_sent) 
 }
 struct md_entry_channel {
     _Alignas(64) atomic_uint state;
-    atomic_uint enabled, awake, sleeping;
+    atomic_uint enabled, awake, control_awake, sleeping;
     /* Published by the coordinator before enabling this thread's channel. */
     atomic_uintptr_t policy;
     /* fd+1 or MD_ENTRY_RESULT_FD, issued under an exclusive table turn.
@@ -104,6 +106,8 @@ struct md_entry_channel {
         char paths[2][4096];
     } input;
     struct md_memory_admission memory;
+    struct md_identity_view identity;
+    struct md_uts_view uts;
     /* Cold routing publication must not split the request/lease cache lines. */
     struct md_interception_route_view routes;
     unsigned route_statistics;
@@ -116,31 +120,5 @@ static inline int md_entry_regular_descriptor(const struct md_entry_channel *c) 
     if (atomic_load_explicit(&c->native.state,memory_order_acquire)!=MD_NATIVE_DONE
             || c->native.number!=SYS_openat || c->native.result<0 || c->native.result>INT32_MAX) return -1;
     return (int)c->native.result;
-}
-enum { MD_ENTRY_PENDING_CALL=1, MD_ENTRY_PENDING_NATIVE=2 };
-/* Pair with the producer's publication/fence/awake check. Either this sees
- * the work or that producer requests a kernel wake; neither may miss both. */
-static inline unsigned md_entry_prepare_wait(struct md_entry_channel *c) {
-    atomic_store_explicit(&c->awake,0,memory_order_seq_cst);
-    unsigned pending=atomic_load_explicit(&c->state,memory_order_seq_cst)==MD_ENTRY_REQUEST
-        ? MD_ENTRY_PENDING_CALL : 0;
-    unsigned state=atomic_load_explicit(&c->native.state,memory_order_seq_cst);
-    if (state==MD_NATIVE_DONE || state==MD_NATIVE_CANCELLED || state==MD_NATIVE_UNKNOWN)
-        pending|=MD_ENTRY_PENDING_NATIVE;
-    return pending;
-}
-/* The native-effect owner publishes receipts. A caller which claimed RETIRING already
- * owns the native result and may have queued its next request in call. */
-static inline int md_entry_native_retire(struct md_entry_channel *c,uint64_t sequence,
-        enum md_entry_outcome outcome,long result) {
-    c->receipt=sequence; c->result=result; c->outcome=outcome;
-    unsigned offered=MD_ENTRY_NATIVE;
-    if (atomic_compare_exchange_strong_explicit(&c->state,&offered,MD_ENTRY_RESPONSE,
-            memory_order_seq_cst,memory_order_acquire)) return 1;
-    if (offered!=MD_ENTRY_RETIRING && offered!=MD_ENTRY_REQUEST && offered!=MD_ENTRY_FD_REQUEST) return -EPROTO;
-    unsigned retiring=MD_ENTRY_RETIRING;
-    atomic_compare_exchange_strong_explicit(&c->state,&retiring,MD_ENTRY_IDLE,
-        memory_order_release,memory_order_relaxed);
-    return 0;
 }
 #endif

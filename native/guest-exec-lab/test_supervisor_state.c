@@ -1300,6 +1300,21 @@ static void execution_context_contract(void) {
     const long waits[]={SYS_read,SYS_write,SYS_futex,SYS_wait4,SYS_connect,SYS_recvmsg};
     for (unsigned i=0;i<sizeof(waits)/sizeof(*waits);++i)
         assert(md_execution_context_needed(waits[i],args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_WAIT);
+    const long sockets[]={SYS_sendto,SYS_recvfrom,SYS_sendmsg,SYS_recvmsg,SYS_sendmmsg,SYS_recvmmsg};
+    for (unsigned i=0;i<sizeof(sockets)/sizeof(*sockets);++i) {
+        unsigned flag=sockets[i]==SYS_sendmsg || sockets[i]==SYS_recvmsg ? 2 : 3;
+        args[flag]=MSG_DONTWAIT;
+        assert(md_execution_context_needed(sockets[i],args,MD_INTERCEPT_DISPATCH)==MD_CONTEXT_COUNT);
+        args[flag]=0;
+        assert(md_execution_context_needed(sockets[i],args,MD_INTERCEPT_DISPATCH)==MD_CONTEXT_WAIT);
+    }
+    for (unsigned receive=0;receive<2;++receive) {
+        long nr=receive ? SYS_msgrcv : SYS_msgsnd;
+        args[3+receive]=IPC_NOWAIT;
+        assert(md_execution_context_needed(nr,args,MD_INTERCEPT_DISPATCH)==MD_CONTEXT_COUNT);
+        args[3+receive]=0;
+        assert(md_execution_context_needed(nr,args,MD_INTERCEPT_DISPATCH)==MD_CONTEXT_WAIT);
+    }
     assert(md_execution_context_needed(SYS_epoll_pwait,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_COUNT);
     args[3]=-1;
     assert(md_execution_context_needed(SYS_epoll_pwait,args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_WAIT);
@@ -2875,13 +2890,15 @@ void md_test_seccomp_notify(void);
 static void buffered_io_pressure(void) {
     struct thread t={.pid=123,.phase=DISPATCHING,.memory=md_memory_new(),.fs.waiting=1};
     assert(t.memory && !md_memory_buffers_prepare(t.memory,1,4096,0,0));
-    t.fs.request.command=MD_BUFFER_PROC_START;
-    t.fs.request.args[0]=4;
     struct md_interception_buffer held={0};
     assert(!md_buffers_take(md_memory_buffers(t.memory),&held));
-    buffer_take(&t);
-    assert(t.fs.waiting && !t.fs.buffer.pool && !t.proc.io.file && !t.proc.io.turn.queue);
-    assert(t.retries[RETRY_BUFFER>=RETRY_FD].mask==RETRY_BUFFER);
+    const unsigned commands[]={MD_BUFFER_PROC_START,MD_BUFFER_UTS,MD_BUFFER_SHM_STAT,MD_BUFFER_IPC_PREPARE};
+    for (unsigned i=0;i<sizeof(commands)/sizeof(*commands);++i) {
+        t.fs.request.command=commands[i]; t.fs.request.args[0]=4;
+        buffer_take(&t);
+        assert(t.fs.waiting && !t.fs.buffer.pool && !t.proc.io.file && !t.proc.io.turn.queue && !t.io.transport.packet);
+        assert(t.retries[RETRY_BUFFER>=RETRY_FD].mask==RETRY_BUFFER);
+    }
     /* Cancellation while waiting has neither provider work nor a buffer to
      * retire; freeing capacity cannot resurrect the removed continuation. */
     retry_clear(&t,RETRY_BUFFER); t.fs.waiting=0;

@@ -16,6 +16,7 @@
 #define MD_SVC_GUARD_SIZE 65536
 #define MD_SVC_OWNER_OFFSET 384
 #define MD_SVC_SAVED_SP 864
+#define MD_SVC_CLIENT_OFFSET 872
 
 #ifndef __ASSEMBLER__
 #include <stddef.h>

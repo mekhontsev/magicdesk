@@ -107,6 +107,7 @@ struct supervisor_memory_op_state {
 };
 
 struct supervisor_entry_state {
+    struct md_uts_subscription uts;
     int fence_waiting;
     int fence_held;
     int fence_replay;

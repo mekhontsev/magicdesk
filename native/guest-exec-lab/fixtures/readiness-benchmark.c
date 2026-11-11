@@ -16,6 +16,10 @@
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/msg.h>
+#include <sys/socket.h>
+#include <sys/utsname.h>
+#include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -40,7 +44,10 @@ int main(int argc,char **argv) {
     int memory=!strcmp(argv[1],"memory");
     int duplicate=!strcmp(argv[1],"fd-dup"),metadata=!strcmp(argv[1],"fd-stat");
     int flags=!strcmp(argv[1],"fd-flags"),control=!strcmp(argv[1],"fd-ioctl");
-    assert(files || memory || idle || epoll || duplicate || metadata || flags || control || !strcmp(argv[1],"poll"));
+    int identity=!strcmp(argv[1],"identity"),uts=!strcmp(argv[1],"uname");
+    int messages=!strcmp(argv[1],"ipc-nowait"),sockets=!strcmp(argv[1],"socket-nowait");
+    assert(files || memory || idle || epoll || duplicate || metadata || flags || control
+        || identity || uts || messages || sockets || !strcmp(argv[1],"poll"));
     assert(files || blocks==1);
     char directory[]="/tmp/md-readiness-XXXXXX";
     int dir=-1;
@@ -57,6 +64,10 @@ int main(int argc,char **argv) {
     struct epoll_event event={.events=EPOLLIN,.data.u64=42},received;
     assert(!epoll_ctl(queue,EPOLL_CTL_ADD,fd,&event));
     struct pollfd p={.fd=fd,.events=POLLIN};
+    uid_t uid=getuid(),euid=geteuid(); gid_t gid=getgid(),egid=getegid();
+    int message_queue=-1,pair[2]={-1,-1};
+    if (messages) { message_queue=msgget(IPC_PRIVATE,IPC_CREAT|0600); assert(message_queue>=0); }
+    if (sockets) assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,pair));
     if (getenv("MD_BENCH_FILTER")) {
         struct sock_filter instruction=BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
         struct sock_fprog filter={.len=1,.filter=&instruction};
@@ -81,6 +92,20 @@ int main(int argc,char **argv) {
                 } else {
                     struct stat st; assert(!fstatat(dir,"file",&st,0) && S_ISREG(st.st_mode));
                 }
+            } else if (identity) {
+                assert(syscall(SYS_getuid)==uid && syscall(SYS_geteuid)==euid
+                    && syscall(SYS_getgid)==gid && syscall(SYS_getegid)==egid);
+            } else if (uts) {
+                struct utsname names; assert(!uname(&names) && !strcmp(names.sysname,"Linux"));
+            } else if (messages) {
+                struct { long type; char data; } message={.type=1,.data='m'},received_message={0};
+                assert(!msgsnd(message_queue,&message,1,IPC_NOWAIT));
+                assert(msgrcv(message_queue,&received_message,1,1,IPC_NOWAIT)==1
+                    && received_message.type==1 && received_message.data=='m');
+            } else if (sockets) {
+                char value=0;
+                assert(send(pair[0],"s",1,MSG_DONTWAIT|MSG_NOSIGNAL)==1);
+                assert(recv(pair[1],&value,1,MSG_DONTWAIT)==1 && value=='s');
             } else if (duplicate) {
                 int copy=fcntl(fd,F_DUPFD_CLOEXEC,0);
                 assert(copy>=0 && !close(copy));
@@ -121,6 +146,8 @@ int main(int argc,char **argv) {
             samples[block].voluntary,samples[block].involuntary,
             samples[block].start_cpu,samples[block].end_cpu);
     assert(!close(queue) && !close(fd));
+    if (messages) assert(!msgctl(message_queue,IPC_RMID,NULL));
+    if (sockets) assert(!close(pair[0]) && !close(pair[1]));
     if (files) {
         if (!cycle) assert(!unlinkat(dir,"file",0));
         assert(!close(dir) && !rmdir(directory));

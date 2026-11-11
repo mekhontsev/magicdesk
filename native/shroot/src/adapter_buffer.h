@@ -35,14 +35,19 @@ static inline int md_adapter_buffer_scalar(unsigned long command) {
         || command==MD_BUFFER_IPC_PREPARE;
 }
 struct md_adapter_input { long value; void *buffer; };
+/* No input payload is needed before these owners prepare their buffer. */
+static inline int md_adapter_buffer_query(unsigned long command) {
+    return command==MD_BUFFER_UTS || command==MD_BUFFER_SHM_STAT || command==MD_BUFFER_IPC_PREPARE;
+}
 static inline int md_adapter_buffer_shared(unsigned long command) {
-    return md_adapter_buffer_scalar(command) || command==MD_BUFFER_EPOLL_BEGIN;
+    return md_adapter_buffer_scalar(command) || command==MD_BUFFER_EPOLL_BEGIN || command==MD_BUFFER_FINISH;
 }
 #ifndef MD_USE_LIBC
 int md_adapter_buffer_install(void);
 int md_adapter_readonly_install(void);
 int md_adapter_buffer_ready(void);
 long md_adapter_buffer_take(void);
+struct md_adapter_input md_adapter_buffer_begin(unsigned command,unsigned long argument);
 long md_adapter_buffer_release(void);
 /* Terminal acknowledgement retires the buffer and completes the syscall. */
 long md_adapter_buffer_finish(long copied, long result);

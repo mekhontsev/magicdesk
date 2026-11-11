@@ -48,8 +48,7 @@ static inline void md_interception_program_build(const struct md_interception_ab
     uintptr_t task=abi->task_return,abort_task=abi->task_abort_return;
     uintptr_t admit=abi->buffer_admit,native=abi->native_return;
 #define COUNT(name) + 1
-        enum { transport_instructions = 2 * (1 MD_GATE_TRANSPORT_CALLS(COUNT)),
-            native_instructions = 2 * (0 MD_ENTRY_NATIVE_CALLS(COUNT)) };
+        enum { transport_instructions = 2 * (1 MD_GATE_TRANSPORT_CALLS(COUNT)) };
 #undef COUNT
 #define TRACE(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_DISPATCH),
@@ -59,6 +58,15 @@ static inline void md_interception_program_build(const struct md_interception_ab
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 #define DESCRIPTOR(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_FD),
+/* Compare the full policy argument, not only its low kernel int. */
+#define NATIVE_ARGUMENT(n, index, value) \
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 6), \
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index]) + 4), \
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 3), \
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index])), \
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, value, 0, 1), \
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         struct sock_filter filter[] = {
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 1, 0),
@@ -103,7 +111,7 @@ static inline void md_interception_program_build(const struct md_interception_ab
 #define COUNT_MARKER(field,symbol) +2
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(abi->ready>>32),0,
-                27+native_instructions MD_CHECKPOINT_SITES(COUNT_MARKER)),
+                27 MD_CHECKPOINT_SITES(COUNT_MARKER)),
 #undef COUNT_MARKER
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
 #define MARKER(field,symbol) \
@@ -113,11 +121,10 @@ static inline void md_interception_program_build(const struct md_interception_ab
 #undef MARKER
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abi->socket_return,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK),
-            /* An admitted native effect retains its table turn and journal.
-             * Guest policy admission precedes this owned service call. */
-            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)native,0,1+native_instructions),
-            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-            MD_ENTRY_NATIVE_CALLS(NATIVE)
+            /* The operation owner has admitted this journaled native effect.
+             * Do not maintain a second syscall policy at its execution gate. */
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)native,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
             /* Descriptor admission has no dependency on application prctl
              * policy. The installed chain must admit this exact service site. */
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
@@ -172,6 +179,9 @@ static inline void md_interception_program_build(const struct md_interception_ab
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             MD_DOMAIN_FD_ARGUMENTS(FD_ARGUMENT)
 #undef FD_ARGUMENT
+            /* No peer address or ancillary result needs adaptation. Provider
+             * FD selectors retain virtual socket ownership, just as for IO. */
+            NATIVE_ARGUMENT(sendto,4,0) NATIVE_ARGUMENT(recvfrom,4,0)
             NATIVE(read) NATIVE(write) NATIVE(readv) NATIVE(writev)
             NATIVE(pread64) NATIVE(pwrite64)
             /* Internal mappings, admitted regular-file cursors and descriptor
@@ -217,15 +227,6 @@ static inline void md_interception_program_build(const struct md_interception_ab
             LIMIT(getrlimit,0) LIMIT(setrlimit,0) LIMIT(prlimit64,1)
 #undef LIMIT
             MD_DOMAIN_KERNEL_CONTROL_CALLS(NATIVE)
-            /* Compare the full policy argument, not only its low kernel int. */
-#define NATIVE_ARGUMENT(n, index, value) \
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 6), \
-            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index]) + 4), \
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 3), \
-            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index])), \
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, value, 0, 1), \
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
-            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             MD_DOMAIN_KERNEL_ARGUMENTS(NATIVE_ARGUMENT)
 #undef NATIVE_ARGUMENT
             /* Report missing guest providers without exposing host resources.

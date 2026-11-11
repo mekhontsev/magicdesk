@@ -22,6 +22,15 @@ struct md_svc_payload_state {
     struct md_svc_client_slot clients[MD_SVC_INLINE_CLIENTS];
     uintptr_t client_buckets[MD_SVC_CLIENT_BUCKETS];
 };
+/* This is the runtime's exclusively claimed stack, not the application's SP
+ * or TLS. Nested adapters borrow the client resolved by this exact entry. */
+static inline struct md_entry_client *md_svc_frame_client(uintptr_t frames,uintptr_t sp) {
+    if (!frames || sp-frames>=MD_SVC_POOL_SIZE) return NULL;
+    uintptr_t offset=(sp-frames)&(MD_SVC_SLOT_SIZE-1);
+    if (offset<MD_SVC_GUARD_OFFSET+MD_SVC_GUARD_SIZE) return NULL;
+    uintptr_t frame=sp-offset;
+    return *(struct md_entry_client **)(frame+MD_SVC_CLIENT_OFFSET);
+}
 /* Lookup only: publication and retirement remain with the entry registry. */
 static __attribute__((always_inline)) inline struct md_entry_client *md_svc_client_find(
         struct md_svc_payload_state *s,uint64_t tid) {

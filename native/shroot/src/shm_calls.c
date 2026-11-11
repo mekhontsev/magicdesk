@@ -45,10 +45,10 @@ long md_shm_dispatch(long nr, const unsigned long *a) {
         return r < 0 ? r : request(MD_SHM_SET,a[0],info.shm_perm.uid|((uint64_t)info.shm_perm.gid<<32),info.shm_perm.mode);
     }
     if (command != IPC_STAT) return -ENOTSUP;
-    long memory=md_adapter_buffer_take();
-    if (memory<0) return memory;
-    long result=md_guest_buffer_control(MD_BUFFER_SHM_STAT,a[0],0);
-    if (!result) result=md_write_memory((void *)a[2],(void *)memory,sizeof(info));
+    struct md_adapter_input input=md_adapter_buffer_begin(MD_BUFFER_SHM_STAT,a[0]);
+    if (!input.buffer) return input.value;
+    long result=input.value;
+    if (!result) result=md_write_memory((void *)a[2],input.buffer,sizeof(info));
     long released=md_adapter_buffer_release();
     return result ? result : released;
 }

@@ -370,6 +370,35 @@ static void filter(unsigned flags) {
     assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,flags,&program));
 }
+static void native_payload(int filtered) {
+    int pair[2]; assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,pair));
+    if (filtered) {
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_sendto,1,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_recvfrom,0,3),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[3])),
+            BPF_JUMP(BPF_JMP|BPF_JSET|BPF_K,MSG_PEEK,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    md_test_syscall_fn call=md_test_syscall_site(0);
+    char sent='s',received=0;
+    for (unsigned i=0;i<1024;++i) {
+        assert(call(pair[0],(uintptr_t)&sent,1,MSG_DONTWAIT,0,0,SYS_sendto)==1);
+        assert(call(pair[1],(uintptr_t)&received,1,MSG_DONTWAIT,0,0,SYS_recvfrom)==1 && received==sent);
+    }
+    if (filtered) {
+        assert(call(pair[0],(uintptr_t)&sent,1,MSG_DONTWAIT|MSG_PEEK,0,0,SYS_sendto)==-EACCES);
+        assert(call(pair[1],(uintptr_t)&received,1,MSG_DONTWAIT|MSG_PEEK,0,0,SYS_recvfrom)==-EACCES);
+    }
+    assert(call(pair[1],(uintptr_t)&received,1,MSG_DONTWAIT,0,0,SYS_recvfrom)==-EAGAIN);
+    assert(!close(pair[0]) && !close(pair[1]));
+    printf("PASS native payload: filtered=%d, exact transfer, argument denial and empty queue\n",filtered);
+}
 static pthread_barrier_t filter_barrier;
 static void *filtered_exec(void *executable) {
     struct sock_filter code[]={
@@ -460,9 +489,9 @@ static void scalar_credentials(void) {
             for (unsigned i=0;i<4;++i) {
                 uint64_t sequence=channel->sequence;
                 long result=required_call(&local,calls[i],(uint64_t[6]){0});
-                if (round<3) assert(channel->sequence==sequence+1);
-                /* Native comparison can itself use lazy machine entry and
-                 * the same thread channel. Check this call's increment first. */
+                assert(channel->sequence==sequence+(round==3));
+                /* Published scalars need no request. An unfinished namespace
+                 * map retains live translation through the shared owner. */
                 assert(result==syscall(calls[i]));
             }
         }
@@ -637,6 +666,11 @@ static void task_completion(void) {
     struct utsname names;
     assert(!required_call(local,SYS_uname,(uint64_t[]){(uintptr_t)&names,0,0,0,0,0}));
     assert(!strcmp(names.sysname,"Linux"));
+    struct md_entry_channel *view=(void *)local->opaque[MD_ENTRY_CLIENT_CHANNEL];
+    uint64_t sequence=view->sequence;
+    struct md_entry_call query=caller_request(SYS_uname,(uint64_t[6]){(uintptr_t)&names});
+    assert(api->try_identified(local,api->thread_identity(),&query)==MD_ENTRY_COMPLETED && !query.result);
+    assert(view->sequence==sequence && !strcmp(names.sysname,"Linux"));
     assert(required_call(local,SYS_getuid,(uint64_t[6]){0})==0);
     int pair[2];
     assert(!required_call(local,SYS_pipe2,(uint64_t[]){(uintptr_t)pair,O_CLOEXEC,0,0,0,0}));
@@ -1727,6 +1761,9 @@ int main(int argc,char **argv) {
     assert(!sigaction(SIGUSR2,&action,NULL));
     api=(void *)getauxval(MD_AT_COOPERATIVE);
     assert(md_entry_api_valid(api));
+    if (argc==3 && !strcmp(argv[1],"--native-payload")) {
+        native_payload(atoi(argv[2])); return 0;
+    }
     if (argc>1 && !strcmp(argv[1],"--filtered-exec")) {
         struct stat st; long result;
         assert(stat_try(&client,&st,&result)==MD_ENTRY_COMPLETED && !result);

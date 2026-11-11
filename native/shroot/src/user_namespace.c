@@ -199,6 +199,10 @@ uint32_t md_user_namespace_from(const struct md_user_namespace *n, int group, ui
     id=md_user_namespace_from(n->parent,group,id);
     return translate(&n->page->maps[!!group],id,1);
 }
+int md_user_namespace_map_stable(const struct md_user_namespace *n,int group) {
+    for (;n;n=n->parent) if (!map_count(&n->page->maps[!!group])) return 0;
+    return 1;
+}
 int md_user_namespace_contains(const struct md_user_namespace *ancestor, const struct md_user_namespace *n) {
     for (;;) {
         if (same(n,ancestor)) return 1;

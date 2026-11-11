@@ -4,6 +4,7 @@
 #include "task_status.h"
 #include "mqueue_view.h"
 #include <assert.h>
+#include "uts_view.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -25,6 +26,39 @@ void test_user_namespace(void);
 void test_control_poll(void);
 void test_descriptor_inode(void);
 void test_ipc_database(void);
+struct uts_reader {
+    struct md_uts_view view;
+    atomic_int done;
+    atomic_uint reads;
+};
+static void *uts_read_concurrent(void *opaque) {
+    struct uts_reader *reader=opaque;
+    do {
+        struct utsname names;
+        if (!md_uts_view_read(&reader->view,&names)) continue;
+        assert(names.nodename[0]=='a' || names.nodename[0]=='b');
+        for (unsigned i=1;i<sizeof(names.nodename)-1;++i)
+            assert(names.nodename[i]==names.nodename[0]);
+        assert(!names.nodename[sizeof(names.nodename)-1]);
+        atomic_fetch_add(&reader->reads,1);
+    } while (!atomic_load(&reader->done));
+    return NULL;
+}
+static void uts_publication(void) {
+    struct md_uts_namespace *ns=md_uts_namespace_new(); assert(ns);
+    struct uts_reader reader={0}; struct md_uts_subscription subscription={0};
+    char name[sizeof(((struct utsname *)0)->nodename)-1]; memset(name,'a',sizeof(name));
+    assert(!md_uts_namespace_set(ns,0,name,sizeof(name)));
+    md_uts_namespace_subscribe(ns,&subscription,&reader.view);
+    pthread_t thread; assert(!pthread_create(&thread,NULL,uts_read_concurrent,&reader));
+    for (unsigned i=0;i<10000;++i) {
+        memset(name,i&1 ? 'a' : 'b',sizeof(name));
+        assert(!md_uts_namespace_set(ns,0,name,sizeof(name)));
+    }
+    atomic_store(&reader.done,1); assert(!pthread_join(thread,NULL) && atomic_load(&reader.reads));
+    md_uts_namespace_unsubscribe(&subscription); md_uts_namespace_release(ns);
+    puts("PASS UTS publication: concurrent atomic snapshots never mix namespace generations");
+}
 static void process_access(void) {
     assert(md_resources_setns_process_flags(0)==-EINVAL);
     assert(md_resources_setns_process_flags(CLONE_FILES)==-EINVAL);
@@ -548,6 +582,7 @@ void test_network_tun(void);
 void test_task_registry_exit(void);
 void test_task_mapping(void);
 int main(int argc,char **argv) {
+    uts_publication();
     alarm(60);
     if(argc==2 && !strcmp(argv[1],"--tun")) { test_network_tun(); return 0; }
     test_task_mapping();
@@ -586,6 +621,10 @@ int main(int argc,char **argv) {
     struct md_task_resources sibling;
     assert(!md_resources_fork(&r,0,NULL,&sibling) && sibling.uts==r.uts);
     assert(!md_uts_namespace_set(r.uts,0,"parent",6));
+    struct md_uts_view view={0},peer_view={0};
+    struct md_uts_subscription subscription={0},peer_subscription={0};
+    md_uts_namespace_subscribe(r.uts,&subscription,&view);
+    md_uts_namespace_subscribe(sibling.uts,&peer_subscription,&peer_view);
     assert(!md_resources_unshare_prepare(&r,CLONE_NEWUTS,&identity,&change));
     assert(change.next.uts && change.next.uts!=r.uts);
     assert(!md_resources_unshare_finish(&r,NULL,&change,-EINVAL) && r.uts==sibling.uts);
@@ -594,6 +633,16 @@ int main(int argc,char **argv) {
     struct utsname names;
     md_uts_namespace_read(r.uts,&names); assert(!strcmp(names.nodename,"parent"));
     assert(!md_uts_namespace_set(r.uts,0,"child",5));
+    assert(md_uts_view_read(&view,&names) && !strcmp(names.nodename,"parent"));
+    md_uts_namespace_subscribe(r.uts,&subscription,&view);
+    assert(md_uts_view_read(&view,&names) && !strcmp(names.nodename,"child"));
+    assert(!md_uts_namespace_set(sibling.uts,0,"sibling",7));
+    assert(md_uts_view_read(&peer_view,&names) && !strcmp(names.nodename,"sibling"));
+    assert(md_uts_view_read(&view,&names) && !strcmp(names.nodename,"child"));
+    assert(!md_uts_namespace_set(sibling.uts,0,"parent",6));
+    md_uts_namespace_unsubscribe(&subscription);
+    assert(!md_uts_view_read(&view,&names));
+    md_uts_namespace_unsubscribe(&peer_subscription);
     md_uts_namespace_read(sibling.uts,&names); assert(!strcmp(names.nodename,"parent"));
     assert(!md_resources_release(&sibling));
     assert(md_resources_clone_supported(CLONE_NEWNS));

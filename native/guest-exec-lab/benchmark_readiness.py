@@ -9,6 +9,8 @@ import statistics
 from test_oci_services import Suite
 from benchmark_cpu import observe_suite_cpu
 
+CONTROL_WORKLOADS = ('fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl',
+                     'identity', 'uname', 'ipc-nowait', 'socket-nowait')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -30,7 +32,7 @@ def main():
                         help='Optional native taskset hexadecimal mask for controlled comparisons')
     parser.add_argument('--workload', action='append', choices=(
         'poll', 'epoll', 'epoll-ready', 'idle', 'python-start', 'ls-start', 'file-stat', 'file-open', 'file-cycle',
-        'fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl'),
+        *CONTROL_WORKLOADS),
         help='Limit a focused repeat; defaults to the complete matrix')
     parser.add_argument('--output', type=Path, default=Path('build/readiness-performance'))
     args = parser.parse_args()
@@ -91,12 +93,12 @@ def main():
         file_workloads = {'file-stat', 'file-open', 'file-cycle'}
         for workload in ('file-stat', 'file-open', 'file-cycle'):
             workloads[workload] = [target + '/benchmark', workload, '1024', str(args.file_blocks)]
-        for workload in ('fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl'):
+        for workload in CONTROL_WORKLOADS:
             workloads[workload] = [target + '/benchmark', workload, str(args.iterations)]
         if args.workload:
             workloads = {name: command for name, command in workloads.items() if name in args.workload}
         measured = {'poll', 'epoll', 'epoll-ready', 'idle', 'file-stat', 'file-open', 'file-cycle',
-                    'fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl'}
+                    *CONTROL_WORKLOADS}
         suite.report['samples'] = samples = []
         order = list(modes)
         for round_number in range(args.rounds):

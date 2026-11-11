@@ -6,14 +6,14 @@
 #include <errno.h>
 
 long md_ipc_dispatch(long nr, const unsigned long *args) {
-    long memory=md_adapter_buffer_take();
-    if (memory<0) {
+    struct md_adapter_input input=md_adapter_buffer_begin(MD_BUFFER_IPC_PREPARE,0);
+    if (!input.buffer) {
         md_guest_resource_control(MD_GUEST_IPC,MD_IPC_CLOSE,1,0,0,0);
-        return memory;
+        return input.value;
     }
-    long result=md_guest_buffer_control(MD_BUFFER_IPC_PREPARE,0,0);
+    long result=input.value;
     if (!result) {
-        struct md_ipc_packet *packet=(void *)memory;
+        struct md_ipc_packet *packet=input.buffer;
         struct md_ipc_packet header=*packet;
         if (header.length<sizeof(header) || header.length>sizeof(header)+MD_IPC_VALUE_MAX
                 || header.input_size>header.length-sizeof(header)

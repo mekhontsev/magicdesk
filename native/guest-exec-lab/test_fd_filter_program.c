@@ -19,11 +19,24 @@
 static void routing_contract(void) {
     static struct md_interception_routes routes;
     struct md_interception_abi abi={.raw_gate=0x2010000000,.watch_return=0x2010000010,
-        .task_return=0x2010000020,.native_return=0x2010000030,.ready=0x2010000100,
+        .task_return=0x2010000020,.native_return=0x2010000030,.socket_return=0x2010000040,.ready=0x2010000100,
         .buffer_admit=0x2010000200,.host_policy=1};
     assert(!md_interception_routes_init(&routes,&abi));
-    struct md_fd_filter_gates gates={abi.raw_gate,abi.watch_return,abi.task_return,abi.native_return};
+    struct md_fd_filter_gates gates=md_fd_filter_runtime_gates(&abi);
     const int selected[]={3,190,511};
+    for (unsigned receive=0;receive<2;++receive) for (unsigned controlled=0;controlled<2;++controlled)
+        for (unsigned address=0;address<3;++address) {
+            struct md_fd_selector_view view={.active=controlled ? 1u<<MD_FD_SELECTOR_PROC : 0};
+            view.bits[MD_FD_SELECTOR_PROC][190/64]=UINT64_C(1)<<(190%64);
+            struct seccomp_data call={.nr=receive ? SYS_recvfrom : SYS_sendto,.arch=AUDIT_ARCH_AARCH64,
+                .instruction_pointer=0x4010000004,.args={190,0,1,MSG_DONTWAIT,address==2 ? UINT64_C(1)<<32 : address,0}};
+            uint32_t result;
+            assert(!md_interception_routes_eval(&routes,&view,0,&call,&result));
+            assert(result==(controlled || address ? SECCOMP_RET_TRACE|MD_INTERCEPT_DISPATCH : SECCOMP_RET_ALLOW));
+            call.instruction_pointer=abi.socket_return;
+            assert(!md_interception_routes_eval(&routes,&view,0,&call,&result));
+            assert(result==(SECCOMP_RET_TRACE|MD_INTERCEPT_TASK));
+        }
     for (unsigned kind=0;kind<MD_FD_SELECTOR_KINDS;++kind) for (unsigned all=0;all<2;++all) {
         struct md_fd_selector_view view={.active=1u<<kind,.all=all ? 1u<<kind : 0};
         struct md_fd_filter_program programs[3];
@@ -160,6 +173,7 @@ static unsigned expected(unsigned kind,int fd,const struct seccomp_data *d) {
         case SYS_preadv2: case SYS_pwritev2: case SYS_lseek: case SYS_ioctl:
         case SYS_getdents64: case SYS_fstatfs: case SYS_ftruncate: case SYS_fsync:
         case SYS_fdatasync: selected=1; break;
+        case SYS_sendto: case SYS_recvfrom: selected=1; break;
         case SYS_sendfile: case SYS_tee: selected=3; break;
         case SYS_splice: case SYS_copy_file_range: selected=5; break;
         case SYS_mmap: if (!(d->args[3]&MAP_ANONYMOUS)) selected=1u<<4; break;
@@ -176,7 +190,8 @@ static unsigned expected(unsigned kind,int fd,const struct seccomp_data *d) {
     for (unsigned n=0;n<6;++n) if ((selected&(1u<<n))
             && (fd==-1 || (d->args[n]&MD_FD_SELECTOR_MASK)==((unsigned)fd&MD_FD_SELECTOR_MASK)))
         return SECCOMP_RET_TRACE|(kind==MD_FD_SELECTOR_WATCH ? MD_INTERCEPT_WATCH
-            : kind==MD_FD_SELECTOR_PROC ? MD_INTERCEPT_PROC : MD_INTERCEPT_READINESS);
+            : kind==MD_FD_SELECTOR_PROC ? (d->nr==SYS_sendto || d->nr==SYS_recvfrom
+                ? MD_INTERCEPT_DISPATCH : MD_INTERCEPT_PROC) : MD_INTERCEPT_READINESS);
     return SECCOMP_RET_ALLOW;
 }
 void test_fd_filter_program(void) {
@@ -197,8 +212,8 @@ void test_fd_filter_program(void) {
         assert(evaluate(&close_filter,&d)==want);
     }
     puts("PASS compact close cookies: exact low-int FD, boundary/negative fallback, other syscall accumulator preserved");
-    const struct md_fd_filter_gates gates={0x1112345678,0x2212345678,0x3312345678,0x5512345678};
-    const uintptr_t exempt[]={gates.raw,gates.watch,gates.task,gates.native};
+    const struct md_fd_filter_gates gates={0x1112345678,0x2212345678,0x3312345678,0x5512345678,0x6612345678};
+    const uintptr_t exempt[]={gates.raw,gates.watch,gates.task,gates.native,gates.socket};
     const int fds[]={0,190,511,512,1024*1024,-1};
     const unsigned commands[]={0,F_GETFL,F_SETFL,F_GETFD,F_GET_SEALS,F_ADD_SEALS,F_DUPFD,F_DUPFD_CLOEXEC,FIONREAD,FIONBIO,FIOCLEX,FIONCLEX};
     struct md_fd_filter_program built;
@@ -235,26 +250,26 @@ void test_fd_filter_program(void) {
         }
     const struct md_fd_filter_gates grouped[]={
         {0},
-        {0x2010000000,0x2010000010,0x2010000020,0x2010000030},
-        {0x2010000000,0x2010000000,0x2010000000,0x2010000000},
-        {0x2010000000,0x3010000000,0x2010000010,0}
+        {0x2010000000,0x2010000010,0x2010000020,0x2010000030,0x2010000040},
+        {0x2010000000,0x2010000000,0x2010000000,0x2010000000,0x2010000000},
+        {.raw=0x2010000000,.watch=0x3010000000,.task=0x2010000010}
     };
     for (unsigned p=0;p<sizeof(grouped)/sizeof(*grouped);++p)
         for (unsigned kind=0;kind<MD_FD_SELECTOR_KINDS;++kind) {
             const struct md_fd_filter_gates *g=&grouped[p];
-            const uintptr_t addresses[]={g->raw,g->watch,g->task,g->native};
+            const uintptr_t addresses[]={g->raw,g->watch,g->task,g->native,g->socket};
             struct md_fd_filter_program separate;
             assert(!md_fd_filter_build(kind,190,&gates,&separate));
             assert(!md_fd_filter_build(kind,190,g,&built));
             assert(built.count<separate.count);
-            if (p==1) assert(separate.count-built.count==9u*(kind==MD_FD_SELECTOR_PROC ? 3
+            if (p==1) assert(separate.count-built.count==12u*(kind==MD_FD_SELECTOR_PROC ? 3
                 : kind==MD_FD_SELECTOR_POLL ? 1 : 2));
-            for (unsigned nr=0;nr<512;++nr) for (unsigned i=0;i<4;++i)
+            for (unsigned nr=0;nr<512;++nr) for (unsigned i=0;i<MD_FD_FILTER_GATES;++i)
                 for (unsigned adjacent=0;adjacent<2;++adjacent) {
                     struct seccomp_data d={.nr=(int)nr,.instruction_pointer=addresses[i]+4*adjacent,
                         .args={190,F_DUPFD,190,0,190,0}};
                     int exempted=0;
-                    for (unsigned j=0;j<4;++j)
+                    for (unsigned j=0;j<MD_FD_FILTER_GATES;++j)
                         exempted|=addresses[j] && addresses[j]==d.instruction_pointer;
                     assert(evaluate(&built,&d)==(exempted ? SECCOMP_RET_ALLOW : expected(kind,190,&d)));
                 }

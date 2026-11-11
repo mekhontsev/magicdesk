@@ -13,7 +13,7 @@ int md_interception_routes_init(struct md_interception_routes *r,const struct md
     cache(&r->base_allow,r->base.count,r->base.code);
     cache(&r->signal_allow,r->signals.count,r->signals.code);
     cache(&r->pid_allow,r->pid.count,r->pid.code);
-    struct md_fd_filter_gates gates={abi->raw_gate,abi->watch_return,abi->task_return,abi->native_return};
+    struct md_fd_filter_gates gates=md_fd_filter_runtime_gates(abi);
     for (unsigned k=0;k<MD_FD_SELECTOR_KINDS;++k) {
         int error=md_fd_filter_build(k,-1,&gates,&r->fd[k].all);
         if (!error) error=md_fd_filter_build(k,0,&gates,&r->fd[k].one);

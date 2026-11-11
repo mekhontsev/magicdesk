@@ -741,7 +741,8 @@ def main():
                     contexts = sum(map(int, re.findall(r'MD_EXECUTION_CONTEXT reason=\w+ calls=(\d+)', value['output'])))
                     kernel = re.search(r'MD_EXECUTION_NATIVE calls=(\d+)', value['output'])
                     assert executions and kernel and int(executions[2]) > 0, value['output']
-                    assert int(executions[1]) == int(executions[2]) + contexts + int(kernel[1]), value['output']
+                    assert int(executions[1]) == int(executions[2]) + contexts, value['output']
+                    assert int(kernel[1]) <= int(executions[1]), value['output']
             if args.case == "control-event":
                 return
         if args.case == "all":

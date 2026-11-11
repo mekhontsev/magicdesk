@@ -1,4 +1,4 @@
-#include "cooperative_channel.h"
+#include "cooperative_exchange.h"
 #include "adapter_buffer.h"
 #include "interception.h"
 #include "raw.h"
@@ -112,8 +112,7 @@ static enum md_entry_outcome resume_native(struct md_entry_client *client,struct
         c->call.reserved=MD_ENTRY_EFFECT_DONE;
         call->continuation[CONT_FLAGS]&=~CALL_NATIVE_SENT;
         call->continuation[CONT_SEQUENCE]=c->sequence;
-        atomic_store_explicit(&c->state,MD_ENTRY_REQUEST,memory_order_seq_cst);
-        if (!atomic_load_explicit(&c->awake,memory_order_seq_cst)) md_guest_buffer_admit(MD_ENTRY_WAKE);
+        if (md_entry_publish_request(c,MD_ENTRY_REQUEST)) md_guest_buffer_admit(MD_ENTRY_WAKE);
         return progress(client,call);
     }
     if (!c->native_commit && atomic_load_explicit(&c->native.state,memory_order_acquire)==MD_NATIVE_DONE) {
@@ -220,6 +219,20 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
         if (policy==POLICY_FALLBACK) goto kernel;
         if (policy==POLICY_RESULT) return finish(client,call,MD_ENTRY_COMPLETED);
         admitted=1;
+    }
+    if (c && md_identity_view_read(&c->identity,call->number,&call->result))
+        return finish(client,call,MD_ENTRY_COMPLETED);
+    if (c && tid>0 && call->number==SYS_uname) {
+        struct utsname names;
+        unsigned idle=0;
+        if (md_uts_view_read(&c->uts,&names)
+                && atomic_compare_exchange_strong_explicit(&c->caller,&idle,1,memory_order_acquire,memory_order_relaxed)) {
+            atomic_store_explicit(&c->copying,1,memory_order_release);
+            call->result=md_write_memory((void *)call->args[0],&names,sizeof(names));
+            atomic_store_explicit(&c->copying,0,memory_order_release);
+            atomic_store_explicit(&c->caller,0,memory_order_release);
+            return finish(client,call,MD_ENTRY_COMPLETED);
+        }
     }
     enum md_execution_context context=MD_CONTEXT_COUNT;
     if (task_execution && route!=MD_ENTRY_READINESS) {
@@ -385,7 +398,7 @@ static enum md_entry_outcome publish(struct md_entry_client *client,struct md_en
     if (kind==MD_ENTRY_EXECUTION_BEGIN) c->instruction_pointer=call->instruction_pointer;
     for (unsigned i=0;i<6;++i) c->call.args[i]=call->args[i];
     call->continuation[CONT_SEQUENCE]=c->sequence;
-    atomic_store_explicit(&c->state,descriptor ? MD_ENTRY_FD_REQUEST : MD_ENTRY_REQUEST,memory_order_seq_cst);
+    int wake=md_entry_publish_request(c,descriptor ? MD_ENTRY_FD_REQUEST : MD_ENTRY_REQUEST);
     call->result=-EIO;
     if (descriptor) {
         /* The original syscall is the only publication carrier. Its kernel
@@ -393,7 +406,7 @@ static enum md_entry_outcome publish(struct md_entry_client *client,struct md_en
          * No descriptor effect is allowed before the exact notification. */
         call->next=resume_kernel;
         return kernel_call(call);
-    } else if (!atomic_load_explicit(&c->awake,memory_order_seq_cst))
+    } else if (wake)
         md_guest_buffer_admit(MD_ENTRY_WAKE);
     return progress(client,call);
 }
@@ -486,7 +499,7 @@ static enum md_entry_outcome task_execute(struct md_entry_client *client,struct 
     while (outcome==MD_ENTRY_NATIVE_EFFECT) outcome=md_entry_advance(client,call,outcome);
     if (outcome!=MD_ENTRY_COMPLETED) return outcome;
     if (c->execution_action==MD_EXECUTION_RESULT) return outcome;
-    if (c->execution_action==MD_EXECUTION_KERNEL || c->execution_action==MD_EXECUTION_CONTEXT)
+    if (c->execution_action==MD_EXECUTION_CONTEXT)
         return kernel_call(call);
     if (c->execution_action!=MD_EXECUTION_GUEST) return MD_ENTRY_UNKNOWN;
     struct md_guest_execution execution=c->execution;
@@ -514,9 +527,15 @@ static int control_request(unsigned kind,unsigned command,const uint64_t args[6]
         struct control_reply *reply) {
     if (!md_svc_runtime.frames) return 0;
     struct md_svc_payload_state *state=(void *)(md_svc_runtime.frames+MD_SVC_POOL_SIZE);
-    long tid=(long)__atomic_load_n(&state->sole_owner,__ATOMIC_ACQUIRE);
-    if (!tid) tid=RAW0(gettid);
-    struct md_entry_client *client=tid>0 ? md_svc_client_find(state,(uint64_t)tid) : NULL;
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    struct md_entry_client *client=md_svc_frame_client(md_svc_runtime.frames,sp);
+    long tid=client ? (long)client->opaque[MD_ENTRY_CLIENT_OWNER] : 0;
+    if (!tid) {
+        tid=(long)__atomic_load_n(&state->sole_owner,__ATOMIC_ACQUIRE);
+        if (!tid) tid=RAW0(gettid);
+        client=tid>0 ? md_svc_client_find(state,(uint64_t)tid) : NULL;
+    }
     if (!client) return 0;
     uintptr_t control=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
     if (control&MD_ENTRY_CLIENT_BUSY) return 0;

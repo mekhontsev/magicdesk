@@ -210,7 +210,7 @@ int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
         /* No pathname, peer address or ancillary result needs adaptation.
          * Keep blocking IO at its original PC/mask so signals and a debugger
          * interrupt do not wait for an internal adapter to finish reading. */
-        if (native_payload) { native_resume(t); return 1; }
+        if (native_payload) { native_continue(t); return 1; }
         int devices=nr==SYS_socket && call->args[0]==AF_NETLINK && call->args[2]==NETLINK_KOBJECT_UEVENT
             && md_fs_worker_device_events(filesystem);
         if (control || devices || (nr==SYS_socket && md_network_namespace_managed(t->resources.network))) {
@@ -311,7 +311,7 @@ int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
         long target = (long)call->args[nr == SYS_tgkill ? 1 : 0];
         struct thread *destination = target > 0 ? find_thread(target) : NULL;
         if (destination && destination->born) {
-            native_resume(t); return 1;
+            native_continue(t); return 1;
         }
         return_value(t, r, -EPERM); return 1;
     }
@@ -320,7 +320,7 @@ int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
     if (md_domain_native_call(nr, args)) {
         if (cookie == MD_INTERCEPT_OBSERVE || cookie == MD_INTERCEPT_WATCH
                 || cookie==MD_INTERCEPT_FD || cookie==MD_INTERCEPT_PROC || cookie==MD_INTERCEPT_MEMORY) return 0;
-        native_resume(t); return 1;
+        native_continue(t); return 1;
     }
     int error = cookie == MD_INTERCEPT_DISPATCH ? md_domain_path_error(t->resources.fs) : -EPERM;
     if (nr == SYS_chdir) {

@@ -46,6 +46,8 @@ __attribute__((section("md_svc_payload"),noinline))
 int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s,uintptr_t original_pc) {
     if (!__atomic_load_n(&s->admitted,__ATOMIC_ACQUIRE)) return 0;
     if (!prepare_stack(r)) return 0;
+    struct md_entry_client **scope=(void *)((uintptr_t)r-MD_SVC_FRAME_OFFSET+MD_SVC_CLIENT_OFFSET);
+    *scope=NULL;
     const struct md_entry_api *api=s->api;
     if (!md_entry_api_valid(api) || !md_entry_offered(api,(long)r[8],MD_ENTRY_ORDINARY)) return 0;
     long tid=(long)__atomic_load_n(&s->sole_owner,__ATOMIC_ACQUIRE);
@@ -68,6 +70,7 @@ int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s,uintptr_t
         }
     }
     if (!client) return 0;
+    *scope=client;
     int64_t result;
     if (md_entry_offered(api,(long)r[8],MD_ENTRY_NATIVE_MEMORY)
             && api->native_memory && api->native_memory(client,tid,(long)r[8],r,&result,original_pc)) {
