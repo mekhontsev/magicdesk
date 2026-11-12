@@ -51,13 +51,16 @@ try:
     deadline = time.monotonic() + 10
     previous, since = None, time.monotonic()
     # Bounded observation: syscall 260 is ARM64 wait4, 73 is its interruptible
-    # runtime carrier. Signal the waiting tracer, not its attachment setup.
+    # runtime carrier. Resident entry parks on FUTEX_WAIT with channel state 8
+    # (MD_ENTRY_PARKED). Signal the waiting tracer, not its attachment setup.
     while True:
         current = Path('/proc/'+str(tracer.pid)+'/syscall').read_text().split()
         if current != previous:
             previous, since = current, time.monotonic()
         # Repeated identical observations exclude a transient attachment probe.
-        if current and current[0] in ('260', '73') and time.monotonic()-since >= 0.05:
+        parked = (len(current) >= 4 and current[0] == '98'
+                  and int(current[2], 0) == 0 and int(current[3], 0) == 8)
+        if current and (current[0] in ('260', '73') or parked) and time.monotonic()-since >= 0.05:
             break
         assert time.monotonic() < deadline, current
         time.sleep(0.001)
@@ -100,13 +103,14 @@ try:
         capture_output=True, text=True, timeout=20)
     print(result.stdout, result.stderr)
     assert result.returncode == 0
-    if target == 'gdb-poll-target':
-        assert 'gdb_poll_target' in result.stdout, result.stdout
+    if target in ('gdb-poll-target', 'gdb-epoll-target'):
+        assert target.replace('-', '_') in result.stdout, result.stdout
         assert 'corrupt stack' not in result.stdout, result.stdout
     output, _ = child.communicate('x', timeout=10)
     assert child.returncode == 0 and 'PASS '+target in output
     assert all(stage in result.stdout for stage in ('MD_ATTACHED', 'MD_BACKTRACE', 'MD_DETACHED'))
-    suffix = {'gdb-thread-target': '-threads', 'gdb-poll-target': '-poll'}.get(target, '')
+    suffix = {'gdb-thread-target': '-threads', 'gdb-poll-target': '-poll',
+              'gdb-epoll-target': '-epoll'}.get(target, '')
     print('PASS gdb-attach' + suffix)
 except subprocess.TimeoutExpired as error:
     print(error.stdout, error.stderr, flush=True)
@@ -282,13 +286,14 @@ print('PASS gdb-jit')
 
 
 def commands(*, proot=False):
-    cases = [(name, [TARGET, name]) for name in ('attach', 'seize', 'trace-exit', 'syscall', 'syscall-edit-close', 'syscall-exec', 'syscall-signal', 'credential-transition', 'mixed',
+    cases = [(name, [TARGET, name]) for name in ('attach', 'seize', 'trace-exit', 'syscall', 'syscall-edit-close', 'syscall-exec', 'syscall-signal', 'credential-transition', 'mixed', 'wait-signal',
                                                'kill-stopped', 'owner-exit', 'exitkill', 'thread-exec', 'syscall-thread-exec', 'clone-untraced', 'shared-files-debugger', 'self-dump-threads', 'self-dump-io', 'perf-event')]
     cases.append(('strace-detach', ['python3', '-c', STRACE_DETACH]))
     cases.append(('strace-detach-socket', ['python3', '-c', STRACE_DETACH, '--socket']))
     cases.append(('gdb-attach', ['python3', '-c', GDB_ATTACH]))
     cases.append(('gdb-attach-threads', ['python3', '-c', GDB_ATTACH, 'gdb-thread-target']))
     cases.append(('gdb-attach-poll', ['python3', '-c', GDB_ATTACH, 'gdb-poll-target']))
+    cases.append(('gdb-attach-epoll', ['python3', '-c', GDB_ATTACH, 'gdb-epoll-target']))
     cases.append(('gdb-active-io', ['python3', '-c', GDB_IO]))
     cases.append(('gdb-attach-fork', ['python3', '-c', GDB_FORK, *([] if proot else ['--selector'])]))
     cases.append(('gdb-shm', ['python3', '-c', GDB_SHM]))
@@ -413,7 +418,7 @@ def main():
                         options.append('--diagnostics')
                     child = (['unshare', '--mount', '--pid', '--fork', '--mount-proc']
                              if args.pid_namespace else []) + argv
-                    if args.diagnostics or args.pid_namespace:
+                    if args.pid_namespace:
                         command = [suite.runner, *suite.entry_options, *options, '--store', args.instance,
                                    '--user', '0:0', '--', '/bin/sh', '-c', 'exec "$@"',
                                    'debugger-test', *child]

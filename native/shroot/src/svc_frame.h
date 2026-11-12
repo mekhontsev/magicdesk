@@ -9,6 +9,8 @@
 #define MD_SVC_SLOT_SHIFT 18
 #define MD_SVC_SLOT_SIZE (1 << MD_SVC_SLOT_SHIFT)
 #define MD_SVC_SLOT_COUNT 64
+#define MD_SVC_SLOT_ALTERNATIVES 4
+#define MD_SVC_SLOT_XOR(attempt) (((attempt)&1)*32+((attempt)&2)*8)
 #define MD_SVC_POOL_SIZE (MD_SVC_SLOT_COUNT*MD_SVC_SLOT_SIZE)
 #define MD_SVC_FRAME_OFFSET 64
 #define MD_SVC_GUARD_STATE 8
@@ -17,6 +19,7 @@
 #define MD_SVC_OWNER_OFFSET 384
 #define MD_SVC_SAVED_SP 864
 #define MD_SVC_CLIENT_OFFSET 872
+#define MD_SVC_NATIVE_OFFSET 880
 
 #ifndef __ASSEMBLER__
 #include <stddef.h>

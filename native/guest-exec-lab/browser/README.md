@@ -122,12 +122,25 @@ next-animation-frame round trip, not a physical-keyboard-to-display measurement.
 CPU percentages use one core as 100%; they exclude the browser's own processes.
 Profiles and processes are removed after each run; images and reports remain.
 
+For a running `installed_desktop.py` graphical fixture, replace `--build` and
+`--store` with `--desktop-session PATH/session.json`. This uses its existing
+runtime, desktop user and stock Flatpak Chromium, without headless mode or a
+GPU-disable flag. `--flatpak` selects the application ID. The fixture creates
+its own DevTools target; internal browser pages are never selected implicitly.
+It records GPU configuration alongside the same video and input receipts.
+The caller owns the desktop lifetime and awake lease. Stop the retained fixture
+after measurement to collect its supervisor counters; browser stderr alone
+does not contain the shared desktop supervisor's statistics.
+
 Run `--statistics --modes lazy --rounds 1` separately to require measured
 post-filter completions. `--diagnostics` adds detailed runtime transitions.
-Neither instrumented variant is a timing baseline. A few accelerated calls do
+`--profile` records supervisor/worker CPU samples with root `simpleperf` only
+during playback, retaining the recording, sampling log and symbol report.
+Instrumented variants are not timing baselines. A few accelerated calls do
 not prove that video's hot path is accelerated. Do not overlap timing runs with
 builds or other tests. This fixture does not certify Wayland, hardware decoding,
-YouTube networking or desktop presentation.
+YouTube networking or desktop presentation. The retained-desktop variant tests
+that selected compositor and GPU configuration, not other devices or displays.
 
 ## Coverage And Limits
 

@@ -14,6 +14,8 @@
 #include <linux/seccomp.h>
 #include <linux/stat.h>
 #include <linux/openat2.h>
+#include <linux/if_tun.h>
+#include <net/if.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
@@ -132,9 +134,103 @@ static void site_discovery(void) {
     assert(!unlink(path));
     puts("PASS native site discovery: 32 distinct SVCs without explicit entry API");
 }
-static void proc_discovery(void) {
+static int provider_wait_fd,provider_jump;
+static volatile sig_atomic_t provider_signal;
+static sigjmp_buf provider_boundary;
+static void provider_interrupted(int signal) {
+    assert(signal==SIGUSR1); ++provider_signal;
+    assert(!fcntl(provider_wait_fd,F_SETFL,O_NONBLOCK));
+    if (provider_jump) siglongjmp(provider_boundary,1);
+}
+static void interrupted_wait_contract(int fd,long nr,uintptr_t buffer,size_t size) {
+    provider_wait_fd=fd;
+    struct sigaction previous,action={.sa_handler=provider_interrupted};
+    sigemptyset(&action.sa_mask); assert(!sigaction(SIGUSR1,&action,&previous));
+    struct sigevent event={.sigev_notify=SIGEV_SIGNAL,.sigev_signo=SIGUSR1};
+    timer_t timer; assert(!timer_create(CLOCK_MONOTONIC,&event,&timer));
+    md_test_syscall_fn call=md_test_syscall_site(1);
+    for (unsigned mode=0;mode<3;++mode) {
+        assert(call(fd,buffer,size,0,0,0,nr)==-EAGAIN);
+        assert(!fcntl(provider_wait_fd,F_SETFL,0));
+        action.sa_flags=mode ? SA_RESTART : 0;
+        assert(!sigaction(SIGUSR1,&action,NULL));
+        provider_signal=0; provider_jump=mode==2;
+        int jumped=sigsetjmp(provider_boundary,1);
+        if (!jumped) {
+            /* EVENT_WAIT: a real signal interrupts the empty virtual device.
+             * The suite deadline detects a lost wake or an unretired owner. */
+            struct itimerspec alarm={.it_value={0,20000000}};
+            assert(!timer_settime(timer,0,&alarm,NULL));
+            long result=call(fd,buffer,size,0,0,0,nr);
+            assert(mode!=2 && provider_signal && result==(mode ? -EAGAIN : -EINTR));
+        } else assert(mode==2 && provider_signal);
+        assert(call(fd,buffer,size,0,0,0,nr)==-EAGAIN);
+    }
+    provider_jump=0;
+    assert(!timer_delete(timer) && !sigaction(SIGUSR1,&previous,NULL));
+}
+static void provider_wait_contract(void) {
+    assert(!unshare(CLONE_NEWNET));
+    int fd=open("/dev/net/tun",O_RDWR|O_CLOEXEC|O_NONBLOCK);
+    assert(fd>=0);
+    struct ifreq interface={.ifr_flags=IFF_TUN|IFF_NO_PI};
+    memcpy(interface.ifr_name,"entrytun",9);
+    assert(!discovery_fd(SYS_ioctl,fd,TUNSETIFF,(uintptr_t)&interface));
+    char bytes[64];
+    interrupted_wait_contract(fd,SYS_read,(uintptr_t)bytes,sizeof(bytes));
+    assert(!close(fd));
+    puts("PASS resident provider wait: EINTR, kernel SA_RESTART, handler longjmp and reuse");
+}
+static void *delayed_socket_send(void *argument) {
+    /* EVENT_WAIT: give the receiver a pending native IO operation; the test
+     * deadline, not this delay, detects failure of channel wakeup. */
+    struct timespec delay={0,20000000};
+    while (nanosleep(&delay,&delay)) assert(errno==EINTR);
+    int fd=*(int *)argument;
+    assert(send(fd,"ready",5,0)==5);
+    return NULL;
+}
+static void socket_discovery(int filtered) {
+    int pair[2]; assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,pair));
+    if (filtered) {
+        struct sock_filter allow=BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
+        struct sock_fprog program={1,&allow};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    char bytes[16];
+    struct iovec vector={bytes,sizeof(bytes)};
+    struct msghdr received={.msg_iov=&vector,.msg_iovlen=1};
+    struct iovec payload={"ready",5};
+    struct msghdr sent={.msg_iov=&payload,.msg_iovlen=1};
+    md_test_syscall_fn call=md_test_syscall_site(0);
+    for (unsigned i=0;i<256;++i) {
+        assert(call(pair[0],(uintptr_t)&sent,0,0,0,0,SYS_sendmsg)==5);
+        assert(call(pair[1],(uintptr_t)&received,0,0,0,0,SYS_recvmsg)==5);
+        assert(!memcmp(bytes,"ready",5));
+    }
+    struct timeval timeout={0,20000};
+    assert(!setsockopt(pair[1],SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)));
+    assert(call(pair[1],(uintptr_t)&received,0,0,0,0,SYS_recvmsg)==-EAGAIN);
+    timeout=(struct timeval){0};
+    assert(!setsockopt(pair[1],SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)));
+    pthread_t sender; assert(!pthread_create(&sender,NULL,delayed_socket_send,&pair[0]));
+    assert(call(pair[1],(uintptr_t)&received,0,0,0,0,SYS_recvmsg)==5);
+    assert(!pthread_join(sender,NULL) && !memcmp(bytes,"ready",5));
+    assert(!fcntl(pair[1],F_SETFL,O_NONBLOCK));
+    interrupted_wait_contract(pair[1],SYS_recvmsg,(uintptr_t)&received,0);
+    assert(!close(pair[0]) && !close(pair[1]));
+    puts("PASS resident socket IO: messages, timeout, readiness, signals, restart and longjmp");
+}
+static void proc_discovery(int filtered) {
     int directory=open("/proc/self/ns",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
     assert(directory>=0);
+    if (filtered) {
+        struct sock_filter allow=BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
+        struct sock_fprog program={1,&allow};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
     char entries[4096],first[4096];
     long expected=0;
     for (unsigned site=0;site<MD_TEST_SYSCALL_SITES;++site) {
@@ -148,7 +244,30 @@ static void proc_discovery(void) {
             assert(call(directory,(uintptr_t)entries,sizeof(entries),0,0,0,SYS_getdents64)==0);
         }
     }
+    md_test_syscall_fn call=md_test_syscall_site(0);
+    for (unsigned i=0;i<256;++i) {
+        assert(!discovery_fd(SYS_lseek,directory,0,SEEK_SET));
+        assert(call(directory,1,sizeof(entries),0,0,0,SYS_getdents64)==-EFAULT);
+        long count=call(directory,(uintptr_t)entries,sizeof(entries),0,0,0,SYS_getdents64);
+        assert(count==expected && !memcmp(entries,first,(size_t)count));
+    }
     assert(!close(directory));
+    assert(call(directory,(uintptr_t)entries,sizeof(entries),0,0,0,SYS_getdents64)==-EBADF);
+    assert(!unshare(CLONE_NEWUTS) && !sethostname("resident-lookup",15));
+    int provider=open("/proc/sys/kernel/hostname",O_RDWR|O_CLOEXEC); assert(provider>=0);
+    for (unsigned i=0;i<256;++i) {
+        assert(call(provider,(uintptr_t)entries,sizeof(entries),0,0,0,SYS_pread64)==16);
+        assert(!memcmp(entries,"resident-lookup\n",16));
+        assert(call(provider,1,sizeof(entries),0,0,0,SYS_pread64)==-EFAULT);
+        assert((discovery_fd(SYS_fcntl,provider,F_GETFL,0)&O_ACCMODE)==O_RDWR);
+        assert(!discovery_fd(SYS_lseek,provider,0,SEEK_SET));
+        assert(call(provider,(uintptr_t)entries,sizeof(entries),0,0,0,SYS_read)==16);
+        assert(!memcmp(entries,"resident-lookup\n",16));
+        assert(!discovery_fd(SYS_lseek,provider,0,SEEK_SET));
+        assert(call(provider,(uintptr_t)"resident-lookup",15,0,0,0,SYS_write)==15);
+    }
+    assert(!close(provider));
+    provider_wait_contract();
     puts("PASS native proc discovery: cold and warm sites retain directory contents, cursor and request ownership");
 }
 static void reap(pid_t child) {
@@ -169,7 +288,47 @@ static int cursor_replace(void *argument) {
 }
 static volatile sig_atomic_t cursor_signals;
 static void cursor_signal(int sig) { (void)sig; ++cursor_signals; }
-static void cursor_contracts(void) {
+static void object_queries(void) {
+    int fd=open("/dev/net/tun",O_RDWR|O_CLOEXEC); assert(fd>=0);
+    unsigned features=0;
+    for (unsigned i=0;i<64;++i) {
+        assert(!discovery_fd(SYS_ioctl,fd,TUNGETFEATURES,(uintptr_t)&features));
+        assert(features==(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_VNET_HDR));
+    }
+    assert(discovery_fd(SYS_ioctl,fd,TUNGETFEATURES,1)==-EFAULT);
+    struct ifreq request={0};
+    assert(discovery_fd(SYS_ioctl,fd,TUNGETIFF,(uintptr_t)&request)==-EBADFD);
+    int other=dup(fd); assert(other>=0 && !close(fd));
+    assert(!discovery_fd(SYS_ioctl,other,TUNGETFEATURES,(uintptr_t)&features));
+    int regular=open("/tmp/object-query",O_CREAT|O_RDWR|O_TRUNC,0600); assert(regular>=0);
+    /* Android may reject this device command on the native backing before
+     * the filesystem returns ENOTTY. Reuse must match that same live file. */
+    long expected=discovery_fd(SYS_ioctl,regular,TUNGETFEATURES,(uintptr_t)&features);
+    assert(expected==-ENOTTY || expected==-EACCES);
+    assert(dup3(regular,other,O_CLOEXEC)==other);
+    long reused=discovery_fd(SYS_ioctl,other,TUNGETFEATURES,(uintptr_t)&features);
+    assert(reused==expected);
+    assert(!close(regular) && !close(other) && !unlink("/tmp/object-query"));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        fd=open("/dev/net/tun",O_RDWR); assert(fd>=0);
+        assert(!discovery_fd(SYS_ioctl,fd,TUNGETFEATURES,(uintptr_t)&features));
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
+        };
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+        assert(discovery_fd(SYS_ioctl,fd,TUNGETFEATURES,(uintptr_t)&features)==-EACCES);
+        assert(!close(fd)); _exit(0);
+    }
+    reap(child);
+    puts("PASS object queries: immutable schema, mutable owner, copy faults, close/reuse and policy admission");
+}
+static void cursor_contracts(int signal_queries) {
     const char *name="/tmp/cursor-lease";
     int fd=open(name,O_CREAT|O_RDWR,0600); assert(fd>=0);
     assert(!close(fd));
@@ -185,12 +344,34 @@ static void cursor_contracts(void) {
         assert(discovery_fd(SYS_fcntl,fd,F_GETFD,0)==-EBADF);
     }
     fd=open(name,O_RDWR); assert(fd>=0);
+    assert(write(fd,"payload",7)==7);
+    int available=-1;
+    for (unsigned i=0;i<256;++i) {
+        assert(discovery_fd(SYS_lseek,fd,3,SEEK_SET)==3);
+        assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==4);
+        assert(discovery_fd(SYS_ioctl,fd,FIONREAD,1)==-EFAULT);
+        assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==4);
+    }
+    assert(write(fd,"extended",8)==8);
+    assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==0);
+    assert(discovery_fd(SYS_lseek,fd,0,SEEK_SET)==0);
+    assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==11);
+    assert(!ftruncate(fd,5));
+    assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==5);
+    assert(!discovery_fd(SYS_fcntl,fd,F_SETFL,O_APPEND));
+    assert(discovery_fd(SYS_fcntl,fd,F_GETFL,0)&O_APPEND);
+    assert(!discovery_fd(SYS_fcntl,fd,F_SETFL,0));
+    assert(!(discovery_fd(SYS_fcntl,fd,F_GETFL,0)&O_APPEND));
     struct sigaction action={.sa_handler=cursor_signal,.sa_flags=SA_RESTART},previous;
     sigemptyset(&action.sa_mask);
     assert(!sigaction(SIGALRM,&action,&previous));
     struct itimerval timer={.it_interval={0,100},.it_value={0,100}};
     assert(!setitimer(ITIMER_REAL,&timer,NULL));
-    for (unsigned i=1;i<=16384;++i) assert(discovery_fd(SYS_lseek,fd,1,SEEK_CUR)==i);
+    for (unsigned i=1;i<=16384;++i) {
+        assert(discovery_fd(SYS_lseek,fd,1,SEEK_CUR)==i);
+        if (signal_queries)
+            assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==5-(int)i);
+    }
     timer=(struct itimerval){0};
     assert(!setitimer(ITIMER_REAL,&timer,NULL) && cursor_signals>0);
     assert(!sigaction(SIGALRM,&previous,NULL)); alarm(60);
@@ -212,6 +393,8 @@ static void cursor_contracts(void) {
     char byte; assert(read(reply[0],&byte,1)==1);
     assert(discovery_fd(SYS_fcntl,fd,F_GETFD,0)==FD_CLOEXEC);
     assert(discovery_fd(SYS_lseek,fd,0,SEEK_CUR)==-ESPIPE);
+    assert(write(replacement[1],"pipe",4)==4);
+    assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==4);
     assert(write(command[1],"x",1)==1);
     reap(child); assert(!munmap(stack,size));
     assert(!close(fd));
@@ -221,8 +404,19 @@ static void cursor_contracts(void) {
         fd=open(name,O_RDWR); assert(fd>=0);
         assert(discovery_fd(SYS_lseek,fd,0,SEEK_SET)==0);
         assert(discovery_fd(SYS_lseek,fd,1,SEEK_CUR)==1);
+        struct sock_filter allow=BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
+        struct sock_fprog initial={1,&allow};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&initial));
+        /* Installation revokes the open-time view. Repeated queries must
+         * reclassify the live descriptor, not depend on a preceding open. */
+        for (unsigned i=0;i<128;++i) {
+            assert(!discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available) && available==4);
+            assert(discovery_fd(SYS_ioctl,fd,FIONREAD,1)==-EFAULT);
+        }
         struct sock_filter code[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,2,0),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_lseek,1,0),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_fcntl,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
@@ -235,11 +429,12 @@ static void cursor_contracts(void) {
             assert(discovery_fd(SYS_lseek,fd,1,SEEK_CUR)==-EACCES);
             assert(discovery_fd(SYS_fcntl,fd,F_GETFD,0)==-EACCES);
             assert(discovery_fd(SYS_fcntl,fd,F_SETFD,0)==-EACCES);
+            assert(discovery_fd(SYS_ioctl,fd,FIONREAD,(uintptr_t)&available)==-EACCES);
         }
         assert(!close(fd)); _exit(0);
     }
     reap(child); assert(!unlink(name));
-    puts("PASS native cursor lease: flags, FD reuse, signal-exact offsets, shared-table replacement and seccomp revocation");
+    puts("PASS native cursor lease: live size/status/offset, flags, copy faults, FD reuse, signal-exact offsets, shared-table replacement and seccomp revocation");
 }
 struct jit_entry_peer { atomic_int stage; };
 static void jit_stage(struct jit_entry_peer *peer,int stage) {
@@ -1610,7 +1805,7 @@ static enum md_entry_outcome identified_entry(struct md_entry_client *owner,stru
     return api->try_identified(owner,api->thread_identity(),call);
 }
 static void contracts(const char *executable) {
-    assert(offsetof(struct md_entry_channel,native_regular)<64);
+    assert(offsetof(struct md_entry_channel,descriptor)<64);
     assert(sizeof(struct md_entry_client)==3*sizeof(uintptr_t));
     struct md_entry_api invalid=*api;
     assert(md_entry_api_valid(&invalid));
@@ -1780,8 +1975,11 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"--fd-discovery")) {
         fd_discovery(); return 0;
     }
-    if (argc>1 && !strcmp(argv[1],"--cursor-lease")) {
-        cursor_contracts(); return 0;
+    if (argc>1 && (!strcmp(argv[1],"--cursor-lease") || !strcmp(argv[1],"--cursor-signals"))) {
+        cursor_contracts(!strcmp(argv[1],"--cursor-signals")); return 0;
+    }
+    if (argc>1 && !strcmp(argv[1],"--object-queries")) {
+        object_queries(); return 0;
     }
     if (argc>1 && !strcmp(argv[1],"--xattr-pins")) {
         native_xattr_pins(); return 0;
@@ -1790,7 +1988,10 @@ int main(int argc,char **argv) {
         site_discovery(); return 0;
     }
     if (argc>1 && !strcmp(argv[1],"--proc-discovery")) {
-        proc_discovery(); return 0;
+        proc_discovery(argc>2 && atoi(argv[2])); return 0;
+    }
+    if (argc>1 && !strcmp(argv[1],"--socket-discovery")) {
+        socket_discovery(argc>2 && atoi(argv[2])); return 0;
     }
     if (argc>1 && !strcmp(argv[1],"--jit-busy")) {
         int fd=open(path,O_CREAT|O_RDWR,0600); assert(fd>=0 && write(fd,"payload",7)==7 && !close(fd));

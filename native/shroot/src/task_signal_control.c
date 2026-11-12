@@ -43,12 +43,12 @@ enum { WAIT_SET, WAIT_TIMEOUT, WAIT_PROBE, WAIT_NATIVE, WAIT_OUTPUT, WAIT_RECORD
     WAIT_ALLOCATE, WAIT_PARK_COPY, WAIT_PARKED, WAIT_FETCH };
 enum { FD_INPUT, FD_CAPTURE, FD_ADMISSION, FD_FLAGS, FD_EFFECT, FD_COMPLETE, FD_VECTOR_DONE };
 static int descriptor_progress(struct md_task_signal_control *c) {
-    const struct user_pt_regs *r=&c->original;
+    const struct seccomp_data *r=&c->request;
     if (c->descriptor_stage==FD_INPUT) {
         c->descriptor_stage=FD_CAPTURE;
         if (c->descriptor==1) {
-            if (r->regs[2]!=sizeof(uint64_t)) return finished(c,-EINVAL);
-            int copied=transfer(c,r->regs[1],&c->wait_set,sizeof(c->wait_set),0);
+            if (r->args[2]!=sizeof(uint64_t)) return finished(c,-EINVAL);
+            int copied=transfer(c,r->args[1],&c->wait_set,sizeof(c->wait_set),0);
             if (copied<0) return c->copying ? copied : finished(c,copied);
             if (!copied) return 0;
         }
@@ -57,17 +57,17 @@ static int descriptor_progress(struct md_task_signal_control *c) {
         if (c->descriptor_result<0 || c->passthrough) return finished(c,c->descriptor_result);
         c->descriptor_nonblock=!!(c->descriptor_result&O_NONBLOCK);
         c->descriptor_stage=FD_VECTOR_DONE;
-        if (r->regs[8]==SYS_readv) {
-            if (r->regs[2]>1024) return finished(c,-EINVAL);
-            c->vector_count=(unsigned)r->regs[2];
+        if (r->nr==SYS_readv) {
+            if (r->args[2]>1024) return finished(c,-EINVAL);
+            c->vector_count=(unsigned)r->args[2];
             if (!c->vector_count) return finished(c,0);
             c->vectors=calloc(c->vector_count,sizeof(*c->vectors));
             if (!c->vectors) return finished(c,-ENOMEM);
-            int copied=transfer(c,r->regs[1],c->vectors,c->vector_count*sizeof(*c->vectors),0);
+            int copied=transfer(c,r->args[1],c->vectors,c->vector_count*sizeof(*c->vectors),0);
             if (copied<0) return c->copying ? copied : finished(c,copied);
             if (!copied) return 0;
         } else {
-            c->scalar=(struct iovec){(void *)r->regs[1],r->regs[2]}; c->vector_count=1;
+            c->scalar=(struct iovec){(void *)r->args[1],r->args[2]}; c->vector_count=1;
         }
     }
     if (c->descriptor_stage==FD_VECTOR_DONE) {
@@ -85,7 +85,7 @@ static int descriptor_progress(struct md_task_signal_control *c) {
         return md_task_signal_control_continue(c);
     }
     if (c->descriptor_stage==FD_CAPTURE) {
-        if (c->descriptor==1 && ((unsigned)r->regs[3]&~(SFD_CLOEXEC|SFD_NONBLOCK))) return finished(c,-EINVAL);
+        if (c->descriptor==1 && ((unsigned)r->args[3]&~(SFD_CLOEXEC|SFD_NONBLOCK))) return finished(c,-EINVAL);
         c->descriptor_stage=FD_ADMISSION;
         return MD_SIGNAL_FD_ACQUIRE;
     }
@@ -116,7 +116,7 @@ static int wait_probe(struct md_task_signal_control *c,uint64_t set) {
     return invoke(c,&args);
 }
 static int wait_progress(struct md_task_signal_control *c) {
-    const struct user_pt_regs *r=&c->original;
+    const struct seccomp_data *r=&c->request;
     for (;;) {
     if (c->stage==WAIT_PARK_COPY) { c->stage=WAIT_PARKED; return MD_SIGNAL_WAIT_PARKED; }
     if (c->stage==WAIT_FETCH) {
@@ -127,16 +127,16 @@ static int wait_progress(struct md_task_signal_control *c) {
         if (!copied) return 0;
     }
     if (c->stage==WAIT_SET) {
-        if (r->regs[3]!=sizeof(uint64_t)) return finished(c,-EINVAL);
+        if (r->args[3]!=sizeof(uint64_t)) return finished(c,-EINVAL);
         ++c->stage;
-        int copied=transfer(c,r->regs[0],&c->wait_set,sizeof(c->wait_set),0);
+        int copied=transfer(c,r->args[0],&c->wait_set,sizeof(c->wait_set),0);
         if (copied<0) return c->copying ? copied : finished(c,copied);
         if (!copied) return 0;
     }
     if (c->stage==WAIT_TIMEOUT) {
         ++c->stage;
-        if (r->regs[2]) {
-            int copied=transfer(c,r->regs[2],&c->wait_timeout,sizeof(c->wait_timeout),0);
+        if (r->args[2]) {
+            int copied=transfer(c,r->args[2],&c->wait_timeout,sizeof(c->wait_timeout),0);
             if (copied<0) return c->copying ? copied : finished(c,copied);
             if (!copied) return 0;
         }
@@ -181,8 +181,8 @@ static int wait_progress(struct md_task_signal_control *c) {
         if (c->descriptor==2) {
             md_signal_fd_info(&c->wait_info,&c->record);
             c->record_copied=0; c->stage=WAIT_RECORD;
-        } else if (r->regs[1]) {
-            int copied=transfer(c,r->regs[1],&c->wait_info,sizeof(c->wait_info),1);
+        } else if (r->args[1]) {
+            int copied=transfer(c,r->args[1],&c->wait_info,sizeof(c->wait_info),1);
             if (copied<0) return c->copying ? copied : finished(c,copied);
             if (!copied) return 0;
         }
@@ -215,22 +215,11 @@ static int wait_progress(struct md_task_signal_control *c) {
 static int progress(struct md_task_signal_control *c) {
     if (c->waiting) return wait_progress(c);
     if (c->descriptor) return descriptor_progress(c);
-    const struct user_pt_regs *r=&c->original;
-    if (c->sending) {
-        if (!c->stage++) {
-            uintptr_t address=r->regs[r->regs[8]==SYS_rt_tgsigqueueinfo ? 3 : 2];
-            int copied=transfer(c,address,&c->wait_info,sizeof(c->wait_info),0);
-            if (copied<0) return c->copying ? copied : finished(c,copied);
-            if (!copied) return 0;
-        }
-        return finished(c,0);
-    }
-    int action=c->force_default || r->regs[8]==SYS_rt_sigaction;
-    int pending=!c->entering && !c->force_default && r->regs[8]==SYS_rt_sigpending;
+    const struct seccomp_data *r=&c->request;
     for (;;) {
         if (c->entering) {
-            uintptr_t address=r->regs[2]+offsetof(ucontext_t,uc_sigmask);
-            if (address<r->regs[2]) return finished(c,-EFAULT);
+            uintptr_t address=c->signal_frame+offsetof(ucontext_t,uc_sigmask);
+            if (address<c->signal_frame) return finished(c,-EFAULT);
             if (c->stage==INPUT) {
                 ++c->stage;
                 int copied=transfer(c,address,&c->previous_mask,sizeof(c->previous_mask),0);
@@ -251,42 +240,32 @@ static int progress(struct md_task_signal_control *c) {
             return finished(c,0);
         }
         if (c->stage==INPUT) {
-            if (pending ? r->regs[1]>sizeof(uint64_t) : r->regs[3]!=sizeof(uint64_t)) return finished(c,-EINVAL);
+            if (r->args[3]!=sizeof(uint64_t)) return finished(c,-EINVAL);
             ++c->stage;
-            if (!pending && r->regs[1]) {
-                int copied=transfer(c,r->regs[1],&c->requested,sizeof(c->requested),0);
+            if (r->args[1]) {
+                int copied=transfer(c,r->args[1],&c->requested,sizeof(c->requested),0);
                 if (copied<0) return c->copying ? copied : finished(c,copied);
                 if (!copied) return 0;
             }
         }
         if (c->stage==EFFECT) {
-            if (pending) {
-                memset(c->scratch,0,sizeof(uint64_t));
-                struct md_task_call_arguments args={.number=SYS_rt_sigpending,
-                    .value={c->peer,sizeof(uint64_t)}};
-                return invoke(c,&args);
-            }
-            if (action) {
-                int signal=c->force_default ? SIGSYS : (int)r->regs[0];
-                if (signal<=0 || signal>=NSIG || (r->regs[1] && (signal==SIGKILL || signal==SIGSTOP)))
-                    return finished(c,-EINVAL);
-                struct exchange *exchange=c->scratch;
-                *exchange=(struct exchange){0};
-                if (r->regs[1] || c->force_default) exchange->requested=md_signal_view_native(signal,c->requested,
-                    md_signal_actions_entry(c->actions,0));
-                struct md_task_call_arguments args={.number=SYS_rt_sigaction,
-                    .value={signal,(r->regs[1] || c->force_default) ? c->peer+offsetof(struct exchange,requested) : 0,
-                        c->peer+offsetof(struct exchange,previous),sizeof(uint64_t)}};
-                return invoke(c,&args);
-            }
-            return -EINVAL;
+            int signal=c->force_default ? SIGSYS : (int)r->args[0];
+            if (signal<=0 || signal>=NSIG || (r->args[1] && (signal==SIGKILL || signal==SIGSTOP)))
+                return finished(c,-EINVAL);
+            struct exchange *exchange=c->scratch;
+            *exchange=(struct exchange){0};
+            if (r->args[1] || c->force_default) exchange->requested=md_signal_view_native(signal,c->requested,
+                md_signal_actions_entry(c->actions,0));
+            struct md_task_call_arguments args={.number=SYS_rt_sigaction,
+                .value={signal,(r->args[1] || c->force_default) ? c->peer+offsetof(struct exchange,requested) : 0,
+                    c->peer+offsetof(struct exchange,previous),sizeof(uint64_t)}};
+            return invoke(c,&args);
         }
         if (c->stage==OUTPUT) {
             ++c->stage;
-            uintptr_t output=pending ? r->regs[0] : r->regs[2];
-            if (pending ? r->regs[1]!=0 : output!=0) {
-                int copied=transfer(c,output,action ? (void *)&c->previous : (void *)&c->previous_mask,
-                    pending ? r->regs[1] : action ? sizeof(c->previous) : sizeof(c->previous_mask),1);
+            uintptr_t output=r->args[2];
+            if (output) {
+                int copied=transfer(c,output,&c->previous,sizeof(c->previous),1);
                 if (copied<0) return c->copying ? copied : finished(c,copied);
                 if (!copied) return 0;
             }
@@ -294,45 +273,22 @@ static int progress(struct md_task_signal_control *c) {
         return finished(c,0);
     }
 }
-int md_task_signal_query_begin(struct md_task_signal_control *c,
-        long (*trace)(int,pid_t,void *,void *),pid_t pid,const struct user_pt_regs *r,
-        uintptr_t call,uintptr_t returned,uint64_t mask,void *scratch,uintptr_t peer,size_t capacity) {
-    if (!c || !trace || pid<=0 || !r || !scratch || !peer
-            || capacity<sizeof(struct md_task_copy_scratch)+sizeof(uint64_t)
-            || r->regs[8]!=SYS_rt_sigprocmask) return -EINVAL;
-    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,
-        .boundary=MD_TASK_CALL_EXIT,.call=call,.returned=returned,
-        .scratch=scratch,.peer=peer,.capacity=capacity,.stage=OUTPUT,.previous_mask=mask};
-    if (r->regs[1] || r->regs[3]!=sizeof(uint64_t)) return finished(c,-EINVAL);
-    if (!r->regs[2]) return finished(c,0);
-    return progress(c);
-}
-int md_task_signal_send_begin(struct md_task_signal_control *c,
-        long (*trace)(int,pid_t,void *,void *),pid_t pid,const struct user_pt_regs *r,
-        uintptr_t call,uintptr_t returned,void *scratch,uintptr_t peer,size_t capacity) {
-    if (!c || !trace || pid<=0 || !r || !scratch || !peer
-            || capacity<sizeof(struct md_task_copy_scratch)+sizeof(siginfo_t)
-            || (r->regs[8]!=SYS_rt_sigqueueinfo && r->regs[8]!=SYS_rt_tgsigqueueinfo)) return -EINVAL;
-    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,.sending=1,
-        .boundary=MD_TASK_CALL_SECCOMP,.call=call,.returned=returned,
-        .scratch=scratch,.peer=peer,.capacity=capacity};
-    return progress(c);
-}
 int md_task_signal_wait_begin(struct md_task_signal_control *c,
         long (*trace)(int,pid_t,void *,void *),pid_t pid,const struct user_pt_regs *r,
+        const struct seccomp_data *request,
         uintptr_t call,uintptr_t returned,struct md_signal_pending *pending,int *blocked,
         void (*translate)(void *,siginfo_t *),void *context,void *scratch,uintptr_t peer,size_t capacity) {
-    if (!c || !trace || pid<=0 || !r || !blocked || r->regs[8]!=SYS_rt_sigtimedwait || !scratch || !peer
+    if (!c || !trace || pid<=0 || !r || !request || !blocked || request->nr!=SYS_rt_sigtimedwait || !scratch || !peer
             || capacity<sizeof(struct md_signal_wait_exchange)
             || capacity<sizeof(struct md_task_copy_scratch)+sizeof(siginfo_t)) return -EINVAL;
-    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,
+    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,.request=*request,
         .boundary=MD_TASK_CALL_SECCOMP,.call=call,.returned=returned,
         .scratch=scratch,.peer=peer,.capacity=capacity,.waiting=1,
         .translate=translate,.context=context,.pending_owner=pending,.blocked=blocked};
     return progress(c);
 }
 static int wait_timed(const struct md_task_signal_control *c) {
-    return c->descriptor==2 ? c->descriptor_nonblock || c->descriptor_copied : !!c->original.regs[2];
+    return c->descriptor==2 ? c->descriptor_nonblock || c->descriptor_copied : !!c->request.args[2];
 }
 int md_task_signal_wait_park(struct md_task_signal_control *c,uintptr_t page) {
     if (!c || !c->waiting || (c->stage!=WAIT_NATIVE && c->stage!=WAIT_ALLOCATE)
@@ -380,15 +336,17 @@ void md_task_signal_control_dispose(struct md_task_signal_control *c) {
 }
 int md_task_signal_descriptor_begin(struct md_task_signal_control *c,
         long (*trace)(int,pid_t,void *,void *),pid_t pid,const struct user_pt_regs *r,
+        const struct seccomp_data *request,
         uintptr_t call,uintptr_t returned,struct md_signal_pending *pending,int *blocked,
         void (*translate)(void *,siginfo_t *),void *context,void *scratch,uintptr_t peer,size_t capacity) {
-    if (!c || !trace || pid<=0 || !r || !blocked || !scratch || !peer
+    if (!c || !trace || pid<=0 || !r || !request || !blocked || !scratch || !peer
+            || (request->nr!=SYS_signalfd4 && request->nr!=SYS_read && request->nr!=SYS_readv)
             || capacity<sizeof(struct md_task_copy_scratch)+sizeof(siginfo_t)) return -EINVAL;
-    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,
+    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,.request=*request,
         .boundary=MD_TASK_CALL_SECCOMP,.call=call,.returned=returned,
         .scratch=scratch,.peer=peer,.capacity=capacity,
         .translate=translate,.context=context,.pending_owner=pending,.blocked=blocked,
-        .descriptor=r->regs[8]==SYS_signalfd4 ? 1 : 2};
+        .descriptor=request->nr==SYS_signalfd4 ? 1 : 2};
     return progress(c);
 }
 int md_task_signal_descriptor_admit(struct md_task_signal_control *c,struct md_signal_fd *file) {
@@ -398,14 +356,14 @@ int md_task_signal_descriptor_admit(struct md_task_signal_control *c,struct md_s
         c->passthrough=1; c->descriptor_result=0; c->descriptor_stage=FD_COMPLETE;
         return MD_SIGNAL_FD_RELEASE;
     }
-    c->descriptor_stage=c->descriptor==1 && (int)c->original.regs[0]>=0 ? FD_FLAGS : FD_EFFECT;
+    c->descriptor_stage=c->descriptor==1 && (int)c->request.args[0]>=0 ? FD_FLAGS : FD_EFFECT;
     memcpy(c->scratch,&c->wait_set,sizeof(c->wait_set));
-    const struct user_pt_regs *r=&c->original;
+    const struct seccomp_data *r=&c->request;
     struct md_task_call_arguments args=c->descriptor_stage==FD_FLAGS
-        ? (struct md_task_call_arguments){.number=SYS_fcntl,.value={r->regs[0],F_GETFD}}
+        ? (struct md_task_call_arguments){.number=SYS_fcntl,.value={r->args[0],F_GETFD}}
         : c->descriptor==1
-        ? (struct md_task_call_arguments){.number=SYS_signalfd4,.value={r->regs[0],c->peer,8,r->regs[3]}}
-        : (struct md_task_call_arguments){.number=SYS_fcntl,.value={r->regs[0],F_GETFL}};
+        ? (struct md_task_call_arguments){.number=SYS_signalfd4,.value={r->args[0],c->peer,8,r->args[3]}}
+        : (struct md_task_call_arguments){.number=SYS_fcntl,.value={r->args[0],F_GETFL}};
     return invoke(c,&args);
 }
 int md_task_signal_control_wake(struct md_task_signal_control *c) {
@@ -449,19 +407,20 @@ int md_task_signal_wait_entry_begin(struct md_task_signal_control *c,
     *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,
         .boundary=MD_TASK_CALL_USER,.call=call,.returned=returned,
         .actions=actions,.blocked=blocked,.scratch=scratch,.peer=peer,.capacity=capacity,
-        .previous=*action,.entering=1,.signal=(int)r->regs[0],.wait_view=*wait};
+        .previous=*action,.entering=1,.signal=(int)r->regs[0],.signal_frame=r->regs[2],.wait_view=*wait};
     return progress(c);
 }
 int md_task_signal_control_begin(struct md_task_signal_control *c,
         long (*trace)(int,pid_t,void *,void *),pid_t pid,const struct user_pt_regs *r,
+        const struct seccomp_data *request,
         uintptr_t call,uintptr_t returned,struct md_signal_actions *actions,
-        int *blocked,uint64_t pending,void *scratch,uintptr_t peer,size_t capacity) {
-    if (!c || !trace || pid<=0 || !r || !actions || !blocked || !scratch || !peer
+        int *blocked,void *scratch,uintptr_t peer,size_t capacity) {
+    if (!c || !trace || pid<=0 || !r || !request || !actions || !blocked || !scratch || !peer
             || capacity<sizeof(struct exchange) || capacity<sizeof(struct md_task_copy_scratch)+sizeof(struct md_kernel_action)
-            || (r->regs[8]!=SYS_rt_sigaction && r->regs[8]!=SYS_rt_sigpending)) return -EINVAL;
-    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,
+            || request->nr!=SYS_rt_sigaction) return -EINVAL;
+    *c=(struct md_task_signal_control){.trace=trace,.pid=pid,.original=*r,.request=*request,
         .boundary=MD_TASK_CALL_SECCOMP,.call=call,.returned=returned,
-        .actions=actions,.blocked=blocked,.pending=pending,.scratch=scratch,.peer=peer,.capacity=capacity};
+        .actions=actions,.blocked=blocked,.scratch=scratch,.peer=peer,.capacity=capacity};
     return progress(c);
 }
 struct md_task_call *md_task_signal_control_call(struct md_task_signal_control *c) {
@@ -483,9 +442,9 @@ int md_task_signal_control_event(struct md_task_signal_control *c,int status) {
             if (c->descriptor_stage==FD_FLAGS && c->native.result>=0) {
                 c->descriptor_flags=(int)c->native.result;
                 c->descriptor_stage=FD_EFFECT;
-                const struct user_pt_regs *r=&c->original;
+                const struct seccomp_data *r=&c->request;
                 struct md_task_call_arguments args={.number=SYS_signalfd4,
-                    .value={r->regs[0],c->peer,8,r->regs[3]}};
+                    .value={r->args[0],c->peer,8,r->args[3]}};
                 return invoke(c,&args);
             }
             c->descriptor_result=c->native.result; c->descriptor_stage=FD_COMPLETE;
@@ -525,23 +484,17 @@ int md_task_signal_control_event(struct md_task_signal_control *c,int status) {
             return progress(c);
         }
         if (c->native.result) return finished(c,c->native.result);
-        if (!c->force_default && c->original.regs[8]==SYS_rt_sigpending) {
-            memcpy(&c->previous_mask,c->scratch,sizeof(c->previous_mask));
-            c->previous_mask|=c->pending;
-            ++c->stage;
-            return progress(c);
-        }
         if (c->force_default) {
             int error=md_signal_actions_commit(c->actions,SIGSYS,&c->requested);
             if (error) return error;
             *c->blocked=0;
             return finished(c,0);
         }
-        int signal=(int)c->original.regs[0];
+        int signal=(int)c->request.args[0];
         struct exchange *exchange=c->scratch;
         c->previous=md_signal_actions_decode(c->actions,signal,exchange->previous,
             md_signal_actions_entry(c->actions,signal));
-        if (c->original.regs[1]) {
+        if (c->request.args[1]) {
             int error=md_signal_actions_commit(c->actions,signal,&c->requested);
             if (error) return error;
             md_signal_actions_entry_publish(c->actions,signal);

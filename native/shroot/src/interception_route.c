@@ -9,7 +9,7 @@ int md_interception_routes_init(struct md_interception_routes *r,const struct md
     memset(r,0,sizeof(*r));
     md_interception_program_build(abi,&r->base);
     md_signal_program_build(abi,&r->signals);
-    md_pid_filter_build(abi->raw_gate,abi->task_return,&r->pid);
+    md_pid_filter_build(abi,&r->pid);
     cache(&r->base_allow,r->base.count,r->base.code);
     cache(&r->signal_allow,r->signals.count,r->signals.code);
     cache(&r->pid_allow,r->pid.count,r->pid.code);

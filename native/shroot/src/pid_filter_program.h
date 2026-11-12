@@ -8,5 +8,6 @@ struct md_pid_filter_program {
     unsigned count;
     struct sock_filter code[MD_PID_FILTER_INSTRUCTIONS];
 };
-void md_pid_filter_build(uintptr_t gate,uintptr_t task,struct md_pid_filter_program *);
+struct md_interception_abi;
+void md_pid_filter_build(const struct md_interception_abi *,struct md_pid_filter_program *);
 #endif

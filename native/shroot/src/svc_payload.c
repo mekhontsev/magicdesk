@@ -1,4 +1,6 @@
 #include "svc_payload.h"
+#include "cooperative_native.h"
+#include "svc_direct.h"
 #include <sys/mman.h>
 #include <sys/syscall.h>
 
@@ -84,6 +86,28 @@ int md_svc_payload_dispatch(uint64_t *r,struct md_svc_payload_state *s,uintptr_t
         ? api->try_identified(client,tid,&call) : api->try_syscall(client,&call);
     for (;;) {
         md_entry_step_fn next=call.next;
+        if (call.return_checkpoint) {
+            uintptr_t frame=(uintptr_t)r-MD_SVC_FRAME_OFFSET;
+            __atomic_store_n((uint64_t *)(frame+MD_SVC_DIRECT_PENDING),1,__ATOMIC_RELEASE);
+        }
+        if (outcome==MD_ENTRY_NATIVE_CALL) {
+            uintptr_t frame=(uintptr_t)r-MD_SVC_FRAME_OFFSET;
+            if (__atomic_load_n((uint64_t *)(frame+MD_SVC_DIRECT_PENDING),__ATOMIC_ACQUIRE)) return 0;
+            struct md_entry_native *native=(void *)(frame+MD_SVC_NATIVE_OFFSET);
+            native->number=call.number; native->result=-EINTR;
+            for (unsigned i=0;i<6;++i) native->args[i]=call.args[i];
+            /* From publication onward, signal recovery may abandon this C
+             * stack. There is no client/channel or resource turn to release.
+             * The original operation precedes any subsequent policy fence. */
+            atomic_store_explicit(&native->state,MD_NATIVE_READY,memory_order_release);
+            /* A signal may have been retained between the first pending
+             * check and terminal publication. Do not sleep ahead of it. */
+            if (__atomic_load_n((uint64_t *)(frame+MD_SVC_DIRECT_PENDING),__ATOMIC_ACQUIRE)) return 0;
+            call.effect(native);
+            call.result=native->result;
+            if (s->statistics) __atomic_fetch_add(&s->native_completed,1,__ATOMIC_RELAXED);
+            outcome=MD_ENTRY_COMPLETED;
+        }
         if (outcome==MD_ENTRY_COMPLETED) {
             r[0]=(uint64_t)call.result;
             if (s->statistics) __atomic_fetch_add(&s->completed,1,__ATOMIC_RELAXED);

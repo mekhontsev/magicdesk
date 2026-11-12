@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Alternating stock Chromium video/input checks, not a GUI or isolation certificate.
+"""Stock Chromium video/input checks, not an isolation certificate.
 
-Uses an owned headless profile, a local video and the shared fixture executor.
+Uses an owned profile, a local video and the shared fixture executor. Optional
+retained-desktop mode exercises stock Flatpak without disabling its GPU.
 Root only observes host CPU counters; the browser retains its selected identity.
 """
 import argparse
 import base64
+from contextlib import contextmanager
 import hashlib
 import http.server
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import statistics
 import subprocess
 import sys
@@ -21,6 +24,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark_cpu import observe_cpu
 from fixture_executor import FixtureExecutor
+from installed_desktop import controller_command, wait_controller
 from test_oci_services import Server, Suite
 
 
@@ -99,30 +103,117 @@ def thread_snapshot(rows, pid):
     return result
 
 
+@contextmanager
+def sample_profile(args, row, pid, ident):
+    if not args.profile:
+        yield
+        return
+    target = (args.output / ('profile-' + ident)).resolve()
+    command = ['/system/bin/simpleperf', 'record', '-p', str(pid), '--no-inherit',
+               '-e', 'cpu-clock', '-f', '499', '--call-graph', 'fp',
+               '--duration', str(args.seconds), '--exit-with-parent', '-o', str(target) + '.data']
+    row['samplingProfile'] = str(target) + '.data'
+    with Path(str(target) + '.log').open('w') as log:
+        process = subprocess.Popen(['su', '-c', shlex.join(command)], stdout=log, stderr=subprocess.STDOUT)
+        try:
+            yield
+        finally:
+            try:
+                result = process.wait(timeout=args.seconds + 20)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait(timeout=10)
+                raise
+            assert result == 0, 'Profiler failed: ' + str(target) + '.log'
+    with Path(str(target) + '.txt').open('w') as report:
+        subprocess.run(['su', '-c', shlex.join(['/system/bin/simpleperf', 'report',
+            '-i', str(target) + '.data', '--sort', 'tid,dso,symbol'])],
+            stdout=report, stderr=subprocess.STDOUT, timeout=30, check=True)
+
+
+class DesktopBrowser:
+    def __init__(self, suite, state, command, seconds):
+        self.suite, self.state = suite, state
+        self.ident = suite.report['id']
+        self.log = []
+        self.deadline = time.monotonic() + seconds + 130
+        self.result = None
+        controller_command(state, shlex.join(['timeout', '-k', '5', str(seconds + 120), *command]),
+                           ident=self.ident)
+
+    def read(self, suffix):
+        path = self.state['directory'] + '/' + self.ident + suffix
+        return self.suite.command(['/system/bin/sh', '-c',
+            'if test -f "$1"; then cat "$1"; fi', 'fixture', path], quiet=True)
+
+    def ready(self, text, timeout=90):
+        deadline = min(self.deadline, time.monotonic() + timeout)
+        while True:
+            self.log = [self.read('.log')]
+            if text in self.log[0]:
+                return
+            result = self.read('.exit')
+            if result:
+                self.log = [self.read('.log')]
+                raise AssertionError('Browser exited with ' + result.strip() + ': ' + self.log[0])
+            assert time.monotonic() < deadline, self.log[0]
+            # Bounded state wait: exact browser endpoint, not a warmup delay.
+            threading.Event().wait(.1)
+
+    def completed(self, expected=0, timeout=30):
+        deadline = min(self.deadline, time.monotonic() + timeout)
+        while self.result is None:
+            value = self.read('.exit')
+            if value:
+                self.result = int(value)
+                break
+            assert time.monotonic() < deadline, 'Owned desktop browser did not exit'
+            # EVENT_WAIT: controller's completion receipt for this command.
+            threading.Event().wait(.1)
+        self.log = [self.read('.log')]
+        if expected is not None:
+            assert self.result == expected, self.log[0]
+
+    def close(self):
+        self.completed(expected=None, timeout=max(1, self.deadline-time.monotonic()))
+        self.suite.report['servers'].append(dict(commandId=self.ident, log=''.join(self.log),
+                                                result=self.result))
+
+
 def run(args, server_url, mode, index):
-    suite = Suite(args.output, args.build, executor=args.executor)
-    profile = '/tmp/md-video-' + suite.report['id']
+    state = json.loads(args.desktop_session.read_text()) if args.desktop_session else None
+    suite = Suite(args.output, None if state else args.build, executor=args.executor, session=state)
+    profile = ('/home/' + state['user'] + '/.var/app/' + args.flatpak + '/cache/' if state
+               else '/tmp/') + 'md-video-' + suite.report['id']
     worker = protocol = None
-    row = dict(mode=mode, round=index, passed=False, profile=profile)
+    row = dict(mode=mode, round=index, passed=False, profile=profile, browserArguments=args.browser_arg)
     suite.report['browserVideo'] = row
     try:
-        suite.command(suite.guest(args.store, '--user', '0:0') + ['--', '/bin/mkdir', '-m', '0777', profile], quiet=True)
-        launch = suite.guest(args.store, '--user', '2000:2000', '--env',
-            'SHROOT_MACHINE_ENTRY=' + str(int(mode == 'lazy')), '--deadline-seconds', str(args.seconds+150))
-        if args.statistics:
-            launch += ['--statistics']
-        if args.diagnostics:
-            launch += ['--diagnostics']
-        launch += ['--', args.chromium, '--headless', '--disable-gpu', '--no-first-run',
-                   '--user-data-dir=' + profile, '--remote-debugging-address=127.0.0.1',
-                   '--remote-debugging-port=0', '--window-size=1280,900', 'about:blank']
-        worker = Server(suite, launch, timeout=args.seconds+170)
+        options = ['--no-first-run', '--user-data-dir=' + profile,
+                   '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
+                   '--window-size=1280,900', *args.browser_arg, 'about:blank']
+        if state:
+            wait_controller(state, user=True)
+            worker = DesktopBrowser(suite, state, ['flatpak', 'run',
+                '--env=SHROOT_MACHINE_ENTRY=' + str(int(mode == 'lazy')), args.flatpak, *options], args.seconds)
+        else:
+            suite.command(suite.guest(args.store, '--user', '0:0') + ['--', '/bin/mkdir', '-m', '0777', profile], quiet=True)
+            launch = suite.guest(args.store, '--user', '2000:2000', '--env',
+                'SHROOT_MACHINE_ENTRY=' + str(int(mode == 'lazy')), '--deadline-seconds', str(args.seconds+150))
+            if args.statistics:
+                launch += ['--statistics']
+            if args.diagnostics:
+                launch += ['--diagnostics']
+            launch += ['--', args.chromium, '--headless', '--disable-gpu', *options]
+            worker = Server(suite, launch, timeout=args.seconds+170)
         worker.ready('DevTools listening on ', timeout=90)
         endpoint = re.search(r'DevTools listening on (ws://\S+)', ''.join(worker.log))[1]
         protocol = Protocol(endpoint)
         row['version'] = protocol.call('Browser.getVersion')
-        targets = protocol.call('Target.getTargets')['targetInfos']
-        target = next(value['targetId'] for value in targets if value['type'] == 'page')
+        row['graphics'] = protocol.call('SystemInfo.getInfo')
+        row['initialTargets'] = protocol.call('Target.getTargets')['targetInfos']
+        target = protocol.call('Target.createTarget', dict(url='about:blank'))['targetId']
+        row['target'] = target
         session = protocol.call('Target.attachToTarget', dict(targetId=target, flatten=True))['sessionId']
         protocol.call('Page.enable', session=session)
         protocol.call('Page.navigate', dict(url=server_url), session)
@@ -139,12 +230,13 @@ def run(args, server_url, mode, index):
             'else v.requestVideoFrameCallback(frame)}v.requestVideoFrameCallback(frame);v.play().catch(reject)})', session)
         records = [json.loads(line) for line in suite.command(
             suite.image_command('launches', args.store), quiet=True).splitlines() if line]
-        owned = [record for record in records if record['program'] == args.chromium]
+        owned = [record for record in records if record.get('label') == state['id']] if state else [
+            record for record in records if record['program'] == args.chromium]
         assert len(owned) == 1, records
         pid = owned[0]['pid']
         row['launch'] = owned[0]
         protocol.evaluate('document.getElementById("input").focus();true', session)
-        with observe_cpu(host) as cpu:
+        with sample_profile(args, row, pid, suite.report['id']), observe_cpu(host) as cpu:
             before = threads(pid)
             first = protocol.evaluate('snapshot()', session)
             start = time.monotonic()
@@ -165,13 +257,13 @@ def run(args, server_url, mode, index):
         delta = {str(tid): (state['ticks']-before[tid]['ticks'])/ticks for tid,state in after.items()
                  if tid in before and state['start'] == before[tid]['start']}
         assert str(pid) in delta and all(value >= 0 for value in delta.values()), delta
-        assert not last['paused'] and not last['error'] and last['ready'] >= 3, last
-        assert last['presented']-first['presented'] > elapsed*10, (first,last,elapsed)
         row.update(seconds=elapsed, before=first, after=last, cpu=cpu, threadCpuSeconds=delta,
                    supervisorPercent=100*delta[str(pid)]/elapsed,
                    processPercent=100*sum(delta.values())/elapsed,
                    frames=last['frames']-first['frames'], dropped=last['dropped']-first['dropped'],
                    inputRoundTripMs=latencies, inputMedianMs=statistics.median(latencies))
+        assert not last['paused'] and not last['error'] and last['ready'] >= 3, last
+        assert last['presented']-first['presented'] > elapsed*10, (first,last,elapsed)
         screenshot = protocol.call('Page.captureScreenshot', dict(format='png'), session)
         image = args.output / ('video-' + suite.report['id'] + '.png')
         image.write_bytes(base64.b64decode(screenshot['data'], validate=True))
@@ -181,29 +273,42 @@ def run(args, server_url, mode, index):
         output = ''.join(worker.log)
         counters = [json.loads(value) for value in re.findall(r'^SVC_RUNTIME_STATS (.+)$', output, re.MULTILINE)]
         row['entryCounters'] = counters
-        if args.statistics and mode == 'lazy':
+        if args.statistics and mode == 'lazy' and not state:
             assert any(value['filteredCompleted'] for value in counters), 'No post-filter acceleration'
         if mode == 'base':
             assert not any(value['completed'] for value in counters), counters
         row['passed'] = suite.report['passed'] = True
         print('VIDEO_RESULT', json.dumps({k:v for k,v in row.items() if k not in
-              ('cpu','before','after','entryCounters','inputRoundTripMs')}), flush=True)
+              ('cpu','before','after','entryCounters','inputRoundTripMs','graphics')}), flush=True)
         return row
     finally:
         if protocol:
+            if state and worker and worker.result is None:
+                try:
+                    protocol.call('Browser.close')
+                except Exception:
+                    pass
             protocol.close()
         try:
             if worker:
                 worker.close()
-            suite.command(suite.guest(args.store, '--user', '0:0') + ['--', '/bin/rm', '-rf', '--', profile], quiet=True)
+            if state:
+                result = controller_command(state, shlex.join(['rm', '-rf', '--', profile]), wait=True)
+                assert result['exitCode'] == 0, result
+            else:
+                suite.command(suite.guest(args.store, '--user', '0:0') + ['--', '/bin/rm', '-rf', '--', profile], quiet=True)
         finally:
             suite.finish()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--build', type=Path, required=True)
-    parser.add_argument('--store', required=True)
+    parser.add_argument('--build', type=Path)
+    parser.add_argument('--store')
+    parser.add_argument('--desktop-session', type=Path, help='Retained installed_desktop session.json; uses its runtime')
+    parser.add_argument('--flatpak', default='org.chromium.Chromium')
+    parser.add_argument('--browser-arg', action='append', default=[],
+                        help='Explicit diagnostic browser option, retained in the report')
     parser.add_argument('--video', type=Path, required=True)
     parser.add_argument('--chromium', default='/usr/lib/chromium/chromium')
     parser.add_argument('--output', type=Path, required=True)
@@ -211,9 +316,18 @@ def main():
     parser.add_argument('--rounds', type=int, default=2)
     parser.add_argument('--statistics', action='store_true', help='Instrumented admission proof, not timing baseline')
     parser.add_argument('--diagnostics', action='store_true', help='Detailed runtime transitions, not timing baseline')
+    parser.add_argument('--profile', action='store_true', help='Root simpleperf samples during playback, not a timing baseline')
     parser.add_argument('--modes', nargs='+', choices=('base', 'lazy'), default=['base', 'lazy'])
     FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
+    if args.desktop_session:
+        if args.build or args.store:
+            parser.error('A retained session supplies its own build and store')
+        state = json.loads(args.desktop_session.read_text())
+        assert not state.get('closed') and not state.get('headless'), 'A running GUI session is required'
+        args.store = state['environment']['store']
+    elif not args.build or not args.store:
+        parser.error('Headless mode requires --build and --store')
     assert 10 <= args.seconds <= 120 and 1 <= args.rounds <= 5
     video = args.video.read_bytes()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -231,7 +345,8 @@ def main():
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
     report = dict(videoSha256=hashlib.sha256(video).hexdigest(), executor=args.executor,
-                  statistics=args.statistics, diagnostics=args.diagnostics, samples=[], passed=False)
+                  statistics=args.statistics, diagnostics=args.diagnostics, profile=args.profile,
+                  samples=[], passed=False)
     try:
         for index in range(args.rounds):
             for mode in (args.modes if index%2 == 0 else reversed(args.modes)):

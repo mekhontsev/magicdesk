@@ -485,11 +485,20 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     int fd=open("/dev/null",O_RDONLY|O_CLOEXEC); assert(fd>=0);
     channel.sequence=1; channel.call.number=SYS_close; channel.call.args[0]=fd;
     atomic_store_explicit(&channel.state,MD_ENTRY_REQUEST,memory_order_release);
-    md_fs_worker_wake(worker);
+    md_broker_resumed(broker,pid);
     /* EVENT_WAIT: shared admission publication; the fixture alarm bounds loss. */
     while (atomic_load_explicit(&channel.state,memory_order_acquire)==MD_ENTRY_REQUEST) sched_yield();
     assert(atomic_load(&channel.state)==MD_ENTRY_RUNNING);
     assert(!md_broker_pending_events(broker));
+    /* An undecoded syscall stop belongs to its barrier, not retirement.
+     * Even an input register resembling a result cannot complete its journal. */
+    channel.native.number=SYS_close; channel.native.result=fd;
+    atomic_store(&channel.native.state,MD_NATIVE_RUNNING);
+    md_fd_view_publish(&channel.descriptor,fd,FD_CLOEXEC,S_IFCHR);
+    md_broker_park(broker,pid);
+    assert(!md_broker_pending_events(broker) && !atomic_load(&channel.descriptor.descriptor));
+    assert(atomic_load(&channel.native.state)==MD_NATIVE_RUNNING && channel.native.result==fd);
+    assert(atomic_load(&channel.state)==MD_ENTRY_RUNNING && fcntl(fd,F_GETFD)==FD_CLOEXEC);
     assert(md_broker_hold_event(broker,pid,status,NULL)==1);
     assert(md_broker_pending_events(broker));
     /* Publishing policy cannot release a kernel stop owned by retirement. */
@@ -520,7 +529,7 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     /* The stopped task cannot publish another ordinary call, but an owned
      * adapter may already have published a control/acknowledgement. Preserve
      * it for resume, including when a signal arrives before worker admission. */
-    for (unsigned kind=MD_ENTRY_BUFFER_CONTROL;kind<=MD_ENTRY_EXECUTION_END;++kind) {
+    for (unsigned kind=MD_ENTRY_BUFFER_CONTROL;kind<=MD_ENTRY_NATIVE_REQUEST;++kind) {
         if (kind==MD_ENTRY_EXECUTION_BEGIN) continue;
         channel.sequence=2; channel.call.reserved=kind;
         atomic_store_explicit(&channel.state,MD_ENTRY_REQUEST,memory_order_release);
@@ -566,11 +575,16 @@ static void registration_delegate(const struct seccomp_notif *request) {
      * owns the task. Force the worker's pre-wait scan to precede retirement. */
     c->sequence=1; c->call.number=SYS_getuid;
     c->call.reserved=registration.control ? MD_ENTRY_BUFFER_CONTROL : MD_ENTRY_SYSCALL;
-    atomic_store(&c->awake,1); atomic_store(&c->sleeping,1);
+    atomic_store(&c->sleeping,1);
     atomic_store(&c->state,MD_ENTRY_REQUEST);
-    md_fs_worker_wake(registration.worker);
-    /* EVENT_WAIT: worker acknowledges its park intent; alarm bounds failure. */
-    while (atomic_load(&c->awake)) sched_yield();
+    md_broker_resumed(registration.broker,request->pid);
+    if (registration.control) {
+        assert(!md_broker_entry_progress(registration.broker));
+        assert(!atomic_load(&c->control_awake));
+    } else {
+        /* EVENT_WAIT: worker acknowledges its park intent; alarm bounds failure. */
+        while (atomic_load(&c->awake)) sched_yield();
+    }
     assert(atomic_load(&c->state)==MD_ENTRY_REQUEST);
 }
 static void registration_retirement(const char *store,int control) {
@@ -624,14 +638,22 @@ static void registration_retirement(const char *store,int control) {
         && c->outcome==MD_ENTRY_COMPLETED && !c->result);
     if (control) for (unsigned update=0;update<2;++update) {
         assert(!atomic_load(&c->control_awake));
+        int stopped=(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f;
+        assert(!md_broker_hold_event(registration.broker,child,stopped,NULL));
         c->sequence=update+2;
         atomic_store(&c->state,MD_ENTRY_REQUEST);
+        assert(!md_broker_task(registration.broker,child,MD_BROKER_COOPERATIVE,0,0,NULL,0));
+        assert(!md_broker_entry_progress(registration.broker));
+        assert(atomic_load(&c->state)==MD_ENTRY_REQUEST);
         if (update) assert(!md_broker_task(registration.broker,child,MD_BROKER_COOPERATIVE,0,0,NULL,1));
         else md_broker_resumed(registration.broker,child);
         /* Resumption alone must target the supervisor, not the worker. */
-        md_broker_entry_progress(registration.broker);
+        assert(md_broker_entry_progress(registration.broker));
         assert(atomic_load(&c->state)==MD_ENTRY_RESPONSE && c->receipt==update+2
             && c->outcome==MD_ENTRY_COMPLETED && !c->result);
+        /* A dispatched callback requires one resource-owner progress pass,
+         * but an idle channel must not keep the supervisor spinning. */
+        assert(!md_broker_entry_progress(registration.broker));
     }
     assert(write(sockets[0],"c",1)==1); int status;
     assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));

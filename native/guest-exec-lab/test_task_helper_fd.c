@@ -35,12 +35,10 @@
 #include <unistd.h>
 
 extern char helper_call[],helper_return[],helper_abort[],caller_ready[];
-extern char helper_store[],helper_stored[];
 extern void caller_stop(void);
 __asm__(".text\n.global helper_call\nhelper_call:\nsvc #0\n"
     ".global helper_return\nhelper_return:\nsvc #0\n"
     ".global helper_abort\nhelper_abort:\nmov x0,#0\nmov x8,#93\nsvc #0\nbrk #0\n"
-    ".global helper_store\nhelper_store:\nstr w3,[x0]\n.global helper_stored\nhelper_stored:\nsvc #0\n"
     ".global caller_stop\ncaller_stop:\nmov x8,#178\nsvc #0\nmov x1,#19\nmov x8,#130\nsvc #0\n"
     ".global caller_ready\ncaller_ready:\nret\n");
 enum scenario { NORMAL, FULL, DENIED, KILLED_OPEN, CANCEL_CHANNEL, CANCEL_EXPORT,
@@ -64,7 +62,7 @@ static long native_trace(int request, pid_t pid, void *address, void *data) {
 }
 static int restricted(pid_t pid) { (void)pid; return 1; }
 static int marker(uintptr_t pc) {
-    return pc==(uintptr_t)helper_return+4 || pc==(uintptr_t)helper_stored+4;
+    return pc==(uintptr_t)helper_return+4;
 }
 static struct md_task_checkpoints checkpoints={.trace=native_trace,.restricted=restricted,.marker=marker};
 static long trace(int request,pid_t pid,void *address,void *data) {
@@ -346,7 +344,7 @@ struct send_frame {
 static void exercise_request(int protected, enum scenario scenario, unsigned exported, int sending,
         const struct md_task_helper_request *capture) {
     unsigned before=descriptors(),continued=0; early_child=0;
-    checkpoints.begin=(uintptr_t)helper_call; checkpoints.end=(uintptr_t)helper_stored+4;
+    checkpoints.begin=(uintptr_t)helper_call; checkpoints.end=(uintptr_t)caller_stop;
     int reference=capture ? open(capture->path,capture->flags|O_CLOEXEC) : -1;
     assert(!capture || reference>=0);
     sigset_t signals,previous; sigemptyset(&signals); sigaddset(&signals,SIGCHLD);
@@ -395,7 +393,7 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
     struct md_task_helpers *helpers=md_task_helpers_new(&callbacks); assert(helpers);
     struct md_interception_abi abi={.task_call=(uintptr_t)helper_call,.task_return=(uintptr_t)helper_return,
         .task_completed=(uintptr_t)helper_return,
-        .task_abort=(uintptr_t)helper_abort,.store_groups=(uintptr_t)helper_store,.stored_groups=(uintptr_t)helper_stored};
+        .task_abort=(uintptr_t)helper_abort};
     struct md_task_helper_request request={.kind=MD_TASK_HELPER_FD_TABLE,.path="/proc/self/fd"};
     struct completed c={0};
     assert(md_task_helper_begin(helpers,child,child,&saved,&abi,memory,&buffer,&request,completed,&c)==-EINVAL);

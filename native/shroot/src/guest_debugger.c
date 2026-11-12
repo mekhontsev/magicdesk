@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "guest_debugger.h"
+#include "pid_calls.h"
 #include <elf.h>
 #include <errno.h>
 #include <stdint.h>
@@ -35,7 +36,7 @@ struct inferior {
 struct waiting {
     struct waiting *next;
     pid_t pid;
-    struct user_pt_regs registers;
+    struct seccomp_data call;
     pid_t *candidates;
     size_t candidate,count;
     int probing, retry, filtered, native_children;
@@ -58,9 +59,10 @@ static int transfer(pid_t pid, uintptr_t address, void *bytes, size_t size, int 
     ssize_t n=write ? process_vm_writev(pid,&local,1,&remote,1,0) : process_vm_readv(pid,&local,1,&remote,1,0);
     return n==(ssize_t)size ? 0 : -EFAULT;
 }
-static long request(int op, pid_t pid, uintptr_t address, void *data) {
+static long request(struct md_debugger *d,int op, pid_t pid, uintptr_t address, void *data) {
     errno=0;
-    long r=ptrace(op,pid,(void *)address,data);
+    if (!d->host.trace) return -ENOSYS;
+    long r=d->host.trace(op,pid,(void *)address,data);
     return r==-1 && errno ? -errno : r;
 }
 struct md_debugger *md_debugger_create(const struct md_debugger_host *host) {
@@ -99,49 +101,49 @@ static pid_t native(struct md_debugger *d,pid_t observer,pid_t number) {
 static uid_t visible_uid(struct md_debugger *d,pid_t observer,pid_t sender,uid_t fallback) {
     return d->host.visible_uid ? d->host.visible_uid(observer,sender,fallback) : fallback;
 }
-static int selected(struct md_debugger *d,pid_t owner, const struct user_pt_regs *r, const struct inferior *p) {
+static int selected(struct md_debugger *d,pid_t owner, const struct seccomp_data *call, const struct inferior *p) {
     pid_t pid=p->number, group=visible(d,owner,p->group);
     if (!pid) return 0;
-    if (r->regs[8]==SYS_waitid) {
-        if (r->regs[0]==P_ALL) return 1;
-        if (r->regs[0]==P_PID) return r->regs[1]==(unsigned)pid;
-        return r->regs[0]==P_PGID && (r->regs[1] ? group==(pid_t)r->regs[1] : p->group==getpgid(owner));
+    if (call->nr==SYS_waitid) {
+        if (call->args[0]==P_ALL) return 1;
+        if (call->args[0]==P_PID) return call->args[1]==(unsigned)pid;
+        return call->args[0]==P_PGID && (call->args[1] ? group==(pid_t)call->args[1] : p->group==getpgid(owner));
     }
-    pid_t wanted=(pid_t)r->regs[0];
+    pid_t wanted=(pid_t)call->args[0];
     return wanted==-1 || wanted==pid || (!wanted && p->group==getpgid(owner))
         || (wanted < -1 && (int64_t)group==-(int64_t)wanted);
 }
-static unsigned wait_options(const struct user_pt_regs *r) {
-    return (unsigned)r->regs[r->regs[8]==SYS_waitid ? 3 : 2];
+static unsigned wait_options(const struct seccomp_data *call) {
+    return (unsigned)call->args[call->nr==SYS_waitid ? 3 : 2];
 }
-static int wait_result(struct md_debugger *d, pid_t owner, struct user_pt_regs *r, int *children) {
+static int wait_result(struct md_debugger *d, pid_t owner,const struct seccomp_data *call,int *children) {
     struct inferior *chosen=NULL;
     *children=0;
     for (struct inferior *p=d->inferiors; p; p=p->next) {
-        if (d->host.group(p->owner)!=d->host.group(owner) || !selected(d,owner,r,p)) continue;
+        if (d->host.group(p->owner)!=d->host.group(owner) || !selected(d,owner,call,p)) continue;
         *children=1;
-        if (r->regs[8]==SYS_waitid && !(wait_options(r)&(p->terminal ? WEXITED : WSTOPPED))) continue;
+        if (call->nr==SYS_waitid && !(wait_options(call)&(p->terminal ? WEXITED : WSTOPPED))) continue;
         if (p->sequence && (!chosen || p->sequence<chosen->sequence)) chosen=p;
     }
     if (!chosen) return 0;
     long value=chosen->number;
     int error;
     uintptr_t usage;
-    if (r->regs[8]==SYS_waitid) {
+    if (call->nr==SYS_waitid) {
         siginfo_t info={.si_signo=SIGCHLD,.si_pid=(pid_t)value,
             .si_uid=visible_uid(d,owner,chosen->pid,chosen->uid)};
         info.si_code=chosen->terminal ? (WIFEXITED(chosen->status) ? CLD_EXITED
             : WCOREDUMP(chosen->status) ? CLD_DUMPED : CLD_KILLED) : CLD_TRAPPED;
         info.si_status=chosen->terminal ? (WIFEXITED(chosen->status) ? WEXITSTATUS(chosen->status)
             : WTERMSIG(chosen->status)) : (chosen->status>>8);
-        error=r->regs[2] ? transfer(owner,r->regs[2],&info,sizeof(info),1) : 0;
-        usage=r->regs[4]; value=0;
+        error=call->args[2] ? transfer(owner,call->args[2],&info,sizeof(info),1) : 0;
+        usage=call->args[4]; value=0;
     } else {
-        error=r->regs[1] ? transfer(owner,r->regs[1],&chosen->status,sizeof(int),1) : 0;
-        usage=r->regs[3];
+        error=call->args[1] ? transfer(owner,call->args[1],&chosen->status,sizeof(int),1) : 0;
+        usage=call->args[3];
     }
     if (!error && usage) error=transfer(owner,usage,&chosen->usage,sizeof(chosen->usage),1);
-    if (!error && !(r->regs[8]==SYS_waitid && (wait_options(r)&WNOWAIT))) {
+    if (!error && !(call->nr==SYS_waitid && (wait_options(call)&WNOWAIT))) {
         chosen->sequence=0;
         if (chosen->terminal) {
             struct inferior **at=&d->inferiors;
@@ -151,12 +153,13 @@ static int wait_result(struct md_debugger *d, pid_t owner, struct user_pt_regs *
             free(chosen);
         }
     }
-    d->host.complete(owner,r,error ? error : value);
+    d->host.complete(owner,error ? error : value);
     return 1;
 }
 static int wake_waiters(struct md_debugger *d,pid_t owner) {
     int waiting=0;
-    for (struct waiting *w=d->waiters; w; w=w->next) {
+    for (struct waiting *w=d->waiters,*next; w; w=next) {
+        next=w->next;
         if (d->host.group(w->pid)==d->host.group(owner)) {
             waiting=1;
             if (w->probing) w->retry=1;
@@ -243,6 +246,10 @@ int md_debugger_stopped_by(struct md_debugger *d,pid_t target,pid_t owner) {
 int md_debugger_running(struct md_debugger *d,pid_t target) {
     struct inferior *p=d ? find(d,target) : NULL;
     return p && !p->terminal && !p->stopped && !p->pending;
+}
+int md_debugger_stop_pending(struct md_debugger *d,pid_t pid) {
+    struct inferior *p=d ? find(d,pid) : NULL;
+    return p && !p->terminal && !p->stopped && (p->pending || p->deferred_stop.si_signo);
 }
 int md_debugger_active(struct md_debugger *d) { return d->inferiors!=NULL || d->waiters!=NULL; }
 int md_debugger_newborn(struct md_debugger *d, pid_t pid) {
@@ -346,7 +353,7 @@ void md_debugger_rekey(struct md_debugger *d, pid_t old, pid_t pid) {
     }
     struct waiting **w=&d->waiters;
     while (*w) {
-        if ((*w)->pid==old) { struct waiting *gone=*w; *w=gone->next; free(gone); }
+        if ((*w)->pid==old) { struct waiting *gone=*w; *w=gone->next; wait_free(gone); }
         else w=&(*w)->next;
     }
 }
@@ -355,7 +362,7 @@ static unsigned long supported_options(const struct md_debugger *d) {
         |PTRACE_O_TRACEEXEC|PTRACE_O_TRACEVFORKDONE|PTRACE_O_TRACEEXIT|PTRACE_O_EXITKILL
         |(d->host.seccomp_events ? PTRACE_O_TRACESECCOMP : 0);
 }
-static long regset(pid_t caller, struct inferior *p, int op, uintptr_t note, uintptr_t address) {
+static long regset(struct md_debugger *d,pid_t caller, struct inferior *p, int op, uintptr_t note, uintptr_t address) {
     struct iovec guest;
     int r=transfer(caller,address,&guest,sizeof(guest),0);
     if (r) return r;
@@ -371,10 +378,10 @@ static long regset(pid_t caller, struct inferior *p, int op, uintptr_t note, uin
     if (!r && syscall_registers && op==PTRACE_SETREGSET) {
         struct user_pt_regs current;
         struct iovec saved={&current,sizeof(current)};
-        r=(int)request(PTRACE_GETREGSET,p->pid,NT_PRSTATUS,&saved);
+        r=(int)request(d,PTRACE_GETREGSET,p->pid,NT_PRSTATUS,&saved);
         if (!r) memcpy((char *)bytes+marker,&current.regs[7],sizeof(uint64_t));
     }
-    if (!r) r=(int)request(op,p->pid,note,&local);
+    if (!r) r=(int)request(d,op,p->pid,note,&local);
     if (!r && syscall_registers && op==PTRACE_GETREGSET) {
         uint64_t direction=p->syscall_stop-1;
         memcpy((char *)bytes+marker,&direction,sizeof(direction));
@@ -384,9 +391,9 @@ static long regset(pid_t caller, struct inferior *p, int op, uintptr_t note, uin
     if (!r) r=transfer(caller,address,&guest,sizeof(guest),1);
     free(bytes); return r;
 }
-static long control(struct md_debugger *d, pid_t caller, const struct user_pt_regs *r) {
-    int op=(int)r->regs[0]; pid_t pid=native(d,caller,(pid_t)r->regs[1]);
-    uintptr_t address=r->regs[2], data=r->regs[3];
+static long control(struct md_debugger *d, pid_t caller, const struct seccomp_data *call) {
+    int op=(int)call->args[0]; pid_t pid=native(d,caller,(pid_t)call->args[1]);
+    uintptr_t address=call->args[2], data=call->args[3];
     if (op==PTRACE_TRACEME) {
         pid_t parent=d->host.parent(caller);
         return parent>0 && d->host.traceme(parent,caller) ? add(d,caller,parent,0) : -EPERM;
@@ -466,7 +473,7 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
         }
         if (!error && !origin.valid && md_signal_native_sender(&info))
             info.si_pid=native(d,caller,info.si_pid);
-        if (!error) error=(int)request(op,pid,0,&info);
+        if (!error) error=(int)request(d,op,pid,0,&info);
         if (!error) {
             p->info=info;
             if (!origin.valid && d->host.signal_origin) d->host.signal_origin(pid,&info,&origin);
@@ -474,13 +481,13 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
         }
         return error;
     }
-    case PTRACE_GETREGSET: case PTRACE_SETREGSET: return regset(caller,p,op,address,data);
+    case PTRACE_GETREGSET: case PTRACE_SETREGSET: return regset(d,caller,p,op,address,data);
     case PTRACE_GET_SYSCALL_INFO: {
         struct ptrace_syscall_info info=p->syscall;
         if (info.op==PTRACE_SYSCALL_INFO_NONE) {
             struct user_pt_regs registers;
             struct iovec io={&registers,sizeof(registers)};
-            int error=(int)request(PTRACE_GETREGSET,pid,NT_PRSTATUS,&io);
+            int error=(int)request(d,PTRACE_GETREGSET,pid,NT_PRSTATUS,&io);
             if (error) return error;
             info.arch=AUDIT_ARCH_AARCH64;
             info.instruction_pointer=registers.pc; info.stack_pointer=registers.sp;
@@ -497,19 +504,20 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
         if (address!=sizeof(mask)) return -EINVAL;
         int error=op==PTRACE_SETSIGMASK ? transfer(caller,data,&mask,sizeof(mask),0) : 0;
         if (!error) error=d->host.signal_mask ? d->host.signal_mask(pid,op==PTRACE_SETSIGMASK,&mask)
-            : (int)request(op,pid,address,&mask);
+            : (int)request(d,op,pid,address,&mask);
         if (!error && op==PTRACE_GETSIGMASK) error=transfer(caller,data,&mask,sizeof(mask),1);
         return error;
     }
     case PTRACE_PEEKTEXT: case PTRACE_PEEKDATA: {
         if (!d->host.allowed(caller,pid)) return -EIO;
         /* The raw Linux syscall writes through data; libc returns the word. */
-        errno=0; long word=ptrace(op,pid,(void *)address,NULL);
+        if (!d->host.trace) return -ENOSYS;
+        errno=0; long word=d->host.trace(op,pid,(void *)address,NULL);
         if (word==-1 && errno) return -errno;
         return transfer(caller,data,&word,sizeof(word),1);
     }
     case PTRACE_POKETEXT: case PTRACE_POKEDATA:
-        return d->host.allowed(caller,pid) ? request(op,pid,address,(void *)data) : -EIO;
+        return d->host.allowed(caller,pid) ? request(d,op,pid,address,(void *)data) : -EIO;
     case PTRACE_CONT: case PTRACE_SINGLESTEP: case PTRACE_SYSCALL: case PTRACE_DETACH: {
         if (data>64) return -EIO;
         struct md_signal_origin origin=p->origin;
@@ -527,11 +535,11 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
     }
 }
 static void wait_probe(struct md_debugger *d,struct waiting *w,enum md_debugger_wait_action action) {
-    struct user_pt_regs probe=w->registers;
+    struct seccomp_data probe=w->call;
     if (w->filtered) {
         pid_t candidate=w->candidates[w->candidate];
-        if (probe.regs[8]==SYS_waitid) { probe.regs[0]=P_PID; probe.regs[1]=candidate; }
-        else probe.regs[0]=candidate;
+        if (probe.nr==SYS_waitid) { probe.args[0]=P_PID; probe.args[1]=candidate; }
+        else probe.args[0]=candidate;
     }
     w->probing=1;
     d->host.wait(w->pid,&probe,action);
@@ -540,7 +548,7 @@ static void wait_retry(struct md_debugger *d,struct waiting *w) {
     w->candidate=0; w->native_children=0; w->retry=0;
     if (w->filtered) {
         free(w->candidates); w->candidates=NULL; w->count=0;
-        int filtered=d->host.wait_children(w->pid,&w->registers,&w->candidates,&w->count);
+        int filtered=d->host.wait_children(w->pid,&w->call,&w->candidates,&w->count);
         if (filtered>=0) w->filtered=filtered;
         if (filtered<0 || (filtered && !w->count)) {
             md_debugger_wait_complete(d,w->pid,filtered<0 ? filtered : -ECHILD,NULL);
@@ -549,28 +557,32 @@ static void wait_retry(struct md_debugger *d,struct waiting *w) {
     }
     wait_probe(d,w,MD_DEBUG_WAIT_REPROBE);
 }
-int md_debugger_call(struct md_debugger *d, pid_t pid, struct user_pt_regs *r) {
-    if (r->regs[8]==SYS_ptrace) { d->host.complete(pid,r,control(d,pid,r)); return 1; }
-    if (r->regs[8]!=SYS_wait4 && r->regs[8]!=SYS_waitid) return 0;
-    unsigned options=wait_options(r);
+int md_debugger_call(struct md_debugger *d,pid_t pid,struct seccomp_data call) {
+    if (call.nr!=SYS_wait4 && call.nr!=SYS_waitid && call.nr!=SYS_ptrace) return 0;
+    if (call.nr==SYS_ptrace) {
+        d->host.complete(pid,control(d,pid,&call)); return MD_DEBUG_CALL_HANDLED;
+    }
+    unsigned options=wait_options(&call);
     unsigned valid=WNOHANG|WUNTRACED|WCONTINUED|__WALL|__WCLONE|__WNOTHREAD;
-    int id=r->regs[8]==SYS_waitid;
+    int id=call.nr==SYS_waitid;
     if (id) valid|=WEXITED|WNOWAIT;
     if ((options&~valid) || (id && (!(options&(WEXITED|WSTOPPED|WCONTINUED))
-            || (r->regs[0]!=P_ALL && r->regs[0]!=P_PID && r->regs[0]!=P_PGID && r->regs[0]!=P_PIDFD)
-            || (r->regs[0]==P_PID && (int)r->regs[1]<=0)))) {
-        d->host.complete(pid,r,-EINVAL); return 1;
+            || (call.args[0]!=P_ALL && call.args[0]!=P_PID && call.args[0]!=P_PGID && call.args[0]!=P_PIDFD)
+            || (call.args[0]==P_PID && (int)call.args[1]<=0)))) {
+        d->host.complete(pid,-EINVAL); return 1;
     }
     int children;
-    if (wait_result(d,pid,r,&children)) return 1;
+    int ready=wait_result(d,pid,&call,&children);
+    if (ready) return ready;
     pid_t *candidates=NULL; size_t count=0;
-    int filtered=d->host.wait_children ? d->host.wait_children(pid,r,&candidates,&count) : 0;
-    if (filtered<0) { free(candidates); d->host.complete(pid,r,filtered); return 1; }
+    int filtered=d->host.wait_children ? d->host.wait_children(pid,&call,&candidates,&count) : 0;
+    if (filtered<0) { free(candidates); d->host.complete(pid,filtered); return 1; }
     if (!children && !filtered) { free(candidates); return 0; }
-    if (!children && filtered && !count) { free(candidates); d->host.complete(pid,r,-ECHILD); return 1; }
+    if (!children && filtered && !count) { free(candidates); d->host.complete(pid,-ECHILD); return 1; }
+    if (d->host.wait_admit && !d->host.wait_admit(pid)) { free(candidates); return MD_DEBUG_CALL_CONTEXT; }
     struct waiting *w=malloc(sizeof(*w));
-    if (!w) { free(candidates); d->host.complete(pid,r,-ENOMEM); return 1; }
-    *w=(struct waiting){.next=d->waiters,.pid=pid,.registers=*r,.probing=1,
+    if (!w) { free(candidates); d->host.complete(pid,-ENOMEM); return 1; }
+    *w=(struct waiting){.next=d->waiters,.pid=pid,.call=call,.probing=1,
         .filtered=filtered,.candidates=candidates,.count=count}; d->waiters=w;
     if (filtered && !count) md_debugger_wait_complete(d,pid,-ECHILD,NULL);
     else wait_probe(d,w,MD_DEBUG_WAIT_PROBE);
@@ -578,26 +590,26 @@ int md_debugger_call(struct md_debugger *d, pid_t pid, struct user_pt_regs *r) {
      * Launch cancellation/timeout still owns both debugger and inferior. */
     return 1;
 }
-void md_debugger_wait_complete(struct md_debugger *d,pid_t pid,long value,const siginfo_t *captured) {
+void md_debugger_wait_complete(struct md_debugger *d,pid_t pid,long value,const union md_process_wait *captured) {
     struct waiting **at=&d->waiters;
     while (*at && (*at)->pid!=pid) at=&(*at)->next;
     if (!*at) return;
     struct waiting *w=*at;
-    int children=0, id=w->registers.regs[8]==SYS_waitid, result=0;
-    if (id && value==0 && (w->registers.regs[2] || captured)) {
+    int children=0, id=w->call.nr==SYS_waitid, result=0;
+    if (id && value==0 && (w->call.args[2] || captured)) {
         siginfo_t info;
         int error=0;
-        if (captured) info=*captured;
-        else error=transfer(pid,w->registers.regs[2],&info,sizeof(info),0);
+        if (captured) info=captured->info;
+        else error=transfer(pid,w->call.args[2],&info,sizeof(info),0);
         if (!error) {
             result=info.si_pid!=0;
             if (result) {
                 pid_t reaped=info.si_pid;
                 info.si_uid=visible_uid(d,pid,reaped,info.si_uid);
                 info.si_pid=visible(d,pid,reaped);
-                int error=w->registers.regs[2] ? transfer(pid,w->registers.regs[2],&info,sizeof(info),1) : 0;
+                int error=w->call.args[2] ? transfer(pid,w->call.args[2],&info,sizeof(info),1) : 0;
                 if (error) value=error;
-                else if (!(wait_options(&w->registers)&WNOWAIT) && (info.si_code==CLD_EXITED
+                else if (!(wait_options(&w->call)&WNOWAIT) && (info.si_code==CLD_EXITED
                         || info.si_code==CLD_KILLED || info.si_code==CLD_DUMPED)
                         && d->host.reaped) d->host.reaped(pid,reaped,1);
             }
@@ -612,35 +624,37 @@ void md_debugger_wait_complete(struct md_debugger *d,pid_t pid,long value,const 
             pid_t reaped=(pid_t)value;
             value=visible(d,pid,reaped);
             int status;
-            if (w->registers.regs[1] && !transfer(pid,w->registers.regs[1],&status,sizeof(status),0)
-                    && (WIFEXITED(status) || WIFSIGNALED(status)) && d->host.reaped)
+            int observed=captured || (w->call.args[1]
+                && !transfer(pid,w->call.args[1],&status,sizeof(status),0));
+            if (captured) status=captured->status;
+            if (observed && (WIFEXITED(status) || WIFSIGNALED(status)) && d->host.reaped)
                 d->host.reaped(pid,reaped,1);
         }
-        d->host.complete(pid,&w->registers,value);
-    } else if (wait_result(d,pid,&w->registers,&children)) {
+        d->host.complete(pid,value);
+    } else if (wait_result(d,pid,&w->call,&children)) {
         /* The queued trace event owns completion. */
     } else if (w->filtered) {
-        if ((!children && !w->native_children) || (wait_options(&w->registers)&WNOHANG)) {
-            d->host.complete(pid,&w->registers,children || w->native_children ? 0 : -ECHILD);
+        if ((!children && !w->native_children) || (wait_options(&w->call)&WNOHANG)) {
+            d->host.complete(pid,children || w->native_children ? 0 : -ECHILD);
         } else {
             w->probing=0;
             if (w->retry) wait_retry(d,w);
-            else d->host.wait(pid,&w->registers,MD_DEBUG_WAIT_PARK);
+            else d->host.wait(pid,&w->call,MD_DEBUG_WAIT_PARK);
             return;
         }
-    } else if (!children && !value && !(wait_options(&w->registers)&WNOHANG)) {
+    } else if (!children && !value && !(wait_options(&w->call)&WNOHANG)) {
         /* A native nonblocking probe may predate the final tracee exit event.
          * Once no virtual children remain, let the real parent reap normally. */
-        struct user_pt_regs registers=w->registers;
+        struct seccomp_data call=w->call;
         *at=w->next; wait_free(w);
-        d->host.wait(pid,&registers,MD_DEBUG_WAIT_NATIVE); return;
-    } else if (!children || (wait_options(&w->registers)&WNOHANG)) {
-        d->host.complete(pid,&w->registers,children ? 0 : value);
+        d->host.wait(pid,&call,MD_DEBUG_WAIT_NATIVE); return;
+    } else if (!children || (wait_options(&w->call)&WNOHANG)) {
+        d->host.complete(pid,children ? 0 : value);
     } else {
         w->probing=0;
         if (w->retry) {
-            w->retry=0; w->probing=1; d->host.wait(pid,&w->registers,MD_DEBUG_WAIT_REPROBE);
-        } else d->host.wait(pid,&w->registers,MD_DEBUG_WAIT_PARK);
+            w->retry=0; w->probing=1; d->host.wait(pid,&w->call,MD_DEBUG_WAIT_REPROBE);
+        } else d->host.wait(pid,&w->call,MD_DEBUG_WAIT_PARK);
         return;
     }
     *at=w->next; wait_free(w);
@@ -652,16 +666,16 @@ void md_debugger_wait_resumed(struct md_debugger *d, pid_t pid, long error) {
     struct waiting *w=*at;
     if (!error) {
         int children;
-        if (wait_result(d,pid,&w->registers,&children)) {
+        if (wait_result(d,pid,&w->call,&children)) {
             *at=w->next; wait_free(w); return;
         }
         wait_retry(d,w);
         return;
     }
-    struct user_pt_regs registers=w->registers;
+    struct seccomp_data call=w->call;
     *at=w->next; wait_free(w);
     /* The kernel signal disposition, including SA_RESTART, owns interruption.
      * Forget the old wait before a handler can issue another wait itself. */
-    if (error==-512) d->host.wait(pid,&registers,MD_DEBUG_WAIT_RESTART);
-    else d->host.complete(pid,&registers,error);
+    if (error==-512) d->host.wait(pid,&call,MD_DEBUG_WAIT_RESTART);
+    else d->host.complete(pid,error);
 }

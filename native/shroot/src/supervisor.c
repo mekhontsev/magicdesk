@@ -66,6 +66,7 @@
 #include "supervisor_execution.h"
 #include "supervisor_fs.h"
 #include "supervisor_internal.h"
+#include "supervisor_identity.h"
 #include "supervisor_io.h"
 #include "supervisor_memory.h"
 #include "supervisor_notifications.h"
@@ -79,6 +80,7 @@
 #include "sysv_ipc.h"
 #include "sysv_shm.h"
 #include "task_checkpoint.h"
+#include "supervisor_transfer.h"
 #include "task_helper.h"
 #include "task_quiesce.h"
 #include "task_registry.h"
@@ -153,15 +155,16 @@ static void supervisor_sigsys(int signal,siginfo_t *info,void *context);
 static void report_statistics(void);
 
 void retry_clear(struct thread *t, enum retry_kind kind) {
-    struct retry_owner *owner=&t->retries[kind>=RETRY_FD];
+    struct retry_owner *owner=&t->retries[kind>=RETRY_FD && kind!=RETRY_TRANSFER];
     owner->mask&=~kind;
     if (!owner->mask) md_pending_cancel(&owner->node);
 }
 
 void retry_wait(struct thread *t, enum retry_kind kind) {
-    struct retry_owner *owner=&t->retries[kind>=RETRY_FD];
+    unsigned queue=kind>=RETRY_FD && kind!=RETRY_TRANSFER;
+    struct retry_owner *owner=&t->retries[queue];
     owner->thread=t; owner->mask|=kind;
-    md_pending_add(&retry_queues[kind>=RETRY_FD],&owner->node);
+    md_pending_add(&retry_queues[queue],&owner->node);
 }
 
 static void cleanup_resume_tracees(void) {
@@ -224,7 +227,7 @@ void cleanup(void) {
         md_seccomp_policy_replace(&threads->seccomp.policy,NULL);
         md_memory_release(threads->memory);
         md_memory_release(threads->memory_op.remote);
-        free(threads->memory_op.notification);
+        task_continuation_discard(threads);
         free(threads->metadata_restart);
         if (threads->broker_completion) {
             md_fs_buffer_open_release(&threads->broker_completion->opened);
@@ -239,7 +242,7 @@ void cleanup(void) {
         md_resources_unshare_finish(&threads->resources,&threads->identity,&threads->resource_change, -ECANCELED);
         md_resources_release(&threads->resources);
         md_identity_release(&threads->identity);
-        free(threads->identity_copy.buffer);
+        identity_discard(threads);
         md_signal_delivery_clear(&threads->signals.delivery);
         free(threads); threads = next;
     }
@@ -315,6 +318,7 @@ static void retry_progress(struct md_pending_node *node,void *context) {
     RETRY(RETRY_PROC_LOOKUP,proc_lookup_start);
     RETRY(RETRY_FILTER,filter_install_progress);
     RETRY(RETRY_SIGNAL,signal_control_progress);
+    RETRY(RETRY_TRANSFER,transfer_progress);
     RETRY(RETRY_DEBUG_WAIT,debugger_wait_retry);
 #undef RETRY
     CHECK(!!owner->mask==!!owner->node.list);
@@ -482,6 +486,7 @@ static pid_t kernel_event(int *status,struct rusage *usage) {
     return pid;
 }
 
+enum { CHECKPOINT_EVENT, CHECKPOINT_PROGRESS, CHECKPOINT_PARKED };
 static int checkpoint_event(pid_t pid,int *status) {
     /* A shielded admission may stop at syscall exit rather than EVENT_STOP.
      * The checkpoint driver must not resume that stop behind an active barrier.
@@ -492,8 +497,16 @@ static int checkpoint_event(pid_t pid,int *status) {
                 || (policy_installer && md_task_quiesce_waiting(policy_barrier,pid))
                 || (memory_execution && md_task_quiesce_waiting(memory_barrier,pid))
                 || (mapping_execution && md_task_quiesce_waiting(mapping_barrier,pid))
-                || (task_action_execution && md_task_quiesce_waiting(task_action_barrier,pid)))) return 0;
-    return md_task_checkpoint_event(&checkpoints,pid,status);
+                || (task_action_execution && md_task_quiesce_waiting(task_action_barrier,pid))))
+        return CHECKPOINT_PARKED;
+    int progress=md_task_checkpoint_event(&checkpoints,pid,status);
+    if (progress>0) {
+        /* A deferred barrier event was already recorded as stopped. Decoder
+         * progress resumes that continuation without passing through resume().
+         * Borrowed task calls suspend decoding and retain their own exclusion. */
+        md_broker_resumed(broker,pid);
+    }
+    return progress;
 }
 
 static int tasks_pending(void) {
@@ -504,6 +517,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
     enum { PROGRESS_BATCH=8 };
     static unsigned progress_budget;
     for (;;) {
+        task_continuations_progress();
         retained_progress();
         signal_entries_progress();
         policy_sync_progress();
@@ -520,6 +534,8 @@ static pid_t wait_event(int *status, struct rusage *usage) {
          * No readiness is inferred: an empty task queue immediately enters the
          * shared event wait, which also replenishes this event-count budget. */
         if (!progress_budget) {
+            struct thread *waiter=entry_wait_deadline_owner();
+            if (waiter && waiter->entry.wait.deadline<=md_event_now()) entry_wait_complete(waiter,-ETIMEDOUT);
             event_sources(events);
             if (statistics) ++statistics->event_polls;
             long ready = md_event_poll(events, EVENT_SOURCES);
@@ -528,7 +544,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             progress_budget=PROGRESS_BATCH;
         }
         --progress_budget;
-        int entry_pending=md_broker_entry_progress(broker);
+        int entry_progress=md_broker_entry_progress(broker);
         /* Progress callbacks can finish the last private task without leaving
          * another kernel event. The outer loop uses this same lifetime owner. */
         if (!tasks_pending()) return 0;
@@ -546,7 +562,14 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             if (checkpoint==-ESRCH) continue;
             if (checkpoint<0) fprintf(stderr,"Shroot: checkpoint pid=%d status=%x error=%d\n",pid,*status,checkpoint);
             CHECK(checkpoint>=0);
-            if (checkpoint) continue;
+            if (checkpoint==CHECKPOINT_PROGRESS) continue;
+            if (checkpoint==CHECKPOINT_PARKED) {
+                /* A raw syscall entry/skip exit is not a completed native
+                 * effect. Its barrier owns the unchanged stop until replay;
+                 * only the normalized continuation may retire broker work. */
+                md_broker_park(broker,pid);
+                return pid;
+            }
             int held=md_broker_hold_event(broker,pid,*status,usage); CHECK(held>=0);
             if (held) continue;
             return pid;
@@ -565,10 +588,13 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             errno=ECHILD;
         }
         CHECK(pid == 0 || errno == EINTR);
-        if (memory_runnable() || retained_runnable() || entry_pending) continue;
+        if (memory_runnable() || retained_runnable() || entry_progress) continue;
         /* EVENT_WAIT: task/resource progress, signal or cancellation timer.
          * The timer is serviced even while ptrace continuously has work. */
         int64_t bound = INT64_MAX;
+        struct thread *entry_owner=entry_wait_deadline_owner();
+        int64_t entry_bound=entry_owner ? entry_owner->entry.wait.deadline : INT64_MAX;
+        if (entry_bound<bound) bound=entry_bound;
         struct thread *control_owner=control_deadline_owner();
         int64_t control_bound=control_owner ? control_owner->control.pending->deadline : INT64_MAX;
         if (control_bound<bound) bound=control_bound;
@@ -583,6 +609,9 @@ static pid_t wait_event(int *status, struct rusage *usage) {
         int64_t sleep_start=md_cost_begin(statistics ? &statistics->event_sleep : NULL);
         long outcome = md_event_wait(events, EVENT_SOURCES, bound);
         md_cost_end(statistics ? &statistics->event_sleep : NULL,sleep_start);
+        if (outcome==-ETIMEDOUT && bound==entry_bound) {
+            CHECK(entry_owner); entry_wait_complete(entry_owner,-ETIMEDOUT); continue;
+        }
         /* Report expiry through the transaction that owns the memory deadline. */
         if (outcome==-ETIMEDOUT && bound==memory_deadline()) memory_progress();
         if (outcome==-ETIMEDOUT && mapping_execution && bound==mapping_execution->deadline) mapping_progress();
@@ -662,13 +691,14 @@ int main(int argc, char **argv) {
         argument+=2;
     }
     setvbuf(stderr, NULL, _IONBF, 0);
-    struct md_debugger_host debug_host={.parent=debugger_parent,.group=debugger_group,.uid=debugger_uid,.allowed=debugger_allowed,.traceme=debugger_traceme,
+    struct md_debugger_host debug_host={.trace=native_trace,.parent=debugger_parent,.group=debugger_group,.uid=debugger_uid,.allowed=debugger_allowed,.traceme=debugger_traceme,
         .wait_children=private_wait_children,
         .visible_pid=debugger_visible_pid,.native_pid=debugger_native_pid,.visible_uid=debugger_visible_uid,.reaped=debugger_reaped,
         .signal_origin=debugger_signal_origin,.signal_translate=debugger_signal_translate,
         .attachable=debugger_attachable,.observe=debugger_observe,.interrupt=debugger_interrupt,.options=debugger_options,
         .listen=debugger_listen,.usage=debugger_usage,.wait=debugger_wait,.wait_wake=debugger_wait_wake,
-        .complete=debugger_complete,.resume=resume_signal,.signal_mask=debugger_signal_mask};
+        .complete=debugger_complete,.resume=resume_signal,.signal_mask=debugger_signal_mask,
+        .wait_admit=debugger_wait_admit};
     debugger=md_debugger_create(&debug_host); CHECK(debugger);
     if (argument < argc && !strcmp(argv[argument], "--admit-elf")) {
         CHECK(argument + 2 < argc);
@@ -912,7 +942,7 @@ int main(int argc, char **argv) {
         struct thread *signalled=WIFSTOPPED(status) && (unsigned)status>>16==PTRACE_EVENT_STOP
             ? find_thread(pid) : NULL;
         if (signalled && signalled->machine.signal_alias) {
-            int error=md_svc_machine_signal_committed(md_memory_svc(signalled->memory),
+            int error=md_svc_machine_signal_committed(native_trace,md_memory_svc(signalled->memory),
                 &signalled->machine,pid,status);
             if (error==-ESRCH) { signalled->resume_lost=1; continue; }
             CHECK(!error);
@@ -926,6 +956,7 @@ int main(int argc, char **argv) {
         if (quiescence_repair_event(pid,status,&usage)) continue;
         if (retained_barrier_event(pid,status,&usage)) continue;
         if (memory_event(pid,status,&usage)) continue;
+        if (svc_pool_event(pid,status)) continue;
         if (task_action_event(pid,status,&usage)) continue;
         if (mapping_event(pid,status)) continue;
         if (mapping_guard_event(pid,status,&usage)) continue;
@@ -997,15 +1028,27 @@ int main(int argc, char **argv) {
             }
         }
         if (readiness_native_event(t,status)) continue;
-        if (!event && sig!=(SIGTRAP|0x80) && (t->phase==IDLE || t->entry.execution)
+        if (!event && sig!=(SIGTRAP|0x80)
+                && readiness_signal_event(t,sig,&signal_stop,restored_signal)) continue;
+        if (!event && sig!=(SIGTRAP|0x80) && (t->phase==IDLE || t->entry.execution || entry_pending(t))
                 && md_memory_svc(t->memory)) {
+            /* Ignored deliveries must not cancel a native effect or mark its
+             * resident frame pending. Kernel restart retains the live wait. */
+            if (signal_ignored(t,sig,&signal_stop)) { resume(pid,0); continue; }
+            int observed=entry_effect_observe(t);
+            if (observed==-ESRCH) { t->resume_lost=1; continue; }
+            CHECK(!observed);
+            if (t->entry.waiting) signal_stop.has_regs=0;
             int deliver=0;
             int owned=md_svc_machine_signal(md_memory_svc(t->memory),&t->machine,pid,
                 &t->signals.delivery,&signal_stop,&deliver);
             if (owned==-ESRCH) { t->resume_lost=1; continue; }
             if (owned<0) errno=-owned;
             CHECK(owned>=0);
-            if (owned) { deliver_signal(pid,deliver,restored_signal,&signal_stop); continue; }
+            if (owned) {
+                if (md_signal_delivery_pending(&t->signals.delivery)) entry_wait_complete(t,-EINTR);
+                deliver_signal(pid,deliver,restored_signal,&signal_stop); continue;
+            }
         }
         if (!event && sig!=(SIGTRAP|0x80)) notification_interrupted(t);
         if (event==PTRACE_EVENT_EXIT) { task_exit_event(t,pid,event); } else if (event==PTRACE_EVENT_VFORK_DONE) { task_vfork_done_event(t,pid,event); } else if (event == PTRACE_EVENT_EXEC) { task_exec_event(t,pid,event); } else if (event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE) { task_birth_event(t,pid,event); } else if (event == PTRACE_EVENT_STOP) { task_stop_event(t,pid,status,sig); }
@@ -1040,7 +1083,7 @@ static void report_statistics(void) {
             (unsigned long long)statistics->entry_completions,
             (unsigned long long)statistics->entry_promotions,
             (unsigned long long)statistics->entry_effects);
-        static const char *context_names[MD_CONTEXT_COUNT]={"copy","process","birth","exec","signal","wait",
+        static const char *context_names[MD_CONTEXT_COUNT]={"process","birth","exec","signal","wait",
             "descriptor","memory","policy","namespace","debug"};
         fprintf(stderr,"MD_EXECUTION_NATIVE calls=%llu\n",(unsigned long long)statistics->entry_native);
         fprintf(stderr,"MD_EXECUTION_LOCAL_NATIVE calls=%llu\n",(unsigned long long)statistics->entry_local_native);
@@ -1050,9 +1093,6 @@ static void report_statistics(void) {
         for (unsigned i=0;i<MD_CONTEXT_COUNT;++i) if (statistics->entry_stop_reasons[i])
             fprintf(stderr,"MD_EXECUTION_STOP reason=%s calls=%llu\n",context_names[i],
                 (unsigned long long)statistics->entry_stop_reasons[i]);
-        for (unsigned i=0;i<MD_CONTEXT_COUNT;++i) if (statistics->entry_local_contexts[i])
-            fprintf(stderr,"MD_EXECUTION_LOCAL_CONTEXT reason=%s calls=%llu\n",context_names[i],
-                (unsigned long long)statistics->entry_local_contexts[i]);
         fprintf(stderr,"MD_SIGNAL_RETURN attempted=%llu eligible=%llu admitted=%llu copied=%llu relocated=%llu\n",
             (unsigned long long)statistics->signal_frames[0],(unsigned long long)statistics->signal_frames[1],
             (unsigned long long)statistics->signal_frames[2],(unsigned long long)statistics->signal_frames[3],

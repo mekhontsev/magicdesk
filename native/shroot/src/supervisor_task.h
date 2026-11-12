@@ -28,7 +28,7 @@ void process_reboot_info(pid_t pid,int *code,int *status);
 int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r,unsigned long *cookie);
 int freezer_parked(const struct thread *t);
 void freezer_progress(void);
-int private_wait_children(pid_t pid,const struct user_pt_regs *regs,pid_t **candidates,size_t *count);
+int private_wait_children(pid_t pid,const struct seccomp_data *call,pid_t **candidates,size_t *count);
 int pid_gone(pid_t pid);
 void pid_collect(void);
 void task_terminal_event(struct thread *t,pid_t pid,int status);
@@ -39,6 +39,7 @@ void task_birth_event(struct thread *t,pid_t pid,unsigned event);
 void task_stop_event(struct thread *t,pid_t pid,int status,int sig);
 int task_clone_exit(struct thread *t,pid_t pid);
 int task_process_exit(struct thread *t,pid_t pid);
-int task_checkpoint(struct thread *t,pid_t pid,uintptr_t checkpoint,struct user_pt_regs *regs);
+void task_wait_complete(struct thread *t,long result);
+void pid_store_begin(struct thread *t);
 
 #endif

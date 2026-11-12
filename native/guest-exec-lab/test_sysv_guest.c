@@ -484,9 +484,13 @@ static void wait_denied(void) {
     struct sock_fprog program={sizeof(code)/sizeof(*code),code};
     assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    struct timespec zero={0};
+    assert(syscall(SYS_ppoll,NULL,0,&zero,NULL,8)==-1 && errno==EACCES);
     struct sembuf op={0,-1,0};
-    assert(semop(id,&op,1)==-1 && errno==EACCES);
+    struct timespec timeout={.tv_nsec=1000000};
+    assert(semtimedop(id,&op,1,&timeout)==-1 && errno==EAGAIN);
     assert(!ctl(id,0,GETNCNT,0) && !ctl(id,0,IPC_RMID,0));
+    waiting("sem-wake");
 }
 static void wait_stopped(void) {
     int id=semget(IPC_PRIVATE,1,0600); assert(id>=0);
@@ -512,6 +516,9 @@ static void metadata_is(int sem,int msg,int shm,pid_t writer,pid_t creator) {
     struct msqid_ds queue; assert(!msgctl(msg,IPC_STAT,&queue));
     assert(queue.msg_lspid==writer && queue.msg_lrpid==writer);
     struct shmid_ds memory; assert(!shmctl(shm,IPC_STAT,&memory));
+    if (memory.shm_cpid!=creator || memory.shm_lpid!=writer)
+        fprintf(stderr,"SHM cpid=%d expected=%d lpid=%d expected=%d self=%d\n",
+            memory.shm_cpid,creator,memory.shm_lpid,writer,getpid());
     assert(memory.shm_cpid==creator && memory.shm_lpid==writer);
 }
 static void *metadata_thread(void *argument) {
@@ -536,6 +543,7 @@ static void metadata_write(int sem,int msg,int shm,pid_t creator) {
     assert(!kill(ctl(sem,0,GETPID,0),0));
 }
 static void pid_metadata(const char *self,unsigned levels) {
+    pid_t original=getpid();
     int sem=semget(IPC_PRIVATE,2,0600),msg=msgget(IPC_PRIVATE,0600),shm=shmget(IPC_PRIVATE,4096,0600);
     assert(sem>=0 && msg>=0 && shm>=0);
     assert(!ctl(sem,0,GETPID,0));
@@ -544,6 +552,7 @@ static void pid_metadata(const char *self,unsigned levels) {
     int current=-1;
     if (levels) { current=open("/proc/self/ns/pid",O_RDONLY|O_CLOEXEC); assert(current>=0); }
     if (levels) assert(!unshare(CLONE_NEWPID));
+    assert(getpid()==original);
     pid_t child=fork(); assert(child>=0);
     if (!child) {
         close(ready[0]);
@@ -565,6 +574,7 @@ static void pid_metadata(const char *self,unsigned levels) {
     /* Restore the namespace for subsequent pthread_create after nested PID 1
      * exits; CLONE_THREAD cannot join the child's now-dead namespace. */
     if (current>=0) { assert(!setns(current,CLONE_NEWPID)); close(current); }
+    assert(getpid()==original);
     metadata_is(sem,msg,shm,child,getpid());
     struct shmid_ds memory; assert(!shmctl(owned,IPC_STAT,&memory));
     assert(memory.shm_cpid==child && !memory.shm_lpid);

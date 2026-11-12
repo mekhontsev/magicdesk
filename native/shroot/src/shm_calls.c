@@ -10,7 +10,6 @@
 static long request(unsigned op, unsigned long a, unsigned long b, unsigned long c) {
     return md_guest_resource_control(MD_GUEST_SHM,op,a,b,c,0);
 }
-extern long md_guest_task_control(void);
 long md_shm_dispatch(long nr, const unsigned long *a) {
     if (nr == SYS_shmget) return request(MD_SHM_GET,a[0],a[1],a[2]);
     if (nr == SYS_shmat) {
@@ -20,7 +19,7 @@ long md_shm_dispatch(long nr, const unsigned long *a) {
         if (address & (md_page_size-1)) return -EINVAL;
         long memory=md_adapter_buffer_take();
         if (memory<0) return memory;
-        long mapped=md_guest_task_control();
+        long mapped=md_guest_buffer_control(MD_BUFFER_MEMORY_MAP,0,0);
         long released=md_adapter_buffer_release();
         return mapped<0 ? mapped : released<0 ? released : mapped;
     }

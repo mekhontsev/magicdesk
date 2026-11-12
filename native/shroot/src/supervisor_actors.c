@@ -52,6 +52,8 @@
 struct thread *broker_events;
 static unsigned task_action_calls;
 static struct md_pending_queue task_action_queue;
+static struct md_pending_queue task_continuations;
+static int task_continuations_ready;
 struct task_action *task_action_execution;
 struct task_action *loan_retirements;
 struct md_task_quiesce *task_action_barrier;
@@ -109,10 +111,13 @@ long quiesce_trace(int request,pid_t pid,void *address,void *data) {
         if (t && md_debugger_traced(debugger,pid)) {
             CHECK(!data);
             t->memory_op.resume=1; t->kernel_stopped=1;
+            task_continuation_defer(t);
             return 0;
         }
     }
-    long result=native_trace(request,pid,address,data);
+    long result=trace_continues(request)
+        ? md_task_checkpoint_continue(&checkpoints,request,pid)
+        : native_trace(request,pid,address,data);
     if (result>=0 && request==PTRACE_INTERRUPT) {
         if (statistics) ++statistics->quiesce_interrupts;
         struct thread *t=find_thread(pid);
@@ -124,7 +129,7 @@ long quiesce_trace(int request,pid_t pid,void *address,void *data) {
          * Ordinary guest syscalls keep kernel restart semantics. */
         if (t && (t->phase==IPC_WAIT_ENTRY || t->phase==IPC_WAITING)) t->io.waking=1;
         if (t && (t->phase==SOCKET_WAIT_ENTRY || t->phase==SOCKET_WAITING
-                || t->phase==EPOLL_CALL || t->phase==EPOLL_WAIT)) t->io.socket_waking=1;
+                || t->phase==EPOLL_CALL || readiness_waiting(t))) t->io.socket_waking=1;
         if (t && (t->phase==DEBUG_PARK_ENTRY || t->phase==DEBUG_PARK_EXIT)) t->debug.wait_waking=1;
         if (t && t->signals.control) md_task_signal_control_quiesced(&t->signals.control->control);
     }
@@ -251,17 +256,41 @@ void task_action_discard(struct thread *t) {
     if (owner!=task_action_execution) task_action_release(owner);
 }
 
-void task_action_unpark(void) {
-    for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid) {
-        if (peer->memory_op.notification) {
-            struct seccomp_notif *n=peer->memory_op.notification; peer->memory_op.notification=NULL;
-            handle_notification(n); free(n);
-        }
-        if (peer->memory_op.resume) {
-            int signal=peer->memory_op.signal; peer->memory_op.resume=peer->memory_op.signal=0;
-            resume(peer->pid,signal);
-        }
+void task_continuation_defer(struct thread *t) {
+    md_pending_add(&task_continuations,&t->memory_op.continuation);
+}
+
+void task_continuation_discard(struct thread *t) {
+    md_pending_cancel(&t->memory_op.continuation);
+    free(t->memory_op.notification); t->memory_op.notification=NULL;
+    t->memory_op.resume=t->memory_op.signal=0;
+}
+
+static void task_continuation_run(struct md_pending_node *node,void *context) {
+    (void)context;
+    struct thread *t=(void *)((char *)node - offsetof(struct thread,memory_op.continuation));
+    CHECK(t->pid);
+    if (t->memory_op.notification) {
+        struct seccomp_notif *n=t->memory_op.notification; t->memory_op.notification=NULL;
+        handle_notification(n); free(n);
     }
+    if (t->memory_op.resume) {
+        int signal=t->memory_op.signal; t->memory_op.resume=t->memory_op.signal=0;
+        resume(t->pid,signal);
+    }
+}
+
+void task_continuations_progress(void) {
+    if (!task_continuations_ready || task_continuations.running) return;
+    task_continuations_ready=0;
+    /* Each retained continuation runs once. A still-owned barrier requeues it;
+     * a recursive barrier release is serviced by the next event-loop turn. */
+    CHECK(!md_pending_dispatch(&task_continuations,task_continuation_run,NULL));
+}
+
+void task_action_unpark(void) {
+    task_continuations_ready=1;
+    task_continuations_progress();
     /* A resource can become ready while a barrier prevents its continuation.
      * Its eventfd was already acknowledged then; releasing the barrier is the
      * new readiness event, even when no resource owner has anything left to signal. */
@@ -442,7 +471,7 @@ static void task_action_call_start(struct task_action *owner) {
         struct md_task_filter_image *image=span.data;
         if (owner->pid_filter) {
             struct md_pid_filter_program program;
-            md_pid_filter_build(RAW_GATE,abi.task_return,&program);
+            md_pid_filter_build(&abi,&program);
             _Static_assert(MD_PID_FILTER_INSTRUCTIONS<=MD_FD_FILTER_INSTRUCTIONS,"task filter capacity");
             image->code.count=program.count;
             memcpy(image->code.code,program.code,program.count*sizeof(*program.code));
@@ -546,7 +575,8 @@ int task_action_borrowable(struct thread *p,struct thread *requester) {
     int debug_running=traced && md_debugger_running(debugger,p->pid);
     return p->ready && !birth_stop_pending(p) && !p->resume_lost && !p->terminal_stop
         && !p->listening && !p->process_op.vfork_child && !p->interrupt_pending && !p->signals.return_pending
-        && !mapping_active && !p->memory_op.capture && !p->descriptors.running && (!traced || debug_held || debug_running)
+        && !mapping_active && !p->memory_op.capture && !p->memory_op.svc_pool
+        && !p->descriptors.running && (!traced || debug_held || debug_running)
         && !md_task_helper_owns(helpers,p->pid,p->pid)
         && (waiter || debug_held || (p->freezer_resume && debugger_at_boundary(p))
             /* A provider owns the pending operation, not this native wait.
@@ -823,6 +853,7 @@ void task_call_resume(struct thread *t,struct md_task_call *call,int signal) {
 }
 
 struct md_task_call *task_call_continuation(struct thread *t) {
+    if (t->memory_op.svc_pool) return &t->memory_op.svc_pool->call;
     if (t->signals.control && t->signals.control->started && !t->signals.control->retiring)
         return md_task_signal_control_call(&t->signals.control->control);
     if (t->seccomp.notification && !t->seccomp.notification->promoting) return &t->seccomp.notification->call;
@@ -842,6 +873,11 @@ void task_group_stop(struct thread *t) {
         CHECK(errno==ESRCH); t->resume_lost=1;
     } else {
         t->kernel_stopped=0;
+        /* A freeze request may have been observed before the group-stop
+         * acknowledgement. LISTEN is now quiescent without another cgroup
+         * generation change; publish it through the common member owner. */
+        if (freezer_enabled && md_cgroup_member_freezing(t->resources.cgroup))
+            md_cgroup_member_frozen(t->resources.cgroup,1);
         md_debugger_child_changed(debugger,t->pid);
     }
 }
@@ -954,11 +990,10 @@ static void fd_loan_closed(struct thread *t,long result) {
         struct md_fd_observation view;
         result=md_fd_origins_observe(t->resources.files,(int)t->execution.request.args[0],&view);
         if (!result) {
-            t->descriptors.registers.regs[1]=view.generation;
             t->descriptors.request.args[0]=view.generation;
         }
     }
-    if (result) { fd_discard(t); return_value(t,&t->descriptors.registers,result); }
+    if (result) { fd_discard(t); fd_return(t,&t->descriptors.registers,result); }
     else fd_start(t);
 }
 
@@ -997,7 +1032,7 @@ static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int numb
         if (!o->parked) {
             /* EVENT_WAIT: the calling thread leaves its exact native wait
              * before a destructive table mutation. No table lock spans IO. */
-            if (p->phase==EPOLL_WAIT && !p->io.socket_waking) {
+            if (readiness_waiting(p) && !p->io.socket_waking) {
                 p->io.socket_waking=1;
                 tracee_request(p,PTRACE_INTERRUPT,NULL,NULL,"epoll-loan-revoke");
             }
@@ -1014,9 +1049,9 @@ static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int numb
 
 int fd_loans_ready(struct thread *t) {
     if (!md_fd_origins_has_loans(t->resources.files)) return 1;
-    const struct user_pt_regs *r=t->descriptors.job==MD_FD_DUPLICATE_BEGIN ? &t->execution.registers : &t->descriptors.registers;
-    unsigned long a[6]; for (unsigned i=0;i<6;++i) a[i]=r->regs[i];
-    long nr=r->regs[8];
+    const struct seccomp_data *call=t->descriptors.job==MD_FD_DUPLICATE_BEGIN ? &t->execution.request : &t->descriptors.call;
+    unsigned long a[6]; for (unsigned i=0;i<6;++i) a[i]=call->args[i];
+    long nr=call->nr;
     int copying=(md_clone_call(nr) && !(t->process_op.cloning&CLONE_FILES))
         || (nr==SYS_unshare && (a[0]&CLONE_FILES))
         || (nr==SYS_close_range && (a[2]&CLOSE_RANGE_UNSHARE));

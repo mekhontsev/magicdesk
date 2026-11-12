@@ -4,6 +4,9 @@
 #include "guest_execution.h"
 #include "guest_identity.h"
 #include "identity_call.h"
+#include "identity_transfer.h"
+#include "adapter_buffer.h"
+#include "interception_buffers.h"
 #include "interception.h"
 #include "linux_abi.h"
 #include "process_access.h"
@@ -22,15 +25,12 @@
 #include <stdlib.h>
 #include <sys/prctl.h>
 
-static void identity_copy_next(struct thread *t);
-static int process_limit_apply(struct thread *t,const struct rlimit *next,struct rlimit *old);
-static void identity_limit_finish(struct thread *t,int error,const struct rlimit *old);
-static void identity_groups_call(struct thread *t, struct user_pt_regs *r);
-static int process_limit_capture_allowed(struct thread *caller,struct thread *target);
-static void process_limit_captured(struct thread *t,struct md_task_helper_result result);
 static int process_limit_capture(struct thread *t,struct thread *target);
 
-enum { COPY_GROUPS, COPY_CAP_HEADER, COPY_CAP_DATA, COPY_CAP_VERSION, COPY_LIMIT_INPUT, COPY_LIMIT_OUTPUT };
+void identity_discard(struct thread *t) {
+    free(t->identity_transfer.groups);
+    memset(&t->identity_transfer,0,sizeof(t->identity_transfer));
+}
 
 static int process_limit_apply(struct thread *t,const struct rlimit *next,struct rlimit *old) {
     pid_t pid=t->execution.request.nr==SYS_prlimit64 ? (pid_t)t->execution.request.args[0] : 0;
@@ -50,120 +50,106 @@ static int process_limit_apply(struct thread *t,const struct rlimit *next,struct
     return error;
 }
 
-static void identity_limit_finish(struct thread *t,int error,const struct rlimit *old) {
-    const struct user_pt_regs *r=&t->execution.registers;
-    uintptr_t output=r->regs[8]==SYS_prlimit64 ? r->regs[3] : r->regs[8]==SYS_getrlimit ? r->regs[1] : 0;
-    t->identity_copy.stage=COPY_LIMIT_OUTPUT;
-    if (!error && (output || r->regs[8]==SYS_getrlimit)) {
-        memcpy(t->identity_copy.buffer,old,sizeof(*old));
-        t->identity_copy.loading=0; t->identity_copy.address=output;
-        t->identity_copy.count=sizeof(*old)/sizeof(uint32_t); t->identity_copy.copied=0;
-        identity_copy_next(t);
-    } else identity_copy_finish(t,error);
-}
-
-void identity_copy_finish(struct thread *t, int error) {
-    struct user_pt_regs r = t->execution.registers;
-    if (!error && t->identity_copy.stage==COPY_LIMIT_INPUT) {
-        struct rlimit next,old;
-        memcpy(&next,t->identity_copy.buffer,sizeof(next));
-        error=process_limit_apply(t,t->identity_copy.count ? &next : NULL,&old);
-        if (error!=-EINPROGRESS) identity_limit_finish(t,error,&old);
-        return;
-    } else if (!error && t->identity_copy.stage == COPY_CAP_HEADER) {
-        uint32_t version = t->identity_copy.buffer[0];
-        int pid = (int)t->identity_copy.buffer[1];
-        if (pid>0 && t->resources.pid) {
-            pid=native_pid(t,pid);
-            if (!pid) error=-ESRCH;
+static long identity_groups(struct thread *t,unsigned operation,unsigned long offset,
+        union md_identity_transfer *p) {
+    const struct seccomp_data *call=&t->execution.request;
+    int setting=call->nr==SYS_setgroups;
+    unsigned count=setting ? (unsigned)call->args[0] : md_identity_group_count(&t->identity);
+    if (setting && (!md_identity_capable(&t->identity,CAP_SETGID)
+            || !md_user_namespace_may_setgroups(t->identity.user_namespace))) return -EPERM;
+    if ((int)call->args[0]<0 || (setting && count>MD_IDENTITY_GROUPS_MAX)
+            || (!setting && call->args[0] && (unsigned)call->args[0]<count)) return -EINVAL;
+    if (operation==MD_IDENTITY_PREPARE && !offset) {
+        identity_discard(t);
+        if (setting && count) {
+            t->identity_transfer.groups=malloc((size_t)count*sizeof(uint32_t));
+            if (!t->identity_transfer.groups) return -ENOMEM;
         }
-        unsigned words = version == _LINUX_CAPABILITY_VERSION_1 ? 1
-            : version == _LINUX_CAPABILITY_VERSION_2 || version == _LINUX_CAPABILITY_VERSION_3 ? 2 : 0;
-        if (!words) {
-            t->identity_copy.buffer[0] = _LINUX_CAPABILITY_VERSION_3;
-            t->identity_copy.stage = COPY_CAP_VERSION; t->identity_copy.loading = 0;
-            t->identity_copy.count = 1; t->identity_copy.copied = 0;
-            t->identity_copy.result = r.regs[8] == SYS_capget && !r.regs[1] ? 0 : -EINVAL;
-            identity_copy_next(t); return;
-        }
-        struct md_identity ids = md_identity_copy(&t->identity);
-        if (!error && pid && pid != t->pid) {
-            md_identity_release(&ids);
-            struct md_task_snapshot snapshot={0};
-            error = r.regs[8] == SYS_capset ? -EPERM : md_task_registry_read(tasks, pid, 0, &snapshot);
-            ids=md_identity_copy(&snapshot.identity);
-            md_task_snapshot_release(&snapshot);
-        }
-        if (!error && r.regs[8] == SYS_capget && !r.regs[1]) {
-            md_identity_release(&ids); t->identity_copy.stage = COPY_CAP_DATA;
-        } else if (!error) {
-            if (r.regs[8] == SYS_capget) for (unsigned i = 0; i < words; i++) {
-                t->identity_copy.buffer[i*3] = ids.caps.effective >> (32*i);
-                t->identity_copy.buffer[i*3+1] = ids.caps.permitted >> (32*i);
-                t->identity_copy.buffer[i*3+2] = ids.caps.inheritable >> (32*i);
-            }
-            md_identity_release(&ids);
-            t->identity_copy.stage = COPY_CAP_DATA; t->identity_copy.loading = r.regs[8] == SYS_capset;
-            t->identity_copy.address = r.regs[1]; t->identity_copy.count = words*3; t->identity_copy.copied = 0;
-            identity_copy_next(t); return;
-        } else md_identity_release(&ids);
-    } else if (!error && t->identity_copy.stage == COPY_CAP_DATA && r.regs[8] == SYS_capset) {
-        uint32_t *v = t->identity_copy.buffer;
-        error = md_identity_capset(&t->identity, v[1] | ((uint64_t)v[4] << 32),
-            v[0] | ((uint64_t)v[3] << 32), v[2] | ((uint64_t)v[5] << 32));
+        t->identity_transfer.count=count;
+        return count;
     }
-    if (!error && t->identity_copy.stage == COPY_CAP_VERSION) error = t->identity_copy.result;
-    if (!error && r.regs[8] == SYS_setgroups)
-        error = md_identity_setgroups(&t->identity, t->identity_copy.buffer, t->identity_copy.count);
-    r.regs[0] = (uint64_t)(error ? (long)error : r.regs[8] == SYS_getgroups ? (long)t->identity_copy.count : 0);
-    free(t->identity_copy.buffer); t->identity_copy.buffer = NULL;
-    if (!set_registers(t->pid, &r) || !restore_mask(t)) return;
-    t->phase = IDLE; resume(t->pid, 0);
-}
-
-static void identity_copy_next(struct thread *t) {
-    if (t->identity_copy.copied == t->identity_copy.count) { identity_copy_finish(t, 0); return; }
-    struct user_pt_regs r = t->execution.registers;
-    unsigned count = t->identity_copy.count - t->identity_copy.copied;
-    if (count > 16) count = 16;
-    uintptr_t address = t->identity_copy.address, offset = (uintptr_t)t->identity_copy.copied * sizeof(uint32_t);
-    if (address > UINTPTR_MAX - offset - count * sizeof(uint32_t)) { identity_copy_finish(t, -EFAULT); return; }
-    int loading = t->identity_copy.loading;
-    r.pc = loading ? abi.load_groups : abi.store_groups;
-    r.regs[0] = address + offset; r.regs[1] = count;
-    if (!loading) for (unsigned i = 0; i < count; i++) r.regs[i+3] = t->identity_copy.buffer[t->identity_copy.copied+i];
-    if (!set_registers(t->pid, &r)) return;
-    t->phase = IDENTITY_COPY; resume(t->pid, 0);
-}
-
-static void identity_groups_call(struct thread *t, struct user_pt_regs *r) {
-    int setting = r->regs[8] == SYS_setgroups;
-    unsigned count = setting ? (unsigned)r->regs[0] : md_identity_group_count(&t->identity);
-    int error = 0;
-    if (setting && (!md_identity_capable(&t->identity, CAP_SETGID)
-            || !md_user_namespace_may_setgroups(t->identity.user_namespace))) error = -EPERM;
-    else if ((int)r->regs[0] < 0 || (setting && (unsigned)r->regs[0] > MD_IDENTITY_GROUPS_MAX)
-            || (!setting && r->regs[0] && (unsigned)r->regs[0] < count)) error = -EINVAL;
-    if (error || (!setting && !r->regs[0])) { return_value(t, r, error ? error : (long)count); return; }
-    if (!count) { if (setting) md_identity_setgroups(&t->identity, NULL, 0); return_value(t, r, 0); return; }
-    uint32_t *buffer = malloc((size_t)count * sizeof(*buffer));
-    if (!buffer) { return_value(t, r, -ENOMEM); return; }
-    if (!setting) for (unsigned i=0;i<count;++i)
-        buffer[i]=md_identity_visible_id(&t->identity,1,md_identity_group_data(&t->identity)[i]);
-    struct iovec local = {buffer, (size_t)count * sizeof(*buffer)}, remote = {(void *)r->regs[1], local.iov_len};
-    ssize_t copied = setting ? process_vm_readv(t->pid, &local, 1, &remote, 1, 0)
-        : process_vm_writev(t->pid, &local, 1, &remote, 1, 0);
-    if (copied == (ssize_t)local.iov_len) {
-        error = setting ? md_identity_setgroups(&t->identity, buffer, count) : 0;
-        free(buffer); return_value(t, r, error ? error : setting ? 0 : (long)count); return;
+    if (count!=t->identity_transfer.count) return -EINVAL;
+    if (operation==MD_IDENTITY_COMMIT && setting && !offset) {
+        if (t->identity_transfer.copied!=count) return -EINVAL;
+        return md_identity_setgroups(&t->identity,t->identity_transfer.groups,count);
     }
-    /* Task-affine copies preserve protected-memory and EFAULT semantics without
-     * relaxing dumpability. Identity publishes only after the complete read. */
-    t->identity_copy.buffer = buffer; t->identity_copy.count = count; t->identity_copy.copied = 0; execution_capture(t,r);
-    t->identity_copy.address = r->regs[1]; t->identity_copy.loading = setting; t->identity_copy.stage = COPY_GROUPS;
-    if (!save_signal_mask(t,&t->execution.mask,"get-mask")
-            || !shield(t) || !skip(t->pid)) return;
-    identity_copy_next(t);
+    if (operation!=MD_IDENTITY_TRANSFER || offset>=count) return -EINVAL;
+    unsigned n=count-(unsigned)offset;
+    if (n>MD_IDENTITY_TRANSFER_WORDS) n=MD_IDENTITY_TRANSFER_WORDS;
+    if (setting) {
+        if (!t->identity_transfer.groups || offset!=t->identity_transfer.copied) return -EINVAL;
+        memcpy(t->identity_transfer.groups+offset,p->words,n*sizeof(uint32_t));
+        t->identity_transfer.copied+=n;
+    } else for (unsigned i=0;i<n;++i)
+        p->words[i]=md_identity_visible_id(&t->identity,1,md_identity_group_data(&t->identity)[offset+i]);
+    return 0;
+}
+
+static long identity_capabilities(struct thread *t,unsigned operation,union md_identity_transfer *p) {
+    uint32_t version=p->capabilities.version;
+    unsigned words=version==_LINUX_CAPABILITY_VERSION_1 ? 1
+        : version==_LINUX_CAPABILITY_VERSION_2 || version==_LINUX_CAPABILITY_VERSION_3 ? 2 : 0;
+    if (!words) return -EINVAL;
+    int setting=t->execution.request.nr==SYS_capset;
+    int pid=p->capabilities.pid;
+    if (pid>0 && t->resources.pid) {
+        pid=native_pid(t,pid);
+        if (!pid) return -ESRCH;
+    }
+    if (setting && pid && pid!=t->pid) return -EPERM;
+    if (operation==MD_IDENTITY_COMMIT && setting) {
+        uint32_t v[6]={0};
+        memcpy(v,p->capabilities.data,words*3*sizeof(uint32_t));
+        return md_identity_capset(&t->identity,v[1]|((uint64_t)v[4]<<32),
+            v[0]|((uint64_t)v[3]<<32),v[2]|((uint64_t)v[5]<<32));
+    }
+    if (operation!=MD_IDENTITY_PREPARE) return -EINVAL;
+    struct md_task_snapshot snapshot={0};
+    const struct md_identity *id=&t->identity;
+    int error=0;
+    if (pid && pid!=t->pid) {
+        error=md_task_registry_read(tasks,pid,0,&snapshot);
+        id=&snapshot.identity;
+    }
+    if (!error && !setting) for (unsigned i=0;i<words;++i) {
+        p->capabilities.data[i*3]=id->caps.effective>>(32*i);
+        p->capabilities.data[i*3+1]=id->caps.permitted>>(32*i);
+        p->capabilities.data[i*3+2]=id->caps.inheritable>>(32*i);
+    }
+    md_task_snapshot_release(&snapshot);
+    return error;
+}
+
+void identity_buffer_control(struct thread *t,const struct supervisor_control_request *control) {
+    long result=-EINVAL;
+    struct md_buffer_span span;
+    const struct seccomp_data *call=&t->execution.request;
+    if (t->phase==DISPATCHING && t->fs.buffer.pool && t->fs.open.fd<0
+            && md_identity_transfer_call(call->nr) && !md_buffer_span(&t->fs.buffer,&span)
+            && span.size>=sizeof(union md_identity_transfer)) {
+        union md_identity_transfer *p=span.data;
+        unsigned operation=control->args[0];
+        unsigned long offset=control->args[1];
+        long nr=call->nr;
+        if (nr==SYS_getgroups || nr==SYS_setgroups) result=identity_groups(t,operation,offset,p);
+        else if (offset) result=-EINVAL;
+        else if (nr==SYS_capget || nr==SYS_capset) result=identity_capabilities(t,operation,p);
+        else if ((nr==SYS_getresuid || nr==SYS_getresgid) && operation==MD_IDENTITY_PREPARE) {
+            int group=nr==SYS_getresgid;
+            const struct md_identity_ids *ids=group ? &t->identity.gid : &t->identity.uid;
+            p->words[0]=md_identity_visible_id(&t->identity,group,ids->real);
+            p->words[1]=md_identity_visible_id(&t->identity,group,ids->effective);
+            p->words[2]=md_identity_visible_id(&t->identity,group,ids->saved);
+            result=0;
+        } else if ((nr==SYS_getrlimit || nr==SYS_setrlimit || nr==SYS_prlimit64)
+                && operation==MD_IDENTITY_COMMIT) {
+            struct rlimit next=p->limit,old;
+            result=process_limit_apply(t,nr==SYS_setrlimit || (nr==SYS_prlimit64 && call->args[2]) ? &next : NULL,&old);
+            if (result==-EINPROGRESS) return;
+            if (!result) p->limit=old;
+        }
+    }
+    buffer_reply(t,result); adapter_progress();
 }
 
 int process_limit_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r) {
@@ -174,16 +160,7 @@ int process_limit_call(struct thread *t,const struct seccomp_data *call,struct u
             && (nr==SYS_prlimit64 || nr==SYS_getrlimit || nr==SYS_setrlimit)
             && (resource==RLIMIT_NPROC || resource==RLIMIT_NOFILE
                 || (nr==SYS_prlimit64 && call->args[0] && !call->args[2]))) {
-        if (entry_context(t,MD_CONTEXT_COPY)) return 1;
-        t->identity_copy.buffer=calloc(1,sizeof(struct rlimit));
-        if (!t->identity_copy.buffer) { return_value(t,r,-ENOMEM); return 1; }
-        execution_capture(t,r); t->identity_copy.stage=COPY_LIMIT_INPUT;
-        t->identity_copy.address=nr==SYS_prlimit64 ? call->args[2] : nr==SYS_setrlimit ? call->args[1] : 0;
-        t->identity_copy.count=t->identity_copy.address || nr==SYS_setrlimit ? sizeof(struct rlimit)/sizeof(uint32_t) : 0;
-        t->identity_copy.loading=1; t->identity_copy.copied=0;
-        if (save_signal_mask(t,&t->execution.mask,"process-limit-copy")
-                && shield(t) && skip(t->pid)) identity_copy_next(t);
-        return 1;
+        execution_begin(t,call,r,"process-limit-transfer"); return 1;
     }
     return 0;
 }
@@ -210,34 +187,10 @@ int identity_call(struct thread *t,const struct seccomp_data *call,struct user_p
     }
     if (cookie != MD_INTERCEPT_IDENTITY) return 0;
     CHECK(t->ready && t->phase == IDLE);
+    if (md_identity_transfer_call(nr)) { execution_begin(t,call,r,"identity-transfer"); return 1; }
     switch (nr) {
-    case SYS_capget: case SYS_capset:
-        if (entry_context(t,MD_CONTEXT_COPY)) return 1;
-        t->identity_copy.buffer = calloc(6, sizeof(uint32_t));
-        if (!t->identity_copy.buffer) { return_value(t, r, -ENOMEM); return 1; }
-        t->identity_copy.stage = COPY_CAP_HEADER; t->identity_copy.address = call->args[0];
-        t->identity_copy.loading = 1; t->identity_copy.count = 2; t->identity_copy.copied = 0; execution_capture(t,r);
-        if (!save_signal_mask(t,&t->execution.mask,"get-mask")
-                || !shield(t) || !skip(t->pid)) return 1;
-        identity_copy_next(t); return 1;
-    case SYS_getgroups: case SYS_setgroups:
-        if (!entry_context(t,MD_CONTEXT_COPY)) identity_groups_call(t,r);
-        return 1;
     case SYS_getuid: case SYS_geteuid: case SYS_getgid: case SYS_getegid:
         value=md_identity_scalar_result(&t->identity,nr); break;
-    case SYS_getresuid: case SYS_getresgid: {
-        if (entry_context(t,MD_CONTEXT_COPY)) return 1;
-        const struct md_identity_ids *ids = nr == SYS_getresuid ? &t->identity.uid : &t->identity.gid;
-        execution_capture(t,r);
-        if (!save_signal_mask(t,&t->execution.mask,"get-mask")
-                || !shield(t) || !skip(t->pid)) return 1;
-        int group=nr==SYS_getresgid;
-        r->pc = STORE_IDS; r->regs[3] = md_identity_visible_id(&t->identity,group,ids->real);
-        r->regs[4] = md_identity_visible_id(&t->identity,group,ids->effective);
-        r->regs[5] = md_identity_visible_id(&t->identity,group,ids->saved);
-        if (!set_registers(t->pid, r)) return 1;
-        t->phase = STORING_IDS; resume(t->pid, 0); return 1;
-    }
     case SYS_setresuid:
         value = md_identity_setresuid(&t->identity, call->args[0], call->args[1], call->args[2]); break;
     case SYS_setresgid:
@@ -269,7 +222,12 @@ static void process_limit_captured(struct thread *t,struct md_task_helper_result
     int error=(int)result.value;
     if (!error) error=(int)md_task_limit_fd(result.descriptor,resource,&value);
     if (result.descriptor>=0) close(result.descriptor);
-    identity_limit_finish(t,error,&value);
+    if (!error) {
+        struct md_buffer_span span;
+        error=md_buffer_span(&t->fs.buffer,&span);
+        if (!error) ((union md_identity_transfer *)span.data)->limit=value;
+    }
+    buffer_reply(t,error); adapter_progress();
 }
 
 static int process_limit_capture(struct thread *t,struct thread *target) {
@@ -290,21 +248,4 @@ static int process_limit_capture(struct thread *t,struct thread *target) {
     t->capture=owner; action->capture=owner;
     CHECK(!md_event_signal(fd_ready));
     return -EINPROGRESS;
-}
-
-int identity_checkpoint(struct thread *t,pid_t pid,uintptr_t checkpoint,struct user_pt_regs *regs) {
-    if (checkpoint == STORED_IDS && t->phase == STORING_IDS) {
-        (*regs) = t->execution.registers; regs->regs[0] = 0;
-        if (!set_registers(pid, regs) || !restore_mask(t)) return 1;
-        t->phase = IDLE; resume(pid, 0); return 1;
-    }
-    if (t->phase == IDENTITY_COPY && (checkpoint == abi.loaded_groups || checkpoint == abi.stored_groups)) {
-        unsigned count = t->identity_copy.count - t->identity_copy.copied;
-        if (count > 16) count = 16;
-        if (checkpoint == abi.loaded_groups)
-            for (unsigned i = 0; i < count; i++)
-                t->identity_copy.buffer[t->identity_copy.copied+i] = regs->regs[i==5 ? 19 : i+3];
-        t->identity_copy.copied += count; identity_copy_next(t); return 1;
-    }
-    return 0;
 }

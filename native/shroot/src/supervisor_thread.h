@@ -20,25 +20,24 @@
 #include "elf_admission.h"
 #include "task_mapping.h"
 #include "supervisor_request.h"
+#include "guest_execution.h"
 #include <linux/seccomp.h>
 #include <sys/resource.h>
 
-enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
-    EXPORT_CANCEL, EXPORTING, EXPORT_ENTRY, EXPORT_NOTIFY, EXPORT_RETURN, STORING,
-    DELEGATE_CANCEL, LOADING_PATH, PROC_CANCEL, PROC_OPENING, STORING_IDS, DOMAIN_PATH,
-    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, SOCKET_NATIVE, IPC_WAIT_ENTRY, IPC_WAITING,
+enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING, NATIVE_WAIT, TRANSFERRING,
+    EXPORT_CANCEL, EXPORTING, EXPORT_ENTRY, EXPORT_NOTIFY, EXPORT_RETURN,
+    DELEGATE_CANCEL, PROC_CANCEL, PROC_OPENING,
+    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, ADAPTER_NATIVE, IPC_WAIT_ENTRY, IPC_WAITING,
     SOCKET_WAIT_ENTRY, SOCKET_WAITING, CALL_RESTART_ENTRY, CALL_RESTART_EXIT,
     FILE_WAIT_ENTRY, FILE_WAITING, FILE_INTERRUPTING, CONTROL_WAIT_ENTRY, CONTROL_WAITING, CLOSE_WAIT_ENTRY, CLOSE_WAITING,
     WAIT_CANCEL_EXIT, EPOLL_PROBE, EPOLL_CALL, EPOLL_WAIT,
-    IDENTITY_COPY, DEBUG_WAIT_BUFFER, DEBUG_WAIT_ENTRY, DEBUG_WAIT_EXIT, DEBUG_PARK_ENTRY, DEBUG_PARK_EXIT,
-    MEMORY_WAIT, RESULT_REPLAY_ENTRY, RESULT_REPLAY_EXIT, PROCESS_OBSERVING, PROCESS_TID_STORE,
-    PROCESS_INFO_LOAD, PROCESS_INFO_STORE, PROCESS_VALUE_STORE, PROCESS_INIT_ENTRY, PROCESS_INIT_EXIT, PROC_LOOKUP,
+    DEBUG_WAIT_BUFFER, DEBUG_WAIT_ENTRY, DEBUG_WAIT_EXIT, DEBUG_PARK_ENTRY, DEBUG_PARK_EXIT,
+    MEMORY_WAIT, RESULT_REPLAY_ENTRY, RESULT_REPLAY_EXIT, PROCESS_OBSERVING,
+    PROCESS_INIT_ENTRY, PROCESS_INIT_EXIT, PROC_LOOKUP,
     CLONE_ENTRY, CLONE_ADMISSION, FILTER_CAPTURE, SIGNAL_CONTROL, SIGNAL_ENTRY, SIGNAL_NATIVE_EXIT,
     GUEST_NOTIFICATION, FILTER_MAPPING };
 
 enum memory_action { MEMORY_NONE, MEMORY_KERNEL, MEMORY_DETACH, MEMORY_FORK };
-
-enum call_restart { RESTART_SIGNAL=-4105, RESTART_PREPARATION=-4106 };
 
 enum retry_kind {
     RETRY_TASK_ACTION=1u<<0, RETRY_MAPPING=1u<<1, RETRY_MEMORY=1u<<2,
@@ -46,7 +45,7 @@ enum retry_kind {
     RETRY_OUTGOING=1u<<6, RETRY_PROC_DELIVERY=1u<<7, RETRY_RETURN=1u<<8,
     RETRY_FD=1u<<9, RETRY_EXPORT=1u<<10, RETRY_CONTROL=1u<<11,
     RETRY_PROC_IO=1u<<12, RETRY_PROC_LOOKUP=1u<<13, RETRY_READINESS=1u<<14, RETRY_CLOSE=1u<<15,
-    RETRY_FILTER=1u<<16, RETRY_SIGNAL=1u<<17, RETRY_DEBUG_WAIT=1u<<18
+    RETRY_FILTER=1u<<16, RETRY_SIGNAL=1u<<17, RETRY_DEBUG_WAIT=1u<<18, RETRY_TRANSFER=1u<<19
 };
 
 struct metadata_operation {
@@ -63,7 +62,7 @@ struct metadata_operation {
     struct user_pt_regs control;
     int waiting, checking;
     int proc_attempted, proc_directory, proc_stat, task_open;
-    size_t copied, output_size, path_size;
+    size_t copied, output_size;
     uintptr_t output;
     char path[4096];
     struct stat value;
@@ -77,6 +76,7 @@ struct retry_owner {
 
 struct supervisor_robust_state {
     uintptr_t head;
+    uintptr_t registering_head;
     uint32_t tid;
     int registering;
     int terminal;
@@ -89,6 +89,7 @@ struct supervisor_robust_state {
 };
 
 struct supervisor_memory_op_state {
+    struct md_pending_node continuation;
     struct md_interception_memory *remote;
     struct md_interception_memory *exposure;
     int resume;
@@ -97,6 +98,7 @@ struct supervisor_memory_op_state {
     struct buffer_mapping *buffer_mapping;
     struct mapping_owner *mapping;
     struct memory_capture *capture;
+    struct svc_pool_mapping *svc_pool;
     int backing_pending;
     struct md_resource_order order;
     enum memory_action action;
@@ -120,12 +122,20 @@ struct supervisor_entry_state {
     unsigned int route_flags;
     struct md_entry_channel *control;
     struct md_entry_channel *execution;
+    int admission;
     int kernel_context;
     struct {
         enum md_execution_context reason;
         void (*resume)(struct thread *);
     } stop;
+    struct {
+        struct thread *next, **previous;
+        int64_t deadline;
+        void (*complete)(struct thread *, long);
+    } wait;
     void (*effect)(struct thread *, long);
+    int effect_cancelled;
+    int waiting;
     int error;
     int blocked;
     int registration_revoked;
@@ -185,6 +195,7 @@ struct supervisor_descriptors_state {
     struct md_fd_mutation mutation;
     struct md_fd_origin_update pair_updates[2];
     struct user_pt_regs registers;
+    struct seccomp_data call;
     struct supervisor_control_request request;
     int running;
     int cwd;
@@ -238,6 +249,7 @@ struct supervisor_control_state {
 struct supervisor_close_state {
     struct md_fd_closed closed;
     struct md_control_pending *pending;
+    void (*complete)(struct thread *,long);
     struct user_pt_regs registers;
     enum phase phase;
     uint64_t mask;
@@ -295,7 +307,8 @@ struct supervisor_process_op_state {
     int birth_waiting;
     int birth_signal;
     int init_pending;
-    struct user_pt_regs returned;
+    int wait_result;
+    int wait_recheck;
     int inspection_denied;
     int info_code;
     pid_t info_native;
@@ -330,14 +343,9 @@ struct supervisor_debug_state {
     int replay_entry;
 };
 
-struct supervisor_identity_copy_state {
-    uint32_t *buffer;
-    unsigned int count;
-    unsigned int copied;
-    uintptr_t address;
-    int loading;
-    int stage;
-    int result;
+struct supervisor_identity_transfer {
+    uint32_t *groups;
+    unsigned count, copied;
 };
 
 struct thread {
@@ -398,22 +406,33 @@ struct thread {
     struct supervisor_control_state control;
     struct supervisor_close_state close;
     struct supervisor_execution_state execution;
+    struct supervisor_transfer *transfer;
     struct supervisor_seccomp_state seccomp;
     struct supervisor_process_op_state process_op;
     struct supervisor_image_state image;
     struct supervisor_debug_state debug;
-    struct supervisor_identity_copy_state identity_copy;
+    struct supervisor_identity_transfer identity_transfer;
 };
 
-/* Only a stopped-task ingress may retain a machine frame. */
+static inline void execution_retain(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *regs) {
+    t->execution.request=*call;
+    if (regs) t->execution.registers=*regs;
+}
+
+/* Only a stopped-task ingress decodes a machine frame into a request. */
 static inline void execution_capture(struct thread *t,const struct user_pt_regs *regs) {
-    t->execution.registers=*regs;
-    t->execution.request=syscall_description(regs);
+    struct seccomp_data call=syscall_description(regs);
+    execution_retain(t,&call,regs);
 }
 
 static inline void buffer_capture(struct thread *t,const struct user_pt_regs *regs) {
     t->fs.registers=*regs;
     t->fs.request=control_description(regs);
+}
+
+static inline void descriptor_retain(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *regs) {
+    t->descriptors.call=*call;
+    if (regs) t->descriptors.registers=*regs;
 }
 
 #endif

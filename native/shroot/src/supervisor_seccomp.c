@@ -56,7 +56,6 @@ static const struct md_interception_routes *interception_routes(void);
 static int guest_notification_publish(struct thread *t,const struct seccomp_notif *q);
 static int host_policy_deliver(struct thread *t,struct user_pt_regs *regs,const siginfo_t *info,int deferred);
 static int host_policy_dispatch(struct thread *t,struct user_pt_regs *regs,const struct seccomp_data *call);
-static void filter_entry_rearm(struct thread *t);
 static void filter_install_retired(struct thread *t,long result);
 static int filter_listener_admit(struct thread *t);
 static int policy_pending_visit(void *context,const siginfo_t *info);
@@ -68,6 +67,15 @@ struct md_task_quiesce *policy_barrier;
 struct thread *policy_installer;
 
 static int policy_barrier_ready;
+
+void filter_service_gates(struct md_seccomp_gate gates[FILTER_SERVICE_GATES]) {
+    gates[0]=(struct md_seccomp_gate){abi.adapter_native_return,abi.adapter_native_return,-1,
+        SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
+    gates[1]=(struct md_seccomp_gate){abi.buffer_admit,abi.buffer_admit,SYS_gettid,
+        SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
+    gates[2]=(struct md_seccomp_gate){abi.task_return,abi.task_return,-1,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
+    gates[3]=(struct md_seccomp_gate){abi.code_begin,abi.code_end,-1,SECCOMP_RET_ALLOW};
+}
 
 struct md_seccomp_policy *admission_policy(const struct thread *t) {
     return t->seccomp.admission_policy_valid ? t->seccomp.admission_policy : t->seccomp.policy;
@@ -139,7 +147,7 @@ int guest_notification_begin(struct thread *t,const struct seccomp_data *data,
             delegate_begin(t,kernel);
             return 1;
         }
-        t->phase=GUEST_NOTIFICATION; execution_capture(t,regs);
+        t->phase=GUEST_NOTIFICATION; execution_retain(t,data,regs);
         error=md_task_checkpoint_suspend(&checkpoints,t->pid);
         if (error>=0) { CHECK(!error); n->checkpoint_suspended=1; }
         if (!error) {
@@ -303,11 +311,11 @@ static int host_policy_dispatch(struct thread *t,struct user_pt_regs *regs,const
     }
     unsigned long cookie=action==SECCOMP_RET_USER_NOTIF ? MD_INTERCEPT_DISPATCH : decision&SECCOMP_RET_DATA;
     regs->pc=call->instruction_pointer; regs->regs[8]=call->nr;
-    execution_capture(t,regs); ++calls; ++t->calls;
+    execution_retain(t,call,regs); ++calls; ++t->calls;
     if (robust_call(t,call,regs,MD_TASK_CALL_USER)) return 1;
     if (identity_call(t,call,regs,cookie) || domain_call(t,call,regs,cookie)) return 1;
     if (cookie!=MD_INTERCEPT_DISPATCH) return 0;
-    if (call->nr==SYS_shmdt) { memory_begin(t,regs,MEMORY_DETACH,0); return 1; }
+    if (call->nr==SYS_shmdt) { memory_begin(t,call,regs,MEMORY_DETACH); return 1; }
     if (save_signal_mask(t,&t->execution.mask,"host-policy-dispatch-mask") && shield(t)) dispatch_with_stack(t);
     return 1;
 }
@@ -359,9 +367,9 @@ int host_policy_signal(struct thread *t,struct md_task_signal_stop *stop) {
     return host_policy_dispatch(t,&regs,&call);
 }
 
-int filter_revoke_entry(struct thread *t,const struct user_pt_regs *r) {
-    int group=md_seccomp_filter_flags(r->regs[8],r->regs[1])&SECCOMP_FILTER_FLAG_TSYNC;
-    int error=md_svc_registry_pause_filter(md_memory_svc(t->memory),t->pid);
+int filter_revoke_entry(struct thread *t,const struct seccomp_data *call) {
+    int group=md_seccomp_filter_flags(call->nr,call->args[1])&SECCOMP_FILTER_FLAG_TSYNC;
+    int error=md_svc_registry_pause(md_memory_svc(t->memory),t->pid,MD_SVC_PAUSE_FILTER);
     if (error==-ESRCH) { t->resume_lost=1; return 0; }
     CHECK(!error);
     for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid
@@ -391,9 +399,9 @@ static int filter_entry_shared_policy(struct thread *t,int *filtered) {
     return 1;
 }
 
-static void filter_entry_rearm(struct thread *t) {
+void filter_entry_rearm(struct thread *t) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
-    if (!registry || !registry->filter_paused || !registry->entry_fence_drained
+    if (!registry || !(registry->pause_reasons&MD_SVC_PAUSE_FILTER) || !registry->entry_fence_drained
             || md_memory_exposed(t->memory) || !md_memory_snapshots_valid(t->memory)) return;
     int filtered;
     if (!filter_entry_shared_policy(t,&filtered)) return;
@@ -406,7 +414,7 @@ static void filter_entry_rearm(struct thread *t) {
     }
     uintptr_t mode=filtered ? 2 : 1;
     int error=md_svc_registry_write(t->pid,abi.cooperative_registration,&mode,sizeof(mode));
-    if (!error) error=md_svc_registry_rearm_filter(registry,t->pid);
+    if (!error) error=md_svc_registry_rearm(registry,t->pid,MD_SVC_PAUSE_FILTER);
     if (error) { SUPERVISOR_TRACE("PROBE filter-entry-rearm pid=%d error=%d\n",t->pid,error); return; }
     for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==t->memory) {
         p->entry.blocked=0; p->entry.registration_revoked=0;
@@ -426,7 +434,7 @@ void filter_entry_complete(struct thread *t,const struct user_pt_regs *regs) {
 
 int filter_entry_map(struct thread *t,const struct user_pt_regs *regs) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
-    if (!registry || !registry->filter_paused || !t->seccomp.policy
+    if (!registry || !(registry->pause_reasons&MD_SVC_PAUSE_FILTER) || !t->seccomp.policy
             || !md_seccomp_policy_entry_compatible(t->seccomp.policy,registry->image)
             || !md_memory_snapshots_valid(t->memory)) return 0;
     struct buffer_mapping *owner=calloc(1,sizeof(*owner));
@@ -594,7 +602,9 @@ static int policy_sync_begin(struct thread *t) {
          * notification ID or replay a socket effect against the new policy.
          * Hold their next event instead of cancelling the native request. */
         if ((p->seccomp.notification && !p->seccomp.notification->promoting)
-                || signal_control_parked(p) || p->phase==SOCKET_NATIVE) continue;
+                || signal_control_parked(p) || p->phase==ADAPTER_NATIVE || p->phase==NATIVE_WAIT
+                || ((p->entry.waiting || p->entry.wait.complete || p->phase==SOCKET_WAITING)
+                    && entry_fence_drained(p))) continue;
         CHECK(!quiesce_task_add(policy_barrier,p,0));
     }
     CHECK(!md_task_quiesce_stop(policy_barrier));
@@ -686,32 +696,34 @@ void filter_install_progress(struct thread *t) {
         const uint32_t delegated[]={SYS_gettid,SYS_seccomp,SYS_prctl,SYS_rt_sigaction,SYS_rt_sigprocmask,
             SYS_rt_sigreturn,SYS_rt_sigpending,SYS_rt_sigtimedwait,SYS_process_vm_readv,SYS_process_vm_writev,
             SYS_ppoll,SYS_pselect6,SYS_epoll_pwait,SYS_epoll_pwait2,SYS_signalfd4,SYS_fcntl,SYS_mmap};
-        struct md_seccomp_gate gates[4+MD_SVC_CODE_POOLS]={
-            {abi.socket_return,abi.socket_return,SYS_accept4,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK},
-            {abi.buffer_admit,abi.buffer_admit,SYS_gettid,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK},
-            {abi.task_return,abi.task_return,-1,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK}};
         struct md_svc_registry *registry=md_memory_svc(t->memory);
+        size_t capacity=FILTER_SERVICE_GATES+(registry ? registry->pool_count : 0);
+        struct md_seccomp_gate *gates=calloc(capacity,sizeof(*gates));
+        if (!gates) { filter_install_fail(t,-ENOMEM); return; }
+        filter_service_gates(gates);
         size_t gate_count=3;
         if (registry) {
-            gates[gate_count++]=(struct md_seccomp_gate){abi.code_begin,abi.code_end,-1,SECCOMP_RET_ALLOW};
+            gate_count=FILTER_SERVICE_GATES;
             for (unsigned i=0;i<registry->pool_count;++i)
                 gates[gate_count++]=(struct md_seccomp_gate){registry->pools[i].address,
                     registry->pools[i].address+MD_SVC_CODE_BYTES,-1,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
         }
         const struct md_seccomp_route route={.delegation_pc=abi.task_return,.notify_cookie=MD_INTERCEPT_NOTIFY,
-            .gates=gates,.gate_count=gate_count,.entry_first=1,.entry_image=registry ? registry->image : 0};
+            .gates=gates,.gate_count=gate_count,.entry_first=1,.entry_image=registry ? registry->image : 0,
+            .internal_gate_count=registry ? FILTER_SERVICE_GATES : 0};
         int error=md_seccomp_capture_prepare(&install->capture,md_memory_readonly_buffers(t->memory),
             md_memory_readonly_base(t->memory),t->seccomp.policy,&program,
             delegated,t->signals.host ? sizeof(delegated)/sizeof(*delegated) : 3,
             MD_INTERCEPT_TASK,&route);
         if (error==-E2BIG && registry) {
             struct md_seccomp_route fallback=route;
-            fallback.gate_count=3; fallback.entry_first=0; fallback.entry_image=0;
+            fallback.gate_count=3; fallback.entry_first=0; fallback.entry_image=0; fallback.internal_gate_count=0;
             error=md_seccomp_capture_prepare(&install->capture,md_memory_readonly_buffers(t->memory),
                 md_memory_readonly_base(t->memory),t->seccomp.policy,&program,
                 delegated,t->signals.host ? sizeof(delegated)/sizeof(*delegated) : 3,
                 MD_INTERCEPT_TASK,&fallback);
         }
+        free(gates);
         if (error==-EAGAIN) { retry_wait(t,RETRY_FILTER); return; }
         if (error) { filter_install_fail(t,error); return; }
         ++install->stage;
@@ -763,9 +775,9 @@ int filter_install_event(struct thread *t,int status) {
     ++install->stage; filter_install_progress(t); return 1;
 }
 
-void filter_install_begin(struct thread *t,const struct user_pt_regs *r) {
+void filter_install_begin(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *r) {
     CHECK(!t->seccomp.install);
-    unsigned flags=md_seccomp_filter_flags(r->regs[8],r->regs[1]);
+    unsigned flags=md_seccomp_filter_flags(call->nr,call->args[1]);
     if (flags&SECCOMP_FILTER_FLAG_NEW_LISTENER) {
         int error=md_seccomp_listener_flags(flags);
         if (error) { filter_entry_rearm(t); struct user_pt_regs call=*r; return_value(t,&call,error); return; }
@@ -773,7 +785,7 @@ void filter_install_begin(struct thread *t,const struct user_pt_regs *r) {
     struct filter_install *install=calloc(1,sizeof(*install));
     if (!install) { filter_entry_rearm(t); struct user_pt_regs call=*r; return_value(t,&call,-ENOMEM); return; }
     install->source=-1; install->virtual_listener=!!(flags&SECCOMP_FILTER_FLAG_NEW_LISTENER);
-    t->seccomp.install=install; execution_capture(t,r); t->phase=FILTER_CAPTURE;
+    t->seccomp.install=install; execution_retain(t,call,r); t->phase=FILTER_CAPTURE;
     int error=md_memory_order_begin(t->memory,&install->memory,fd_wakeup);
     if (error<0) filter_install_fail(t,error);
     else filter_install_progress(t);
@@ -781,9 +793,9 @@ void filter_install_begin(struct thread *t,const struct user_pt_regs *r) {
 
 int filter_observed(struct thread *t,const struct user_pt_regs *regs) {
     long result=(long)regs->regs[0];
-    const struct user_pt_regs *r=&t->execution.registers;
-    if (!t->entered || !md_seccomp_filter_call(r->regs[8],r->regs[0],r->regs[1])) return 0;
-    unsigned flags=md_seccomp_filter_flags(r->regs[8],r->regs[1]);
+    const struct seccomp_data *call=&t->execution.request;
+    if (!t->entered || !md_seccomp_filter_call(call->nr,call->args[0],call->args[1])) return 0;
+    unsigned flags=md_seccomp_filter_flags(call->nr,call->args[1]);
     unsigned length=t->seccomp.install ? t->seccomp.install->program.len : (unsigned)t->seccomp.length;
     struct md_seccomp_policy *published=NULL;
     if (t->seccomp.install) {
@@ -821,11 +833,11 @@ int filter_observed(struct thread *t,const struct user_pt_regs *regs) {
     return 0;
 }
 
-int describe_filter(pid_t pid, const struct user_pt_regs *regs) {
+int describe_filter(pid_t pid,const struct seccomp_data *call) {
     if (!diagnostics) return -1;
-    if (!md_seccomp_filter_call(regs->regs[8],regs->regs[0],regs->regs[1])) return -1;
+    if (!md_seccomp_filter_call(call->nr,call->args[0],call->args[1])) return -1;
     struct sock_fprog program;
-    struct iovec local = {&program, sizeof(program)}, remote = {(void *)regs->regs[2], sizeof(program)};
+    struct iovec local = {&program, sizeof(program)}, remote = {(void *)call->args[2], sizeof(program)};
     ssize_t n = process_vm_readv(pid, &local, 1, &remote, 1, 0);
     SUPERVISOR_TRACE("PROBE filter pid=%d instructions=%d readError=%d\n", pid,
         n == sizeof(program) ? program.len : -1, n < 0 ? errno : 0);

@@ -5,9 +5,11 @@
 #include "mount_namespace.h"
 #include "fd_origins.h"
 #include "process_access.h"
+#include <signal.h>
 
 struct md_task_registry;
 struct md_kernel_policy;
+struct md_signal_origin;
 /* Retained launch-global policy, independent of per-task namespace copies. */
 struct md_kernel_policy *md_task_registry_kernel_policy(struct md_task_registry *);
 struct md_task_resources;
@@ -57,6 +59,11 @@ void md_task_registry_retired_processes(const struct md_task_registry *,
     void (*visit)(void *,pid_t,struct md_task_retired_view),void *);
 int md_task_registry_has_retired(const struct md_task_registry *);
 void md_task_registry_reap(struct md_task_registry *,pid_t);
+/* A confirmed native reap may precede observation of a coalesced SIGCHLD.
+ * Retain only sender values, not namespaces, credentials or resource charges.
+ * Allocation failure keeps the existing retired observation for later cleanup. */
+void md_task_registry_reap_deferred(struct md_task_registry *,pid_t);
+int md_task_registry_signal_origin(const struct md_task_registry *,const siginfo_t *,struct md_signal_origin *);
 void md_task_registry_collect(struct md_task_registry *,int (*gone)(pid_t));
 /* Quota pressure may collect kernel-reaped charges while a wait still retains
  * the identity for translation. This does not retire that observation. */

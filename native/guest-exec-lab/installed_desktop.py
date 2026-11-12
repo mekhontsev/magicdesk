@@ -27,6 +27,18 @@ from fixture_executor import FixtureExecutor
 from test_oci_services import Suite, port
 
 
+def controller_command(state, command, *, root=False, wait=False, ident=None):
+    ident = ident or uuid.uuid4().hex
+    request = urllib.request.Request('http://127.0.0.1:' + str(state['rootPort' if root else 'userPort']),
+        data=json.dumps(dict(id=ident, command=command, wait=wait)).encode(),
+        headers={'Authorization': 'Bearer ' + state['token']})
+    # EVENT_WAIT: exact accepted command; never replay an uncertain POST.
+    with urllib.request.urlopen(request, timeout=1900 if wait else 10) as response:
+        result = json.load(response)
+    assert result['id'] == ident, result
+    return result
+
+
 def wait_controller(state, timeout=90, *, user=False):
     deadline = time.monotonic() + timeout
     port_key, uid = ('userPort', state['userUid']) if user else ('rootPort', 0)
@@ -412,16 +424,16 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         selected = (0 if args.awake_display == 'phone' else state['display']['id']) if args.awake_display else None
         keep_display_awake(client, state, statefile, selected)
         attach_window(client, state, statefile)
+        wait_controller(state)
+        wait_controller(state, user=True)
+        state['ready'] = True
+        statefile.write_text(json.dumps(state, indent=2))
     elif args.action == 'run':
         assert args.root or not state.get('headless'), 'Headless fixture exposes only --root commands'
         keep_display_awake(client, state, statefile)
         ident = uuid.uuid4().hex
-        request = urllib.request.Request('http://127.0.0.1:' + str(state['rootPort' if args.root else 'userPort']),
-            data=json.dumps(dict(id=ident, command=args.value, wait=args.wait)).encode(),
-            headers={'Authorization': 'Bearer ' + state['token']})
         print('Command log: ' + state['directory'] + '/' + ident + '.log', flush=True)
-        # EVENT_WAIT: this command's completion; a transport timeout never replays it.
-        response=json.loads(urllib.request.urlopen(request, timeout=1900 if args.wait else 10).read())
+        response = controller_command(state, args.value, root=args.root, wait=args.wait, ident=ident)
         print(json.dumps(response))
         if args.wait:
             log=out / (ident + '.log')

@@ -54,6 +54,7 @@
 #include "supervisor_io.h"
 #include "supervisor_notifications.h"
 #include "supervisor_readiness.h"
+#include "supervisor_signals.h"
 #include "supervisor_task.h"
 #include "syscall_result.h"
 #include "sysv_ipc.h"
@@ -78,6 +79,7 @@ static uint64_t ipc_sequence;
 static long shm_control(struct thread *t,unsigned op,const unsigned long a[4]);
 static long ipc_control(struct thread *t,unsigned operation,unsigned long argument);
 static int ipc_watch(struct thread *t);
+static void ipc_wait_shared(struct thread *t,long value);
 static struct user_pt_regs wait_poll_registers(const struct thread *t,enum phase phase);
 static void control_deliver(struct thread *t,long result);
 static void outgoing_complete(void *context, struct md_task_helper_result result);
@@ -94,10 +96,24 @@ static struct md_ipc_io *socket_operation(struct thread *t);
 static void socket_complete(struct thread *t, long result);
 static void operation_park(struct thread *t,struct user_pt_regs regs,int64_t deadline);
 static void socket_io_progress(struct thread *t);
-static void receive_begin(struct thread *t, const struct user_pt_regs *regs);
+static void receive_begin(struct thread *t, const struct user_pt_regs *regs, unsigned command);
 static int receive_return_begin(struct thread *t, unsigned count, int annotated);
 static int receive_return(struct thread *t, const struct md_received_fds *source, const int *indices, unsigned count);
 static enum call_restart control_wait_restart(const struct thread *t);
+static void control_interrupted(struct thread *t,long value);
+static void socket_wait_result(struct thread *t,long value,int restart,int waking);
+
+static void io_return_context(struct thread *t,int brokered,const struct user_pt_regs *continuation) {
+    if (!t->entry.control) {
+        if (!brokered) t->kernel_stopped=1;
+        buffer_capture(t,continuation);
+    }
+}
+
+static void control_wait_shared(struct thread *t,long value) {
+    if (value==-ETIMEDOUT && t->control.pending) control_progress(t);
+    else control_interrupted(t,value);
+}
 
 void receive_release(struct receive_owner *owner) {
     if (!owner) return;
@@ -203,7 +219,27 @@ static long ipc_control(struct thread *t,unsigned operation,unsigned long argume
 long resource_control(struct thread *t,unsigned service,unsigned operation,const unsigned long args[4]) {
     if (service==MD_GUEST_SHM) return shm_control(t,operation,args);
     if (service==MD_GUEST_IPC) return ipc_control(t,operation,args[0]);
+    if (service==MD_GUEST_PID_SIGNAL_GROUP)
+        return signal_process_next(t,(pid_t)operation,(int)args[0],(pid_t)args[1]);
     return -EINVAL;
+}
+
+void ipc_entry_wait(struct thread *t) {
+    int error=ipc_watch(t);
+    if (error) {
+        t->io.cancel=error;
+        entry_execution_retry(t);
+    } else {
+        CHECK(entry_wait_begin(t,md_ipc_deadline(t->io.pending),ipc_wait_shared));
+    }
+}
+
+static void ipc_wait_shared(struct thread *t,long value) {
+    ipc_unwatch(t);
+    /* The IPC owner retains its captured input and deadline. Readiness retries
+     * that operation; signals cancel it without replaying guest-side copying. */
+    if (value<0 && value!=-ETIMEDOUT) t->io.cancel=value;
+    entry_execution_retry(t);
 }
 
 void resource_request(struct thread *t,const struct seccomp_notif *q) {
@@ -246,6 +282,9 @@ void ipc_events_ready(void) {
         struct thread *t=threads;
         while (t && (!t->pid || t->io.event!=events[i].data.u64)) t=t->next;
         if (!t) continue;
+        if (t->entry.wait.complete==ipc_wait_shared) {
+            entry_wait_complete(t,0); continue;
+        }
         CHECK(t->phase==IPC_WAITING);
         ipc_unwatch(t); t->io.waking=1;
         /* EVENT_WAIT: the task's interruptible empty poll is cancelled by an
@@ -255,7 +294,8 @@ void ipc_events_ready(void) {
 }
 
 static struct user_pt_regs wait_poll_registers(const struct thread *t,enum phase phase) {
-    CHECK(phase==FILE_WAIT_ENTRY || phase==CONTROL_WAIT_ENTRY || phase==CLOSE_WAIT_ENTRY);
+    CHECK(phase==FILE_WAIT_ENTRY || phase==CONTROL_WAIT_ENTRY || phase==CLOSE_WAIT_ENTRY
+        || phase==DEBUG_PARK_ENTRY);
     struct user_pt_regs regs=phase==CONTROL_WAIT_ENTRY ? t->fs.registers
         : phase==CLOSE_WAIT_ENTRY ? t->close.registers : t->execution.registers;
     regs.pc=abi.task_call; regs.regs[8]=SYS_ppoll;
@@ -284,6 +324,12 @@ int wait_poll_entry(struct thread *t) {
 
 void control_park(struct thread *t) {
     if (t->phase==CONTROL_WAIT_ENTRY || t->phase==CONTROL_WAITING) return;
+    if (entry_wait_begin(t,t->control.pending ? t->control.pending->deadline : INT64_MAX,control_wait_shared)) return;
+    if (t->entry.stop.resume==control_park) return;
+    if (entry_require_stop(t,MD_CONTEXT_WAIT,0,control_park)) return;
+    if (t->control.done) {
+        t->control.done=0; control_deliver(t,t->control.result); return;
+    }
     CHECK(t->phase==DISPATCHING && t->kernel_stopped && !t->control.done);
     /* EVENT_WAIT: provider completion interrupts the caller's native poll.
      * Guest signals remain deliverable; the owner retains only this request. */
@@ -299,9 +345,16 @@ static void control_deliver(struct thread *t,long result) {
 }
 
 void control_reply(struct thread *t,long result) {
+    entry_wait_end(t);
     if (t->fs.request.command==MD_BUFFER_CONTROL_MAP && result>=0) {
         CHECK(t->control.mapping_fd<0 && result<=INT_MAX);
         t->control.mapping_fd=(int)result; result=0;
+    }
+    /* A provider may finish before the requested checkpoint arrives. Retain
+     * its exact result; only that checkpoint owns the caller continuation. */
+    if (t->entry.stop.resume==control_park) {
+        CHECK(!t->control.done);
+        t->control.done=1; t->control.result=result; return;
     }
     if (t->phase!=CONTROL_WAIT_ENTRY && t->phase!=CONTROL_WAITING) { control_deliver(t,result); return; }
     CHECK(!t->control.done);
@@ -348,7 +401,7 @@ static void outgoing_complete(void *context, struct md_task_helper_result result
     md_fd_message_export_end(owner->message,owner->stage==OUTGOING_SEND
         && (result.value>=0 || result.value==-ECANCELED));
     if (t && t->io.outgoing==owner) {
-        t->io.outgoing=NULL; t->kernel_stopped=1; buffer_capture(t,&owner->continuation);
+        t->io.outgoing=NULL; io_return_context(t,owner->brokered,&owner->continuation);
         buffer_reply_signal(t,result.value,result.signal.si_signo ? &result.signal : NULL);
     }
     outgoing_release(owner);
@@ -371,7 +424,8 @@ static void outgoing_prepared(struct md_ipc_origin_request *request, int error, 
     frame->brokered=owner->brokered;
     frame->destination=owner->destination;
     frame->destination.anchor=-1; /* Host descriptor numbers never enter guest state. */
-    owner->stage=OUTGOING_READY; buffer_capture(t,&owner->continuation);
+    owner->stage=OUTGOING_READY;
+    if (!t->entry.control) buffer_capture(t,&owner->continuation);
     buffer_reply(t,0);
 }
 
@@ -382,7 +436,7 @@ static void outgoing_exported(void *context, struct md_task_helper_result result
     if (!t || t->io.outgoing!=owner) {
         md_received_fds_release(result.received); outgoing_release(owner); return;
     }
-    t->kernel_stopped=1;
+    if (!owner->brokered) t->kernel_stopped=1;
     int error=(int)result.value;
     if (!error && (!result.received || result.received->count!=owner->input.count)) error=-EPROTO;
     if (!error && !origin_service) error=md_ipc_origins_new(filesystem,registration.id,&origin_service);
@@ -407,6 +461,22 @@ static int reusable_io_channel(struct thread *t) {
     return !error && number>=0;
 }
 
+static void outgoing_capture_task(struct thread *t) {
+    struct outgoing_owner *owner=t->io.outgoing;
+    if (entry_require_stop(t,MD_CONTEXT_DESCRIPTOR,0,outgoing_capture_task)) return;
+    owner->continuation=t->fs.registers;
+    t->terminal_observation=1; t->trace_options_dirty=1;
+    int error=debugger_options(t->pid,t->debug.options);
+    if (!error) {
+        struct md_task_helper_request request={.kind=MD_TASK_HELPER_EXPORT,
+            .descriptors=owner->input.keep,.descriptor_count=owner->input.count,.captured=outgoing_captured};
+        error=md_task_helper_begin(helpers,t->pid,t->tgid,&owner->continuation,&abi,t->memory,&t->fs.buffer,
+            &request,outgoing_exported,owner);
+    }
+    if (error) outgoing_complete(owner,(struct md_task_helper_result){.value=error,.descriptor=-1});
+    else t->kernel_stopped=0;
+}
+
 void outgoing_start(struct thread *t) {
     retry_clear(t,RETRY_OUTGOING);
     struct outgoing_owner *owner=t->io.outgoing;
@@ -423,25 +493,26 @@ void outgoing_start(struct thread *t) {
         owner->context.actor=t->pid; owner->context.peer=t->tgid;
         owner->context.authenticated=owner->context.has_identity=1;
         owner->brokered|=reusable_io_channel(t);
-        owner->options.brokered=owner->brokered;
+        owner->options.brokered=owner->brokered || t->entry.execution!=NULL;
         error=md_fs_order_complete(&owner->fs_order);
     }
     if (!error && owner->input.count>1)
         error=md_fd_message_capture(t->resources.files,owner->input.keep+1,owner->input.count-1,&owner->message);
     if (!error) {
-        t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug.options);
+        struct md_received_fds *received=NULL;
+        error=md_fd_capture_native(t->pid,owner->input.keep,owner->input.count,&received);
+        if (error>0) {
+            CHECK(!md_fd_order_complete(&owner->files));
+            owner->stage=OUTGOING_CAPTURE;
+            owner->brokered=1;
+            outgoing_exported(owner,(struct md_task_helper_result){.value=0,.descriptor=-1,.received=received});
+            return;
+        }
     }
     owner->stage=OUTGOING_CAPTURE;
     if (!error && owner->brokered) { ipc_capture_step(t,MD_FS_BUFFER_IPC_CAPTURE_READY,0); return; }
-    if (!error) {
-        struct md_task_helper_request request={.kind=MD_TASK_HELPER_EXPORT,
-            .descriptors=owner->input.keep,.descriptor_count=owner->input.count,.captured=outgoing_captured};
-        error=md_task_helper_begin(helpers,t->pid,t->tgid,&owner->continuation,&abi,t->memory,&t->fs.buffer,
-            &request,outgoing_exported,owner);
-    }
     if (error) outgoing_complete(owner,(struct md_task_helper_result){.value=error,.descriptor=-1});
-    else t->kernel_stopped=0;
+    else outgoing_capture_task(t);
 }
 
 static void outgoing_begin(struct thread *t, const struct user_pt_regs *regs) {
@@ -457,10 +528,11 @@ static void outgoing_begin(struct thread *t, const struct user_pt_regs *regs) {
     struct outgoing_owner *owner=NULL;
     if (!error) { owner=calloc(1,sizeof(*owner)); if (!owner) error=-ENOMEM; }
     if (!error) {
-        *owner=(struct outgoing_owner){.caller=t->pid,.continuation=*regs,.input=input,
+        *owner=(struct outgoing_owner){.caller=t->pid,.input=input,
             .brokered=t->seccomp.application_filter,
             .options=((struct md_task_outgoing_frame *)span.data)->options,.destination={.anchor=-1}};
-        owner->options.brokered=owner->brokered;
+        if (regs) owner->continuation=*regs;
+        owner->options.brokered=owner->brokered || t->entry.execution!=NULL;
         error=md_fd_order_begin(t->resources.files,&owner->files,fd_wakeup);
         if (error>0) error=0;
     }
@@ -468,11 +540,19 @@ static void outgoing_begin(struct thread *t, const struct user_pt_regs *regs) {
     else { t->io.outgoing=owner; outgoing_start(t); }
 }
 
+static void outgoing_send_stopped(struct thread *t) {
+    outgoing_send(t,&t->fs.registers);
+}
+
 static void outgoing_send(struct thread *t, const struct user_pt_regs *regs) {
     struct outgoing_owner *owner=t->io.outgoing;
     uintptr_t address=md_memory_buffer_address(t->memory,&t->fs.buffer);
-    owner->continuation=*regs; owner->stage=OUTGOING_SEND;
+    if (regs) owner->continuation=*regs;
+    owner->stage=OUTGOING_SEND;
     if (owner->brokered) { socket_io_progress(t); return; }
+    /* An unmodified native peer observes kernel sender credentials. Only this
+     * task-affine send needs a real helper continuation, not capture/preparation. */
+    if (entry_require_stop(t,MD_CONTEXT_DESCRIPTOR,0,outgoing_send_stopped)) return;
     struct md_task_helper_request request={.kind=MD_TASK_HELPER_SEND_CAPTURED,
         .send_inputs=owner->prepared,.send_import=address+offsetof(struct md_task_outgoing_frame,scratch.import),
         .send_address=owner->destination.anchor>=0 ? address+offsetof(struct md_task_outgoing_frame,destination.address) : 0,
@@ -499,7 +579,7 @@ static void receive_complete(void *context, struct md_task_helper_result result)
         CHECK(!md_fd_order_complete(&owner->files));
     owner->ready=1; owner->received=result.received;
     if (t && t->io.receive==owner) {
-        t->kernel_stopped=1; buffer_capture(t,&owner->continuation);
+        io_return_context(t,owner->brokered,&owner->continuation);
         if (owner->brokered && owner->request.inline_receive) {
             struct md_buffer_span span;
             CHECK(!md_buffer_span(&t->fs.buffer,&span));
@@ -563,6 +643,7 @@ void socket_unwatch(struct thread *t) {
 }
 
 static void socket_complete(struct thread *t, long result) {
+    entry_wait_end(t);
     CHECK(!socket_operation(t)->job.started);
     socket_unwatch(t);
     t->phase=DISPATCHING;
@@ -623,6 +704,12 @@ static void operation_park(struct thread *t,struct user_pt_regs regs,int64_t dea
     if (set_registers(t->pid,&regs)) { t->phase=SOCKET_WAIT_ENTRY; resume(t->pid,0); }
 }
 
+static void socket_wait_shared(struct thread *t,long value) {
+    socket_unwatch(t);
+    if (!value) { socket_io_progress(t); return; }
+    socket_wait_result(t,value==-ETIMEDOUT ? 0 : value,value==-EINTR,0);
+}
+
 static void socket_io_progress(struct thread *t) {
     if (t->readiness) { readiness_progress(t); return; }
     struct outgoing_owner *out=t->io.outgoing;
@@ -646,6 +733,12 @@ static void socket_io_progress(struct thread *t) {
     }
     if (waiting) {
         int64_t deadline=socket_operation(t)->job.started ? INT64_MAX : socket_operation(t)->deadline;
+        if (t->entry.execution && t->entry.control) {
+            int error=socket_watch(t);
+            if (error) { socket_wait_result(t,error,0,0); return; }
+            CHECK(entry_wait_begin(t,deadline,socket_wait_shared));
+            return;
+        }
         struct user_pt_regs regs=out ? out->continuation : in->continuation;
         /* The adapter is suspended mid-call. Its live stack is not the reusable
          * stack top used by completed SysV dispatches. */
@@ -665,15 +758,35 @@ void socket_events_ready(void) {
         struct thread *t=find_thread((pid_t)events[i].data.u32);
         if (t && ((t->io.outgoing && t->io.outgoing->io_waiting) || (t->io.receive && t->io.receive->io_waiting)
                 || (t->readiness && t->readiness->io_waiting))) {
-            CHECK(t->phase==SOCKET_WAITING || t->phase==SOCKET_WAIT_ENTRY || t->phase==EPOLL_WAIT);
+            if (t->entry.wait.complete==socket_wait_shared) {
+                entry_wait_complete(t,0); continue;
+            }
+            CHECK(t->phase==SOCKET_WAITING || t->phase==SOCKET_WAIT_ENTRY || readiness_waiting(t));
             socket_unwatch(t);
             int waking=t->io.socket_waking; t->io.socket_waking=1;
             /* EVENT_WAIT: readiness cancels the caller's interruptible ppoll.
              * Socket timeout or signal completes the operation without replay. */
-            if (!waking && (t->phase==SOCKET_WAITING || t->phase==EPOLL_WAIT) && !t->listening)
+            if (!waking && (t->phase==SOCKET_WAITING || readiness_waiting(t)) && !t->listening)
                 tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"socket-ready");
         }
     }
+}
+
+static void receive_capture_task(struct thread *t) {
+    struct receive_owner *owner=t->io.receive;
+    owner->started=1;
+    if (entry_require_stop(t,MD_CONTEXT_DESCRIPTOR,0,receive_capture_task)) return;
+    owner->continuation=t->fs.registers;
+    t->terminal_observation=1; t->trace_options_dirty=1;
+    int error=debugger_options(t->pid,t->debug.options);
+    if (!error) {
+        struct md_task_helper_request request={.kind=MD_TASK_HELPER_RECEIVE,
+            .receive=owner->request,.captured=receive_captured};
+        error=md_task_helper_begin(helpers,t->pid,t->tgid,&owner->continuation,&abi,t->memory,&t->fs.buffer,
+            &request,receive_complete,owner);
+    }
+    if (error) receive_complete(owner,(struct md_task_helper_result){.value=error,.descriptor=-1});
+    else t->kernel_stopped=0;
 }
 
 void receive_start(struct thread *t) {
@@ -710,31 +823,21 @@ void receive_start(struct thread *t) {
     if (!error && owner->brokered) {
         owner->started=1; ipc_capture_step(t,MD_FS_BUFFER_IPC_CAPTURE_READY,0); return;
     }
-    if (!error) {
-        t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug.options);
-    }
-    if (!error) {
-        struct md_task_helper_request request={.kind=MD_TASK_HELPER_RECEIVE,
-            .receive=owner->request,.captured=receive_captured};
-        error=md_task_helper_begin(helpers,t->pid,t->tgid,&owner->continuation,&abi,t->memory,&t->fs.buffer,
-            &request,receive_complete,owner);
-    }
-    owner->started=1;
     if (error) receive_complete(owner,(struct md_task_helper_result){.value=error,.descriptor=-1});
-    else t->kernel_stopped=0;
+    else receive_capture_task(t);
 }
 
-static void receive_begin(struct thread *t, const struct user_pt_regs *regs) {
+static void receive_begin(struct thread *t, const struct user_pt_regs *regs,unsigned command) {
     struct md_buffer_span span;
     int error=md_buffer_span(&t->fs.buffer,&span);
     struct receive_owner *owner=NULL;
     if (!error) { owner=calloc(1,sizeof(*owner)); if (!owner) error=-ENOMEM; }
     if (!error) {
-        *owner=(struct receive_owner){.caller=t->pid,.continuation=*regs,
+        *owner=(struct receive_owner){.caller=t->pid,
             .brokered=t->seccomp.application_filter,
             .request=((struct md_task_receive_frame *)span.data)->input};
-        if (regs->regs[0]==MD_BUFFER_NETWORK_DATA) {
+        if (regs) owner->continuation=*regs;
+        if (command==MD_BUFFER_NETWORK_DATA) {
             owner->brokered=1; owner->network.number=t->execution.request.nr;
             owner->network.identity=&t->identity;
             for (unsigned i=0;i<6;++i) owner->network.args[i]=t->execution.request.args[i];
@@ -833,13 +936,16 @@ void io_buffer_control(struct thread *t,const struct supervisor_control_request 
         if (control->args[1] || t->phase!=DISPATCHING
                 || !((t->io.outgoing && t->io.outgoing->brokered && t->io.outgoing->stage==OUTGOING_CAPTURE)
                     || (t->io.receive && t->io.receive->brokered && !t->io.receive->ready && t->io.receive->capture.channel))) break;
-        if (t->io.outgoing) t->io.outgoing->continuation=*r;
-        else t->io.receive->continuation=*r;
+        if (r) {
+            if (t->io.outgoing) t->io.outgoing->continuation=*r;
+            else t->io.receive->continuation=*r;
+        }
         ipc_capture_step(t,(unsigned)control->command,(long)control->args[0]); return;
     case MD_FS_BUFFER_IPC_RECEIVE:
         if (control->args[0] || control->args[1] || !t->io.receive || !t->io.receive->brokered
                 || t->io.receive->ready || !t->io.receive->received) break;
-        t->io.receive->continuation=*r; socket_io_progress(t); return;
+        if (r) t->io.receive->continuation=*r;
+        socket_io_progress(t); return;
     case MD_FS_BUFFER_SEND_PREPARE:
         if (t->phase!=DISPATCHING || t->io.outgoing || !t->fs.buffer.pool || control->args[0] || control->args[1]
                 || (t->execution.request.nr!=SYS_sendmsg && t->execution.request.nr!=SYS_sendmmsg
@@ -857,12 +963,12 @@ void io_buffer_control(struct thread *t,const struct supervisor_control_request 
                 || (t->execution.request.nr!=SYS_recvmsg && t->execution.request.nr!=SYS_recvmmsg)) break;
         /* EVENT_WAIT: private native receive, export and exact helper reaping.
          * Source capture alone holds the table turn, never the blocking IO. */
-        receive_begin(t,r); return;
+        receive_begin(t,r,(unsigned)control->command); return;
     case MD_BUFFER_NETWORK_DATA:
         if (t->phase!=DISPATCHING || t->io.receive || !t->fs.buffer.pool || control->args[0] || control->args[1]) break;
         /* EVENT_WAIT: exact socket capture followed by the common cancellable
          * native IO owner. No file-table turn spans connect or accept. */
-        receive_begin(t,r); return;
+        receive_begin(t,r,(unsigned)control->command); return;
     case MD_FS_BUFFER_RECEIVED_DROP:
         if (!t->io.receive || (!t->io.receive->ready && !t->io.receive->brokered)
                 || t->io.receive->io_waiting || control->args[0] || control->args[1]) break;
@@ -1050,10 +1156,9 @@ int receive_entry(struct thread *t) {
 }
 
 void ipc_wait_complete(struct thread *t) {
-    struct user_pt_regs returned;
-    if (!registers(t->pid,&returned) || !shield(t)) return;
+    long value;
+    if (!stopped_result(t,&value) || !shield(t)) return;
     ipc_unwatch(t);
-    long value=(long)returned.regs[0];
     SUPERVISOR_TRACE("PROBE ipc-wait pid=%d value=%ld waking=%d\n",t->pid,value,t->io.waking);
     int interrupted=md_syscall_restarting(value);
     if (value<0 && !(t->io.waking && interrupted)) t->io.cancel=interrupted ? -EINTR : value;
@@ -1062,10 +1167,9 @@ void ipc_wait_complete(struct thread *t) {
 }
 
 void socket_wait_complete(struct thread *t) {
-    struct user_pt_regs regs;
-    if (!registers(t->pid,&regs)) return;
+    long value;
+    if (!stopped_result(t,&value)) return;
     socket_unwatch(t);
-    long value=(long)regs.regs[0];
     SUPERVISOR_TRACE("PROBE socket-wait pid=%d value=%ld waking=%d\n",t->pid,value,t->io.socket_waking);
     int restart=md_syscall_restarting(value);
     int waking=t->io.socket_waking; t->io.socket_waking=0;
@@ -1073,6 +1177,10 @@ void socket_wait_complete(struct thread *t) {
         readiness_interrupted(t); return;
     }
     if (!shield(t)) return;
+    socket_wait_result(t,value,restart,waking);
+}
+
+static void socket_wait_result(struct thread *t,long value,int restart,int waking) {
     if (waking && (restart || value==0)) { socket_io_progress(t); return; }
     if (t->readiness) {
         md_epoll_wait_cancel(&t->readiness->wait);
@@ -1119,13 +1227,16 @@ static enum call_restart control_wait_restart(const struct thread *t) {
 }
 
 void control_wait_complete(struct thread *t) {
-    struct user_pt_regs regs;
-    if (!registers(t->pid,&regs) || !shield(t)) return;
+    long value;
+    if (!stopped_result(t,&value) || !shield(t)) return;
     t->phase=DISPATCHING;
     if (t->control.done) {
         t->control.done=0; control_deliver(t,t->control.result); return;
     }
-    long value=(long)regs.regs[0];
+    control_interrupted(t,value);
+}
+
+static void control_interrupted(struct thread *t,long value) {
     int interrupted=value==-EINTR || md_syscall_restarting(value);
     /* Providers explicitly admit repeatable preparation, never committed
      * writes/ioctls. Ordinary IO retains its unadmitted/no-prefix rule. */
@@ -1135,19 +1246,6 @@ void control_wait_complete(struct thread *t) {
     CHECK(!md_proc_file_io_cancel(&t->proc.io));
     t->proc.waiting=0;
     control_deliver(t,retry ? retry : interrupted ? -EINTR : value<0 ? value : -EIO);
-}
-
-int socket_native_exit(struct thread *t,pid_t pid) {
-    if (t->phase==SOCKET_NATIVE) {
-        struct user_pt_regs regs;
-        if (!registers(pid,&regs) || !shield(t)) return 1;
-        if (md_syscall_restarting((long)regs.regs[0])) {
-            regs.regs[0]=(uint64_t)RESTART_SIGNAL;
-            if (!set_registers(pid,&regs)) return 1;
-        }
-        t->phase=DISPATCHING; resume(pid,0); return 1;
-    }
-    return 0;
 }
 
 int control_wait_exit(struct thread *t,pid_t pid) {

@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include <sys/ioctl.h>
+#include <sys/epoll.h>
 #include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
@@ -25,6 +26,7 @@
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 volatile int magic_value = 42;
@@ -37,7 +39,9 @@ static int stop(pid_t child) {
 }
 static void exited(pid_t child, int code) {
     int status;
-    assert(waitpid(child, &status, 0) == child);
+    pid_t result=waitpid(child,&status,0);
+    if (result!=child) fprintf(stderr,"wait exit child=%d result=%d errno=%d\n",child,result,errno);
+    assert(result==child);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == code);
 }
 static int untraced_child(void *unused) {
@@ -427,6 +431,57 @@ static void syscall_signal_test(void) {
                 signals,active,(unsigned long long)nr);
     assert(signals==32 && active && nr==SYS_exit_group);
 }
+static volatile sig_atomic_t wait_signal_seen,wait_signal_output=-1;
+static void wait_signal_handler(int signal) {
+    (void)signal;
+    int saved=errno;
+    ++wait_signal_seen;
+    if (wait_signal_output>=0 && write(wait_signal_output,"r",1)!=1) _exit(90);
+    errno=saved;
+}
+static long wait_signal_call(pid_t child,int id,int options) {
+    return id ? syscall(SYS_waitid,P_PID,child,NULL,options|WEXITED,NULL)
+        : syscall(SYS_wait4,child,NULL,options,NULL);
+}
+static void wait_signal_test(void) {
+    struct sigaction saved,action={.sa_handler=wait_signal_handler};
+    sigset_t set,previous; sigemptyset(&set); sigaddset(&set,SIGUSR1);
+    assert(!sigprocmask(SIG_UNBLOCK,&set,&previous));
+    assert(!sigaction(SIGUSR1,NULL,&saved));
+    for (unsigned traced=0;traced<2;++traced)
+        for (unsigned id=0;id<2;++id) for (unsigned restart=0;restart<2;++restart) {
+        int release[2]; assert(!pipe(release));
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            close(release[1]);
+            if (traced) { assert(!ptrace(PTRACE_TRACEME,0,0,0)); raise(SIGSTOP); }
+            char byte; assert(read(release[0],&byte,1)==1); _exit(0);
+        }
+        close(release[0]);
+        if (traced) { stop(child); assert(!ptrace(PTRACE_CONT,child,0,0)); }
+        for (unsigned i=0;i<64;++i) assert(!wait_signal_call(child,id,WNOHANG));
+        wait_signal_seen=0; wait_signal_output=restart ? release[1] : -1;
+        action.sa_flags=restart ? SA_RESTART : 0;
+        assert(!sigaction(SIGUSR1,&action,NULL));
+        struct sigevent event={.sigev_notify=SIGEV_SIGNAL,.sigev_signo=SIGUSR1};
+        timer_t timer; assert(!timer_create(CLOCK_MONOTONIC,&event,&timer));
+        struct itimerspec when={.it_value={.tv_nsec=20000000}};
+        assert(!timer_settime(timer,0,&when,NULL));
+        /* EVENT_WAIT: SIGUSR1 interrupts the wait; SA_RESTART's handler
+         * releases the child. The outer fixture alarm bounds either failure. */
+        long result=wait_signal_call(child,id,0);
+        if (!restart) {
+            assert(result==-1 && errno==EINTR && wait_signal_seen==1);
+            assert(write(release[1],"r",1)==1);
+            result=wait_signal_call(child,id,0);
+        }
+        assert(result==(id ? 0 : child) && wait_signal_seen==1);
+        assert(!timer_delete(timer)); close(release[1]); wait_signal_output=-1;
+        assert(wait_signal_call(child,id,WNOHANG)==-1 && errno==ECHILD);
+    }
+    assert(!sigaction(SIGUSR1,&saved,NULL));
+    assert(!sigprocmask(SIG_SETMASK,&previous,NULL));
+}
 static void kill_stopped_test(void) {
     struct sigaction action={.sa_handler=child_signal,.sa_flags=SA_RESTART};
     assert(!sigaction(SIGCHLD,&action,NULL));
@@ -633,6 +688,24 @@ static void gdb_poll_target(void) {
     char c;
     assert(read(STDIN_FILENO, &c, 1) == 1 && magic_value == 43);
 }
+static void gdb_epoll_target(void) {
+    int queue=epoll_create1(EPOLL_CLOEXEC), watch=inotify_init1(IN_CLOEXEC|IN_NONBLOCK);
+    assert(queue>=0 && watch>=0);
+    struct epoll_event event={.events=EPOLLIN,.data.fd=watch};
+    assert(!epoll_ctl(queue,EPOLL_CTL_ADD,watch,&event));
+    event.data.fd=STDIN_FILENO;
+    assert(!epoll_ctl(queue,EPOLL_CTL_ADD,STDIN_FILENO,&event));
+    for (unsigned i=0;i<64;++i) assert(!epoll_wait(queue,&event,1,0));
+    puts("READY"); fflush(stdout);
+    /* EVENT_WAIT: mixed native/provider readiness must remain debugger-visible
+     * even when neither descriptor can become ready until after detach. */
+    int result;
+    do result=epoll_wait(queue,&event,1,-1); while (result<0 && errno==EINTR);
+    assert(result==1 && event.data.fd==STDIN_FILENO && (event.events&EPOLLIN));
+    char c;
+    assert(read(STDIN_FILENO,&c,1)==1 && magic_value==43);
+    assert(!close(queue) && !close(watch));
+}
 static void *gdb_io_worker(void *argument) {
     char path[128], renamed[128];
     snprintf(path,sizeof(path),"%s/%zu",io_directory,(size_t)argument);
@@ -721,6 +794,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "syscall-exec")) syscall_exec_test();
     else if (!strcmp(argv[1], "syscall-signal")) syscall_signal_test();
     else if (!strcmp(argv[1], "mixed")) mixed_test();
+    else if (!strcmp(argv[1], "wait-signal")) wait_signal_test();
     else if (!strcmp(argv[1], "kill-stopped")) kill_stopped_test();
     else if (!strcmp(argv[1], "owner-exit")) owner_test(0);
     else if (!strcmp(argv[1], "exitkill")) owner_test(1);
@@ -731,6 +805,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "perf-event")) { if (!perf_test()) return 0; }
     else if (!strcmp(argv[1], "gdb-target")) gdb_target(0, 0);
     else if (!strcmp(argv[1], "gdb-poll-target")) gdb_poll_target();
+    else if (!strcmp(argv[1], "gdb-epoll-target")) gdb_epoll_target();
     else if (!strcmp(argv[1], "gdb-thread-target")) gdb_target(1, 0);
     else if (!strcmp(argv[1], "self-dump-threads")) self_dump_threads(0);
     else if (!strcmp(argv[1], "self-dump-io")) self_dump_threads(1);

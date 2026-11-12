@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <linux/capability.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -13,6 +14,7 @@
 #include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -41,6 +43,44 @@ static void groups(void) {
     input[32]=(gid_t)-1;
     errno=0; CHECK(setgroups(65,input)==-1 && errno==EINVAL);
     CHECK(getgroups(65,output)==65 && output[64]==3064);
+}
+static void structured_identity(void) {
+    size_t page=(size_t)sysconf(_SC_PAGESIZE);
+    unsigned char *memory=mmap(NULL,page*2,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    CHECK(memory!=MAP_FAILED && !mprotect(memory+page,page,PROT_NONE));
+    uint32_t ids[3]={1,2,3};
+    CHECK(!syscall(SYS_getresuid,ids,ids+1,ids+2));
+    CHECK(!ids[0] && !ids[1] && !ids[2]);
+    ids[0]=9; ids[2]=9;
+    errno=0; CHECK(syscall(SYS_getresgid,ids,memory+page,ids+2)==-1 && errno==EFAULT);
+    CHECK(!ids[0] && ids[2]==9);
+    struct __user_cap_header_struct header={.version=_LINUX_CAPABILITY_VERSION_3};
+    struct __user_cap_data_struct caps[2];
+    CHECK(!syscall(SYS_capget,&header,caps) && !syscall(SYS_capset,&header,caps));
+    errno=0; CHECK(syscall(SYS_capget,&header,memory+page)==-1 && errno==EFAULT);
+    header.version=0;
+    CHECK(!syscall(SYS_capget,&header,NULL) && header.version==_LINUX_CAPABILITY_VERSION_3);
+    header.version=0;
+    errno=0; CHECK(syscall(SYS_capget,&header,caps)==-1 && errno==EINVAL);
+    CHECK(header.version==_LINUX_CAPABILITY_VERSION_3);
+    struct rlimit before,after,next;
+    CHECK(!getrlimit(RLIMIT_NPROC,&before)); next=before;
+    if (next.rlim_cur>1) --next.rlim_cur;
+    errno=0; CHECK(syscall(SYS_prlimit64,0,RLIMIT_NPROC,&next,memory+page)==-1 && errno==EFAULT);
+    CHECK(!getrlimit(RLIMIT_NPROC,&after) && after.rlim_cur==next.rlim_cur);
+    CHECK(!setrlimit(RLIMIT_NPROC,&before));
+    enum { count=65536 };
+    gid_t *input=malloc(count*sizeof(*input)),*output=malloc(count*sizeof(*output));
+    CHECK(input && output);
+    for (unsigned i=0;i<count;++i) input[i]=100000+count-i-1;
+    CHECK(!setgroups(count,input) && getgroups(count,output)==count);
+    for (unsigned i=0;i<count;++i) CHECK(output[i]==100000+i);
+    for (unsigned i=0;i<page/sizeof(gid_t);++i) ((gid_t *)memory)[i]=200000+i;
+    errno=0; CHECK(syscall(SYS_setgroups,page/sizeof(gid_t)+1,memory)==-1 && errno==EFAULT);
+    CHECK(getgroups(count,output)==count && output[0]==100000 && output[count-1]==100000+count-1);
+    CHECK(!setgroups(0,NULL));
+    free(input); free(output); CHECK(!munmap(memory,page*2));
+    puts("PASS structured credentials, complete group capture and committed limit output faults");
 }
 static void *thread_ids(void *unused) {
     (void)unused;
@@ -137,6 +177,9 @@ int main(int argc, char **argv) {
         puts("PASS exec identity and no-new-privs"); return 0;
     }
     CHECK(getuid()==0 && geteuid()==0 && getauxval(AT_UID)==0);
+    /* Permission assertions must not depend on the Android executor's umask. */
+    umask(0022);
+    structured_identity();
     signal_credentials();
     groups();
     pid_t child=fork(); CHECK(child>=0);
@@ -162,8 +205,26 @@ int main(int argc, char **argv) {
     if (!child) {
         CHECK(!setresgid(1000,1000,0)); CHECK(!setresuid(1000,0,0));
         CHECK(setfsuid(1234)==0 && setfsuid((uid_t)-1)==1234);
-        CHECK(!access("/tmp/credential-calls/file",R_OK));
-        errno=0; CHECK(syscall(SYS_faccessat2,directory,"",X_OK,AT_EMPTY_PATH|0x200)==-1 && errno==EACCES);
+        int access_error=access("/tmp/credential-calls/file",R_OK);
+        if (access_error) {
+            int saved=errno; struct stat st;
+            CHECK(!fstat(fd,&st));
+            fprintf(stderr,"real access error=%d uid=%u euid=%u fsuid=%u gid=%u owner=%u:%u mode=%o\n",
+                saved,getuid(),geteuid(),setfsuid((uid_t)-1),getgid(),st.st_uid,st.st_gid,st.st_mode);
+            errno=saved;
+        }
+        CHECK(!access_error);
+        errno=0; long access_result=syscall(SYS_faccessat2,directory,"",X_OK,AT_EMPTY_PATH|0x200);
+        if (access_result!=-1 || errno!=EACCES) {
+            int saved=errno; struct stat info;
+            struct __user_cap_header_struct header={.version=_LINUX_CAPABILITY_VERSION_3};
+            struct __user_cap_data_struct caps[2]={{0}};
+            CHECK(!fstat(directory,&info) && !syscall(SYS_capget,&header,caps));
+            fprintf(stderr,"access result=%ld errno=%d uid=%u euid=%u fsuid=%u owner=%u mode=%o caps=%x:%x\n",
+                access_result,saved,getuid(),geteuid(),setfsuid((uid_t)-1),info.st_uid,info.st_mode,caps[1].effective,caps[0].effective);
+            errno=saved;
+        }
+        CHECK(access_result==-1 && errno==EACCES);
         errno=0; CHECK(fchdir(directory)==-1 && errno==EACCES);
         CHECK(setfsuid(0)==1234);
         errno=0; CHECK(syscall(SYS_faccessat2,directory,"",X_OK,AT_EMPTY_PATH)==-1 && errno==EACCES);

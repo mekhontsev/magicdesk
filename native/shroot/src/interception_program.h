@@ -2,6 +2,7 @@
 #define MD_INTERCEPTION_PROGRAM_H
 #include "interception.h"
 #include "fd_filter_program.h"
+#include "descriptor_calls.h"
 #include "file_calls.h"
 #include "socket_calls.h"
 #include "guest_domain.h"
@@ -50,6 +51,9 @@ static inline void md_interception_program_build(const struct md_interception_ab
 #define COUNT(name) + 1
         enum { transport_instructions = 2 * (1 MD_GATE_TRANSPORT_CALLS(COUNT)) };
 #undef COUNT
+#define COUNT_QUERY(name,value) + 5
+        enum { query_instructions = 0 MD_DESCRIPTOR_SERVICE_QUERIES(COUNT_QUERY) };
+#undef COUNT_QUERY
 #define TRACE(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_DISPATCH),
 #define OBSERVE(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
@@ -89,12 +93,13 @@ static inline void md_interception_program_build(const struct md_interception_ab
              * starts. Admit its owner before sleeping, but leave zero-time
              * native probes and owned task/adapter calls in the kernel. */
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait2,1,0),
-            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait,0,14),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait,0,15),
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
-            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(gate>>32),0,6),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(gate>>32),0,7),
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)admit,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)native,2,0),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)task,1,0),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)gate,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
@@ -119,7 +124,7 @@ static inline void md_interception_program_build(const struct md_interception_ab
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_CHECKPOINT),
             MD_CHECKPOINT_SITES(MARKER)
 #undef MARKER
-            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abi->socket_return,0,1),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abi->adapter_native_return,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK),
             /* The operation owner has admitted this journaled native effect.
              * Do not maintain a second syscall policy at its execution gate. */
@@ -157,8 +162,9 @@ static inline void md_interception_program_build(const struct md_interception_ab
             /* Descriptor metadata must remain serviceable after an application
              * installs a higher-precedence filter or becomes nondumpable. */
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 9),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 10),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_PID_SIGNAL_GROUP, 6, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_FD_CHANNEL, 5, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_BUFFER, 4, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_PROC_IMAGE, 3, 0),
@@ -236,9 +242,9 @@ static inline void md_interception_program_build(const struct md_interception_ab
             MD_UNAVAILABLE_CALLS(UNAVAILABLE)
 #undef UNAVAILABLE
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(gate >> 32), 0, 22 + transport_instructions),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(gate >> 32), 0, 22 + transport_instructions + query_instructions),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)gate, 0, 20 + transport_instructions),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)gate, 0, 20 + transport_instructions + query_instructions),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             /* Already unconditional kernel operations in every domain. The
              * original call enters its adapter after guest policy admission;
@@ -247,6 +253,17 @@ static inline void md_interception_program_build(const struct md_interception_ab
             /* These admitted internal queries request native metadata/paths,
              * never logical guest metadata. */
             NATIVE(fstat) NATIVE(readlinkat)
+            /* The adapter requests the carrier's native state after original
+             * guest-policy admission. These queries neither mutate slots nor
+             * require an exit observer. Match the kernel's command width. */
+#define NATIVE_QUERY(name,value) \
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_##name,0,4), \
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[1])), \
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,value,0,1), \
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW), \
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            MD_DESCRIPTOR_SERVICE_QUERIES(NATIVE_QUERY)
+#undef NATIVE_QUERY
             /* Runtime transport validates its native peer identity; guest
              * credential queries use their original SVC, never this gate. */
             NATIVE(getuid) NATIVE(geteuid) NATIVE(getgid) NATIVE(getegid)

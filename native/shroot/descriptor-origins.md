@@ -15,12 +15,14 @@ ownership. A fork without CLONE_FILES copies annotations; shared owners see one
 table. Registry and in-flight request pins keep it alive without counting as
 task owners. An absent entry means unknown provenance, not EBADF.
 
-`md_fd_origins_native_regular` is a positive, allocation-free IO proof under a
+`md_fd_origins_native_io` is a positive, allocation-free IO proof under a
 running table turn. It requires the actual ordinary anchor object, not a typed
-object that merely exposes a filesystem origin. Loan custody and uncertain slots
-decline. The supervisor additionally requires sole task ownership before using
-the proof to resume an untouched kernel call; shared-table reuse cannot borrow
-that shortcut. It never captures or retains the application's data OFD.
+object that merely exposes a filesystem origin, or a metadata-only anonymous
+pipe. Virtual FIFOs retain their own data provider. Loan custody and uncertain
+slots decline. The supervisor additionally requires sole task ownership before
+using the proof for native execution; shared-table reuse cannot borrow that
+shortcut. Base and channel ingress share the same classifier and release the
+table turn before IO. It never captures or retains the application's data OFD.
 
 The owner is small; buckets and entries are allocated only for explicit
 annotations. A prepared update reserves memory and retains its origin before a
@@ -132,6 +134,15 @@ and close_range update annotations from their actual kernel results. Fork,
 unshare and exec use the same ordered ownership transition. The seccomp filter
 and restricted-domain policy share the descriptor-operation list; observation
 does not remove native descriptor capabilities after a proc-root restriction.
+
+Duplicate admission is transport-independent. When all provider selectors are
+already installed, Base and resident entries go directly to the ordered native
+mutation. Otherwise the C adapter discovers providers before taking the table
+turn, validates the discovery generation, and retains that turn across the
+duplicate, selector activation and any rollback close. Resident controls and
+native-effect receipts use the shared channel without fetching application
+registers. A cancelled effect does not publish descriptor changes; a completed
+close retains Linux's descriptor-retirement semantics even when it returns EINTR.
 
 Application SCM_RIGHTS transfers on negotiated `ORIGINS_V1` connections carry
 authenticated origin capsules through the receive adapter. Unannotated inherited

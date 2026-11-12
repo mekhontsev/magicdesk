@@ -13,6 +13,14 @@ The ordinary bootstrap/supervisor enables lazy entry by default for inode-store
 launches. `--env SHROOT_MACHINE_ENTRY=0` selects Base. It does not launch a
 discovery debugger. Bootstrap allocates private frames and near-code pools;
 `interception_memory` owns the registry across CLONE_VM, fork and exec.
+Reachable code pools grow on demand: the memory owner borrows the intercepted
+task for an RX anonymous `MAP_FIXED_NOREPLACE` allocation in an observed free gap.
+It restores the original stop before publishing code, without stopping peers or
+replacing an application's mapping. The pool inventory and broker snapshot grow
+with the address space; there is no fixed pool-count limit. Cold notification
+and TRACE entries use the same allocator. The distant-site fixture requires
+first-call publication in 24 disjoint regions, with argument-sensitive seccomp
+and fork, rather than accepting successful Base execution as evidence.
 First observed execution can publish a single SVC replacement without a peer
 stop, predecessor witness or hot-site threshold. Observed syscall numbers at
 one instruction share a chain of immutable guarded entries.
@@ -102,6 +110,14 @@ publication, backing provenance and repair. Resident execution, filters and
 debuggers retain full-context recovery; compact operands are never restored as
 an application's register image. Supervisor-state and mapping/signal tests cover
 these boundaries.
+
+Terminal native-wait coverage runs the same fixture natively, under Base and
+under lazy entry. It checks original PC/SP and arguments at signal delivery,
+EINTR, SA_RESTART, nonlocal handler exit, subsequent frame reuse and an already
+blocked read across TSYNC. The admitted read must finish while the next read
+obeys the new denial. Planner checks also collide a claim with an active native
+journal, then verify policy draining and fork cleanup. The resource wait fixture
+requires repeated filtered poll/select to complete without per-call stops.
 
 Private untracked `munmap` uses the same discovery ordering and an admitted
 native-memory callback. The sole address-space owner validates a snapshot of
@@ -354,7 +370,12 @@ Arbitrary self-modifying code, externally writable aliases, simultaneous
 debugger ownership and SVE/SME/MTE/PAC/BTI are not certified by these tests.
 Frame, guard and code-pool alignment covers 4/16/64 KiB pages; actual device
 execution coverage is 4 KiB, not proof of a complete 64 KiB host launch.
-Site metadata grows on publication and is independently copied on fork;
-allocation failure or exhaustion of reachable code pools retains Base entry.
+Site and pool metadata grow on publication and are independently copied on fork.
+Allocation failure or an address space with no reachable free gap retains Base.
+A new pool cannot be added under an IP-sensitive guest filter whose existing
+kernel mirror does not recognize that pool: fallback must not evaluate a
+different instruction address. Already admitted pools remain usable. This
+restriction is separate from stable service-gate admission and requires a
+stable original-context fallback before it can be removed.
 There is no claim of general instruction rewriting or unwind metadata.
 Unsupported sites retain Base without relaxing sandbox checks.

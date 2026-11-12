@@ -8,6 +8,7 @@
 #include "linux_abi.h"
 #include "namespace_broker.h"
 #include "pid_namespace.h"
+#include "pid_calls.h"
 #include "queue_signal.h"
 #include "resource_order.h"
 #include "robust_futex.h"
@@ -23,7 +24,6 @@
 #include "task_call.h"
 #include "task_checkpoint.h"
 #include "task_child_reap.h"
-#include "task_copy.h"
 #include "task_helper.h"
 #include "task_quiesce.h"
 #include "task_retained.h"
@@ -62,6 +62,16 @@ struct retained_memory *retained_actor(pid_t pid) {
     return NULL;
 }
 
+int retained_child_identity(const struct retained_memory *m,pid_t *parent,pid_t *group,int *signal) {
+    /* A ready private actor completed setsid and was cloned with exit_signal
+     * zero. Its traced parent cannot reparent it before the terminal boundary.
+     * Detach clears this borrowed pointer before the thread slot can be reused. */
+    if (!m || !m->ready || !m->parent || !m->parent->pid
+            || m->parent->terminal_stop || m->parent->resume_lost) return 0;
+    *parent=m->parent->tgid; *group=m->retained.actor; *signal=0;
+    return 1;
+}
+
 static void retained_schedule(struct retained_memory *m) {
     if (m->queued) return;
     m->queued=1; m->work_next=retained_work; retained_work=m;
@@ -92,49 +102,56 @@ struct retained_memory *retained_memory_get(struct thread *t) {
 }
 
 void retained_detach(struct thread *t) {
+    for (struct retained_memory *m=retained_memories;m;m=m->next)
+        if (m->parent==t) m->parent=NULL;
     struct retained_memory *m=t->memory_actor;
     t->memory_actor=NULL; t->robust.head=0; t->robust.tid=0; t->robust.registering=0;
+    t->robust.registering_head=0;
     if (!m) return;
     CHECK(m->members && m->terminal!=t && m->creator!=t);
     if (!--m->members) { m->memory=NULL; m->retiring=1; retained_schedule(m); }
 }
 
+static void robust_register(struct thread *t,uintptr_t head) {
+    t->robust.head=head;
+    t->robust.tid=(uint32_t)visible_pid(t,t->pid);
+}
+
 static void robust_register_complete(struct thread *t,long error) {
     struct user_pt_regs regs=t->robust.registers;
     t->robust.registering=0;
-    if (!error) {
-        t->robust.head=regs.regs[0];
-        t->robust.tid=(uint32_t)visible_pid(t,t->pid);
-    }
+    if (!error) robust_register(t,t->robust.registering_head);
+    t->robust.registering_head=0;
     return_task_value(t,&regs,error,t->robust.boundary);
+}
+
+long robust_query(struct thread *t,pid_t target,struct md_process_query *query) {
+    if (!robust_managed(t)) return -EINVAL;
+    struct thread *subject=target ? find_thread(native_pid(t,target)) : t;
+    if (!subject || !subject->born || subject->terminal_stop) return -ESRCH;
+    if (subject!=t && !inspect_allowed(t->pid,subject->pid,0)) return -EPERM;
+    *query=(struct md_process_query){{subject->robust.head,sizeof(struct md_robust_head)}};
+    return 0;
 }
 
 int robust_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *regs,enum md_task_call_boundary boundary) {
     long nr=call->nr;
     if ((nr!=SYS_set_robust_list && nr!=SYS_get_robust_list) || !robust_managed(t)) return 0;
-    if (entry_context(t,MD_CONTEXT_PROCESS)) return 1;
     if (nr==SYS_get_robust_list) {
-        pid_t target=(pid_t)call->args[0];
-        struct thread *subject=target ? find_thread(native_pid(t,target)) : t;
-        long error=0;
-        if (!subject || !subject->born || subject->terminal_stop) error=-ESRCH;
-        else if (subject!=t && !inspect_allowed(t->pid,subject->pid,0)) error=-EPERM;
-        if (!error) {
-            uintptr_t head=subject->robust.head;
-            size_t size=sizeof(struct md_robust_head);
-            /* Native ordering: publish the size before the head, and preserve
-             * a partial result if the second userspace pointer faults. */
-            ssize_t copied=md_task_copy_direct(t->pid,call->args[2],&size,sizeof(size),1);
-            if (copied==sizeof(size)) copied=md_task_copy_direct(t->pid,call->args[1],&head,sizeof(head),1);
-            if (copied!=sizeof(head)) error=copied<0 ? copied : -EFAULT;
-        }
-        return_task_value(t,regs,error,boundary); return 1;
+        execution_begin(t,call,regs,"robust-query-mask"); return 1;
     }
     if (call->args[1]!=sizeof(struct md_robust_head)) {
         return_task_value(t,regs,-EINVAL,boundary); return 1;
     }
+    if (!call->args[0] || (t->terminal_observation && t->memory_actor && t->memory_actor->ready)) {
+        robust_register(t,call->args[0]);
+        return_task_value(t,regs,0,boundary); return 1;
+    }
+    /* Only creating the retained executor and arming terminal observation
+     * needs a real stop; later registrations merely replace an owned value. */
+    if (entry_context(t,MD_CONTEXT_BIRTH)) return 1;
     t->robust.registers=*regs; t->robust.boundary=boundary;
-    if (!call->args[0]) { robust_register_complete(t,0); return 1; }
+    t->robust.registering_head=call->args[0];
     t->terminal_observation=1; t->trace_options_dirty=1;
     int error=debugger_options(t->pid,t->debug.options);
     if (error) { robust_register_complete(t,error); return 1; }
@@ -181,7 +198,7 @@ static void retained_creation_finish(struct retained_memory *m,long error) {
 void retained_creation_begin(struct retained_memory *m,struct thread *t,
         const struct user_pt_regs *regs,enum md_task_call_boundary call) {
     CHECK(!retained_creation && !m->ready && !m->creator && !m->retiring);
-    m->creator=t; retained_creation=m;
+    m->creator=t; m->parent=t; retained_creation=m;
     t->terminal_observation=1; t->trace_options_dirty=1;
     int error=debugger_options(t->pid,t->debug.options);
     if (error) { retained_creation_finish(m,error); return; }

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "network_tun.h"
+#include "control_ioctl.h"
 #include "network_internal.h"
 #include "network_route.h"
 #include "network_stack.h"
@@ -281,11 +282,15 @@ static int set_interface(struct queue *q,const struct md_identity *id,struct ifr
     return 0;
 }
 static int ioctl_spec(void *context,unsigned command,struct md_control_ioctl *out) {
-    (void)context; *out=(struct md_control_ioctl){0};
+    *out=(struct md_control_ioctl){0};
     switch(command) {
     case TUNSETIFF: case TUNSETQUEUE: *out=(struct md_control_ioctl){.size=sizeof(struct ifreq),.direction=MD_CONTROL_IN|MD_CONTROL_OUT}; return 0;
     case TUNGETIFF: *out=(struct md_control_ioctl){.size=sizeof(struct ifreq),.direction=MD_CONTROL_OUT}; return 0;
-    case TUNGETFEATURES: *out=(struct md_control_ioctl){.size=sizeof(unsigned),.direction=MD_CONTROL_OUT}; return 0;
+    case TUNGETFEATURES:
+        if(!((struct queue *)context)->space) return -EBADFD;
+        *out=(struct md_control_ioctl){.size=sizeof(unsigned),
+        .direction=MD_CONTROL_OUT|MD_CONTROL_CONST,
+        .value=IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_VNET_HDR}; return 0;
     case TUNSETPERSIST: case TUNSETOWNER: case TUNSETGROUP: case TUNSETOFFLOAD: case TUNSETNOCSUM: return 0;
     case TUNSETCARRIER: case TUNSETVNETHDRSZ: case TUNSETVNETLE: case TUNSETVNETBE: case TUNSETSNDBUF:
         *out=(struct md_control_ioctl){.size=sizeof(int),.direction=MD_CONTROL_IN}; return 0;
@@ -296,7 +301,10 @@ static int ioctl_spec(void *context,unsigned command,struct md_control_ioctl *ou
 }
 static long ioctl_locked(struct queue *q,const struct md_control_actor *actor,unsigned command,unsigned long value,void *data) {
     struct md_network_namespace *n=q->space;
-    if(command==TUNGETFEATURES) { *(unsigned *)data=IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_VNET_HDR; return 0; }
+    if(command==TUNGETFEATURES) {
+        struct md_control_ioctl spec; ioctl_spec(q,command,&spec);
+        md_control_ioctl_constant(&spec,data); return 0;
+    }
     if(command==TUNSETIFF) return set_interface(q,actor->identity,data);
     struct md_network_tun *t=q->tunnel;
     if(!t) return -EBADFD;

@@ -9,6 +9,7 @@
  * Birth retains the caller's head; exec retains the executing thread's head;
  * TSYNC replaces peer heads only on confirmed success. */
 struct md_seccomp_policy;
+struct md_seccomp_gate;
 struct md_fd_object;
 struct md_seccomp_policy *md_seccomp_policy_retain(struct md_seccomp_policy *);
 void md_seccomp_policy_release(struct md_seccomp_policy *);
@@ -30,14 +31,20 @@ int md_seccomp_policy_view_write(const struct md_seccomp_policy *,uint64_t ances
  * Dynamic returns remain conservative. No BPF walk on ordinary selector stops. */
 int md_seccomp_policy_may_trace(const struct md_seccomp_policy *);
 int md_seccomp_policy_may_notify(const struct md_seccomp_policy *);
+/* A new kernel alias preserves the complete decision only when no ancestor
+ * reads its instruction address. Existing mirrored aliases need no such test. */
+int md_seccomp_policy_address_independent(const struct md_seccomp_policy *);
 /* Entry binding may inherit a portable original policy from another image.
  * It does not prove that all kernel filters admit this image's helper gates. */
 uint64_t md_seccomp_policy_entry_image(const struct md_seccomp_policy *);
-void md_seccomp_policy_bind_entry(struct md_seccomp_policy *,uint64_t image);
+int md_seccomp_policy_bind_entry(struct md_seccomp_policy *,uint64_t image,
+    const struct md_seccomp_gate *,size_t count);
 int md_seccomp_policy_entry_compatible(const struct md_seccomp_policy *,uint64_t image);
-/* Constant-time intersection of exact-image helper admission across the whole
- * installed chain. Fork retains it; exec cannot reuse an older gate range. */
-int md_seccomp_policy_internal_gates(const struct md_seccomp_policy *,uint64_t image);
+/* Exact ordered service-gate contract, intersected once at installation across
+ * the whole chain. Independent of the image's dynamic SVC pools: exec may reuse
+ * identical bootstrap gates, never a changed range, selector or action. */
+int md_seccomp_policy_internal_gates(const struct md_seccomp_policy *,
+    const struct md_seccomp_gate *,size_t count);
 /* An inherited image may reuse stable bootstrap gates only with PC-independent
  * policies and a natively admitted, inert rendezvous syscall. */
 int md_seccomp_policy_entry_checkpoint(const struct md_seccomp_policy *);
@@ -77,6 +84,9 @@ struct md_seccomp_route {
      * guest effect. Constant-ALLOW paths stay cacheable by the kernel. */
     const struct md_seccomp_gate *gates;
     size_t gate_count;
+    /* Stable service prefix, excluding image-local SVC pools. Only an
+     * entry-first route may publish this proof after successful installation. */
+    size_t internal_gate_count;
     /* A resident entry has already evaluated the original policy. Check its
      * owned gates before the guest program, retaining constant-ALLOW caching. */
     int entry_first;

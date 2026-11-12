@@ -44,14 +44,15 @@ int main(int argc,char **argv) {
     int memory=!strcmp(argv[1],"memory");
     int duplicate=!strcmp(argv[1],"fd-dup"),metadata=!strcmp(argv[1],"fd-stat");
     int flags=!strcmp(argv[1],"fd-flags"),control=!strcmp(argv[1],"fd-ioctl");
+    int bytes=!strcmp(argv[1],"fd-bytes");
     int identity=!strcmp(argv[1],"identity"),uts=!strcmp(argv[1],"uname");
     int messages=!strcmp(argv[1],"ipc-nowait"),sockets=!strcmp(argv[1],"socket-nowait");
-    assert(files || memory || idle || epoll || duplicate || metadata || flags || control
+    assert(files || memory || idle || epoll || duplicate || metadata || flags || control || bytes
         || identity || uts || messages || sockets || !strcmp(argv[1],"poll"));
     assert(files || blocks==1);
     char directory[]="/tmp/md-readiness-XXXXXX";
     int dir=-1;
-    if (files) {
+    if (files || bytes) {
         assert(mkdtemp(directory));
         dir=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(dir>=0);
         if (!cycle) {
@@ -60,9 +61,14 @@ int main(int argc,char **argv) {
         }
     }
     int fd=eventfd(idle ? 0 : 1,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd>=0);
+    if (bytes) {
+        assert(!close(fd));
+        fd=openat(dir,"file",O_RDWR|O_CLOEXEC); assert(fd>=0);
+        assert(write(fd,"payload",7)==7 && lseek(fd,0,SEEK_SET)==0);
+    }
     int queue=epoll_create1(EPOLL_CLOEXEC); assert(queue>=0);
     struct epoll_event event={.events=EPOLLIN,.data.u64=42},received;
-    assert(!epoll_ctl(queue,EPOLL_CTL_ADD,fd,&event));
+    if (!bytes) assert(!epoll_ctl(queue,EPOLL_CTL_ADD,fd,&event));
     struct pollfd p={.fd=fd,.events=POLLIN};
     uid_t uid=getuid(),euid=geteuid(); gid_t gid=getgid(),egid=getegid();
     int message_queue=-1,pair[2]={-1,-1};
@@ -115,6 +121,9 @@ int main(int argc,char **argv) {
                 assert(fcntl(fd,F_GETFL)>=0);
             } else if (control) {
                 assert(!ioctl(fd,FIONBIO,&(int){1}));
+            } else if (bytes) {
+                int available=-1;
+                assert(!ioctl(fd,FIONREAD,&available) && available==7);
             } else if (memory) {
                 size_t size=(size_t)getpagesize()*16;
                 void *address=mmap(NULL,size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
@@ -148,7 +157,7 @@ int main(int argc,char **argv) {
     assert(!close(queue) && !close(fd));
     if (messages) assert(!msgctl(message_queue,IPC_RMID,NULL));
     if (sockets) assert(!close(pair[0]) && !close(pair[1]));
-    if (files) {
+    if (files || bytes) {
         if (!cycle) assert(!unlinkat(dir,"file",0));
         assert(!close(dir) && !rmdir(directory));
     }

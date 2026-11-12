@@ -167,6 +167,9 @@ static void signal_cases(void) {
     close(channel[0]);
     for (unsigned i=0;i<64;++i) {
         assert(write(channel[1],"x",1)==1);
+        /* Reuse the warmed clone3 site while signals cross stack/TLS preflight.
+         * Its prepared replay must not enter the resident adapter again. */
+        if (!(i%8)) stack_cases();
         struct clone_args args={.exit_signal=SIGCHLD};
         long child=syscall(SYS_clone3,&args,sizeof(args));
         if (!child) { mask_unchanged(); _exit(0); }

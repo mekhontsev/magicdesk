@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "cooperative_channel.h"
 #include "adapter_buffer.h"
 #include "cgroup.h"
 #include "clone_call.h"
@@ -68,6 +69,7 @@
 static void fd_policy_release(struct thread *t);
 static int resources_unshare_prepare(struct thread *t,unsigned long flags);
 static void fd_native_start(struct thread *t);
+static void fd_entry_complete(struct thread *t,long result);
 static void close_event_complete(struct thread *t);
 static void close_return(struct thread *t);
 static int close_begin(struct thread *t,const struct user_pt_regs *returned,int errors);
@@ -77,6 +79,11 @@ static void control_capture_step(struct thread *t,unsigned command,long value);
 static void pidfd_result(struct thread *t,struct md_pid_identity *identity,pid_t native,long error);
 static void pidfd_capture_step(struct thread *t,unsigned command,long value);
 static void pidfd_begin(struct thread *t);
+
+void fd_return(struct thread *t,struct user_pt_regs *regs,long result) {
+    if (t->entry.control && t->entry.execution) control_return(t,NULL,result,0);
+    else return_value(t,regs,result);
+}
 
 static void fd_policy_release(struct thread *t) {
     if (t->descriptors.policy_order.queue && md_resource_order_cancel(&t->descriptors.policy_order)==1)
@@ -167,7 +174,7 @@ void mount_copy_complete(struct md_mount_copy_request *request, int actor, int e
     }
     if (error) {
         CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,error));
-        fd_discard(t); return_value(t,&t->descriptors.registers,error); return;
+        fd_discard(t); fd_return(t,&t->descriptors.registers,error); return;
     }
     fd_native_start(t);
 }
@@ -198,20 +205,20 @@ void fd_start(struct thread *t) {
     if (md_fd_order_state(&t->descriptors.order)==MD_RESOURCE_ORDER_READY)
         CHECK(!md_fd_order_start(&t->descriptors.order));
     struct user_pt_regs *r=&t->descriptors.registers;
+    const struct seccomp_data *call=&t->descriptors.call;
     if (t->descriptors.job==MD_FD_DUPLICATE_BEGIN) {
         int error=md_fd_origins_validate(&t->descriptors.order,t->descriptors.request.args[0]);
         if (error) {
             CHECK(!md_fd_order_complete(&t->descriptors.order)); t->descriptors.job=0;
-            r->regs[0]=error;
-            if (set_registers(t->pid,r)) resume(t->pid,0);
+            control_return(t,r,error,0);
             return;
         }
     }
     if ((!t->descriptors.job || t->descriptors.job==MD_FD_DUPLICATE_BEGIN) && !fd_loans_ready(t)) return;
     int needs_fs=t->descriptors.job==MD_FD_INPUT ? (int)t->descriptors.request.args[1]==AT_FDCWD || (int)t->descriptors.request.args[2]==AT_FDCWD
         : t->descriptors.job==MD_FD_USE ? t->execution.request.nr==SYS_setns
-        : !t->descriptors.job && (t->descriptors.cwd || md_clone_call(r->regs[8])
-            || (r->regs[8]==SYS_unshare && (r->regs[0]&(CLONE_FS|CLONE_NEWNS|CLONE_NEWUSER))));
+        : !t->descriptors.job && (t->descriptors.cwd || md_clone_call(call->nr)
+            || (call->nr==SYS_unshare && (call->args[0]&(CLONE_FS|CLONE_NEWNS|CLONE_NEWUSER))));
     if (needs_fs) {
         if (!t->descriptors.fs_order.fs) {
             int ready=md_fs_order_begin(t->resources.fs,&t->descriptors.fs_order,fd_wakeup);
@@ -256,12 +263,12 @@ void fd_start(struct thread *t) {
         return;
     }
     int error=0;
-    if (r->regs[8]==SYS_execve || r->regs[8]==SYS_execveat)
+    if (call->nr==SYS_execve || call->nr==SYS_execveat)
         error=md_resources_exec_prepare(&t->resources,t->identity.user_namespace,&t->resource_change);
-    else if (r->regs[8]==SYS_unshare
-            || (r->regs[8]==SYS_close_range && (r->regs[2]&CLOSE_RANGE_UNSHARE)))
-        error=resources_unshare_prepare(t,r->regs[8]==SYS_unshare ? r->regs[0] : CLONE_FILES);
-    if (md_clone_call(r->regs[8]) && md_resources_namespace_flags(t->process_op.cloning))
+    else if (call->nr==SYS_unshare
+            || (call->nr==SYS_close_range && (call->args[2]&CLOSE_RANGE_UNSHARE)))
+        error=resources_unshare_prepare(t,call->nr==SYS_unshare ? call->args[0] : CLONE_FILES);
+    if (md_clone_call(call->nr) && md_resources_namespace_flags(t->process_op.cloning))
         error=resources_unshare_prepare(t,md_resources_namespace_flags(t->process_op.cloning));
     if (!error && (t->resource_change.copy_mounts || t->resource_change.check_root)) {
         error=md_mount_copy_submit(mount_copy_service,t->pid,t->resources.mounts,t->resources.fs,
@@ -273,52 +280,53 @@ void fd_start(struct thread *t) {
     }
     if (error) {
         CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,error));
-        fd_discard(t); return_value(t,r,error); return;
+        fd_discard(t); fd_return(t,r,error); return;
     }
     fd_native_start(t);
 }
 
 static void fd_native_start(struct thread *t) {
     struct user_pt_regs *r=&t->descriptors.registers;
+    const struct seccomp_data *call=&t->descriptors.call;
     if (!t->descriptors.job && !t->descriptors.cwd && !t->descriptors.capture && t->phase==IDLE
-            && r->regs[8]==SYS_fcntl && (unsigned)r->regs[1]==F_SETFD
+            && call->nr==SYS_fcntl && (unsigned)call->args[1]==F_SETFD
             && !t->debug.options && !t->debug.call_active && !t->debug.step_call
             && !md_debugger_traced(debugger,t->pid) && md_fd_origins_exclusive(&t->descriptors.order)) {
         struct md_fd_native native;
-        if (md_fd_origins_native(&t->descriptors.order,(int)r->regs[0],&native)
-                && (r->regs[2]&FD_CLOEXEC)==native.flags) {
+        if (md_fd_origins_native(&t->descriptors.order,(int)call->args[0],&native)
+                && (call->args[2]&FD_CLOEXEC)==native.flags) {
             /* Kernel denial or success leaves the same metadata. No peer can
              * change this private table before the admitted call executes. */
             CHECK(!md_fd_order_complete(&t->descriptors.order));
             if (statistics) ++statistics->unchanged_fd_flags;
-            resume(t->pid,0); return;
+            native_continue(t); return;
         }
     }
     int admission=0;
-    if (md_clone_call(r->regs[8]) && !t->process_op.reservation) {
+    if (md_clone_call(call->nr) && !t->process_op.reservation) {
         admission=md_process_member_fork(t->resources.process,&t->identity,t->process_op.cloning,&t->process_op.reservation);
         if (admission==-EAGAIN && md_task_registry_has_retired(tasks)) {
             md_task_registry_collect_limits(tasks,pid_gone);
             admission=md_process_member_fork(t->resources.process,&t->identity,t->process_op.cloning,&t->process_op.reservation);
         }
     }
-    else if (r->regs[8]==SYS_execve || r->regs[8]==SYS_execveat) {
+    else if (call->nr==SYS_execve || call->nr==SYS_execveat) {
         admission=md_process_member_exec(t->resources.process);
         if (admission==-EAGAIN && md_task_registry_has_retired(tasks)) {
             md_task_registry_collect_limits(tasks,pid_gone);
             admission=md_process_member_exec(t->resources.process);
         }
     }
-    if (!admission && md_clone_call(r->regs[8]) && !(t->process_op.cloning&CLONE_INTO_CGROUP)
+    if (!admission && md_clone_call(call->nr) && !(t->process_op.cloning&CLONE_INTO_CGROUP)
             && t->resources.cgroup && !t->resource_change.next.cgroup) {
         t->resource_change.next.cgroup=md_cgroup_member_fork(t->resources.cgroup);
         if (!t->resource_change.next.cgroup) admission=-errno;
     }
     if (admission) {
         md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,admission);
-        fd_discard(t); return_value(t,r,admission); return;
+        fd_discard(t); fd_return(t,r,admission); return;
     }
-    if (md_clone_call(r->regs[8]) && !t->process_op.pid_reservation) {
+    if (md_clone_call(call->nr) && !t->process_op.pid_reservation) {
         struct md_pid_namespace *space=t->resource_change.next.pid_children
             ? t->resource_change.next.pid_children : t->resources.pid_children;
         struct md_clone_request *request=NULL;
@@ -336,67 +344,67 @@ static void fd_native_start(struct thread *t) {
                 &t->identity,&t->resource_change);
         if (error) {
             md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,error);
-            fd_discard(t); return_value(t,r,error); return;
+            fd_discard(t); fd_return(t,r,error); return;
         }
     }
     unsigned long args[6];
-    for (unsigned i=0;i<6;++i) args[i]=r->regs[i];
+    for (unsigned i=0;i<6;++i) args[i]=call->args[i];
     int error=0;
-    if (!error) error=md_fd_mutation_prepare(t->resources.files,r->regs[8],args,&t->descriptors.mutation);
-    if (!error && r->regs[8]==SYS_epoll_create1) {
+    if (!error) error=md_fd_mutation_prepare(t->resources.files,call->nr,args,&t->descriptors.mutation);
+    if (!error && call->nr==SYS_epoll_create1) {
         struct md_control_epoll *queue=md_control_epoll_new();
         error=queue ? md_fd_origins_prepare_object(t->resources.files,md_control_epoll_object(queue),
-            r->regs[0]&EPOLL_CLOEXEC ? FD_CLOEXEC : 0,&t->descriptors.mutation.update) : -ENOMEM;
+            call->args[0]&EPOLL_CLOEXEC ? FD_CLOEXEC : 0,&t->descriptors.mutation.update) : -ENOMEM;
         md_control_epoll_release(queue);
     }
-    if (!error && r->regs[8]==SYS_pidfd_open) {
-        struct thread *target=find_thread((pid_t)r->regs[0]);
+    if (!error && call->nr==SYS_pidfd_open) {
+        struct thread *target=find_thread((pid_t)call->args[0]);
         if (target && target->resources.pid) {
             struct md_fd_object *object=md_pid_descriptor_new(target->resources.pid_group);
             error=object ? md_fd_origins_prepare_object(t->resources.files,object,FD_CLOEXEC,&t->descriptors.mutation.update) : -ENOMEM;
             md_fd_object_release(object);
         }
     }
-    if (!error && t->descriptors.cwd && r->regs[8]==SYS_fchdir)
-        t->descriptors.origin=md_fd_origins_get(t->resources.files,(int)r->regs[0],NULL);
-    if (!error && t->descriptors.cwd && r->regs[8]==SYS_chdir && t->fs.buffer.pool
+    if (!error && t->descriptors.cwd && call->nr==SYS_fchdir)
+        t->descriptors.origin=md_fd_origins_get(t->resources.files,(int)call->args[0],NULL);
+    if (!error && t->descriptors.cwd && call->nr==SYS_chdir && t->fs.buffer.pool
             && t->fs.open.task_path==MD_FS_TASK_CHDIR
-            && r->regs[0]==md_memory_buffer_address(t->memory,&t->fs.buffer)+offsetof(struct md_fs_buffer_frame,source))
+            && call->args[0]==md_memory_buffer_address(t->memory,&t->fs.buffer)+offsetof(struct md_fs_buffer_frame,source))
         t->descriptors.origin=md_fs_anchor_retain(t->fs.open.origin);
     if (!error && t->descriptors.capture) {
-        if ((int)r->regs[4]==MD_FS_BUFFER_SOURCE) t->descriptors.origin=md_fs_anchor_retain(t->fs.open.origin);
-        else if ((int)r->regs[4]==AT_FDCWD) {
+        if ((int)call->args[4]==MD_FS_BUFFER_SOURCE) t->descriptors.origin=md_fs_anchor_retain(t->fs.open.origin);
+        else if ((int)call->args[4]==AT_FDCWD) {
             struct md_fs_location root;
             md_domain_paths(t->descriptors.fs_order.fs,&root,&t->descriptors.origin);
-        } else t->descriptors.origin=md_fd_origins_get(t->resources.files,(int)r->regs[4],NULL);
-        struct md_fd_object *object=(int)r->regs[4]==MD_FS_BUFFER_SOURCE
+        } else t->descriptors.origin=md_fd_origins_get(t->resources.files,(int)call->args[4],NULL);
+        struct md_fd_object *object=(int)call->args[4]==MD_FS_BUFFER_SOURCE
             ? md_fs_buffer_open_object(&t->fs.open) : md_fs_anchor_object(t->descriptors.origin);
         error=md_fd_origins_prepare_object(t->resources.files,object,
-            r->regs[2]&O_CLOEXEC ? FD_CLOEXEC : 0,&t->descriptors.mutation.update);
-        SUPERVISOR_TRACE("PROBE path-capture pid=%d base=%d known=%d\n",t->pid,(int)r->regs[4],t->descriptors.origin!=NULL);
+            call->args[2]&O_CLOEXEC ? FD_CLOEXEC : 0,&t->descriptors.mutation.update);
+        SUPERVISOR_TRACE("PROBE path-capture pid=%d base=%d known=%d\n",t->pid,(int)call->args[4],t->descriptors.origin!=NULL);
     }
     if (error) {
         md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,-ECANCELED);
-        fd_discard(t); return_value(t,r,error); return;
+        fd_discard(t); fd_return(t,r,error); return;
     }
-    if (md_clone_call(r->regs[8])) {
+    if (md_clone_call(call->nr)) {
         /* Snapshot before kernel clone. Concurrent TSYNC may reach the parent
          * after the child copied its filters; a later metadata snapshot would
          * incorrectly claim that the child inherited that new selector. */
         t->descriptors.fork_selector=md_fd_selector_fork(t->descriptors.selector,!!(t->process_op.cloning&CLONE_THREAD));
         if (!t->descriptors.fork_selector) {
             md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,-ENOMEM);
-            fd_discard(t); return_value(t,r,-ENOMEM); return;
+            fd_discard(t); fd_return(t,r,-ENOMEM); return;
         }
-        execution_capture(t,r); t->phase=OBSERVING;
-        uintptr_t parent=r->regs[2];
+        execution_retain(t,call,r); t->phase=OBSERVING;
+        uintptr_t parent=call->args[2];
         if (t->process_op.clone_prepared) {
             struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
             parent=((struct clone_args *)span.data)->parent_tid;
         }
         t->process_op.parent_address=t->process_op.pid_reservation && (t->process_op.cloning&CLONE_PARENT_SETTID) ? parent : 0;
     }
-    if (t->process_op.clone_prepared || t->resource_change.namespaces || (r->regs[8]==SYS_clone && (t->process_op.cloning&CLONE_UNTRACED))) {
+    if (t->process_op.clone_prepared || t->resource_change.namespaces || (call->nr==SYS_clone && (t->process_op.cloning&CLONE_UNTRACED))) {
         struct user_pt_regs native=*r;
         if (t->process_op.clone_prepared) {
             struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
@@ -413,50 +421,62 @@ static void fd_native_start(struct thread *t) {
             CHECK(native.regs[0]);
         } else native.regs[0]&=~(uint64_t)t->resource_change.namespaces;
         /* Guest debugger policy cannot detach a child from runtime ownership. */
-        if (r->regs[8]==SYS_clone) native.regs[0]&=~(uint64_t)CLONE_UNTRACED;
-        if (r->regs[8]==SYS_unshare && t->resource_change.copy_mounts) native.regs[0]|=CLONE_FS;
-        if (r->regs[8]==SYS_unshare && t->resource_change.identity_pending) native.regs[0]|=CLONE_FS|CLONE_THREAD;
-        if (r->regs[8]==SYS_unshare && (t->resource_change.namespaces&CLONE_NEWPID)) native.regs[0]|=CLONE_THREAD;
-        if (r->regs[8]==SYS_unshare && (t->resource_change.namespaces&CLONE_NEWIPC)) native.regs[0]|=CLONE_SYSVSEM;
+        if (call->nr==SYS_clone) native.regs[0]&=~(uint64_t)CLONE_UNTRACED;
+        if (call->nr==SYS_unshare && t->resource_change.copy_mounts) native.regs[0]|=CLONE_FS;
+        if (call->nr==SYS_unshare && t->resource_change.identity_pending) native.regs[0]|=CLONE_FS|CLONE_THREAD;
+        if (call->nr==SYS_unshare && (t->resource_change.namespaces&CLONE_NEWPID)) native.regs[0]|=CLONE_THREAD;
+        if (call->nr==SYS_unshare && (t->resource_change.namespaces&CLONE_NEWIPC)) native.regs[0]|=CLONE_SYSVSEM;
         if (!set_registers(t->pid,&native)) return;
     }
     /* Argument replay is internal. Restore the application's mask only after
      * admission, immediately before kernel clone copies it into the child. */
     if (t->process_op.clone_prepared && !restore_mask(t)) return;
-    t->descriptors.running=1; resume(t->pid,0);
+    t->descriptors.running=1;
+    if (t->entry.control) {
+        uint64_t args[6]; memcpy(args,call->args,sizeof(args));
+        entry_effect(t,call->nr,args,fd_entry_complete);
+    } else resume(t->pid,0);
 }
 
-void fd_begin(struct thread *t, const struct user_pt_regs *r, unsigned operation) {
-    if (entry_context(t,md_clone_call(r->regs[8]) ? MD_CONTEXT_BIRTH : MD_CONTEXT_DESCRIPTOR)) return;
+void fd_begin(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *r,unsigned operation) {
+    long nr=call->nr;
+    /* Birth, FS topology and file-table unsharing change the kernel carrier.
+     * Ordinary slot mutations need only the ordered effect and its receipt. */
+    if ((md_clone_call(nr) || nr==SYS_execve || nr==SYS_execveat || nr==SYS_unshare
+            || operation==MD_INTERCEPT_CAPTURE || operation==MD_INTERCEPT_CWD
+            || (nr==SYS_close_range && (call->args[2]&CLOSE_RANGE_UNSHARE)))
+            && entry_context(t,md_clone_call(nr) ? MD_CONTEXT_BIRTH
+                : nr==SYS_execve || nr==SYS_execveat ? MD_CONTEXT_EXEC : MD_CONTEXT_NAMESPACE)) return;
     if (t->descriptors.job==MD_FD_DUPLICATE_BEGIN) {
         /* The adapter already owns discovery/admission and the table turn.
          * Observe its exact duplicate or rollback close under that same turn;
          * unrelated native mutations cannot borrow it. */
-        int duplicate=!t->descriptors.duplicate_attempted && (long)r->regs[8]==t->execution.request.nr;
-        unsigned arguments=r->regs[8]==SYS_dup ? 1 : 3;
+        int duplicate=!t->descriptors.duplicate_attempted && nr==t->execution.request.nr;
+        unsigned arguments=nr==SYS_dup ? 1 : 3;
         if (duplicate) for (unsigned i=0;i<arguments;++i)
-            if (r->regs[i]!=t->execution.request.args[i]) duplicate=0;
+            if (call->args[i]!=t->execution.request.args[i]) duplicate=0;
         int rollback=t->descriptors.duplicate_attempted && t->descriptors.duplicate_result>=0
-            && r->regs[8]==SYS_close && (int)r->regs[0]==t->descriptors.duplicate_result;
+            && nr==SYS_close && (int)call->args[0]==t->descriptors.duplicate_result;
         if (operation!=MD_INTERCEPT_FD || t->phase!=DISPATCHING || t->descriptors.running
                 || md_fd_order_state(&t->descriptors.order)!=MD_RESOURCE_ORDER_RUNNING || (!duplicate && !rollback)) {
-            struct user_pt_regs rejected=*r;
-            return_value(t,&rejected,-EPERM); return;
+            struct user_pt_regs rejected;
+            if (r) rejected=*r;
+            fd_return(t,r ? &rejected : NULL,-EPERM); return;
         }
-        t->descriptors.duplicate_attempted=1; t->descriptors.registers=*r;
+        t->descriptors.duplicate_attempted=1; descriptor_retain(t,call,r);
         fd_native_start(t); return;
     }
-    if (operation==MD_INTERCEPT_CWD && r->regs[8]==SYS_chdir
+    if (operation==MD_INTERCEPT_CWD && nr==SYS_chdir
             && md_fs_buffer_task_pending(t->fs.call)) {
         CHECK(!t->descriptors.order.table && !t->descriptors.running && t->phase==DISPATCHING);
-        int error=r->regs[0]!=md_memory_buffer_address(t->memory,&t->fs.buffer)
+        int error=call->args[0]!=md_memory_buffer_address(t->memory,&t->fs.buffer)
             +offsetof(struct md_fs_buffer_frame,source) ? -EPERM : md_fs_buffer_task_start(t->fs.call);
-        t->descriptors.registers=*r;
+        descriptor_retain(t,call,r);
         if (error) { return_value(t,&t->descriptors.registers,error); return; }
         t->descriptors.task=t->descriptors.running=1;
         resume(t->pid,0); return;
     }
-    if (!t->resources.files) { resume(t->pid,0); return; }
+    if (!t->resources.files) { native_continue(t); return; }
     CHECK(!t->descriptors.order.table && !t->descriptors.running);
     t->descriptors.job=0;
     t->descriptors.capture=operation==MD_INTERCEPT_CAPTURE;
@@ -465,10 +485,10 @@ void fd_begin(struct thread *t, const struct user_pt_regs *r, unsigned operation
          * once per task lifetime, not around each native descriptor operation. */
         t->terminal_observation=1; t->trace_options_dirty=1;
     }
-    t->descriptors.cwd=operation==MD_INTERCEPT_CWD || (t->descriptors.capture && (int)r->regs[4]==AT_FDCWD);
-    t->descriptors.registers=*r;
+    t->descriptors.cwd=operation==MD_INTERCEPT_CWD || (t->descriptors.capture && (int)call->args[4]==AT_FDCWD);
+    descriptor_retain(t,call,r);
     if (md_memory_readonly_buffers(t->memory) && !t->memory_op.order.queue
-            && (md_clone_call(r->regs[8]) || r->regs[8]==SYS_execve || r->regs[8]==SYS_execveat)) {
+            && (md_clone_call(nr) || nr==SYS_execve || nr==SYS_execveat)) {
         CHECK(!t->descriptors.policy_order.queue);
         CHECK(md_memory_order_begin(t->memory,&t->descriptors.policy_order,fd_wakeup)>=0);
         /* EVENT_WAIT: filter commit/publication precedes birth or exec. Birth
@@ -518,14 +538,14 @@ int fd_close_compact(struct thread *t,unsigned long cookie,const struct ptrace_s
     resume(t->pid,0); return 1;
 }
 
-int fd_duplicate_prepared(struct thread *t,const struct user_pt_regs *r,unsigned long cookie) {
-    long nr=r->regs[8];
+int fd_duplicate_prepared(struct thread *t,const struct seccomp_data *call,unsigned long cookie) {
+    long nr=call->nr;
     if (cookie!=MD_INTERCEPT_DISPATCH || t->phase!=IDLE || !t->ready
             || !t->resources.files || t->descriptors.job || t->descriptors.running || t->descriptors.order.table
             || t->descriptors.fs_order.fs || t->debug.options || t->debug.call_active || t->debug.step_call
             || md_debugger_traced(debugger,t->pid)) return 0;
     if (nr!=SYS_dup && nr!=SYS_dup3 && !(nr==SYS_fcntl
-            && ((unsigned)r->regs[1]==F_DUPFD || (unsigned)r->regs[1]==F_DUPFD_CLOEXEC))) return 0;
+            && ((unsigned)call->args[1]==F_DUPFD || (unsigned)call->args[1]==F_DUPFD_CLOEXEC))) return 0;
     /* All possible destinations already have every provider selector. There
      * is no adapter discovery or filter installation left to do. The normal
      * mutation owner still serializes the table, retires loans and publishes
@@ -533,33 +553,25 @@ int fd_duplicate_prepared(struct thread *t,const struct user_pt_regs *r,unsigned
     return md_fd_selector_has_mask(t->descriptors.selector,MD_FD_SANDBOX_SELECTORS,-1)==1;
 }
 
-int fd_native_io(struct thread *t,const struct ptrace_syscall_info *info) {
-    if (info->arch!=AUDIT_ARCH_AARCH64
+int fd_native_classify(struct thread *t,const struct seccomp_data *call,unsigned cookie) {
+    if (call->arch!=AUDIT_ARCH_AARCH64 || !md_descriptor_native_candidate(call->nr,(unsigned)call->args[1])
             || t->descriptors.job || t->descriptors.running || t->descriptors.order.table || t->descriptors.fs_order.fs
             || t->debug.options || t->debug.call_active || t->debug.step_call
             || md_debugger_traced(debugger,t->pid)) return 0;
-    unsigned long nr=info->seccomp.nr;
+    unsigned long nr=call->nr;
     int poll=nr==SYS_ppoll || nr==SYS_pselect6;
     int epoll=nr==SYS_epoll_pwait || nr==SYS_epoll_pwait2;
-    if (t->signals.host && ((poll && info->seccomp.args[nr==SYS_ppoll ? 3 : 5])
-            || (epoll && info->seccomp.args[4]))) return 0;
-    if (epoll ? info->seccomp.ret_data!=MD_INTERCEPT_READINESS
-                && info->seccomp.ret_data!=MD_INTERCEPT_DISPATCH
-            : poll ? info->seccomp.ret_data!=MD_INTERCEPT_DISPATCH
-            : info->seccomp.ret_data!=MD_INTERCEPT_PROC && info->seccomp.ret_data!=MD_INTERCEPT_WATCH) return 0;
-    switch (nr) {
-    case SYS_read: case SYS_write: case SYS_readv: case SYS_writev:
-    case SYS_pread64: case SYS_pwrite64: case SYS_preadv: case SYS_pwritev:
-    case SYS_preadv2: case SYS_pwritev2: case SYS_ppoll: case SYS_pselect6:
-    case SYS_epoll_pwait: case SYS_epoll_pwait2: break;
-    default: return 0;
-    }
+    if (t->signals.host && ((poll && call->args[nr==SYS_ppoll ? 3 : 5])
+            || (epoll && call->args[4]))) return 0;
+    if (epoll ? cookie!=MD_INTERCEPT_READINESS && cookie!=MD_INTERCEPT_DISPATCH
+            : poll ? cookie!=MD_INTERCEPT_DISPATCH
+            : cookie!=MD_INTERCEPT_PROC && cookie!=MD_INTERCEPT_WATCH) return 0;
     struct md_fd_order turn={0};
     int ready=md_fd_order_begin(t->resources.files,&turn,fd_wakeup);
     CHECK(ready>=0);
     if (!ready) { CHECK(!md_fd_order_cancel(&turn)); return 0; }
     CHECK(!md_fd_order_start(&turn));
-    /* The sole stopped table owner cannot replace the slot before CONT. No
+    /* The sole table owner cannot replace the slot before its continuation. No
      * turn is held across blocking IO, and an absent annotation is no proof.
      * Read actual syscall arguments, never trust an application's TRACE data. */
     /* Poll already classifies under this turn before native fallback. If no
@@ -567,45 +579,59 @@ int fd_native_io(struct thread *t,const struct ptrace_syscall_info *info) {
      * The kernel retains pointer, limit, timeout and signal-mask validation. */
     int native=0,probe=0;
     if (epoll) {
-        struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)info->seccomp.args[0],NULL);
+        struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)call->args[0],NULL);
         int pure=md_control_epoll_native_wait(object);
         native=pure
-            && (!md_control_epoll_from_object(object) || (nr==SYS_epoll_pwait && !(int)info->seccomp.args[3]));
+            && (!md_control_epoll_from_object(object) || (nr==SYS_epoll_pwait && !(int)call->args[3]));
         probe=pure && !native && nr==SYS_epoll_pwait && t->phase==IDLE
-            && !info->seccomp.args[4] && !t->seccomp.application_filter
+            && !call->args[4] && !t->seccomp.application_filter
             && !t->machine.syscall_exit && !t->machine.retry_svc;
         md_fd_object_release(object);
     } else native=poll ? md_fd_origins_native_poll(&turn) : md_fd_origins_exclusive(&turn)
-        && md_fd_origins_native_regular(&turn,(int)info->seccomp.args[0]);
+        && md_fd_origins_native_io(&turn,(int)call->args[0]);
     if (!native && nr==SYS_ppoll) {
         /* Common short vectors need no adapter round trip merely because an
          * unrelated FD has a provider. As in the full poll path, classification
          * ends before the kernel wait; the kernel validates the original input.
          * Failed/partial remote reads and larger vectors retain that full path. */
         struct pollfd items[32];
-        uint64_t count=info->seccomp.args[1];
+        uint64_t count=call->args[1];
         if (count<=sizeof(items)/sizeof(*items)) {
             struct iovec local={items,count*sizeof(*items)},
-                remote={(void *)(uintptr_t)info->seccomp.args[0],local.iov_len};
+                remote={(void *)(uintptr_t)call->args[0],local.iov_len};
             if (!count || process_vm_readv(t->pid,&local,1,&remote,1,0)==(ssize_t)local.iov_len)
                 native=md_fd_origins_native_poll_vector(&turn,items,count);
         }
     }
     CHECK(!md_fd_order_complete(&turn));
-    if (probe) {
+    return native ? 1 : probe ? 2 : 0;
+}
+int fd_native_io(struct thread *t,const struct ptrace_syscall_info *info) {
+    struct seccomp_data call=syscall_observation(info);
+    int action=fd_native_classify(t,&call,info->seccomp.ret_data);
+    if (action==2) {
         /* A ready native queue needs neither an adapter stack nor a captured
          * descriptor. Probe in the caller so signalfd and the application's
          * output pointer retain kernel semantics. An empty result has no
          * effect and falls through to owned blocking admission. */
         struct user_pt_regs regs;
         if (!registers(t->pid,&regs)) return 1;
-        execution_capture(t,&regs); t->execution.epoll_started=md_event_now();
+        execution_retain(t,&call,&regs); t->execution.epoll_started=md_event_now();
         regs.regs[3]=0;
         if (set_registers(t->pid,&regs)) { t->phase=EPOLL_PROBE; resume(t->pid,0); }
         return 1;
     }
-    if (!native) return 0;
-    if (statistics) { ++statistics->native_io; ++statistics->calls[nr].trace; }
+    if (!action) return 0;
+    if (statistics) { ++statistics->native_io; ++statistics->calls[call.nr].trace; }
+    /* An original-site call still passes the kernel's application filter.
+     * Retain its exit across TSYNC: interrupting a blocked read would restart
+     * it at that site under a newer policy. Resident native calls use the
+     * admitted gate and have no exit observer. */
+    if (t->phase==IDLE && t->seccomp.application_filter) {
+        uint64_t args[6]; memcpy(args,call.args,sizeof(args));
+        if (md_execution_native_context(call.nr,args)==MD_CONTEXT_WAIT)
+            t->phase=NATIVE_WAIT;
+    }
     resume(t->pid,0); return 1;
 }
 
@@ -639,8 +665,8 @@ void fd_control(struct thread *t,const struct supervisor_control_request *contro
         if (t->phase!=DISPATCHING || !duplicate || !id || control->args[1] || control->args[2]
                 || t->descriptors.order.table || t->descriptors.running || t->descriptors.job) result=-EINVAL;
         else {
-            CHECK(r);
-            t->descriptors.registers=*r; t->descriptors.request=*control; t->descriptors.job=operation;
+            if (r) t->descriptors.registers=*r;
+            t->descriptors.request=*control; t->descriptors.job=operation;
             t->descriptors.duplicate_attempted=0; t->descriptors.duplicate_result=-1;
             int ready=md_fd_order_begin(t->resources.files,&t->descriptors.order,fd_wakeup);
             if (ready<0) { t->descriptors.job=0; result=ready; }
@@ -742,7 +768,39 @@ void close_detach(struct thread *t) {
         md_fd_closed_next(&t->close.closed,&actor,&pending);
         if (pending) pending->dispose(pending);
     }
-    t->close.done=0; t->close.event=0;
+    t->close.done=0; t->close.event=0; t->close.complete=NULL;
+}
+
+static void close_entry_ready(struct thread *t,long error) {
+    void (*complete)(struct thread *,long)=t->close.complete;
+    long result=t->close.result;
+    CHECK(complete);
+    if (error) {
+        if (t->close.errors && !result) result=error;
+        close_detach(t);
+    } else { t->close.complete=NULL; t->close.done=0; }
+    complete(t,result);
+}
+
+static void fd_entry_reply(struct thread *t,long result) {
+    if (t->entry.execution) control_return(t,NULL,result,0);
+    else entry_complete(t,result);
+}
+
+static void fd_entry_complete(struct thread *t,long result) {
+    long nr=t->descriptors.call.nr;
+    /* A cancelled effect never entered the kernel. In particular, it is not
+     * close(EINTR), which commits slot removal on Linux. */
+    fd_finish(t,t->entry.effect_cancelled ? -ECANCELED : result);
+    if (t->entry.effect_cancelled && t->entry.execution) result=RESTART_SIGNAL;
+    if (!t->close.closed.first) { fd_entry_reply(t,result); return; }
+    CHECK(!t->close.complete);
+    t->close.result=result; t->close.errors=nr==SYS_close;
+    t->close.complete=fd_entry_reply;
+    close_progress(t);
+    /* EVENT_WAIT: provider completion or signal releases the retained reply;
+     * the actual close is committed and its table turn has already ended. */
+    if (t->close.complete) CHECK(entry_wait_begin(t,INT64_MAX,close_entry_ready));
 }
 
 static void close_event_complete(struct thread *t) {
@@ -774,6 +832,11 @@ void close_progress(struct thread *t) {
         if (result<0 && t->close.errors && !t->close.result) t->close.result=result;
     }
     t->close.done=1;
+    if (t->close.complete) {
+        if (t->entry.wait.complete) entry_wait_complete(t,0);
+        else close_entry_ready(t,0);
+        return;
+    }
     if (t->close.event) { close_event_complete(t); return; }
     if (t->phase==CLOSE_WAITING && !t->listening)
         tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"close-provider-ready");
@@ -794,6 +857,11 @@ void close_event_begin(struct thread *t,unsigned event,unsigned long message) {
 
 static int close_begin(struct thread *t,const struct user_pt_regs *returned,int errors) {
     if (!t->close.closed.first) return 0;
+    struct user_pt_regs captured;
+    if (!returned) {
+        if (!registers(t->pid,&captured)) return 1;
+        returned=&captured;
+    }
     t->close.registers=*returned; t->close.result=(long)returned->regs[0]; t->close.phase=t->phase; t->close.errors=errors;
     close_progress(t);
     if (t->close.done && t->close.result==(long)returned->regs[0]) { t->close.done=0; return 0; }
@@ -989,7 +1057,6 @@ void descriptors_buffer_control(struct thread *t,const struct supervisor_control
                 || t->fs.descriptor_operation!=MD_BUFFER_CONTROL_CAPTURE
                 || md_fd_order_state(&t->fs.descriptor_order)!=MD_RESOURCE_ORDER_RUNNING) break;
         control_capture_step(t,(unsigned)control->command,(long)control->args[0]); return;
-    case MD_BUFFER_CONTROL_IOCTL_SPEC:
     case MD_BUFFER_CONTROL_IOCTL_LAYOUT:
     case MD_BUFFER_CONTROL_IOCTL: {
         if (t->phase!=DISPATCHING || !t->proc.file || t->execution.request.nr!=SYS_ioctl
@@ -1002,14 +1069,11 @@ void descriptors_buffer_control(struct thread *t,const struct supervisor_control
         if (result) break;
         long size=md_control_ioctl_size(&spec);
         if (size<0) { result=size; break; }
-        if (control->command==MD_BUFFER_CONTROL_IOCTL_SPEC) {
-            result=(long)((uint64_t)spec.size|((uint64_t)spec.direction<<32)); break;
-        }
         struct md_buffer_span span;
         result=md_buffer_span(&t->fs.buffer,&span);
         if (!result && (size_t)size>span.size) result=-EOVERFLOW;
         if (control->command==MD_BUFFER_CONTROL_IOCTL_LAYOUT) {
-            if (!result && (!(spec.direction&(MD_CONTROL_INDIRECT|MD_CONTROL_FD)) || span.size<sizeof(spec))) result=-EINVAL;
+            if (!result && span.size<sizeof(spec)) result=-EOVERFLOW;
             if (!result) memcpy(span.data,&spec,sizeof(spec));
             break;
         }
@@ -1020,7 +1084,7 @@ void descriptors_buffer_control(struct thread *t,const struct supervisor_control
             int number; memcpy(&number,(char *)span.data+spec.descriptor,sizeof(number));
             if (!actor.descriptor || actor.descriptor->count!=1 || number!=actor.descriptor_number) result=-EBADF;
         }
-        if (!result) result=file.ops->ioctl_async
+        if (!result && !md_control_ioctl_constant(&spec,span.data)) result=file.ops->ioctl_async
             ? file.ops->ioctl_async(file.context,&actor,command,t->execution.request.args[2],span.data,(size_t)size,&t->control.pending)
             : file.ops->ioctl(file.context,&actor,command,t->execution.request.args[2],span.data,(size_t)size);
         SUPERVISOR_TRACE("PROBE control-ioctl pid=%d command=%x result=%ld pending=%d\n",t->pid,command,result,t->control.pending!=NULL);
@@ -1162,35 +1226,36 @@ int descriptor_call(struct thread *t,const struct seccomp_data *call,struct user
     return_value(t, r, value); return 1;
 }
 
-int fd_capture_valid(const struct thread *t,const struct user_pt_regs *r) {
-    if (r->pc!=abi.capture_gate || r->regs[8]!=SYS_openat || (int)r->regs[0]!=AT_FDCWD || r->regs[3])
+int fd_capture_valid(const struct thread *t,const struct seccomp_data *call) {
+    const __u64 *args=call->args;
+    if (call->instruction_pointer!=abi.capture_gate || call->nr!=SYS_openat || (int)args[0]!=AT_FDCWD || args[3])
         return 0;
-    if ((int)r->regs[4]!=MD_FS_BUFFER_SOURCE)
-        return (r->regs[2]==(O_PATH|O_CLOEXEC) || r->regs[2]==(O_PATH|O_DIRECTORY|O_CLOEXEC))
-            && ((int)r->regs[4]>=0 || (int)r->regs[4]==AT_FDCWD);
+    if ((int)args[4]!=MD_FS_BUFFER_SOURCE)
+        return (args[2]==(O_PATH|O_CLOEXEC) || args[2]==(O_PATH|O_DIRECTORY|O_CLOEXEC))
+            && ((int)args[4]>=0 || (int)args[4]==AT_FDCWD);
     /* Caller-owned terminal opens can retry append admission with the same
      * pinned offer. Other captures publish only an O_PATH description. */
-    int caller_flags=r->regs[2]==(unsigned long)t->fs.open.flags
+    int caller_flags=args[2]==(unsigned long)t->fs.open.flags
         || ((t->fs.open.flags&O_APPEND)
-            && r->regs[2]==(unsigned long)(t->fs.open.flags&~O_APPEND));
+            && args[2]==(unsigned long)(t->fs.open.flags&~O_APPEND));
     return t->fs.open.fd>=0
         && (t->fs.open.completion.kind==MD_OPEN_CALLER ? caller_flags
-            : r->regs[2]==(unsigned long)(O_PATH|(t->fs.open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW))))
-        && r->regs[1]==md_memory_buffer_address(t->memory,&t->fs.buffer)+offsetof(struct md_fs_buffer_frame,source);
+            : args[2]==(unsigned long)(O_PATH|(t->fs.open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW))))
+        && args[1]==md_memory_buffer_address(t->memory,&t->fs.buffer)+offsetof(struct md_fs_buffer_frame,source);
 }
 
 int descriptors_native_exit(struct thread *t,pid_t pid) {
-    if (t->descriptors.running) {
-        struct user_pt_regs returned;
-        if (!registers(pid,&returned)) return 1;
-        long nr=t->descriptors.task ? t->descriptors.registers.regs[8] : t->descriptors.mutation.nr;
-        fd_finish(t,(long)returned.regs[0]);
-        if (!t->descriptors.job && close_begin(t,&returned,nr==SYS_close)) return 1;
+    if (t->descriptors.running && !t->entry.effect) {
+        long result;
+        if (!stopped_result(t,&result)) return 1;
+        long nr=t->descriptors.task ? t->descriptors.call.nr : t->descriptors.mutation.nr;
+        fd_finish(t,result);
+        if (!t->descriptors.job && close_begin(t,NULL,nr==SYS_close)) return 1;
         if (!md_clone_call(nr) && nr!=SYS_execve && nr!=SYS_execveat) {
             /* Bootstrap descriptor operations are not completion of
              * the guest exec; only an entered image exposes stops. */
             if (t->phase==IDLE && t->entered && t->image.process_image) {
-                if (debug_syscall_exit(t,&returned)) return 1;
+                if (debug_syscall_exit(t,NULL)) return 1;
                 t->debug.step_call=md_debugger_step(debugger,pid);
             }
             resume(pid,0); return 1;

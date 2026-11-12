@@ -124,6 +124,17 @@ static int descriptors(void) {
     while (readdir(dir)) count++;
     closedir(dir); return count;
 }
+static void status_signal_handler(int signal) { (void)signal; }
+static void signal_dispositions(void) {
+    struct sigaction handled={.sa_handler=status_signal_handler},ignored={.sa_handler=SIG_IGN},saved[2];
+    sigemptyset(&handled.sa_mask); sigemptyset(&ignored.sa_mask);
+    assert(!sigaction(SIGUSR1,&handled,&saved[0]) && !sigaction(SIGUSR2,&ignored,&saved[1]));
+    uint64_t caught=0,ign=0,first=UINT64_C(1)<<(SIGUSR1-1),second=UINT64_C(1)<<(SIGUSR2-1);
+    assert(!md_task_signal_dispositions((int)syscall(SYS_gettid),&caught,&ign));
+    assert((caught&first) && !(caught&second) && !(ign&first) && (ign&second));
+    assert(!sigaction(SIGUSR1,&saved[0],NULL) && !sigaction(SIGUSR2,&saved[1],NULL));
+    puts("PASS task status: caught and ignored dispositions share one kernel snapshot");
+}
 static void retained_proc_query(void) {
     int proc=open("/proc",O_PATH|O_DIRECTORY|O_CLOEXEC);
     int other=open("/dev",O_PATH|O_DIRECTORY|O_CLOEXEC);
@@ -582,6 +593,7 @@ void test_network_tun(void);
 void test_task_registry_exit(void);
 void test_task_mapping(void);
 int main(int argc,char **argv) {
+    signal_dispositions();
     uts_publication();
     alarm(60);
     if(argc==2 && !strcmp(argv[1],"--tun")) { test_network_tun(); return 0; }

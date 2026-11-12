@@ -29,6 +29,9 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <ucontext.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <setjmp.h>
 
 static volatile sig_atomic_t limit_traps;
 static int trap_socket;
@@ -282,6 +285,107 @@ static void native_wait_signals(void) {
     }
     assert(!timer_delete(timer)); close(fd); close(ep);
     puts("PASS mixed epoll: native-only poll/select/epoll preserve asynchronous signals");
+}
+
+static sigjmp_buf wait_escape;
+static volatile sig_atomic_t wait_jump;
+static void wait_handler(int signal) {
+    on_signal(signal);
+    if (wait_jump) siglongjmp(wait_escape,1);
+}
+static long owned_wait(unsigned mode,int ep,int fd,int milliseconds) {
+    struct epoll_event event;
+    if (!mode) return syscall(SYS_epoll_pwait,ep,&event,1,milliseconds,NULL,8);
+    struct timespec limit={milliseconds/1000,(milliseconds%1000)*1000000L};
+    struct pollfd item={fd,0,0};
+    fd_set set; FD_ZERO(&set); FD_SET(ep,&set);
+    return mode==1 ? syscall(SYS_ppoll,&item,1,&limit,NULL,8)
+        : syscall(SYS_pselect6,ep+1,&set,NULL,NULL,&limit,NULL);
+}
+static void owned_wait_signals(int ep,int fd) {
+    const int ignored_signals[]={SIGUSR1,SIGCHLD,SIGURG,SIGWINCH,SIGCONT};
+    for (unsigned mode=0;mode<3;++mode)
+    for (unsigned i=0;i<sizeof(ignored_signals)/sizeof(*ignored_signals);++i) {
+        struct sigaction ignored={.sa_handler=i ? SIG_DFL : SIG_IGN},saved;
+        sigemptyset(&ignored.sa_mask);
+        assert(!sigaction(ignored_signals[i],&ignored,&saved));
+        timer_t timer;
+        struct sigevent notification={.sigev_notify=SIGEV_SIGNAL,.sigev_signo=ignored_signals[i]};
+        assert(!timer_create(CLOCK_MONOTONIC,&notification,&timer));
+        struct itimerspec fire={.it_value={0,10000000},.it_interval={0,10000000}};
+        assert(!timer_settime(timer,0,&fire,NULL));
+        long result=owned_wait(mode,ep,fd,80); int error=errno;
+        if (result) fprintf(stderr,"ignored wait mode=%u signal=%d result=%ld errno=%d\n",mode,ignored_signals[i],result,error);
+        assert(!result);
+        assert(!timer_delete(timer));
+        assert(!sigaction(ignored_signals[i],&saved,NULL));
+    }
+    struct sigaction action={.sa_handler=wait_handler,.sa_flags=SA_RESTART};
+    sigemptyset(&action.sa_mask); assert(!sigaction(SIGUSR1,&action,NULL));
+    timer_t timer;
+    struct sigevent notification={.sigev_notify=SIGEV_SIGNAL,.sigev_signo=SIGUSR1};
+    assert(!timer_create(CLOCK_MONOTONIC,&notification,&timer));
+    for (unsigned mode=0;mode<3;++mode)
+    for (unsigned jump=0;jump<2;++jump) {
+        wait_jump=jump; signalled=0;
+        struct itimerspec fire={.it_value={0,50000000}};
+        assert(!timer_settime(timer,0,&fire,NULL));
+        if (!sigsetjmp(wait_escape,1)) {
+            long result=owned_wait(mode,ep,fd,1000);
+            assert(!jump && result==-1 && errno==EINTR && signalled);
+        } else assert(jump && signalled);
+        assert(!owned_wait(mode,ep,fd,0));
+    }
+    wait_jump=0;
+    assert(!timer_delete(timer));
+    puts("PASS mixed epoll/poll/select: ignored signals, EINTR, SA_RESTART, longjmp and reuse");
+}
+
+static atomic_int fence_tid;
+static int fence_ep,fence_event;
+static void *wait_fence_peer(void *unused) {
+    (void)unused;
+    struct epoll_event event;
+    assert(!epoll_wait(fence_ep,&event,1,0));
+    atomic_store_explicit(&fence_tid,(int)syscall(SYS_gettid),memory_order_release);
+    assert(epoll_wait(fence_ep,&event,1,5000)==1 && event.data.u64==99);
+    assert(epoll_wait(fence_ep,&event,1,0)==-1 && errno==EACCES);
+    return NULL;
+}
+static void wait_fence(void) {
+    struct sock_filter allow[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog initial={1,allow};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&initial));
+    fence_ep=epoll_create1(EPOLL_CLOEXEC); fence_event=eventfd(0,EFD_CLOEXEC);
+    assert(fence_ep>=0 && fence_event>=0);
+    struct epoll_event event={.events=EPOLLIN,.data.u64=99};
+    assert(!epoll_ctl(fence_ep,EPOLL_CTL_ADD,fence_event,&event));
+    pthread_t peer; assert(!pthread_create(&peer,NULL,wait_fence_peer,NULL));
+    while (!atomic_load_explicit(&fence_tid,memory_order_acquire)) sched_yield();
+    char path[96],data[256];
+    snprintf(path,sizeof(path),"/proc/self/task/%d/syscall",atomic_load(&fence_tid));
+    /* Observe the exact sleeping call, not an estimated startup delay. */
+    for (;;) {
+        int fd=open(path,O_RDONLY|O_CLOEXEC); assert(fd>=0);
+        ssize_t n=read(fd,data,sizeof(data)-1); assert(n>0);
+        assert(!close(fd)); data[n]=0;
+        long number=-1;
+        if (sscanf(data,"%ld",&number)==1 && number==SYS_epoll_pwait) break;
+        sched_yield();
+    }
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog policy={sizeof(code)/sizeof(*code),code};
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_TSYNC,&policy));
+    uint64_t one=1;
+    assert(write(fence_event,&one,sizeof(one))==sizeof(one));
+    assert(!pthread_join(peer,NULL));
+    close(fence_ep); close(fence_event);
+    puts("PASS mixed epoll: admitted wait survives TSYNC and next wait is denied");
 }
 static void signal_wait(int ep) {
     struct sigaction action={.sa_handler=on_signal}; sigemptyset(&action.sa_mask);
@@ -565,6 +669,16 @@ static void mixed(int filtered,int shared) {
     puts("READY virtual ADD");
     assert(!epoll_ctl(ep,EPOLL_CTL_ADD,fd,&e));
     puts("READY virtual ADD completed");
+    for (unsigned i=0;i<1024;++i) {
+        e.data.u64=i;
+        assert(!epoll_ctl(ep,EPOLL_CTL_MOD,fd,&e));
+        if (!(i%64)) {
+            assert(!epoll_ctl(ep,EPOLL_CTL_DEL,fd,NULL));
+            assert(!epoll_ctl(ep,EPOLL_CTL_ADD,fd,&e));
+        }
+    }
+    e.data.u64=42;
+    assert(!epoll_ctl(ep,EPOLL_CTL_MOD,fd,&e));
     e=(struct epoll_event){.events=EPOLLIN,.data.u64=43};
     assert(!epoll_ctl(ep,EPOLL_CTL_ADD,event,&e));
     int holder_pipe[2]={-1,-1}; void *holder_stack=NULL; pid_t holder=0;
@@ -590,6 +704,7 @@ static void mixed(int filtered,int shared) {
     assert(read(event,&one,sizeof(one))==sizeof(one));
     assert(!epoll_wait(ep,out,4,1));
     virtual_wake(ep);
+    owned_wait_signals(ep,fd);
     e.data.u64=42;
     assert(!epoll_ctl(ep,EPOLL_CTL_MOD,event,&e));
     assert(write(event,&one,sizeof(one))==sizeof(one) && !sethostname("equal-data",10));
@@ -772,6 +887,7 @@ static void exclusive_sources(void) {
     puts("PASS mixed epoll: exclusive FIFO and signalfd, aliases, masks, data and retirement");
 }
 int main(int argc,char **argv) {
+    if (argc==2 && !strcmp(argv[1],"--wait-fence")) { wait_fence(); return 0; }
     setbuf(stdout,NULL);
     if (argc==2 && !strcmp(argv[1],"--exclusive")) { exclusive_sources(); return 0; }
     if (argc==2 && !strcmp(argv[1],"--exclusive-filtered")) {

@@ -8,7 +8,7 @@ long md_task_status_open(int tid);
 /* The caller owns the descriptor; each read starts a fresh proc snapshot. */
 long md_task_umask_fd(int fd);
 long md_task_umask(int tid);
-long md_task_signal_handlers(int tid, uint64_t *caught);
+long md_task_signal_dispositions(int tid, uint64_t *caught, uint64_t *ignored);
 long md_task_parent(int tid);
 int md_task_child_class(pid_t,pid_t *group,int *exit_signal);
 /* Cross-task prlimit may be denied by Android while its proc snapshot is readable. */

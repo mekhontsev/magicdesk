@@ -1,6 +1,7 @@
 #include "fd_origins.h"
 #include "fd_channel.h"
 #include "fd_selector.h"
+#include "descriptor_inode.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -199,6 +200,18 @@ int md_fd_origins_native(const struct md_fd_order *turn,int fd,struct md_fd_nati
 int md_fd_origins_native_regular(const struct md_fd_order *turn,int fd) {
     struct md_fd_native native;
     return md_fd_origins_native(turn,fd,&native) && native.kind==S_IFREG;
+}
+int md_fd_origins_native_io(const struct md_fd_order *turn,int fd) {
+    if (md_fd_origins_native_regular(turn,fd)) return 1;
+    if (!turn || !turn->table || fd<0 || md_fd_order_state(turn)!=MD_RESOURCE_ORDER_RUNNING) return 0;
+    struct md_fd_origins *t=turn->table;
+    pthread_mutex_lock(&t->lock);
+    struct md_fd_origin_entry *e=t->buckets ? *slot(t,fd) : NULL;
+    /* Anonymous-pipe ownership supplies metadata only. Byte transfer, EOF,
+     * blocking and restart semantics belong entirely to its native OFD. */
+    int native=e && !e->uncertain && !e->loan && !e->channel && md_descriptor_inode_is(e->object);
+    pthread_mutex_unlock(&t->lock);
+    return native;
 }
 int md_fd_origins_close_untracked(const struct md_fd_order *turn,int number) {
     if (!md_fd_origins_exclusive(turn)) return 0;

@@ -125,8 +125,10 @@ static void uid_changed(struct md_identity *v, const struct md_identity_ids *old
     }
     if (old->effective==root && v->uid.effective!=root) v->caps.effective = 0;
     if (old->effective!=root && v->uid.effective==root) v->caps.effective = v->caps.permitted;
-    uint64_t fs = (1ULL << CAP_CHOWN) | (1ULL << CAP_DAC_OVERRIDE)
-        | (1ULL << CAP_FOWNER) | (1ULL << CAP_FSETID);
+    /* Linux CAP_FS_SET applies to every fsuid transition, including setresuid. */
+    uint64_t fs = (1ULL << CAP_CHOWN) | (1ULL << CAP_DAC_OVERRIDE) | (1ULL << CAP_DAC_READ_SEARCH)
+        | (1ULL << CAP_FOWNER) | (1ULL << CAP_FSETID) | (1ULL << CAP_LINUX_IMMUTABLE)
+        | (1ULL << CAP_MKNOD) | (1ULL << CAP_MAC_OVERRIDE);
     if (old->fs==root && v->uid.fs!=root) v->caps.effective &= ~fs;
     if (old->fs!=root && v->uid.fs==root) v->caps.effective |= v->caps.permitted & fs;
 }

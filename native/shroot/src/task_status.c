@@ -162,12 +162,15 @@ int md_task_child_class(pid_t tid,pid_t *group,int *exit_signal) {
     }
     return 0;
 }
-long md_task_signal_handlers(int tid,uint64_t *caught) {
+long md_task_signal_dispositions(int tid,uint64_t *caught,uint64_t *ignored) {
     char text[8192];
     long result=task_status(tid,text,sizeof(text));
     if (result<0) return result;
+    unsigned found=0;
     for (char *p=text;*p;++p) {
-        if ((p!=text && p[-1]!='\n') || !md_prefix(p,"SigCgt:")) continue;
+        if (p!=text && p[-1]!='\n') continue;
+        uint64_t *out=md_prefix(p,"SigCgt:") ? caught : md_prefix(p,"SigIgn:") ? ignored : NULL;
+        if (!out) continue;
         p+=7;
         while (*p==' ' || *p=='\t') ++p;
         uint64_t value=0; unsigned digits=0;
@@ -178,7 +181,8 @@ long md_task_signal_handlers(int tid,uint64_t *caught) {
             value=(value<<4)|digit; ++p;
         }
         if (!digits || *p!='\n') return -EIO;
-        *caught=value; return 0;
+        *out=value; found|=out==caught ? 1 : 2;
+        if (found==3) return 0;
     }
     return -ENOTSUP;
 }

@@ -5,9 +5,15 @@
 /* Private auxv contract, independent of the libc ABI. The caller retains its
  * original SVC instruction, including clone/signal-return stack semantics. */
 #define MD_AT_COOPERATIVE 0x4d440001UL
-#define MD_ENTRY_VERSION 11
+#define MD_ENTRY_VERSION 13
 enum md_entry_outcome { MD_ENTRY_DECLINED, MD_ENTRY_COMPLETED, MD_ENTRY_UNKNOWN,
-    MD_ENTRY_CHECK_CANCEL, MD_ENTRY_KERNEL_CALL, MD_ENTRY_NATIVE_EFFECT, MD_ENTRY_NEEDS_STOP };
+    MD_ENTRY_CHECK_CANCEL, MD_ENTRY_KERNEL_CALL, MD_ENTRY_NATIVE_EFFECT, MD_ENTRY_NEEDS_STOP,
+    /* Resident driver only: original policy and native routing admitted the
+     * call, all adapter ownership is released, and no continuation remains. */
+    MD_ENTRY_NATIVE_CALL,
+    /* Worker-to-execution handoff before any effect. Consumed inside the
+     * runtime, unlike a cancellation or admission decline requiring Base. */
+    MD_ENTRY_DISPATCH };
 struct md_entry_client;
 struct md_entry_call;
 typedef enum md_entry_outcome (*md_entry_step_fn)(struct md_entry_client *,struct md_entry_call *);
@@ -17,6 +23,9 @@ struct md_entry_call {
     int64_t result;
     int32_t number;
     uint32_t reserved;
+    /* Terminal resident response: visit the signal boundary before resuming
+     * the application or entering its native syscall. No effect is replayed. */
+    unsigned return_checkpoint;
     /* Original architectural PC after SVC, never an internal helper address.
      * Zero retains kernel admission when an application policy is present. */
     uintptr_t instruction_pointer;

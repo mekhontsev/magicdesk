@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/prctl.h>
+#include <linux/securebits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,6 +45,21 @@ static void file_permissions(void) {
 }
 static void capabilities(void) {
     struct md_identity root=md_identity_new(0,0), user=md_identity_new(1000,1000);
+    const unsigned fs_caps[]={CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_DAC_READ_SEARCH,CAP_FOWNER,
+        CAP_FSETID,CAP_LINUX_IMMUTABLE,CAP_MKNOD,CAP_MAC_OVERRIDE};
+    for (unsigned bypass=0;bypass<2;++bypass) {
+        struct md_identity fs=root;
+        if (bypass) fs.caps.securebits=SECBIT_NO_SETUID_FIXUP;
+        assert(md_identity_setfsuid(&fs,1234)==0 && fs.uid.fs==1234);
+        for (unsigned i=0;i<sizeof(fs_caps)/sizeof(*fs_caps);++i)
+            assert(md_identity_capable(&fs,fs_caps[i])==(int)bypass);
+        assert(md_identity_capable(&fs,CAP_SYS_ADMIN) && fs.caps.permitted==root.caps.permitted);
+        fs.caps.permitted&=~(UINT64_C(1)<<CAP_MKNOD);
+        assert(md_identity_setfsuid(&fs,0)==1234);
+        if (!bypass) assert(!md_identity_capable(&fs,CAP_MKNOD));
+        for (unsigned i=0;i<sizeof(fs_caps)/sizeof(*fs_caps);++i)
+            if (fs_caps[i]!=CAP_MKNOD) assert(md_identity_capable(&fs,fs_caps[i]));
+    }
     struct md_identity setid=root;
     setid.uid.real=1000; setid.gid.real=1001;
     struct md_identity real=md_identity_access(&setid,0), effective=md_identity_access(&setid,1);

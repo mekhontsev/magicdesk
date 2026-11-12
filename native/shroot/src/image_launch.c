@@ -139,10 +139,14 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     const char *hostname_override = NULL;
     struct md_network_profile network = {0};
     const char *gamepad_endpoint = NULL;
+    const char *diagnostics = NULL;
     int position = 1, commands = 0, statistics = 0;
     while (position < argc && strcmp(argv[position], "--")) {
         if (!strcmp(argv[position], "--magicdesk") && !commands) { commands = 1; position++; continue; }
         if (!strcmp(argv[position], "--statistics") && !statistics) { statistics = 1; position++; continue; }
+        if ((!strcmp(argv[position], "--diagnostics") || !strcmp(argv[position], "--diagnostics=signals")) && !diagnostics) {
+            diagnostics=argv[position++]; continue;
+        }
         if (md_socket_route_option_valid(argv[position])) {
             if (position + 2 >= argc) return -EINVAL;
             int r = md_socket_route_add(&routes, argv[position], argv[position+1], argv[position+2]);
@@ -223,7 +227,7 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     char *login[] = {(char *)shell, "-l"};
     if (kind == MD_IMAGE_LOGIN && position == argc) { command = login; command_count = 2; }
     size_t total = entry_count + explicit_count + command_count;
-    size_t launch_count=3+commands+statistics+2+2+md_network_profile_arguments(&network,NULL)+2*!!gamepad_endpoint+4*guest_user
+    size_t launch_count=3+commands+statistics+!!diagnostics+2+2+md_network_profile_arguments(&network,NULL)+2*!!gamepad_endpoint+4*guest_user
         +3*(attachment_count+routes.count)+8+8*(kind==MD_IMAGE_LOGIN)
         +2*(env_count+override_count)+1+total+1;
     if (!r && (!total || launch_count>MD_EXEC_POINTERS)) r = -E2BIG;
@@ -256,6 +260,7 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
         launch[n++] = runner; launch[n++] = "--store"; launch[n++] = (char *)path;
         if (commands) launch[n++] = "--magicdesk";
         if (statistics) launch[n++] = "--statistics";
+        if (diagnostics) launch[n++] = (char *)diagnostics;
         launch[n++] = "--cwd"; launch[n++] = (char *)working;
         launch[n++] = "--hostname"; launch[n++] = (char *)(hostname_override ? hostname_override : hostname);
         n+=md_network_profile_arguments(&network,launch+n);

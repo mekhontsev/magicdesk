@@ -5,6 +5,7 @@
 #include "poll_wait.h"
 #include "fd_admission.h"
 #include "epoll_wait.h"
+int readiness_waiting(const struct thread *);
 
 enum { READINESS_NATIVE_QUEUE, READINESS_TASK_QUEUE, READINESS_QUEUES };
 
@@ -35,7 +36,7 @@ struct readiness_owner {
     struct md_epoll_task_control *task_control;
     int task_target, task_started, park_pending, restore_completed;
     int delivery_claimed, delivery_waiting, copy_pending, resample;
-    int evicting, parked, finishing, signal_ready;
+    int evicting, parked, finishing, signal_ready, signal_pending;
     long finish_result;
     int operation,number,reserved,sealed,classified,done,io_waiting;
     struct md_epoll_frame *detached;
@@ -60,6 +61,7 @@ void readiness_progress(struct thread *t);
 void task_readiness_changed(struct thread *t);
 void readiness_interrupted(struct thread *t);
 int readiness_native_event(struct thread *t,int status);
+int readiness_signal_event(struct thread *,int signal,struct md_task_signal_stop *,int restored);
 
 void readiness_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r);
 int readiness_probe_exit(struct thread *t,pid_t pid);

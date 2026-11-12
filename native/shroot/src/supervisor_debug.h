@@ -6,7 +6,7 @@
 
 struct debug_wait_output {
     struct md_interception_buffer buffer;
-    struct user_pt_regs registers;
+    struct seccomp_data call;
     enum md_debugger_wait_action action;
 };
 
@@ -25,7 +25,8 @@ int inspect_allowed(pid_t caller, pid_t pid, int filesystem);
 int debugger_allowed(pid_t caller, pid_t pid);
 int debugger_traceme(pid_t parent,pid_t child);
 int proc_allowed(pid_t caller, pid_t pid);
-void debugger_complete(pid_t pid, struct user_pt_regs *regs, long value);
+int debugger_call(struct thread *,const struct seccomp_data *,const struct user_pt_regs *);
+void debugger_complete(pid_t pid,long value);
 int debugger_attachable(pid_t caller, pid_t pid);
 int debugger_interrupt(pid_t pid);
 int debugger_observe(pid_t owner);
@@ -33,13 +34,15 @@ int debugger_options(pid_t pid, unsigned long options);
 void debugger_usage(pid_t pid, struct rusage *usage);
 int debugger_listen(pid_t pid);
 void debugger_wait_wake(pid_t pid);
-void debugger_wait(pid_t pid, const struct user_pt_regs *original, enum md_debugger_wait_action action);
+int debugger_wait_admit(pid_t pid);
+int debugger_wait_pending(const struct thread *);
+void debugger_wait(pid_t pid,const struct seccomp_data *call,enum md_debugger_wait_action action);
 void debugger_wait_retry(struct thread *t);
 int debug_syscall_exit(struct thread *t, const struct user_pt_regs *regs);
 int debug_host_policy_pending(struct thread *t,const struct user_pt_regs *regs);
 int debugger_at_boundary(const struct thread *t);
 int debugger_boundary(struct thread *t);
-void debugger_park_complete(struct thread *t);
+void debugger_park_complete(struct thread *t,int cancelled);
 int debug_wait_exit(struct thread *t,pid_t pid);
 
 #endif

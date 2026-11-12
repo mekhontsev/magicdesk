@@ -19,9 +19,25 @@
 static void routing_contract(void) {
     static struct md_interception_routes routes;
     struct md_interception_abi abi={.raw_gate=0x2010000000,.watch_return=0x2010000010,
-        .task_return=0x2010000020,.native_return=0x2010000030,.socket_return=0x2010000040,.ready=0x2010000100,
-        .buffer_admit=0x2010000200,.host_policy=1};
+        .task_return=0x2010000020,.native_return=0x2010000030,.adapter_native_return=0x2010000040,.ready=0x2010000100,
+        .buffer_admit=0x2010000200,.svc_return=0x2010000300,.host_policy=1};
     assert(!md_interception_routes_init(&routes,&abi));
+    const int checkpoints[]={SYS_gettid,SYS_getpid,SYS_getuid,SYS_geteuid,SYS_getgid,SYS_getegid,SYS_getppid};
+    struct sock_fprog base={routes.base.count,routes.base.code};
+    for (unsigned nr=0;nr<512;++nr) {
+        struct seccomp_data call={.nr=nr,.arch=AUDIT_ARCH_AARCH64,
+            .instruction_pointer=abi.native_return,.args={3,4,5,(uint64_t)-1,0,8}};
+        uint32_t result;
+        assert(!md_seccomp_program_eval(&base,&call,&result));
+        assert(result==SECCOMP_RET_ALLOW);
+    }
+    for (unsigned i=0;i<sizeof(checkpoints)/sizeof(*checkpoints);++i) {
+        struct seccomp_data call={.nr=checkpoints[i],.arch=AUDIT_ARCH_AARCH64,
+            .instruction_pointer=abi.svc_return+4};
+        uint32_t result;
+        assert(!md_seccomp_program_eval(&base,&call,&result));
+        assert(result==(SECCOMP_RET_TRACE|MD_INTERCEPT_CHECKPOINT));
+    }
     struct md_fd_filter_gates gates=md_fd_filter_runtime_gates(&abi);
     const int selected[]={3,190,511};
     for (unsigned receive=0;receive<2;++receive) for (unsigned controlled=0;controlled<2;++controlled)
@@ -33,7 +49,7 @@ static void routing_contract(void) {
             uint32_t result;
             assert(!md_interception_routes_eval(&routes,&view,0,&call,&result));
             assert(result==(controlled || address ? SECCOMP_RET_TRACE|MD_INTERCEPT_DISPATCH : SECCOMP_RET_ALLOW));
-            call.instruction_pointer=abi.socket_return;
+            call.instruction_pointer=abi.adapter_native_return;
             assert(!md_interception_routes_eval(&routes,&view,0,&call,&result));
             assert(result==(SECCOMP_RET_TRACE|MD_INTERCEPT_TASK));
         }
@@ -131,23 +147,26 @@ static int pid_sensitive(const struct seccomp_data *d) {
 }
 static void pid_filter(void) {
     struct md_pid_filter_program p;
-    const uintptr_t gate=UINT64_C(0x2012345678),task=UINT64_C(0x3012345698);
-    md_pid_filter_build(gate,task,&p);
+    const uintptr_t gate=UINT64_C(0x2012345678),task=UINT64_C(0x3012345698),native=UINT64_C(0x40123456a8);
+    const uintptr_t adapter=UINT64_C(0x50123456b8);
+    struct md_interception_abi abi={.raw_gate=gate,.task_return=task,.native_return=native,.adapter_native_return=adapter};
+    md_pid_filter_build(&abi,&p);
     assert(p.count && p.count<=MD_PID_FILTER_INSTRUCTIONS);
     const uintptr_t sites[]={gate,gate+4,gate+(UINT64_C(1)<<32),0,
-        task,task+4,task-(UINT64_C(1)<<32)};
+        task,task+4,task-(UINT64_C(1)<<32),native,native+4,native+(UINT64_C(1)<<32),
+        adapter,adapter+4,adapter-(UINT64_C(1)<<32)};
     const unsigned extra[]={TIOCGPGRP,TIOCSPGRP,TIOCGSID};
     for (unsigned nr=0;nr<512;++nr) for (unsigned command=0;command<512+3;++command)
         for (unsigned i=0;i<sizeof(sites)/sizeof(*sites);++i) {
             uint64_t value=(command<512 ? command : extra[command-512])|(UINT64_C(1)<<32);
             struct seccomp_data d={.nr=(int)nr,.instruction_pointer=sites[i],.args={value,value}};
-            unsigned want=sites[i]!=gate && sites[i]!=task && pid_sensitive(&d)
+            unsigned want=sites[i]!=gate && sites[i]!=task && sites[i]!=native && sites[i]!=adapter && pid_sensitive(&d)
                 ? SECCOMP_RET_TRACE|MD_INTERCEPT_PROCESS : SECCOMP_RET_ALLOW;
             unsigned reads=0;
             assert(evaluate_program(p.code,p.count,&d,&reads)==want);
             if (!pid_sensitive(&d) && nr!=SYS_futex && nr!=SYS_ioctl && nr!=SYS_prctl) assert(!reads);
         }
-    puts("PASS PID filter: exact runtime/task gates, PID calls, PI/non-PI futex, terminal/subreaper arguments and cacheable native calls");
+    puts("PASS PID filter: exact runtime/task/effect gates, PID calls, PI/non-PI futex, terminal/subreaper arguments and cacheable native calls");
 }
 static unsigned expected(unsigned kind,int fd,const struct seccomp_data *d) {
     if (kind==MD_FD_SELECTOR_POLL)
@@ -213,7 +232,7 @@ void test_fd_filter_program(void) {
     }
     puts("PASS compact close cookies: exact low-int FD, boundary/negative fallback, other syscall accumulator preserved");
     const struct md_fd_filter_gates gates={0x1112345678,0x2212345678,0x3312345678,0x5512345678,0x6612345678};
-    const uintptr_t exempt[]={gates.raw,gates.watch,gates.task,gates.native,gates.socket};
+    const uintptr_t exempt[]={gates.raw,gates.watch,gates.task,gates.native,gates.adapter};
     const int fds[]={0,190,511,512,1024*1024,-1};
     const unsigned commands[]={0,F_GETFL,F_SETFL,F_GETFD,F_GET_SEALS,F_ADD_SEALS,F_DUPFD,F_DUPFD_CLOEXEC,FIONREAD,FIONBIO,FIOCLEX,FIONCLEX};
     struct md_fd_filter_program built;
@@ -257,7 +276,7 @@ void test_fd_filter_program(void) {
     for (unsigned p=0;p<sizeof(grouped)/sizeof(*grouped);++p)
         for (unsigned kind=0;kind<MD_FD_SELECTOR_KINDS;++kind) {
             const struct md_fd_filter_gates *g=&grouped[p];
-            const uintptr_t addresses[]={g->raw,g->watch,g->task,g->native,g->socket};
+            const uintptr_t addresses[]={g->raw,g->watch,g->task,g->native,g->adapter};
             struct md_fd_filter_program separate;
             assert(!md_fd_filter_build(kind,190,&gates,&separate));
             assert(!md_fd_filter_build(kind,190,g,&built));

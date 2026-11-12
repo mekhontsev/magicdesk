@@ -20,6 +20,7 @@
 #include <sys/ptrace.h>
 #include <sys/socket.h>
 #include <sys/signalfd.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -243,14 +244,14 @@ static void reaped_signal_cases(void) {
     assert(!sigprocmask(SIG_BLOCK,&mask,&saved));
     siginfo_t info; struct timespec zero={0};
     while (sigtimedwait(&mask,&info,&zero)==SIGCHLD) {}
-    for (int mode=0;mode<6;++mode) {
-        if (mode==5) {
+    for (int mode=0;mode<7;++mode) {
+        if (mode==6) {
             action.sa_flags|=SA_NOCLDWAIT;
             assert(!sigaction(SIGCHLD,&action,NULL));
         }
         pid_t child=fork(); assert(child>=0);
         if (!child) _exit(23);
-        if (mode==5) {
+        if (mode==6) {
             errno=0; assert(waitpid(child,NULL,0)==-1 && errno==ECHILD);
         } else if (mode==1) {
             info=(siginfo_t){0}; assert(!waitid(P_PID,child,&info,WEXITED));
@@ -264,15 +265,24 @@ static void reaped_signal_cases(void) {
          * both wait results have removed their process-table entries. */
         pid_t second=fork(); assert(second>=0);
         if (!second) _exit(24);
-        if (mode==5) { errno=0; assert(waitpid(second,NULL,0)==-1 && errno==ECHILD); }
+        if (mode==6) { errno=0; assert(waitpid(second,NULL,0)==-1 && errno==ECHILD); }
         else assert(waitpid(second,NULL,0)==second);
         if (mode==2) {
             pthread_t worker; assert(!pthread_create(&worker,NULL,reaped_waiter,&child));
             assert(!pthread_join(worker,NULL));
-        } else if (mode==4) {
+        } else if (mode==4 || mode==5) {
             int fd=signalfd(-1,&mask,SFD_CLOEXEC|SFD_NONBLOCK); assert(fd>=0);
             struct signalfd_siginfo record={0};
-            assert(read(fd,&record,sizeof(record))==sizeof(record));
+            if (mode==4) assert(read(fd,&record,sizeof(record))==sizeof(record));
+            else {
+                int copy=dup(fd); assert(copy>=0); close(fd); fd=copy;
+                struct iovec vectors[]={{&record,17},{(char *)&record+17,sizeof(record)-17}};
+                assert(readv(fd,vectors,2)==sizeof(record));
+            }
+            if (record.ssi_signo!=SIGCHLD || record.ssi_pid!=(unsigned)child
+                    || record.ssi_uid!=getuid() || record.ssi_status!=23)
+                fprintf(stderr,"signalfd mode=%d signo=%u pid=%u expected=%u uid=%u expected=%u status=%u\n",
+                    mode,record.ssi_signo,record.ssi_pid,(unsigned)child,record.ssi_uid,getuid(),record.ssi_status);
             assert(record.ssi_signo==SIGCHLD && record.ssi_pid==(unsigned)child
                 && record.ssi_uid==getuid() && record.ssi_status==23);
             close(fd);

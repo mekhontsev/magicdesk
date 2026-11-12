@@ -36,9 +36,19 @@ struct mapping_owner {
     struct md_fd_order files;
     struct md_fd_origin_update delivery;
     struct task_action *loan;
-    int started, file, noexec, readonly, guarded, borrowed, retiring;
+    int started, admitted, file, noexec, readonly, guarded, borrowed, retiring;
     int64_t deadline;
 };
+
+struct svc_pool_mapping {
+    struct md_task_call call;
+    struct md_resource_order order;
+    uintptr_t address;
+    int status;
+    struct rusage usage;
+};
+int svc_pool_begin(struct thread *,const struct user_pt_regs *,int status,const struct rusage *);
+int svc_pool_event(pid_t,int status);
 
 struct memory_capture {
     pid_t caller;
@@ -95,6 +105,7 @@ int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
         struct buffer_mapping *owner);
 void memory_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r);
 int svc_revoke_entry(struct thread *t);
+int svc_entry_observe(struct thread *t);
 void memory_access_capture(struct thread *t);
 
 int mapping_notification(struct thread *t,const struct seccomp_notif *q);
@@ -102,11 +113,11 @@ int mapping_event(pid_t pid,int status);
 void mapping_start(struct thread *t);
 void mapping_progress(void);
 int mapping_guard_event(pid_t pid,int status,const struct rusage *usage);
-void mapping_begin(struct thread *t, struct user_pt_regs *regs);
 void memory_start(struct thread *t);
-void memory_begin(struct thread *t, const struct user_pt_regs *regs, enum memory_action action,int arguments_only);
+void memory_begin(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *regs,enum memory_action action);
 int memory_observed(struct thread *t,const struct ptrace_syscall_info *info);
 int memory_capture_begin(struct thread *t,const struct user_pt_regs *returned);
+void memory_kernel_complete(struct thread *t,long value);
 int entry_fence_drained(const struct thread *t);
 int entry_fence_adapt(const struct thread *t);
 int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,int status,const struct rusage *usage);

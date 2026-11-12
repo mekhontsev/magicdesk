@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stock systemd PID 1, service/notify/socket/timer activation under shell UID.
+"""Stock systemd PID 1, service/notify/socket/timer activation in the selected executor.
 
 Requires a disposable Debian-like Shroot store with systemd, util-linux and bash.
 No distro units, host devices, reboot or shutdown targets are started.

@@ -53,7 +53,7 @@ struct md_control_file {
 /* Typed ioctl marshalling. Providers never dereference guest addresses. Some
  * Linux requests (notably EVIOCSFF) return data despite an _IOW encoding. */
 enum { MD_CONTROL_IN=1, MD_CONTROL_OUT=2, MD_CONTROL_STRING=4, MD_CONTROL_INDIRECT=8,
-    MD_CONTROL_ACK=16, MD_CONTROL_FD=32, MD_CONTROL_IOCTL_MAX=16384 };
+    MD_CONTROL_ACK=16, MD_CONTROL_FD=32, MD_CONTROL_CONST=64, MD_CONTROL_IOCTL_MAX=16384 };
 enum { MD_CONTROL_IO_MAX=65536 };
 /* Bounded pointed-to byte arrays, following the fixed argument in transport.
  * Offsets address native-width pointer/size_t fields in that argument. The
@@ -62,6 +62,9 @@ enum { MD_CONTROL_IOCTL_FIELDS=4 };
 struct md_control_ioctl_field { unsigned pointer, length, capacity, direction; };
 struct md_control_ioctl {
     unsigned size, direction;
+    /* Immutable scalar response for this retained object and command. The
+     * guest can copy it without another owner request; never mutable OFD data. */
+    uint64_t value;
     /* Byte offset of a single input int descriptor, when MD_CONTROL_FD is set. */
     unsigned descriptor;
     unsigned fields;

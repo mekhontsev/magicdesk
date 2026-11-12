@@ -5,9 +5,44 @@
 #include "proc_control.h"
 #include "fd_filter.h"
 #include "descriptor_capture.h"
+#include "resource_control.h"
 #include <errno.h>
 #include <signal.h>
 #include <sys/ioctl.h>
+
+long md_process_query(long nr,const unsigned long *a) {
+    struct md_adapter_input input=md_adapter_buffer_begin(MD_BUFFER_PROCESS_QUERY,0);
+    if (!input.buffer) return input.value;
+    const struct md_process_query *p=input.buffer;
+    long result=input.value;
+    if (!result && nr==SYS_get_robust_list) {
+        /* Linux publishes the length first, even if writing the head fails. */
+        result=md_write_memory((void *)a[2],&p->value[1],sizeof(uint64_t));
+        if (!result) result=md_write_memory((void *)a[1],&p->value[0],sizeof(uint64_t));
+    } else if (!result) {
+        int value=(int)p->value[0];
+        result=md_write_memory((void *)a[1],&value,sizeof(value));
+    }
+    long released=md_adapter_buffer_release();
+    return result ? result : released;
+}
+
+long md_process_wait_result(long nr,const unsigned long *a) {
+    long memory=md_adapter_buffer_take();
+    if (memory<0) return memory;
+    size_t size=nr==SYS_wait4 ? sizeof(int) : sizeof(siginfo_t);
+    void *address=(void *)a[nr==SYS_wait4 ? 1 : 2];
+    long result=md_read_memory((void *)memory,address,size);
+    if (!result) {
+        result=md_guest_buffer_control(MD_BUFFER_PROCESS_WAIT,0,0);
+        if (result>=0) {
+            long error=md_write_memory(address,(void *)memory,size);
+            if (error) result=error;
+        }
+    }
+    long released=md_adapter_buffer_release();
+    return result<0 ? result : released<0 ? released : result;
+}
 
 long md_pid_terminal(const unsigned long *a) {
     int value=0;
@@ -21,7 +56,8 @@ long md_pid_terminal(const unsigned long *a) {
     }
     result=md_fd_control(MD_FD_USE,0,0,0);
     if (result) return result;
-    result=RAW3(ioctl,a[0],a[1],&value);
+    result=writing ? md_guest_native_call(SYS_ioctl,(unsigned long[6]){a[0],a[1],(uintptr_t)&value})
+        : RAW3(ioctl,a[0],a[1],&value);
     if (!result && !writing) {
         long visible=value>0 ? md_pid_visible(value) : value;
         if (visible<0) result=visible;
@@ -35,7 +71,7 @@ long md_pid_signal_group(int selector,int signal) {
     int last=0,sent=0;
     long failure=-ESRCH;
     for (;;) {
-        long next=RAW4(prctl,MD_GUEST_PID_SIGNAL_GROUP,selector,signal,last);
+        long next=md_guest_resource_control(MD_GUEST_PID_SIGNAL_GROUP,(unsigned)selector,signal,last,0,0);
         if (next<=0) return sent ? 0 : next ? next : failure;
         last=(int)(next>>1);
         long result=next&1 ? 0 : RAW2(kill,last,signal);

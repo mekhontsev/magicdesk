@@ -153,32 +153,23 @@ long md_proc_control_call(long nr, const unsigned long *a, int kind) {
         long memory=md_adapter_buffer_take();
         if (memory<0) return memory;
         long result=md_guest_buffer_control(MD_BUFFER_CONTROL_MAP,0,0);
-        if (!result) {
-            extern long md_guest_task_control(void);
-            result=md_guest_task_control();
-        }
+        if (!result) result=md_guest_buffer_control(MD_BUFFER_MEMORY_MAP,0,0);
         long released=md_adapter_buffer_release();
         return result<0 ? result : released<0 ? released : result;
     }
     if (nr==SYS_ioctl) {
         if (!md_proc_file_namespace((enum md_proc_file_kind)kind)) {
-            long packed=md_guest_buffer_control(MD_BUFFER_CONTROL_IOCTL_SPEC,0,0);
-            if (packed<0) return packed;
-            size_t size=(uint32_t)packed;
-            unsigned direction=(unsigned)((uint64_t)packed>>32);
-            if (size>MD_CONTROL_IOCTL_MAX || direction&~(MD_CONTROL_IN|MD_CONTROL_OUT|MD_CONTROL_STRING|MD_CONTROL_INDIRECT|MD_CONTROL_ACK|MD_CONTROL_FD)) return -EPROTO;
-            long memory=md_adapter_buffer_take();
-            if (memory<0) return memory;
-            struct md_control_ioctl layout={.size=(unsigned)size,.direction=direction};
-            long result=0;
-            if (direction&(MD_CONTROL_INDIRECT|MD_CONTROL_FD)) {
-                result=md_guest_buffer_control(MD_BUFFER_CONTROL_IOCTL_LAYOUT,0,0);
-                if (!result) {
-                    memcpy(&layout,(void *)memory,sizeof(layout));
-                    result=md_control_ioctl_size(&layout);
-                    if (result>=0) result=layout.size!=size || layout.direction!=direction ? -EPROTO : 0;
-                }
+            struct md_adapter_input input=md_adapter_buffer_begin(MD_BUFFER_CONTROL_IOCTL_LAYOUT,0);
+            if (!input.buffer) return input.value;
+            long memory=(long)input.buffer,result=input.value;
+            struct md_control_ioctl layout={0};
+            if (!result) {
+                memcpy(&layout,input.buffer,sizeof(layout));
+                result=md_control_ioctl_size(&layout);
+                if (result>=0) result=0;
             }
+            size_t size=layout.size;
+            unsigned direction=layout.direction;
             uintptr_t addresses[MD_CONTROL_IOCTL_FIELDS]={0};
             size_t lengths[MD_CONTROL_IOCTL_FIELDS]={0};
             if (!result) {
@@ -207,7 +198,8 @@ long md_proc_control_call(long nr, const unsigned long *a, int kind) {
                 result=md_guest_buffer_control(MD_BUFFER_CONTROL_CAPTURE,0,0);
                 if (result>0) result=md_descriptor_capture_inputs(result,frame,&number,1,&protocol);
             }
-            if (!result) result=md_guest_buffer_control(MD_BUFFER_CONTROL_IOCTL,0,0);
+            if (!result && !md_control_ioctl_constant(&layout,(void *)memory))
+                result=md_guest_buffer_control(MD_BUFFER_CONTROL_IOCTL,0,0);
             offset=size;
             for (unsigned i=0;result>=0 && i<layout.fields;++i) {
                 const struct md_control_ioctl_field *f=&layout.field[i];
@@ -223,9 +215,7 @@ long md_proc_control_call(long nr, const unsigned long *a, int kind) {
                 long error=md_write_memory((void *)a[2],(void *)memory,size);
                 if (error) result=error;
             }
-            if (direction&MD_CONTROL_ACK) return md_adapter_buffer_finish(0,result);
-            long released=md_adapter_buffer_release();
-            return result<0 ? result : released<0 ? released : result;
+            return md_adapter_buffer_finish(0,result);
         }
         long memory=md_adapter_buffer_take();
         if (memory<0) return memory;

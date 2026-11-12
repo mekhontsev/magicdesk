@@ -11,6 +11,7 @@
 #include "raw.h"
 #include "fs_wire.h"
 #include "resource_protocol.h"
+#include "guest_execution.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -24,10 +25,9 @@ static long domain(int fd) {
     long r = RAW5(getsockopt, fd, SOL_SOCKET, SO_DOMAIN, &family, &size);
     return r < 0 ? r : family;
 }
-extern long md_socket_native(long,long,long,long,long,long,long);
 long md_socket_invoke(long nr, const unsigned long *a) {
     if (md_socket_wait_call(nr,a[2],a[3]))
-        return md_socket_native(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
+        return md_guest_native_call(nr,a);
     return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
 }
 static long connect_native(int fd,const void *address,unsigned length) {

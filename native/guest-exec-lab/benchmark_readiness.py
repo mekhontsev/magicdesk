@@ -9,7 +9,7 @@ import statistics
 from test_oci_services import Suite
 from benchmark_cpu import observe_suite_cpu
 
-CONTROL_WORKLOADS = ('fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl',
+CONTROL_WORKLOADS = ('fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl', 'fd-bytes',
                      'identity', 'uname', 'ipc-nowait', 'socket-nowait')
 
 def main():
@@ -103,8 +103,8 @@ def main():
         order = list(modes)
         for round_number in range(args.rounds):
             offset = round_number % len(order)
-            for name in order[offset:] + order[:offset]:
-                for workload, command in workloads.items():
+            for workload, command in workloads.items():
+                for name in order[offset:] + order[:offset]:
                     with observe_suite_cpu(suite) as cpu:
                         output = suite.command(['/system/bin/time', '-p', *placement, *modes[name], '--', *command])
                     measurement = dict(re.findall(r'^(real|user|sys)\s+(\d+\.\d+)\s*$', output, re.M))

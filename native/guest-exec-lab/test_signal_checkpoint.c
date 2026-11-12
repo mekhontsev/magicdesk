@@ -1351,6 +1351,31 @@ static int nested_task_call(pid_t pid,int expect_rejected,struct md_task_checkpo
     borrowed_checkpoint=NULL;
     return 0;
 }
+static unsigned borrowed_boundary;
+static long borrowing_trace(int request,pid_t pid,void *address,void *data) {
+    (void)pid; (void)address;
+    if (request==PTRACE_GET_SYSCALL_INFO) {
+        ((struct ptrace_syscall_info *)data)->op=borrowed_boundary;
+        return sizeof(struct ptrace_syscall_info);
+    }
+    assert(request==PTRACE_SYSEMU || request==PTRACE_CONT);
+    return 0;
+}
+static void borrowing_boundaries(void) {
+    struct md_task_checkpoints runtime={.trace=borrowing_trace};
+    assert(!md_task_checkpoint_trace(&runtime,PTRACE_SYSEMU,1,NULL,NULL));
+    for (unsigned boundary=0;boundary<=PTRACE_SYSCALL_INFO_SECCOMP;++boundary) {
+        borrowed_boundary=boundary;
+        assert(md_task_checkpoint_suspend(&runtime,1)==(boundary==PTRACE_SYSCALL_INFO_ENTRY));
+        assert(md_task_checkpoint_suspend(&runtime,1)==-EBUSY);
+        md_task_checkpoint_restore(&runtime,1);
+    }
+    assert(!md_task_checkpoint_trace(&runtime,PTRACE_CONT,1,NULL,NULL));
+    borrowed_boundary=PTRACE_SYSCALL_INFO_ENTRY;
+    assert(!md_task_checkpoint_suspend(&runtime,1));
+    md_task_checkpoint_restore(&runtime,1);
+    md_task_checkpoints_clear(&runtime);
+}
 static void caller_checkpoint(int protected) {
     struct report *out=mmap(NULL,sizeof(*out),PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(out!=MAP_FAILED);
@@ -1913,6 +1938,7 @@ int main(int argc,char **argv) {
         if (argc==2) return 0;
     }
     if (argc==1 || (argc==2 && !strcmp(argv[1],"--checkpoint-borrow"))) {
+        borrowing_boundaries();
         for (int protected=0;protected<2;++protected) caller_checkpoint(protected);
         puts("PASS explicit SYSEMU borrowing: exact native calls, registers and masks under strict seccomp");
         for (int protected=0;protected<2;++protected)
@@ -1952,7 +1978,7 @@ int main(int argc,char **argv) {
     }
     const unsigned scalar_commands[]={MD_BUFFER_MAPPED,MD_BUFFER_TAKE,MD_BUFFER_RELEASE,
         MD_BUFFER_PROC_META,MD_BUFFER_PID_NUMBER,MD_BUFFER_DESCRIPTOR_META,
-        MD_BUFFER_MEMORY_OPEN,MD_BUFFER_MEMORY_OPEN_RESULT,MD_BUFFER_CONTROL_IOCTL_SPEC,
+        MD_BUFFER_MEMORY_OPEN,MD_BUFFER_MEMORY_OPEN_RESULT,
         MD_BUFFER_CONTROL_IOCTL_LAYOUT,MD_BUFFER_PROC_ACK,MD_BUFFER_UTS,MD_BUFFER_SHM_STAT,
         MD_BUFFER_NETWORK_CREDENTIALS,
         MD_FS_BUFFER_CALL,MD_FS_BUFFER_EXEC_PREPARE,MD_FS_BUFFER_EXEC_CANCEL,MD_FS_BUFFER_PROC_LINK,

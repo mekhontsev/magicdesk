@@ -11,12 +11,10 @@
 #define MD_CHECKPOINT_SITES(X) \
     X(ready,md_guest_ready_checkpoint) X(done,md_guest_done_checkpoint) X(allocated,md_guest_allocated) \
     X(exported,md_guest_exported_checkpoint) X(export_control,md_guest_export_control_checkpoint) \
-    X(stored,md_guest_stored) X(loaded_byte,md_guest_loaded_byte) X(stored_ids,md_guest_stored_ids) \
-    X(loaded_groups,md_guest_loaded_groups) X(stored_groups,md_guest_stored_groups) \
     X(fd_control,md_guest_fd_control_checkpoint) X(buffer_control,md_guest_buffer_control_checkpoint) \
     X(task_control,md_guest_task_control_checkpoint) X(task_completed,md_guest_task_completed) \
     X(task_collected,md_guest_task_collected) X(watch_completed,md_guest_watch_completed) X(enter,md_enter_checkpoint) \
-    X(exchanged,md_guest_exchanged)
+    X(exchanged,md_guest_exchanged) X(svc_return,md_svc_signal_checkpoint)
 enum { MD_IMAGE_PROGRAM=0, MD_IMAGE_LOADER=1, MD_IMAGE_TAKE_PROGRAM=2, MD_IMAGE_TAKE_LOADER=3, MD_IMAGE_TAKE_EXECFD=4 };
 #define MD_GUEST_SHM 0x4d440104
 #define MD_GUEST_PROC_IMAGE 0x4d440106
@@ -26,14 +24,6 @@ enum { MD_IMAGE_PROGRAM=0, MD_IMAGE_LOADER=1, MD_IMAGE_TAKE_PROGRAM=2, MD_IMAGE_
 #define MD_GUEST_TASK_HELPER 0x4d44010a
 #define MD_GUEST_TASK_MAPPING 0x4d44010f
 #define MD_GUEST_SECCOMP_LISTENER 0x4d440110
-/* Upper bits identify the already retained typed OFD; zero means no control.
- * This is call-local admission, never a cache indexed by a guest FD number. */
-static inline unsigned md_dispatch_control(unsigned policy,int kind) {
-    return policy|((unsigned)(kind+1)<<16);
-}
-static inline int md_dispatch_control_kind(unsigned policy) {
-    return (int)(policy>>16)-1;
-}
 #define MD_GUEST_PID_SIGNAL_GROUP 0x4d44010d
 enum md_export_control { MD_EXPORT_BEGIN=1, MD_EXPORT_READY, MD_EXPORT_OBSERVED };
 #define MD_EXPORT_ADMIT (-4096L)
@@ -67,16 +57,15 @@ enum { MD_INTERCEPT_CLOSE=0x8000, MD_INTERCEPT_CLOSE_MAX=0x7fff };
  * supervisor reads this descriptor at each image handshake, not linker symbols. */
 struct md_interception_abi {
     uint64_t magic, size;
-    /* dispatch: x0 syscall, x1..x6 arguments, x9 policy and retained control kind,
-     * x10 optional operation-owned input buffer (ninth C argument).
+    /* Stopped ingress: x0 syscall, x1..x6 arguments, x9 policy, w10 control kind,
+     * x11 optional operation-owned input. The gate builds md_guest_execution.
      * x7 is reserved by the kernel at ARM64 syscall stops. */
     uintptr_t ready, done, allocate, allocated, dispatch, export_fd, exported;
     uintptr_t done_entry, exported_entry;
-    uintptr_t export_control, store, stored, load_byte, loaded_byte;
+    uintptr_t export_control, transfer;
     uintptr_t proc_open, proc_open_path;
-    uintptr_t store_ids, stored_ids, raw_gate, copy_begin, copy_end;
-    uintptr_t watch_gate,watch_return,socket_return;
-    uintptr_t load_groups, loaded_groups, store_groups, stored_groups;
+    uintptr_t raw_gate, copy_begin, copy_end;
+    uintptr_t watch_gate,watch_return,adapter_native_return;
     uintptr_t enter;
     uintptr_t ipc_wait;
     uintptr_t fd_control;
@@ -88,7 +77,7 @@ struct md_interception_abi {
     uintptr_t buffer_result;
     uintptr_t buffer_enter;
     uintptr_t native_begin, native_call, native_return, native_end;
-    uintptr_t svc_runtime;
+    uintptr_t svc_runtime,svc_return;
     uintptr_t cooperative_registration;
     uintptr_t code_begin,code_end;
     uintptr_t task_completed,watch_completed;

@@ -1,5 +1,6 @@
 #include "svc_runtime.h"
 #include "svc_payload.h"
+#include "svc_direct.h"
 #include "raw.h"
 #include <asm/hwcap.h>
 #include <errno.h>
@@ -44,7 +45,10 @@ void md_svc_runtime_prepare(uintptr_t program,uintptr_t loader,unsigned long cap
     struct md_svc_payload_state *state=(void *)(frames+MD_SVC_POOL_SIZE);
     state->api=&md_cooperative_entry; state->admitted=1;
     state->statistics=!!statistics;
-    md_svc_runtime=(struct md_svc_runtime){.frames=frames,.dispatch=(uintptr_t)md_svc_payload_dispatch};
+    md_svc_runtime=(struct md_svc_runtime){.frames=frames,.dispatch=(uintptr_t)md_svc_payload_dispatch,
+        .checkpoint=(uintptr_t)md_svc_signal_checkpoint,
+        .native={(uintptr_t)md_cooperative_native,(uintptr_t)md_cooperative_native_call,
+            (uintptr_t)md_cooperative_native_end}};
     if (first) md_svc_runtime.pools[md_svc_runtime.count++]=first;
     if (second) md_svc_runtime.pools[md_svc_runtime.count++]=second;
 }

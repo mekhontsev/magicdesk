@@ -1,7 +1,10 @@
-.macro md_svc_slot reg
+.macro md_svc_slot reg,attempt=0
     mov \reg,sp
     eor \reg,\reg,\reg,lsr#16
     ubfx \reg,\reg,#8,#6
+    .if \attempt
+    eor \reg,\reg,#MD_SVC_SLOT_XOR(\attempt)
+    .endif
     movk \reg,#0,lsl#16
     movk \reg,#MD_SVC_POOL_HIGH,lsl#32
     movk \reg,#0,lsl#48

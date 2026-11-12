@@ -2,6 +2,7 @@
 #include "adapter_buffer.h"
 #include "cgroup.h"
 #include "clone_call.h"
+#include "cooperative_channel.h"
 #include "elf_admission.h"
 #include "fd_channel.h"
 #include "fd_client.h"
@@ -44,6 +45,7 @@
 #include "supervisor_execution.h"
 #include "supervisor_fs.h"
 #include "supervisor_internal.h"
+#include "supervisor_identity.h"
 #include "supervisor_io.h"
 #include "supervisor_memory.h"
 #include "supervisor_notifications.h"
@@ -51,6 +53,7 @@
 #include "supervisor_seccomp.h"
 #include "supervisor_signals.h"
 #include "supervisor_task.h"
+#include "supervisor_transfer.h"
 #include "svc_frame.h"
 #include "svc_machine.h"
 #include "svc_payload.h"
@@ -77,6 +80,7 @@ struct private_child_selection {
     int error;
 };
 struct thread *threads;
+static int process_reboot_status(pid_t pid,int status);
 static struct thread *thread_index[THREAD_BUCKETS];
 int pid_collection_pending;
 static struct thread *pid_collection_blocker;
@@ -215,7 +219,7 @@ void release_thread(struct thread *t) {
     md_ipc_transport_close(&t->io.transport);
     CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change, -ECANCELED));
     CHECK(!md_resources_release(&t->resources));
-    free(t->identity_copy.buffer); t->identity_copy.buffer = NULL;
+    identity_discard(t);
     md_broker_forget(broker, t->pid);
     cooperative_buffer_release(t);
     release_operation(t);
@@ -230,7 +234,7 @@ void release_thread(struct thread *t) {
     md_memory_stack_return(t->memory, t->execution.stack);
     md_memory_release(t->memory); t->memory = NULL;
     md_memory_release(t->memory_op.remote); t->memory_op.remote=NULL;
-    free(t->memory_op.notification); t->memory_op.notification=NULL;
+    task_continuation_discard(t);
     if (t->broker_completion) {
         md_fs_buffer_open_release(&t->broker_completion->opened);
         free(t->broker_completion); t->broker_completion=NULL;
@@ -427,6 +431,45 @@ void task_buffer_control(struct thread *t,const struct supervisor_control_reques
     case MD_BUFFER_PID_NUMBER:
         if (t->phase!=DISPATCHING || control->args[1]>1) break;
         result=control->args[1] ? native_pid(t,(pid_t)control->args[0]) : visible_pid(t,(pid_t)control->args[0]); break;
+    case MD_BUFFER_PROCESS_QUERY: {
+        if (t->phase!=DISPATCHING || control->args[0] || control->args[1] || !t->fs.buffer.pool) break;
+        struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
+        struct md_process_query *query=span.data;
+        const struct seccomp_data *call=&t->execution.request;
+        if (call->nr==SYS_get_robust_list) result=robust_query(t,(pid_t)call->args[0],query);
+        else if (call->nr==SYS_prctl && call->args[0]==PR_GET_CHILD_SUBREAPER
+                && md_pid_identity_number(t->resources.pid_group,md_pid_identity_namespace(t->resources.pid))==1) {
+            query->value[0]=md_pid_identity_subreaper(t->resources.pid_group); result=0;
+        }
+        break;
+    }
+    case MD_BUFFER_PROCESS_WAIT: {
+        if (t->phase!=DISPATCHING || t->process_op.wait_result!=1
+                || control->args[0] || control->args[1] || !t->fs.buffer.pool) break;
+        struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
+        union md_process_wait *waited=span.data;
+        if (t->execution.request.nr==SYS_wait4) {
+            pid_t child=(pid_t)t->process_op.result;
+            waited->status=process_reboot_status(child,waited->status);
+            t->process_op.info_native=child;
+            t->process_op.info_code=WIFEXITED(waited->status) ? CLD_EXITED
+                : WIFSIGNALED(waited->status) ? CLD_KILLED : 0;
+            result=visible_pid(t,child);
+        } else if (t->execution.request.nr==SYS_waitid) {
+            siginfo_t *info=&waited->info;
+            t->process_op.info_native=info->si_pid;
+            if (info->si_signo==SIGCHLD)
+                process_reboot_info(info->si_pid,&info->si_code,&info->si_status);
+            t->process_op.info_code=info->si_code;
+            if (info->si_signo==SIGCHLD || info->si_code==SI_USER || info->si_code==SI_TKILL) {
+                info->si_uid=process_signal_uid(t,info->si_pid,info->si_uid);
+                info->si_pid=visible_pid(t,info->si_pid);
+            }
+            result=0;
+        }
+        if (result>=0) t->process_op.wait_result=2;
+        break;
+    }
     }
     buffer_reply(t,result); adapter_progress();
 }
@@ -464,6 +507,72 @@ void process_reboot_info(pid_t pid,int *code,int *status) {
     if (signal) { *code=CLD_KILLED; *status=signal; }
 }
 
+static long process_native_result(struct thread *t,long value) {
+    long nr=t->execution.request.nr;
+    md_memory_release(t->memory_op.remote); t->memory_op.remote=NULL;
+    if (t->process_op.inspection_denied) {
+        if (value==-ESRCH) value=-EPERM;
+        t->process_op.inspection_denied=0;
+    }
+    if (value>0 && nr==SYS_getppid) t->parent=(pid_t)value;
+    if (!value && nr==SYS_prctl && t->execution.request.args[0]==PR_SET_CHILD_SUBREAPER)
+        md_pid_identity_set_subreaper(t->resources.pid_group,t->execution.request.args[1]!=0);
+    if (value>0 && (nr==SYS_getppid || nr==SYS_wait4 || nr==SYS_getpgid || nr==SYS_getsid
+            || nr==SYS_setsid || nr==SYS_set_tid_address)) {
+        pid_t native=(pid_t)value;
+        value=visible_pid(t,native);
+        if (nr==SYS_wait4) process_reap(t,native);
+    }
+    return value;
+}
+
+static int process_wait_output(struct thread *t,long value) {
+    const struct seccomp_data *call=&t->execution.request;
+    if ((value>0 && call->nr==SYS_wait4 && call->args[1] && process_reboot_signal((pid_t)value))
+            || (!value && call->nr==SYS_waitid && call->args[2])) {
+        t->process_op.result=value; t->process_op.wait_result=1;
+        return 1;
+    }
+    return 0;
+}
+
+static void process_entry_complete(struct thread *t,long value) {
+    if (t->process_op.wait_recheck) {
+        t->process_op.wait_recheck=0;
+        int decision=debugger_call(t,&t->execution.request,NULL);
+        if (decision==MD_DEBUG_CALL_HANDLED) return;
+        if (decision==MD_DEBUG_CALL_CONTEXT) { entry_context(t,MD_CONTEXT_POLICY); return; }
+        struct md_entry_native *native=&t->entry.control->native;
+        uint64_t args[6]; memcpy(args,native->args,sizeof(args));
+        entry_effect(t,native->number,args,process_entry_complete);
+        return;
+    }
+    if (t->entry.effect_cancelled
+            && (t->execution.request.nr==SYS_wait4 || t->execution.request.nr==SYS_waitid)) {
+        /* Cancellation has no child result. Rebuild the original signal
+         * boundary so attach/group stops do not leak EINTR and application
+         * handlers retain the kernel's SA_RESTART decision. */
+        entry_restart(t,RESTART_SIGNAL); return;
+    }
+    if (process_wait_output(t,value)) { entry_execution_begin(t); return; }
+    entry_complete(t,process_native_result(t,value));
+}
+
+static int process_wait_interrupt(struct thread *t) {
+    if (t->entry.effect!=process_entry_complete || !t->entry.waiting) return 0;
+    long nr=t->execution.request.nr;
+    if (nr!=SYS_wait4 && nr!=SYS_waitid) return 0;
+    int error=entry_effect_observe(t);
+    if (error==-ESRCH) { t->resume_lost=1; return 1; }
+    CHECK(!error);
+    /* An internal interrupt can introduce a debugger-owned child while the
+     * kernel wait is blocked. Re-admit only a cancelled effect; a completed
+     * wait may already have reaped its child and must never be replayed. */
+    t->process_op.wait_recheck=atomic_load_explicit(&t->entry.control->native.state,
+        memory_order_acquire)==MD_NATIVE_CANCELLED;
+    return 1;
+}
+
 int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r,unsigned long *cookie) {
     long nr=call->nr;
     if (t->phase==IDLE && robust_call(t,call,r,MD_TASK_CALL_SECCOMP)) return 1;
@@ -479,36 +588,40 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
      * UID. The baseline already observes these calls; PID views only add ID
      * translation. Internal delivery uses its validated, positive native PID. */
     if (*cookie!=MD_INTERCEPT_PROCESS && !terminal
-            && !((signaling || inspecting || nr==SYS_rt_sigtimedwait || nr==SYS_waitid)
+            && !((signaling || inspecting || nr==SYS_rt_sigtimedwait || nr==SYS_waitid
+                    || (nr==SYS_wait4 && entry_pending(t)))
                 && t->phase==IDLE && call->instruction_pointer!=RAW_GATE)) return 0;
-    if (entry_pending(t)) {
-        if (nr==SYS_getpid || nr==SYS_gettid) {
-            pid_t target=nr==SYS_getpid ? md_pid_identity_number(t->resources.pid_group,
-                md_pid_identity_namespace(t->resources.pid)) : visible_pid(t,t->pid);
-            return_value(t,r,target); return 1;
-        }
-        /* PID translation, native wait/restart and target inspection retain
-         * this owner's observed kernel entry/exit, not a second C executor. */
-        if (entry_context(t,MD_CONTEXT_PROCESS)) return 1;
+    if (t->phase==IDLE && (nr==SYS_getpid || nr==SYS_gettid)
+            && (entry_pending(t) || t->resources.pid)) {
+        const struct md_pid_identity *identity=nr==SYS_getpid ? t->resources.pid_group : t->resources.pid;
+        /* A PID selector can be installed for future children while the
+         * caller still uses native IDs and has no virtual identity. */
+        pid_t target=identity ? md_pid_identity_number(identity,md_pid_identity_namespace(t->resources.pid))
+            : nr==SYS_getpid ? t->tgid : t->pid;
+        return_value(t,r,target); return 1;
     }
     *cookie=MD_INTERCEPT_NATIVE;
     if (t->phase!=IDLE) return 0;
     if (nr==SYS_pidfd_open) {
+        struct seccomp_data translated=*call;
+        translated.args[0]=native_pid(t,(pid_t)call->args[0]);
+        if (!translated.args[0]) { return_value(t,r,-ESRCH); return 1; }
+        if (entry_pending(t)) { fd_begin(t,&translated,NULL,0); return 1; }
         struct user_pt_regs native=*r;
-        native.regs[0]=native_pid(t,(pid_t)call->args[0]);
-        if (!native.regs[0]) { return_value(t,r,-ESRCH); return 1; }
+        native.regs[0]=translated.args[0];
         if (!set_registers(t->pid,&native)) return 1;
-        fd_begin(t,&native,0); return 1;
+        fd_begin(t,&translated,&native,0); return 1;
     }
     if (nr==SYS_pidfd_send_signal) {
         execution_begin(t,call,r,"pidfd-signal-mask");
         return 1;
     }
     if (nr==SYS_rt_sigtimedwait) {
+        if (entry_context(t,MD_CONTEXT_SIGNAL)) return 1;
         /* Observed waits need PID translation and must survive service
          * quiescence without publishing its EINTR. Unselected host waits
          * remain native; both translated paths share one deadline owner. */
-        int error=signal_control_begin(t,r,0,NULL,0,NULL);
+        int error=signal_control_begin(t,call,r,0,NULL,0,NULL);
         if (error) return_value(t,r,error);
         return 1;
     }
@@ -527,16 +640,16 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
         execution_begin(t,call,r,"pid-terminal-mask");
         return 1;
     }
-    if (nr==SYS_getpid || nr==SYS_gettid) {
-        pid_t target=nr==SYS_getpid ? md_pid_identity_number(t->resources.pid_group,
-            md_pid_identity_namespace(t->resources.pid)) : visible_pid(t,t->pid);
-        return_value(t,r,target); return 1;
-    }
     if (nr==SYS_kill && (pid_t)call->args[0]<=0) {
         execution_begin(t,call,r,"pid-group-signal-mask");
         return 1;
     }
-    struct user_pt_regs native=*r;
+    /* Native waits retain their exact result through the signal-aware journal.
+     * A restricted inherited policy still needs its original-site admission. */
+    if ((nr==SYS_wait4 || nr==SYS_waitid) && entry_pending(t) && checkpoint_restricted(t->pid)) {
+        entry_context(t,MD_CONTEXT_POLICY); return 1;
+    }
+    struct seccomp_data native=*call;
     if (nr==SYS_ioprio_get || nr==SYS_ioprio_set) {
         /* User-wide selection needs guest credential enumeration; never pass
          * it through to unrelated processes sharing the Android executor UID. */
@@ -547,7 +660,7 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
             if (target) {
                 pid_t mapped=target>0 ? native_pid(t,target) : 0;
                 if (!mapped) { return_value(t,r,-ESRCH); return 1; }
-                native.regs[1]=mapped;
+                native.args[1]=mapped;
             }
         }
     }
@@ -558,13 +671,7 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
             return_value(t,r,0); return 1;
         }
         if (init && call->args[0]==PR_GET_CHILD_SUBREAPER) {
-            t->process_op.returned=*r; t->process_op.returned.regs[0]=0;
-            if (!save_signal_mask(t,&t->execution.mask,"pid-subreaper-mask")
-                    || !shield(t) || !skip(t->pid)) return 1;
-            native.pc=abi.store_groups; native.regs[0]=call->args[1]; native.regs[1]=1;
-            native.regs[3]=md_pid_identity_subreaper(t->resources.pid_group);
-            t->phase=PROCESS_VALUE_STORE;
-            if (set_registers(t->pid,&native)) resume(t->pid,0);
+            execution_begin(t,call,r,"pid-subreaper-mask");
             return 1;
         }
     }
@@ -573,7 +680,7 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
         pid_t group=native_pid(t,(pid_t)call->args[0]), target=native_pid(t,(pid_t)call->args[1]);
         struct thread *to=find_thread(target);
         if (group<=0 || target<=0 || (to && to->tgid!=group)) { return_value(t,r,-ESRCH); return 1; }
-        native.regs[0]=group;
+        native.args[0]=group;
     }
     if (nr==SYS_kill || nr==SYS_tkill || nr==SYS_tgkill
             || nr==SYS_getpgid || nr==SYS_getsid || nr==SYS_setpgid
@@ -586,7 +693,7 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
         if (target>0) {
             pid_t mapped=native_pid(t,target);
             if (!mapped) { return_value(t,r,nr==SYS_wait4 ? -ECHILD : -ESRCH); return 1; }
-            native.regs[index]=mapped;
+            native.args[index]=mapped;
             if (signaling) {
                 struct thread *to=find_thread(mapped);
                 int signal=(int)call->args[index+1];
@@ -603,53 +710,60 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
                 if (to && init_signal_suppressed(t,to,signal)) { return_value(t,r,0); return 1; }
                 if (to && to->signals.host && signal==SIGSYS) {
                     if (nr==SYS_rt_sigqueueinfo || nr==SYS_rt_tgsigqueueinfo) {
-                        int error=signal_control_begin(t,r,0,NULL,0,NULL);
-                        if (error) return_value(t,r,error);
-                    } else return_value(t,r,signal_logical_send(t,r,NULL));
+                        execution_begin(t,call,r,"signal-queue-mask");
+                    } else return_value(t,r,signal_logical_send(t,call,NULL));
                     return 1;
                 }
             }
         } else if (nr==SYS_wait4 && target<-1) {
             pid_t mapped=target==INT32_MIN ? 0 : native_pid(t,-target);
             if (!mapped) { return_value(t,r,-ECHILD); return 1; }
-            native.regs[index]=(uint64_t)-(long)mapped;
+            native.args[index]=(uint64_t)-(long)mapped;
         }
         if (nr==SYS_setpgid && (pid_t)call->args[1]>0) {
             pid_t mapped=native_pid(t,(pid_t)call->args[1]);
             if (!mapped) { return_value(t,r,-EPERM); return 1; }
-            native.regs[1]=mapped;
+            native.args[1]=mapped;
         }
         if (nr==SYS_kcmp && (pid_t)call->args[1]>0) {
             pid_t mapped=native_pid(t,(pid_t)call->args[1]);
             if (!mapped) { return_value(t,r,-ESRCH); return 1; }
-            native.regs[1]=mapped;
+            native.args[1]=mapped;
         }
     }
     if (nr==SYS_waitid && (call->args[0]==P_PID || call->args[0]==P_PGID) && (pid_t)call->args[1]>0) {
         pid_t mapped=native_pid(t,(pid_t)call->args[1]);
         if (!mapped) { return_value(t,r,-ECHILD); return 1; }
-        native.regs[1]=mapped;
+        native.args[1]=mapped;
     }
     if (nr==SYS_kcmp || nr==SYS_get_robust_list) {
         unsigned count=nr==SYS_kcmp ? 2 : 1;
-        for (unsigned i=0;i<count;++i) if ((pid_t)native.regs[i]>0
-                && !inspect_allowed(t->pid,(pid_t)native.regs[i],0)) {
+        for (unsigned i=0;i<count;++i) if ((pid_t)native.args[i]>0
+                && !inspect_allowed(t->pid,(pid_t)native.args[i],0)) {
             return_value(t,r,-EPERM); return 1;
         }
     }
     if (nr==SYS_process_vm_readv || nr==SYS_process_vm_writev) {
-        struct thread *target=find_thread((pid_t)native.regs[0]);
+        struct thread *target=find_thread((pid_t)native.args[0]);
         t->process_op.inspection_denied=target && !inspect_allowed(t->pid,target->pid,0);
         /* Let the kernel validate vectors and empty transfers before reporting
          * the access denial. An impossible PID cannot expose target memory. */
-        if (t->process_op.inspection_denied) native.regs[0]=(uint64_t)-1;
+        if (t->process_op.inspection_denied) native.args[0]=(uint64_t)-1;
         CHECK(!t->memory_op.remote);
         if (target && !t->process_op.inspection_denied) {
             t->memory_op.remote=md_memory_fork(target->memory,1); CHECK(t->memory_op.remote);
         }
     }
-    execution_capture(t,r); t->phase=PROCESS_OBSERVING;
-    if (set_registers(t->pid,&native)) resume(t->pid,0);
+    if (entry_pending(t)) {
+        t->execution.request=*call;
+        uint64_t args[6]; memcpy(args,native.args,sizeof(args));
+        entry_effect(t,native.nr,args,process_entry_complete);
+    } else {
+        execution_retain(t,call,r); t->phase=PROCESS_OBSERVING;
+        struct user_pt_regs regs=*r;
+        memcpy(regs.regs,native.args,sizeof(native.args));
+        if (set_registers(t->pid,&regs)) resume(t->pid,0);
+    }
     return 1;
 }
 
@@ -664,6 +778,11 @@ void freezer_progress(void) {
     /* Empty frozen groups may acquire newborn members without another write. */
     freezer_enabled=1;
     for (struct thread *t=threads;t;t=t->next) if (t->pid && t->born) {
+        if (md_cgroup_member_freezing(t->resources.cgroup) || t->freezer_resume)
+            SUPERVISOR_TRACE("PROBE freezer-member generation=%llu pid=%d phase=%d freezing=%d stopped=%d listening=%d held=%d boundary=%d delivery=%d memory=%d\n",
+                (unsigned long long)generation,t->pid,t->phase,md_cgroup_member_freezing(t->resources.cgroup),
+                t->kernel_stopped,t->listening,t->freezer_resume,debugger_at_boundary(t),t->signals.delivery.active,
+                memory_available(t->pid));
         if (!md_cgroup_member_freezing(t->resources.cgroup) || t->terminal_stop) {
             md_cgroup_member_frozen(t->resources.cgroup,0);
             if (t->freezer_resume) {
@@ -687,13 +806,14 @@ void freezer_progress(void) {
 }
 
 static int private_child_matches(struct private_child_selection *s,pid_t pid) {
-    long parent=md_task_parent(pid);
+    pid_t known_parent,group; int signal;
+    int known=retained_child_identity(retained_actor(pid),&known_parent,&group,&signal);
+    long parent=known ? known_parent : md_task_parent(pid);
     if (parent==-ENOENT || parent==-ESRCH) return 0;
     if (parent<0) return (int)parent;
     if (parent!=s->caller->tgid) return 0;
     if (s->group || !(s->options&__WALL)) {
-        pid_t group; int signal;
-        int error=md_task_child_class(pid,&group,&signal);
+        int error=known ? 0 : md_task_child_class(pid,&group,&signal);
         if (error==-ENOENT || error==-ESRCH) return 0;
         if (error) return error;
         if (s->group && group!=s->group) return 0;
@@ -724,20 +844,20 @@ static void private_child_retired(void *context,pid_t pid,struct md_task_retired
     private_child_candidate(context,pid);
 }
 
-int private_wait_children(pid_t pid,const struct user_pt_regs *regs,pid_t **candidates,size_t *count) {
+int private_wait_children(pid_t pid,const struct seccomp_data *call,pid_t **candidates,size_t *count) {
     *candidates=NULL; *count=0;
     if (!retained_memories) return 0;
     struct thread *t=find_thread(pid);
     CHECK(t);
-    int id=regs->regs[8]==SYS_waitid;
-    pid_t selected=(pid_t)regs->regs[id ? 1 : 0];
-    if (id && regs->regs[0]==P_PIDFD) return 0;
-    if ((id && regs->regs[0]==P_PID) || (!id && selected>0)) {
+    int id=call->nr==SYS_waitid;
+    pid_t selected=(pid_t)call->args[id ? 1 : 0];
+    if (id && call->args[0]==P_PIDFD) return 0;
+    if ((id && call->args[0]==P_PID) || (!id && selected>0)) {
         return retained_actor(native_pid(t,selected))!=NULL;
     }
     struct private_child_selection selection={.caller=t,
-        .options=(unsigned)regs->regs[id ? 3 : 2]};
-    int grouped=id ? regs->regs[0]==P_PGID : selected!=-1;
+        .options=(unsigned)call->args[id ? 3 : 2]};
+    int grouped=id ? call->args[0]==P_PGID : selected!=-1;
     if (grouped) {
         if (selected==INT32_MIN) return -ECHILD;
         selection.group=selected ? native_pid(t,id ? selected : -selected) : getpgid(pid);
@@ -777,8 +897,9 @@ static int pid_collectible(pid_t pid) {
 }
 
 static int pid_collection_waiting(const struct thread *t) {
-    return t && t->pid && (t->phase==PROCESS_OBSERVING || t->phase==PROCESS_INFO_LOAD
-        || t->phase==PROCESS_INFO_STORE || t->phase==DEBUG_WAIT_ENTRY || t->phase==DEBUG_WAIT_EXIT);
+    return t && t->pid && (t->entry.effect==process_entry_complete
+        || t->phase==PROCESS_OBSERVING || t->process_op.wait_result
+        || debugger_wait_pending(t));
 }
 
 void pid_collect(void) {
@@ -968,7 +1089,7 @@ void task_exit_event(struct thread *t,pid_t pid,unsigned event) {
     }
     struct md_svc_registry *machine=md_memory_svc(t->memory);
     if (machine) {
-        int error=md_svc_machine_retire(machine,pid,t->phase==IDLE ? NULL : &t->execution.registers);
+        int error=md_svc_machine_retire(native_trace,machine,pid,t->phase==IDLE ? NULL : &t->execution.registers);
         if (error==-ESRCH) { t->resume_lost=1; return; }
         if (error) errno=-error;
         CHECK(!error);
@@ -978,12 +1099,13 @@ void task_exit_event(struct thread *t,pid_t pid,unsigned event) {
         if (!md_svc_registry_read(pid,machine->frames+MD_SVC_POOL_SIZE,&state,sizeof(state)))
             fprintf(stderr,"SVC_RUNTIME_STATS {\"pid\":%d,\"sites\":%u,\"completed\":%llu,"
                 "\"declined\":%llu,\"unknown\":%llu,\"retiredClients\":%llu,\"revoked\":%u,"
-                "\"filteredCompleted\":%llu}\n",
+                "\"filteredCompleted\":%llu,\"nativeCompleted\":%llu}\n",
                 pid,machine->count,(unsigned long long)state.completed,
                 (unsigned long long)state.declined,(unsigned long long)state.unknown,
                 (unsigned long long)state.retired_clients,machine->disabled,
                 (unsigned long long)(machine->filter_statistics && state.completed>=machine->filter_completed_start
-                    ? state.completed-machine->filter_completed_start : 0));
+                    ? state.completed-machine->filter_completed_start : 0),
+                (unsigned long long)state.native_completed);
     }
     /* ESRCH invalidates the preceding stop, not this newly observed
      * terminal stop. Registers may be inspected here, never fabricated. */
@@ -1158,6 +1280,10 @@ void task_stop_event(struct thread *t,pid_t pid,int status,int sig) {
         CHECK(sig == SIGTRAP); t->listening = 0; group_wakes++;
         md_debugger_child_changed(debugger,pid);
     }
+    if (process_wait_interrupt(t)) {
+        if (!t->resume_lost) resume(pid,0);
+        return;
+    }
     if (interrupted_operation(t)) return;
     if (wake) { resume(pid, 0); return; }
     if (t->initial_stop && debugger_at_boundary(t) && t->entered && debugger_boundary(t)) {
@@ -1183,7 +1309,8 @@ int task_clone_exit(struct thread *t,pid_t pid) {
             t->phase=CLONE_ADMISSION;
         } else {
             CHECK(info.op==PTRACE_SYSCALL_INFO_EXIT);
-            struct user_pt_regs replay=t->execution.registers; replay.pc-=4;
+            struct user_pt_regs replay=t->execution.registers;
+            replay.pc=md_svc_registry_replay(md_memory_svc(t->memory),replay.pc);
             if (!set_registers(pid,&replay)) return 1;
         }
         resume(pid,0); return 1;
@@ -1221,40 +1348,17 @@ int task_process_exit(struct thread *t,pid_t pid) {
     if (t->phase==PROCESS_OBSERVING) {
         struct user_pt_regs regs;
         if (!registers(pid,&regs)) return 1;
-        md_memory_release(t->memory_op.remote); t->memory_op.remote=NULL;
-        long nr=t->execution.request.nr, value=(long)regs.regs[0];
-        if (t->process_op.inspection_denied) {
-            if (value==-ESRCH) regs.regs[0]=(uint64_t)-EPERM;
-            t->process_op.inspection_denied=0;
-        }
+        long value=(long)regs.regs[0];
         /* Kernel restart retains orig_x0; restore every other argument
          * before signal delivery can save the interrupted context. */
         memcpy(regs.regs+1,t->execution.registers.regs+1,7*sizeof(regs.regs[0]));
-        if (value>0 && nr==SYS_wait4 && t->execution.request.args[1] && process_reboot_signal((pid_t)value)) {
-            t->process_op.returned=regs; t->process_op.returned.regs[0]=visible_pid(t,(pid_t)value);
-            t->process_op.info_native=(pid_t)value;
-            if (!save_signal_mask(t,&t->execution.mask,"pid-wait-status-mask") || !shield(t)) return 1;
-            regs.pc=abi.load_groups; regs.regs[0]=t->execution.request.args[1]; regs.regs[1]=1;
-            t->phase=PROCESS_INFO_LOAD;
-            if (set_registers(pid,&regs)) resume(pid,0);
+        if (process_wait_output(t,value)) {
+            /* The wait effect has completed. C copies and translates its
+             * result without replaying the wait or packing siginfo in GPRs. */
+            if (save_signal_mask(t,&t->execution.mask,"pid-wait-result-mask") && shield(t)) dispatch_with_stack(t);
             return 1;
         }
-        if (!value && nr==SYS_waitid && t->execution.request.args[2]) {
-            t->process_op.returned=regs;
-            if (!save_signal_mask(t,&t->execution.mask,"pid-info-mask") || !shield(t)) return 1;
-            regs.pc=abi.load_groups; regs.regs[0]=t->execution.request.args[2]; regs.regs[1]=8;
-            t->phase=PROCESS_INFO_LOAD;
-            if (set_registers(pid,&regs)) resume(pid,0);
-            return 1;
-        }
-        if (value>0 && nr==SYS_getppid) t->parent=(pid_t)value;
-        if (!value && nr==SYS_prctl && t->execution.request.args[0]==PR_SET_CHILD_SUBREAPER)
-            md_pid_identity_set_subreaper(t->resources.pid_group,t->execution.request.args[1]!=0);
-        if (value>0 && (nr==SYS_getppid || nr==SYS_wait4 || nr==SYS_getpgid || nr==SYS_getsid
-                || nr==SYS_setsid || nr==SYS_set_tid_address)) {
-            regs.regs[0]=visible_pid(t,(pid_t)value);
-            if (nr==SYS_wait4) process_reap(t,(pid_t)value);
-        }
+        regs.regs[0]=process_native_result(t,value);
         if (!set_registers(pid,&regs)) return 1;
         if (t->debug.call_active) t->debug.adapter=1;
         t->phase=IDLE; resume(pid,0); return 1;
@@ -1262,48 +1366,30 @@ int task_process_exit(struct thread *t,pid_t pid) {
     return 0;
 }
 
-int task_checkpoint(struct thread *t,pid_t pid,uintptr_t checkpoint,struct user_pt_regs *regs) {
-    if (checkpoint==abi.loaded_groups && t->phase==PROCESS_INFO_LOAD) {
-        regs->regs[8]=regs->regs[19];
-        if (t->execution.request.nr==SYS_wait4) {
-            int status=process_reboot_status(t->process_op.info_native,(int)regs->regs[3]);
-            t->process_op.info_code=WIFEXITED(status) ? CLD_EXITED : WIFSIGNALED(status) ? CLD_KILLED : 0;
-            regs->regs[3]=(unsigned)status; regs->regs[0]=t->execution.request.args[1]; regs->regs[1]=1;
-            regs->pc=abi.store_groups; t->phase=PROCESS_INFO_STORE;
-            if (set_registers(pid,regs)) resume(pid,0);
-            return 1;
-        }
-        _Static_assert(offsetof(siginfo_t,si_pid)==16,"AArch64 siginfo PID offset");
-        int child=(int)regs->regs[3]==SIGCHLD;
-        t->process_op.info_code=(int)regs->regs[5];
-        t->process_op.info_native=(pid_t)regs->regs[7];
-        int status=(int)regs->regs[9];
-        if (child) process_reboot_info(t->process_op.info_native,&t->process_op.info_code,&status);
-        int translate=(int)regs->regs[3]==SIGCHLD || t->process_op.info_code==SI_USER || t->process_op.info_code==SI_TKILL;
-        unsigned padding=(unsigned)regs->regs[6];
-        pid_t sender=translate ? visible_pid(t,t->process_op.info_native) : t->process_op.info_native;
-        uid_t uid=translate ? process_signal_uid(t,t->process_op.info_native,(uid_t)regs->regs[8]) : regs->regs[8];
-        regs->regs[3]=(unsigned)t->process_op.info_code; regs->regs[4]=padding;
-        regs->regs[5]=(unsigned)sender; regs->regs[6]=uid; regs->regs[7]=(unsigned)status;
-        regs->regs[0]=t->execution.request.args[2]+offsetof(siginfo_t,si_code);
-        regs->regs[1]=5; regs->pc=abi.store_groups; t->phase=PROCESS_INFO_STORE;
-        if (set_registers(pid,regs)) resume(pid,0);
-        return 1;
-    }
-    if (checkpoint==abi.stored_groups && t->phase==PROCESS_INFO_STORE) {
+void task_wait_complete(struct thread *t,long result) {
+    if (!t->process_op.wait_result) return;
+    if (t->process_op.wait_result==2 && result>=0) {
         if ((t->execution.request.nr==SYS_wait4 || (t->execution.request.nr==SYS_waitid && !(t->execution.request.args[3]&WNOWAIT))) && (t->process_op.info_code==CLD_EXITED
                 || t->process_op.info_code==CLD_KILLED || t->process_op.info_code==CLD_DUMPED))
             process_reap(t,t->process_op.info_native);
-        if (!set_registers(pid,&t->process_op.returned) || !restore_mask(t)) return 1;
-        t->phase=IDLE; resume(pid,0); return 1;
     }
-    if (checkpoint==abi.stored_groups && t->phase==PROCESS_TID_STORE) {
-        if (!set_registers(pid,&t->execution.registers) || !restore_mask(t)) return 1;
-        t->phase=IDLE; resume(pid,0); return 1;
-    }
-    if (checkpoint==abi.stored_groups && t->phase==PROCESS_VALUE_STORE) {
-        if (!set_registers(pid,&t->process_op.returned) || !restore_mask(t)) return 1;
-        t->phase=IDLE; resume(pid,0); return 1;
-    }
-    return 0;
+    t->process_op.wait_result=0; t->process_op.info_code=0; t->process_op.info_native=0;
+}
+
+static void pid_store_complete(struct thread *t,int error) {
+    /* Linux ignores an inaccessible CLONE_*SETTID destination. The birth has
+     * already happened; do not turn its completed effect into a failed clone. */
+    (void)error;
+    --t->process_op.store_count; t->process_op.stores[0]=t->process_op.stores[1];
+    if (!restore_mask(t)) return;
+    resume(t->pid,0);
+}
+
+void pid_store_begin(struct thread *t) {
+    struct user_pt_regs regs;
+    if (!registers(t->pid,&regs)) return;
+    execution_capture(t,&regs);
+    if (!save_signal_mask(t,&t->execution.mask,"pid-store-mask") || !shield(t)) return;
+    transfer_begin(t,&regs,t->process_op.stores[0].address,&t->process_op.stores[0].value,
+        sizeof(pid_t),MD_TRANSFER_WRITE,pid_store_complete);
 }

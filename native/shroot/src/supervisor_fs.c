@@ -48,6 +48,7 @@
 #include "supervisor_execution.h"
 #include "supervisor_fs.h"
 #include "supervisor_internal.h"
+#include "supervisor_identity.h"
 #include "supervisor_io.h"
 #include "supervisor_memory.h"
 #include "supervisor_notifications.h"
@@ -55,6 +56,7 @@
 #include "supervisor_readiness.h"
 #include "supervisor_seccomp.h"
 #include "supervisor_task.h"
+#include "supervisor_transfer.h"
 #include "syscall_result.h"
 #include "sysv_ipc.h"
 #include "task_descriptor.h"
@@ -88,6 +90,9 @@ int buffer_release(struct thread *t) {
 }
 
 void adapter_discard(struct thread *t) {
+    transfer_discard(t);
+    entry_wait_end(t);
+    ipc_unwatch(t);
     t->process_op.clone_prepared=0;
     md_fs_anchor_release(t->process_op.clone_cgroup); t->process_op.clone_cgroup=NULL;
     md_memory_exposure_end(&t->memory_op.exposure,1);
@@ -182,22 +187,24 @@ void export_start(struct thread *t,const struct user_pt_regs *observed) {
 
 void replay(struct thread *t) {
     struct metadata_operation *op = &t->metadata;
-    /* Reenter the original SVC: kernel admission, including any newer application
-     * filter, precedes resource access, descriptor injection and output copying. */
-    struct user_pt_regs regs = op->saved; regs.pc -= 4;
+    /* Reenter kernel admission without recursively invoking a published payload.
+     * The alias retains the original policy identity and continuation. */
+    struct user_pt_regs regs = op->saved;
+    regs.pc=md_svc_registry_replay(md_memory_svc(t->memory),regs.pc);
     if (!set_registers(t->pid, &regs)) return;
     t->phase = EXPORT_ENTRY; resume(t->pid, 0);
 }
 
+static void export_path_complete(struct thread *t,int error) {
+    t->metadata.error=error;
+    replay(t);
+}
+
 static void load_path(struct thread *t) {
-    struct metadata_operation *op = &t->metadata;
-    if (op->path_size == sizeof(op->path)) op->error = -ENAMETOOLONG;
-    if (op->request.data.args[1] > UINTPTR_MAX - op->path_size) op->error = -EFAULT;
+    struct metadata_operation *op=&t->metadata;
     if (op->error) { replay(t); return; }
-    struct user_pt_regs regs = op->saved;
-    regs.pc = LOAD_BYTE; regs.regs[0] = op->request.data.args[1] + op->path_size;
-    if (!set_registers(t->pid, &regs)) return;
-    t->phase = LOADING_PATH; resume(t->pid, 0);
+    transfer_begin(t,&op->saved,op->request.data.args[1],op->path,sizeof(op->path),
+        MD_TRANSFER_STRING,export_path_complete);
 }
 
 static void export_reply(struct thread *t, long endpoint, uint64_t token) {
@@ -314,6 +321,12 @@ static void export_finish(struct thread *t) {
     if (op->request.data.nr == SYS_fstat || t->phase == PROC_OPENING) replay(t); else load_path(t);
 }
 
+static void export_store_complete(struct thread *t,int error) {
+    t->metadata.error=error;
+    t->metadata.copied=t->metadata.output_size;
+    store_next(t);
+}
+
 void store_next(struct thread *t) {
     struct metadata_operation *op = &t->metadata;
     if (op->error || op->copied == op->output_size) {
@@ -329,12 +342,8 @@ void store_next(struct thread *t) {
         release_operation(t);
         t->phase = op->previous; protected_stats++; resume(t->pid, 0); return;
     }
-    _Static_assert(sizeof(struct stat) % 16 == 0, "register output blocks");
-    struct user_pt_regs regs = op->returned;
-    regs.pc = STORE; regs.regs[0] = op->output + op->copied;
-    memcpy(&regs.regs[2], (const char *)&op->value + op->copied, 16);
-    if (!set_registers(t->pid, &regs)) return;
-    t->phase = STORING; resume(t->pid, 0);
+    transfer_begin(t,&op->returned,op->output,&op->value,op->output_size,
+        MD_TRANSFER_WRITE,export_store_complete);
 }
 
 void retained_result(struct thread *t, const struct seccomp_notif *q) {
@@ -593,7 +602,7 @@ void buffer_complete(struct md_fs_buffer_request *request, pid_t pid, int error)
     if (md_fs_buffer_open_waiting(request) || md_fs_buffer_capture_pending(request)) {
         t->entry.error=error;
         if (entry_require_stop(t,md_fs_buffer_open_waiting(request) ? MD_CONTEXT_WAIT : MD_CONTEXT_DESCRIPTOR,
-                buffer_complete_stopped)) return;
+                0,buffer_complete_stopped)) return;
     }
     if (md_fs_buffer_open_waiting(request)) {
         if (md_fs_buffer_open_ready(request)) {
@@ -657,6 +666,7 @@ void buffer_complete(struct md_fs_buffer_request *request, pid_t pid, int error)
 }
 
 int buffer_cleanup(struct thread *t) {
+    identity_discard(t);
     if (t->execution.request.nr==SYS_ioctl) control_input_discard(t);
     control_publication_finish(t,-ECANCELED);
     md_fs_anchor_release(t->process_op.clone_cgroup); t->process_op.clone_cgroup=NULL;
@@ -705,6 +715,8 @@ void buffer_take(struct thread *t) {
     if (!error && start) { proc_io_begin(t); return; }
     if (!error && query) {
         if (t->fs.request.command==MD_BUFFER_UTS) domain_buffer_control(t,&t->fs.request);
+        else if (t->fs.request.command==MD_BUFFER_PROCESS_QUERY) task_buffer_control(t,&t->fs.request);
+        else if (t->fs.request.command==MD_BUFFER_CONTROL_IOCTL_LAYOUT) descriptors_buffer_control(t,&t->fs.request);
         else io_buffer_control(t,&t->fs.request,NULL);
         return;
     }
@@ -735,7 +747,7 @@ void buffer_return_progress(struct thread *t) {
 }
 
 static void buffer_finish_control(struct thread *t) {
-    if (!t->entry.execution && entry_require_stop(t,MD_CONTEXT_PROCESS,buffer_finish_control)) return;
+    if (!t->entry.execution && entry_require_stop(t,MD_CONTEXT_PROCESS,0,buffer_finish_control)) return;
     long result=buffer_result_finish(t,(long)t->fs.request.args[0],(long)t->fs.request.args[1]);
     /* A resident adapter still owns its C frame. Return to it; END retires the
      * syscall. Only a Base adapter can bypass its frame at a terminal checkpoint. */
@@ -1115,18 +1127,9 @@ int fs_export_exit(struct thread *t,pid_t pid) {
     return 0;
 }
 
-int fs_checkpoint(struct thread *t,uintptr_t checkpoint,struct user_pt_regs *regs) {
+int fs_checkpoint(struct thread *t,uintptr_t checkpoint) {
     if (checkpoint == EXPORTED && (t->phase == EXPORTING || t->phase == PROC_OPENING)) {
         export_finish(t); return 1;
-    }
-    if (checkpoint == LOADED_BYTE && t->phase == LOADING_PATH) {
-        struct metadata_operation *op = &t->metadata;
-        op->path[op->path_size++] = (char)regs->regs[2];
-        if (regs->regs[2]) load_path(t); else replay(t);
-        return 1;
-    }
-    if (checkpoint == STORED && t->phase == STORING) {
-        t->metadata.copied += 16; store_next(t); return 1;
     }
     return 0;
 }

@@ -14,6 +14,7 @@
 #include "task_copy.h"
 #include "interception.h"
 #include "guest_debugger.h"
+#include "supervisor_request.h"
 #include "trace_memory.h"
 #include <asm/ptrace.h>
 #include <assert.h>
@@ -152,14 +153,15 @@ static int debug_allowed(pid_t a, pid_t b) { (void)a; (void)b; return 1; }
 static int debug_observe(pid_t pid) { (void)pid; return 0; }
 static int debug_options(pid_t pid, unsigned long options) { (void)pid; (void)options; return 0; }
 static void debug_usage(pid_t pid, struct rusage *usage) { (void)pid; *usage = (struct rusage){0}; }
-static void debug_complete(pid_t pid, struct user_pt_regs *r, long result) { (void)pid; r->regs[0] = result; }
+static long debug_result;
+static void debug_complete(pid_t pid,long result) { (void)pid; debug_result=result; }
 static unsigned debug_resumed;
 static void debug_resume(pid_t pid,int signal,const struct md_signal_origin *origin) {
     (void)pid; assert(!signal && (!origin || !origin->valid)); ++debug_resumed;
 }
 static long debug_call(struct md_debugger *d, unsigned op, pid_t target, uintptr_t address, uintptr_t data) {
     struct user_pt_regs r = {.regs = {op, target, address, data}}; r.regs[8] = SYS_ptrace;
-    assert(md_debugger_call(d, getpid(), &r)); return r.regs[0];
+    assert(md_debugger_call(d,getpid(),syscall_description(&r))); return debug_result;
 }
 static long debug_request(struct md_debugger *d, unsigned op, pid_t target, uintptr_t address, void *data) {
     if (d) return debug_call(d, op, target, address, (uintptr_t)data);
@@ -171,7 +173,7 @@ static void debug_inspect(struct md_debugger *d, pid_t pid, struct user_pt_regs 
         int status = 0;
         struct user_pt_regs wait = {.regs = {pid, (uintptr_t)&status, WNOHANG | __WALL}};
         wait.regs[8] = SYS_wait4;
-        assert(md_debugger_call(d, getpid(), &wait) && wait.regs[0] == (unsigned)pid);
+        assert(md_debugger_call(d,getpid(),syscall_description(&wait)) && debug_result == pid);
         assert((unsigned)status >> 16 == PTRACE_EVENT_SECCOMP && WSTOPSIG(status) == SIGTRAP);
     }
     unsigned long message = 0;
@@ -541,7 +543,7 @@ static int supervise(pid_t leader) {
     }
     if (traced && trace_scenario()) {
         debug_owner = &owner;
-        const struct md_debugger_host host = {.seccomp_events = 1, .signal_mask = debug_mask,
+        const struct md_debugger_host host = {.trace = native_trace, .seccomp_events = 1, .signal_mask = debug_mask,
             .parent = debug_parent, .group = debug_group, .uid = debug_uid,
             .allowed = debug_allowed, .traceme = debug_allowed, .attachable = debug_allowed, .observe = debug_observe,
             .options = debug_options, .usage = debug_usage, .complete = debug_complete, .resume = debug_resume};

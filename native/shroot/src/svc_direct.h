@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <asm/ptrace.h>
+#include "cooperative_native.h"
 
 /* SVC-only entry. A reversible guard establishes the full x8
  * value before borrowing it. All non-completions reach miss with original
@@ -19,7 +20,9 @@ struct md_svc_direct_context {
     uintptr_t svc,gate,frames;
     uint64_t number;
     unsigned checkpoint_number;
+    uintptr_t checkpoint;
 };
+extern const unsigned char md_svc_signal_checkpoint[];
 typedef int (*md_svc_direct_memory)(void *,uintptr_t,void *,size_t,int write);
 /* Optional signal rendezvous after the dispatcher returns. No private TRAP. */
 #define MD_SVC_DIRECT_PENDING 392
@@ -31,5 +34,14 @@ uintptr_t md_svc_direct_checkpoint(const struct md_svc_direct_context *);
  * negative errno on failed reconstruction. Completed kernel checkpoint:
  * caller first skips its syscall, then publishes the recovered registers. */
 int md_svc_direct_recover(const struct md_svc_direct_context *,struct user_pt_regs *,
+    md_svc_direct_memory,void *);
+/* A terminal native call has no remaining adapter ownership. Recover it only
+ * for an actual delivery, preserving the kernel's pending restart decision. */
+enum { MD_SVC_NATIVE_RESTART=3 };
+int md_svc_direct_native_recover(const struct md_svc_direct_context *,const struct md_native_gate *,
+    struct user_pt_regs *,md_svc_direct_memory,void *);
+/* Explicit terminal handoff: the execution owner has retired all C effects.
+ * Restore the original call from its claimed frame and release that frame. */
+int md_svc_direct_unwind(const struct md_svc_direct_context *,struct user_pt_regs *,
     md_svc_direct_memory,void *);
 #endif

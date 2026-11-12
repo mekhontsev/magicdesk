@@ -60,6 +60,18 @@ def main():
             guest.append('--diagnostics')
         if args.section in ('all', 'entry'):
             suite.command([suite.base + '/planner'])
+            for mode in ('0', '1'):
+                for policy in ([], ['filtered']):
+                    output = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY='+mode,
+                        '--statistics', '--', '/bin/mapping', 'debugger-rearm',
+                        'patched' if mode == '1' else 'original', *policy], quiet=True, timeout=60)
+                    assert 'PASS SVC debugger rearm:' in output, output
+            for mode in ('0', '1'):
+                for policy in ([], ['filtered']):
+                    output = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY='+mode,
+                        '--statistics', '--', '/bin/mapping', 'distant-sites',
+                        'patched' if mode == '1' else 'original', *policy], quiet=True, timeout=90)
+                    assert 'PASS SVC distant sites:' in output, output
             for command in ([root + '/bin/mapping'],
                             [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/mapping'],
                             [*guest, '--statistics', '--diagnostics', '--', '/bin/mapping']):
@@ -78,7 +90,13 @@ def main():
                         assert int(counts[2]) >= 32, output
                         completed = sum(item['completed'] for item in records(output, 'SVC_RUNTIME_STATS '))
                         assert completed >= 160 + (64 if policy else 0), output
-                        assert re.search(r'MD_EXECUTION_LOCAL_CONTEXT reason=memory calls=[1-9]', output), output
+                        # Ordinary mapping effects retain their memory owner,
+                        # not an original-register replay. The fixture replaces
+                        # a tracked file view and then protects/remaps/unmaps it.
+                        assert not re.search(r'MD_EXECUTION_CONTEXT reason=memory calls=[1-9]', output), output
+                        assert not re.search(r'MD_EXECUTION_CONTEXT reason=descriptor calls=[1-9]', output), output
+                        assert not re.search(r'MD_EXECUTION_CONTEXT reason=wait calls=[1-9]', output), output
+                        assert re.search(r'nativeEffects=[1-9]', output), output
                         local_native = re.search(r'MD_EXECUTION_LOCAL_NATIVE calls=(\d+)', output)
                         assert local_native and (policy or int(local_native[1]) >= 64), output
             rejected = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY=invalid',
@@ -90,9 +108,19 @@ def main():
             assert not records(base_output, 'SVC_RUNTIME_STATS ')
             assert re.search(r'cooperativeCompleted=0\b', base_output), base_output
             for mode in ('0', '1'):
-                output = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY='+mode,
-                                        '--statistics', '--', '/bin/mapping', 'task-signals'], quiet=True, timeout=120)
-                assert 'PASS SVC task signals:' in output
+                for case in ('task-signals', 'task-signals-exec'):
+                    output = suite.command([*guest, '--env', 'SHROOT_MACHINE_ENTRY='+mode,
+                                            '--statistics', '--', '/bin/mapping', case], quiet=True, timeout=120)
+                    assert 'PASS SVC task signals:' in output
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                patched = '--statistics' in command
+                output = suite.command([*command, 'native-waits', 'patched' if patched else 'original'],
+                                       quiet=True, timeout=60)
+                assert 'PASS SVC native waits:' in output
+                if patched:
+                    assert max(row['nativeCompleted'] for row in records(output, 'SVC_RUNTIME_STATS ')) >= 1024, output
             for command in ([root + '/bin/fault'], [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/fault'],
                             [*guest, '--', '/bin/fault']):
                 output = suite.command(command, quiet=True)
@@ -113,6 +141,30 @@ def main():
                         assert max(row[counter] for row in records(output, 'SVC_RUNTIME_STATS ')) >= minimum, output
             print('Integrated channel expansion PASS', flush=True)
         if args.section in ('all', 'filters'):
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                patched = '--statistics' in command
+                output = suite.command([*command, 'filter-exec-waits', 'patched' if patched else 'original'],
+                                       quiet=True, timeout=60)
+                assert 'PASS SVC native waits:' in output
+                if patched:
+                    assert not re.search(r'MD_EXECUTION_CONTEXT reason=wait calls=[1-9]', output), output
+                    # Two actual filter installations need kernel validation;
+                    # none of the repeated IO may add a policy fallback.
+                    policy = re.search(r'MD_EXECUTION_CONTEXT reason=policy calls=(\d+)', output)
+                    assert not policy or int(policy[1]) <= 2, output
+                    assert max(row['nativeCompleted'] for row in records(output, 'SVC_RUNTIME_STATS ')) >= 1024, output
+            print('Integrated inherited native waits PASS', flush=True)
+            for command in ([root + '/bin/mapping'],
+                            [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/mapping'],
+                            [*guest, '--statistics', '--', '/bin/mapping']):
+                patched = '--statistics' in command
+                output = suite.command([*command, 'native-wait-fence', 'patched' if patched else 'original'],
+                                       quiet=True, timeout=60)
+                assert 'PASS SVC native wait fence:' in output
+                if patched:
+                    assert max(row['nativeCompleted'] for row in records(output, 'SVC_RUNTIME_STATS ')) >= 2, output
             for command in ([root + '/bin/mapping'],
                             [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping'],
                             [*guest, '--statistics', '--', '/bin/mapping']):

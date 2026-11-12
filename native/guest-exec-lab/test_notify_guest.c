@@ -11,8 +11,38 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/uio.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+static volatile sig_atomic_t interrupted;
+static void interrupt_receive(int signal) { (void)signal; interrupted=1; }
+static void device_receive(int monitor) {
+    char data[128];
+    struct sockaddr_nl from;
+    socklen_t size=sizeof(from);
+    struct iovec input={data,sizeof(data)};
+    struct msghdr message={.msg_iov=&input,.msg_iovlen=1,.msg_name=&from,.msg_namelen=sizeof(from)};
+    assert(recv(monitor,data,sizeof(data),MSG_DONTWAIT)==-1 && errno==EAGAIN);
+    assert(recvfrom(monitor,data,sizeof(data),MSG_DONTWAIT,(void *)&from,&size)==-1 && errno==EAGAIN);
+    assert(recvmsg(monitor,&message,MSG_DONTWAIT)==-1 && errno==EAGAIN);
+    assert(read(monitor,data,sizeof(data))==-1 && errno==EAGAIN);
+    assert(readv(monitor,&input,1)==-1 && errno==EAGAIN);
+    assert(!fcntl(monitor,F_SETFL,fcntl(monitor,F_GETFL)&~O_NONBLOCK));
+    struct sigaction action={.sa_handler=interrupt_receive},previous;
+    sigemptyset(&action.sa_mask);
+    assert(!sigaction(SIGALRM,&action,&previous));
+    /* EVENT_WAIT: recurring signals interrupt the actual blocking receive;
+     * the service deadline fails a lost wake, without a startup timing race. */
+    const struct itimerval timer={.it_value.tv_usec=50000,.it_interval.tv_usec=50000};
+    assert(!setitimer(ITIMER_REAL,&timer,NULL));
+    assert(recvmsg(monitor,&message,0)==-1 && errno==EINTR);
+    assert(interrupted);
+    assert(!setitimer(ITIMER_REAL,&(struct itimerval){0},NULL));
+    assert(!sigaction(SIGALRM,&previous,NULL));
+    puts("PASS device events: native receive variants, empty queue and interrupted blocking wait");
+}
 
 int main(int argc,char **argv) {
     assert(argc==2 && !chdir(argv[1]));
@@ -26,7 +56,7 @@ int main(int argc,char **argv) {
         && events.nl_family==AF_NETLINK && events.nl_groups==2 && events.nl_pid);
     int protocol=0; socklen_t protocol_size=sizeof(protocol);
     assert(!getsockopt(monitor,SOL_SOCKET,SO_PROTOCOL,&protocol,&protocol_size) && protocol==NETLINK_KOBJECT_UEVENT);
-    char event[128]; assert(recv(monitor,event,sizeof(event),MSG_DONTWAIT)<0 && errno==EAGAIN); close(monitor);
+    device_receive(monitor); close(monitor);
     const char *address=getenv("NOTIFY_SOCKET");
     struct sockaddr_un to={.sun_family=AF_UNIX},from={.sun_family=AF_UNIX};
     assert(address && strlen(address)<sizeof(to.sun_path));

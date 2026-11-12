@@ -60,14 +60,11 @@ extern char md_guest_ready_checkpoint[],md_guest_done_checkpoint[],md_guest_expo
 extern char md_guest_fd_control_checkpoint[],md_guest_buffer_control_checkpoint[],md_guest_task_control_checkpoint[];
 extern char md_guest_exported_checkpoint[],md_enter_checkpoint[];
 extern void md_guest_dispatch_entry(void);
-extern void md_guest_exported(void), md_guest_store(void), md_guest_stored(void);
-extern void md_guest_load_byte(void), md_guest_loaded_byte(void);
-extern void md_guest_store_ids(void), md_guest_stored_ids(void);
-extern void md_guest_load_groups(void), md_guest_loaded_groups(void);
-extern void md_guest_store_groups(void), md_guest_stored_groups(void);
+extern void md_guest_exported(void);
+#include "guest_transfer.h"
 extern char md_guest_copy_begin[], md_guest_copy_end[];
 extern char md_guest_watch_gate[], md_guest_watch_return[];
-extern char md_socket_native_return[];
+extern char md_guest_native_return[];
 extern char md_guest_ipc_wait[];
 extern struct md_fd_observation md_guest_fd_control(unsigned, uint64_t, long, long);
 extern char md_guest_anchor_return[];
@@ -78,14 +75,9 @@ extern char md_guest_task_collect[], md_guest_task_collected[];
 extern char md_guest_task_completed[], md_guest_watch_completed[];
 extern char md_guest_compare_exchange[], md_guest_exchanged[];
 extern char md_guest_buffer_admitted[];
-long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned long a2,
-        unsigned long a3, unsigned long a4, unsigned long a5, unsigned scoped,unsigned long prepared) {
-    const struct md_guest_execution call={.number=nr,.args={a0,a1,a2,a3,a4,a5},
-        .policy=scoped&0xffffU,.control=md_dispatch_control_kind(scoped),.prepared=prepared};
-    return md_guest_execute(&call);
-}
 #include "cooperative_native.h"
 #include "svc_runtime.h"
+#include "svc_direct.h"
 #include "task_checkpoint.h"
 extern char __executable_start[],_etext[];
 extern char md_guest_signal_entry[],md_guest_signal_entry_committed[],md_guest_signal_entry_end[];
@@ -95,6 +87,7 @@ static struct md_interception_abi abi = {
     .signal_entry_committed=(uintptr_t)md_guest_signal_entry_committed,
     .signal_entry_end=(uintptr_t)md_guest_signal_entry_end,
     .svc_runtime=(uintptr_t)&md_svc_runtime,
+    .svc_return=(uintptr_t)md_svc_signal_checkpoint,
     .cooperative_registration=(uintptr_t)&md_cooperative_registration,
     .native_begin=(uintptr_t)md_cooperative_native,
     .native_call=(uintptr_t)md_cooperative_native_call,
@@ -121,17 +114,13 @@ static struct md_interception_abi abi = {
     .dispatch = (uintptr_t)md_guest_dispatch_entry, .export_fd = (uintptr_t)md_guest_export,
     .exported = (uintptr_t)md_guest_exported_checkpoint, .export_control = (uintptr_t)md_guest_export_control_checkpoint,
     .proc_open=(uintptr_t)md_guest_open_proc_fds, .proc_open_path=(uintptr_t)proc_fds_path,
-    .store = (uintptr_t)md_guest_store, .stored = (uintptr_t)md_guest_stored,
-    .load_byte = (uintptr_t)md_guest_load_byte, .loaded_byte = (uintptr_t)md_guest_loaded_byte,
-    .store_ids = (uintptr_t)md_guest_store_ids, .stored_ids = (uintptr_t)md_guest_stored_ids,
+    .transfer = (uintptr_t)md_guest_transfer,
     .raw_gate = (uintptr_t)md_raw_return,
-    .socket_return=(uintptr_t)md_socket_native_return,
+    .adapter_native_return=(uintptr_t)md_guest_native_return,
     .copy_begin = (uintptr_t)md_guest_copy_begin, .copy_end = (uintptr_t)md_guest_copy_end,
     .watch_gate = (uintptr_t)md_guest_watch_gate,
     .watch_return = (uintptr_t)md_guest_watch_return,
     .watch_completed = (uintptr_t)md_guest_watch_completed,
-    .load_groups = (uintptr_t)md_guest_load_groups, .loaded_groups = (uintptr_t)md_guest_loaded_groups,
-    .store_groups = (uintptr_t)md_guest_store_groups, .stored_groups = (uintptr_t)md_guest_stored_groups,
     .enter = (uintptr_t)md_enter_checkpoint
 };
 

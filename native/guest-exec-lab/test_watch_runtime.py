@@ -84,8 +84,9 @@ def main():
                 + directory + "/rootfs " + directory + "/store --preserve-ownership")
         output = command("timeout 60 " + runner + " --statistics --store "
                 + directory + "/store --home /tmp --cwd / -- /bin/watch /tmp/test")
-        reads = re.search(r"MD_SYSCALL nr=63 trace=(\d+)", output)
-        assert reads and int(reads[1]) < 1000, "Ordinary reads acquired a process-wide interception path"
+        assert "MD_SUPERVISOR " in output, "Supervisor statistics are missing"
+        reads = sum(map(int, re.findall(r"MD_SYSCALL nr=63 trace=(\d+)", output)))
+        assert reads < 1000, "Ordinary reads acquired a process-wide interception path"
         command("timeout 60 " + runner + " --store "
                 + directory + "/store -- /bin/watch protected /tmp/protected")
         command("timeout 60 " + runner + " --store "

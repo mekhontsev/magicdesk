@@ -10,13 +10,14 @@ static inline int md_fd_control_scalar(unsigned long command) {
     return command==MD_FD_KIND || command==MD_FD_SELECTORS
         || command==MD_FD_SELECTOR_QUERY || command==MD_FD_SENT
         || command==MD_FD_RECEIVED || command==MD_FD_END
-        || command==MD_FD_RELEASE || command==MD_FD_PAIR_END;
+        || command==MD_FD_RELEASE || command==MD_FD_PAIR_END || command==MD_FD_DUPLICATE_END;
 }
 /* Ordered reservations can wait, but neither inject native effects nor borrow
  * application registers. Their replies use the same owner as scalar queries. */
 static inline int md_fd_control_shared(unsigned long command) {
     return md_fd_control_scalar(command) || command==MD_FD_INPUT
-        || command==MD_FD_RECEIVE || command==MD_FD_USE || command==MD_FD_PAIR_BEGIN;
+        || command==MD_FD_RECEIVE || command==MD_FD_USE || command==MD_FD_PAIR_BEGIN
+        || command==MD_FD_DUPLICATE_BEGIN;
 }
 /* USE/RELEASE bracket short task-affine native descriptor operations only.
  * They allocate no exchange and must not cover blocking reads or rendezvous. */

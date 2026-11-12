@@ -8,9 +8,11 @@
 #include "seccomp_program.h"
 #include "svc_runtime.h"
 #include "svc_payload.h"
+#include "svc_direct.h"
 #include "fs_buffer.h"
 #include "fd_client.h"
 #include "resource_control.h"
+#include "descriptor_calls.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
@@ -42,11 +44,18 @@ static enum md_entry_outcome kernel_call(struct md_entry_call *call) {
     if (!call->kernel) call->kernel=md_guest_entry_kernel;
     return MD_ENTRY_KERNEL_CALL;
 }
+static void native_effect(void *);
 static enum md_entry_outcome admitted_kernel_call(const struct md_entry_channel *c,struct md_entry_call *call) {
-    if ((atomic_load_explicit(&c->routes.flags,memory_order_acquire)&MD_ROUTE_ADMITTED_KERNEL)
-            && md_execution_context_needed(call->number,call->args,MD_INTERCEPT_NATIVE)==MD_CONTEXT_COUNT) {
-        call->result=md_guest_entry_kernel(call->number,call->args);
-        return MD_ENTRY_COMPLETED;
+    if (atomic_load_explicit(&c->routes.flags,memory_order_acquire)&MD_ROUTE_ADMITTED_KERNEL) {
+        enum md_execution_context context=md_execution_native_context(call->number,call->args);
+        if (context==MD_CONTEXT_WAIT) {
+            call->effect=native_effect;
+            return MD_ENTRY_NATIVE_CALL;
+        }
+        if (context==MD_CONTEXT_COUNT) {
+            call->result=md_guest_entry_kernel(call->number,call->args);
+            return MD_ENTRY_COMPLETED;
+        }
     }
     return kernel_call(call);
 }
@@ -72,6 +81,7 @@ enum { CALL_NATIVE=1, CALL_DESCRIPTOR=2, CALL_NATIVE_SENT=4, CALL_KIND_SHIFT=3,
 static enum md_entry_outcome progress(struct md_entry_client *,struct md_entry_call *);
 static enum md_entry_outcome publish(struct md_entry_client *,struct md_entry_call *);
 static enum md_entry_outcome task_execute(struct md_entry_client *,struct md_entry_call *);
+extern long md_guest_buffer_control_kernel(unsigned,unsigned long,unsigned long);
 static struct md_entry_channel *continuation(struct md_entry_client *client,struct md_entry_call *call) {
     struct md_entry_channel *c=(void *)call->continuation[CONT_CHANNEL];
     return c && (uintptr_t)c==client->opaque[MD_ENTRY_CLIENT_CHANNEL]
@@ -131,7 +141,29 @@ static enum md_entry_outcome resume_native(struct md_entry_client *client,struct
     if (!atomic_load_explicit(&c->awake,memory_order_seq_cst)) md_guest_buffer_admit(MD_ENTRY_WAKE);
     return progress(client,call);
 }
-static void native_effect(void *context) { md_cooperative_native(context); }
+static void native_effect(void *context) {
+    struct md_entry_native *native=context,*frame_native=NULL;
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    uintptr_t frames=md_svc_runtime.frames;
+    if (frames && sp>frames && sp<=frames+MD_SVC_POOL_SIZE
+            && md_execution_native_context(native->number,native->args)==MD_CONTEXT_WAIT) {
+        uintptr_t frame=(sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
+        frame_native=(void *)(frame+MD_SVC_NATIVE_OFFSET);
+        if (frame_native==native) frame_native=NULL;
+        else {
+            /* The admitted operation may outlive a policy fence, but a signal
+             * must finish its control owner before abandoning the private stack. */
+            atomic_store_explicit(&frame_native->state,MD_NATIVE_OWNED,memory_order_release);
+            if (__atomic_load_n((uint64_t *)(frame+MD_SVC_DIRECT_PENDING),__ATOMIC_ACQUIRE)) {
+                native->result=-EINTR;
+                atomic_store_explicit(&native->state,MD_NATIVE_CANCELLED,memory_order_release);
+            }
+        }
+    }
+    md_cooperative_native(native);
+    if (frame_native) atomic_store_explicit(&frame_native->state,MD_NATIVE_EMPTY,memory_order_release);
+}
 enum { POLICY_FALLBACK, POLICY_ALLOW, POLICY_RESULT };
 static int admit(const struct md_entry_channel *c,long number,const uint64_t *args,
         uintptr_t pc,int64_t *result) {
@@ -184,6 +216,7 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
      * across C execution. Ordinary API clients retain their kernel context. */
     int task_execution=tid>0 && task_route;
     call->next=NULL;
+    call->return_checkpoint=0;
     uintptr_t control=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
     if (control&MD_ENTRY_CLIENT_BUSY) return MD_ENTRY_DECLINED;
     call->continuation[CONT_CONTROL]=control;
@@ -234,15 +267,6 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
             return finish(client,call,MD_ENTRY_COMPLETED);
         }
     }
-    enum md_execution_context context=MD_CONTEXT_COUNT;
-    if (task_execution && route!=MD_ENTRY_READINESS) {
-        /* An unconditional caller-frame requirement already determines the
-         * continuation. Keep policy admission, but do not interpret our own
-         * routing programs just to reach that same context again. */
-        context=md_execution_context_needed(call->number,call->args,MD_INTERCEPT_DISPATCH);
-        if (context!=MD_CONTEXT_COUNT) goto context_required;
-    }
-    unsigned interception=MD_INTERCEPT_DISPATCH;
     if (task_route) {
         /* Guest policy was evaluated above at the original SVC. Local routing
          * then avoids a supervisor round trip for ordinary native operations
@@ -260,7 +284,6 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
             call->result=md_seccomp_policy_error(decision);
             return finish(client,call,MD_ENTRY_COMPLETED);
         }
-        if ((decision&SECCOMP_RET_ACTION_FULL)==SECCOMP_RET_TRACE) interception=decision&SECCOMP_RET_DATA;
     }
     int probe=0,immediate=0;
     if (c && route==MD_ENTRY_READINESS && tid>0 && !call->args[4]) {
@@ -307,6 +330,16 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
                     call->result=request.result; return result;
                 }
                 if (result==MD_ENTRY_UNKNOWN) return result;
+                if (result==MD_ENTRY_COMPLETED && task_execution) {
+                    /* The zero-time probe has retired its request. Continue
+                     * the original admitted wait through its owner, not Base. */
+                    uintptr_t previous=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],
+                        MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
+                    if (previous&MD_ENTRY_CLIENT_BUSY) return kernel_call(call);
+                    call->continuation[CONT_CONTROL]=previous;
+                    call->continuation[CONT_CHANNEL]=0;
+                    goto classified;
+                }
                 return kernel_call(call);
             }
             atomic_store_explicit(&c->caller,0,memory_order_release);
@@ -318,11 +351,8 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
             return finish(client,call,MD_ENTRY_COMPLETED);
         }
     }
+classified:
     if (task_route && !task_execution) goto kernel;
-    if (task_execution) {
-        context=md_execution_context_needed(call->number,call->args,interception);
-        if (context!=MD_CONTEXT_COUNT) goto context_required;
-    }
     if (!atomic_load_explicit(&c->enabled,memory_order_acquire)) goto kernel;
     /* Different entry adapters in one thread share the channel. The client
      * guard alone cannot exclude a signal handler using another adapter. */
@@ -334,8 +364,11 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
     if (!atomic_load_explicit(&c->enabled,memory_order_acquire)
             || (available!=MD_ENTRY_IDLE && available!=MD_ENTRY_RETIRING)
             || c->sequence==UINT64_MAX) goto done;
-    if (tid>0 && (call->number==SYS_lseek || call->number==SYS_fcntl)
-            && (int)call->args[0]>=0 && md_entry_regular_descriptor(c)==(int)call->args[0]) {
+    if (tid>0 && (call->number==SYS_lseek || call->number==SYS_fcntl || call->number==SYS_ioctl)
+            && (int)call->args[0]>=0 && md_entry_view_descriptor(c)==(int)call->args[0]
+            && (md_fd_view_query(call->number,call->args,c->descriptor.kind)
+                || (call->number==SYS_fcntl && (unsigned)call->args[1]==F_SETFD
+                    && (call->args[2]&FD_CLOEXEC)==c->descriptor.flags))) {
         /* The kernel still owns the shared OFD offset and validates whence.
          * No cached result or predicted next operation is involved. */
         if (call->number==SYS_lseek) {
@@ -343,14 +376,20 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
             return finish(client,call,MD_ENTRY_COMPLETED);
         }
         unsigned command=(unsigned)call->args[1];
-        if (command==F_GETFD || (command==F_SETFD && (call->args[2]&FD_CLOEXEC)==c->native_flags)) {
-            call->result=command==F_GETFD ? c->native_flags : 0;
+        if (call->number==SYS_fcntl && (command==F_GETFD || command==F_SETFD)) {
+            call->result=command==F_GETFD ? c->descriptor.flags : 0;
             return finish(client,call,MD_ENTRY_COMPLETED);
         }
-        if (command==F_GETFL) {
-            call->result=RAW3(fcntl,call->args[0],command,call->args[2]);
-            return finish(client,call,MD_ENTRY_COMPLETED);
-        }
+        if (call->number==SYS_ioctl) {
+            /* Reuse the admitted native-effect gate, not the generic raw gate
+             * whose ioctl continuation requires a stop. Keep the query journal
+             * private: the channel may still be retiring the preceding open. */
+            struct md_entry_native query={.state=MD_NATIVE_READY,.number=(int)call->number,.result=-EINTR};
+            memcpy(query.args,call->args,sizeof(query.args));
+            md_cooperative_native(&query);
+            call->result=query.result;
+        } else call->result=RAW3(fcntl,call->args[0],command,call->args[2]);
+        return finish(client,call,MD_ENTRY_COMPLETED);
     }
     int native_fd=md_entry_native_fd(call->number,call->args);
     if (task_execution && !native_fd) {
@@ -372,8 +411,6 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
 done:
     call->continuation[CONT_CONTROL]=control;
     return finish(client,call,outcome);
-context_required:
-    if (c->route_statistics) atomic_fetch_add_explicit(&c->local_contexts[context],1,memory_order_relaxed);
 kernel:
     /* Without policy admission only a caller-owned application site is safe.
      * The runtime fallback cannot stand in for an unknown original PC. */
@@ -388,7 +425,7 @@ static enum md_entry_outcome invoke(struct md_entry_client *client,struct md_ent
 static enum md_entry_outcome publish(struct md_entry_client *client,struct md_entry_call *call) {
     struct md_entry_channel *c=continuation(client,call);
     if (!c) return finish(client,call,MD_ENTRY_UNKNOWN);
-    atomic_store_explicit(&c->native_regular,0,memory_order_release);
+    md_fd_view_revoke(&c->descriptor);
     unsigned flags=(unsigned)call->continuation[CONT_FLAGS];
     int native=!!(flags&CALL_NATIVE),descriptor=!!(flags&CALL_DESCRIPTOR);
     unsigned kind=flags>>CALL_KIND_SHIFT;
@@ -419,12 +456,30 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
     long descriptor_result=call->result;
     enum md_entry_outcome outcome=MD_ENTRY_UNKNOWN;
     unsigned budget=0, parked=0, checks=0, native_sent=!!(flags&CALL_NATIVE_SENT);
+    struct md_entry_native *wait_frame=NULL;
     /* The native plan and its publication are independent waits. A slow
      * creation must not disable bounded spinning for short metadata replies. */
     enum md_entry_wait kind=md_entry_wait_kind(call->number,native_sent);
     struct md_spin_policy policy=c->feedback[kind];
     for (;;) {
         unsigned state=atomic_load_explicit(&c->state,memory_order_acquire);
+        if (state!=MD_ENTRY_PARKED && wait_frame) {
+            atomic_store_explicit(&wait_frame->state,MD_NATIVE_EMPTY,memory_order_release);
+            wait_frame=NULL;
+        }
+        if (state==MD_ENTRY_PARKED && !wait_frame) {
+            uintptr_t sp;
+            __asm__ volatile("mov %0, sp" : "=r"(sp));
+            if (md_svc_frame_client(md_svc_runtime.frames,sp)==client) {
+                uintptr_t frame=(sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
+                wait_frame=(void *)(frame+MD_SVC_NATIVE_OFFSET);
+                /* The owner has admitted the operation and released its turns.
+                 * A policy fence may cross this wait, but signals must still
+                 * finish the owner before abandoning the resident stack. */
+                atomic_store_explicit(&wait_frame->state,MD_NATIVE_OWNED,memory_order_release);
+            }
+            parked=1;
+        }
         if (state==MD_ENTRY_NATIVE && !native_sent) {
             /* Receiving the offered effect is the response to this wait. Its
              * caller-side execution and retirement are a separate phase. */
@@ -445,6 +500,7 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
             if (c->receipt!=c->sequence) break;
             outcome=c->outcome; call->result=c->result;
             if (outcome!=MD_ENTRY_DECLINED && outcome!=MD_ENTRY_COMPLETED
+                    && !(outcome==MD_ENTRY_DISPATCH && !request && !descriptor)
                     && !(request && outcome==MD_ENTRY_NEEDS_STOP)) outcome=MD_ENTRY_UNKNOWN;
             if (descriptor && outcome!=MD_ENTRY_UNKNOWN) {
                 outcome=MD_ENTRY_COMPLETED; call->result=descriptor_result;
@@ -475,7 +531,8 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
         parked=1;
         atomic_store_explicit(&c->sleeping,1,memory_order_seq_cst);
         state=atomic_load_explicit(&c->state,memory_order_seq_cst);
-        if (state==MD_ENTRY_REQUEST || state==MD_ENTRY_RUNNING || (state==MD_ENTRY_NATIVE && native_sent)) {
+        if (state==MD_ENTRY_REQUEST || state==MD_ENTRY_RUNNING || state==MD_ENTRY_PARKED
+                || (state==MD_ENTRY_NATIVE && native_sent)) {
             /* EVENT_WAIT: exact response or owner closure. Launch teardown
              * terminates the task. Never abandon an accepted output pointer
              * while its worker can still write into the caller's stack. */
@@ -486,6 +543,18 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
     /* A response ready after parking is not evidence that spinning helped. */
     if (budget) md_spin_result(&policy,!parked && outcome==MD_ENTRY_COMPLETED);
     c->feedback[kind]=policy;
+    if (outcome==MD_ENTRY_DISPATCH) {
+        uintptr_t sp;
+        __asm__ volatile("mov %0, sp" : "=r"(sp));
+        if (md_svc_frame_client(md_svc_runtime.frames,sp)==client) {
+            /* The worker released all turns without committing an effect.
+             * Transfer to the same typed owner as initial task admission;
+             * only that owner may request an actual stopped context. */
+            call->continuation[CONT_FLAGS]=CALL_BEGIN;
+            return task_execute(client,call);
+        }
+        outcome=kernel_call(call);
+    }
     /* DECLINED is an explicit pre-execution transfer of ownership. Once the
      * worker accepts a call, UNKNOWN is terminal and must never enter here. */
     if (outcome==MD_ENTRY_DECLINED && (!request || request==MD_ENTRY_EXECUTION_BEGIN)) {
@@ -495,31 +564,49 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
 }
 static enum md_entry_outcome task_execute(struct md_entry_client *client,struct md_entry_call *call) {
     struct md_entry_channel *c=(void *)call->continuation[CONT_CHANNEL];
-    enum md_entry_outcome outcome=publish(client,call);
-    while (outcome==MD_ENTRY_NATIVE_EFFECT) outcome=md_entry_advance(client,call,outcome);
-    if (outcome!=MD_ENTRY_COMPLETED) return outcome;
-    if (c->execution_action==MD_EXECUTION_RESULT) return outcome;
-    if (c->execution_action==MD_EXECUTION_CONTEXT)
-        return kernel_call(call);
-    if (c->execution_action!=MD_EXECUTION_GUEST) return MD_ENTRY_UNKNOWN;
-    struct md_guest_execution execution=c->execution;
-    long result=md_guest_execute(&execution);
-    uintptr_t control=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
-    unsigned idle=0;
-    if ((control&MD_ENTRY_CLIENT_BUSY) || !atomic_compare_exchange_strong_explicit(
-            &c->caller,&idle,1,memory_order_acquire,memory_order_relaxed)) return MD_ENTRY_UNKNOWN;
-    call->continuation[CONT_CONTROL]=control;
-    call->continuation[CONT_CHANNEL]=(uintptr_t)c;
-    call->continuation[CONT_SEQUENCE]=c->sequence;
-    call->continuation[CONT_FLAGS]=CALL_END;
-    struct md_entry_call completion=*call;
-    completion.args[0]=(uint64_t)result;
-    outcome=publish(client,&completion);
-    while (outcome==MD_ENTRY_NATIVE_EFFECT) outcome=md_entry_advance(client,&completion,outcome);
-    call->result=completion.result;
-    return outcome==MD_ENTRY_COMPLETED ? outcome : MD_ENTRY_UNKNOWN;
+    struct md_entry_call request=*call;
+    int started=0;
+    for (;;) {
+        enum md_entry_outcome outcome=publish(client,&request);
+        while (outcome==MD_ENTRY_NATIVE_EFFECT) outcome=md_entry_advance(client,&request,outcome);
+        if (!started) *call=request;
+        call->result=request.result;
+        if (outcome==MD_ENTRY_NEEDS_STOP) {
+            /* Use the owner's final result, which can change during a retained
+             * wait in either executor. Recover the original frame without
+             * replaying effects or requiring a preceding C adapter. */
+            md_guest_buffer_control_kernel(MD_BUFFER_FINISH,0,(unsigned long)request.result);
+            return MD_ENTRY_UNKNOWN;
+        }
+        if (outcome!=MD_ENTRY_COMPLETED) return started ? MD_ENTRY_UNKNOWN : outcome;
+        call->return_checkpoint=c->return_checkpoint;
+        switch (c->execution_action) {
+        case MD_EXECUTION_RESULT: return outcome;
+        case MD_EXECUTION_NATIVE:
+            call->effect=native_effect;
+            return MD_ENTRY_NATIVE_CALL;
+        case MD_EXECUTION_CONTEXT:
+            return started ? MD_ENTRY_UNKNOWN : kernel_call(call);
+        case MD_EXECUTION_GUEST: break;
+        default: return MD_ENTRY_UNKNOWN;
+        }
+        /* Initial execution and retained continuations use the same action
+         * contract. A resumed owner has not admitted a second syscall. */
+        started=1;
+        struct md_guest_execution execution=c->execution;
+        long result=md_guest_execute(&execution);
+        uintptr_t control=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
+        unsigned idle=0;
+        if ((control&MD_ENTRY_CLIENT_BUSY) || !atomic_compare_exchange_strong_explicit(
+                &c->caller,&idle,1,memory_order_acquire,memory_order_relaxed)) return MD_ENTRY_UNKNOWN;
+        request=*call;
+        request.continuation[CONT_CONTROL]=control;
+        request.continuation[CONT_CHANNEL]=(uintptr_t)c;
+        request.continuation[CONT_SEQUENCE]=c->sequence;
+        request.continuation[CONT_FLAGS]=CALL_END;
+        request.args[0]=(uint64_t)result;
+    }
 }
-extern long md_guest_buffer_control_kernel(unsigned,unsigned long,unsigned long);
 extern struct md_adapter_input md_guest_buffer_start_kernel(unsigned,unsigned long,unsigned long);
 extern struct md_fd_observation md_guest_fd_control_kernel(unsigned,uint64_t,long,long);
 struct control_reply { long value; uintptr_t extra; };
@@ -530,6 +617,10 @@ static int control_request(unsigned kind,unsigned command,const uint64_t args[6]
     uintptr_t sp;
     __asm__ volatile("mov %0, sp" : "=r"(sp));
     struct md_entry_client *client=md_svc_frame_client(md_svc_runtime.frames,sp);
+    /* A Base adapter owns a kernel continuation. Only a resident execution
+     * can retain these multi-step controls without that continuation. */
+    if (!client && kind==MD_ENTRY_BUFFER_CONTROL
+            && (md_adapter_buffer_resident(command) || md_fs_buffer_resident(command))) return 0;
     long tid=client ? (long)client->opaque[MD_ENTRY_CLIENT_OWNER] : 0;
     if (!tid) {
         tid=(long)__atomic_load_n(&state->sole_owner,__ATOMIC_ACQUIRE);
@@ -565,13 +656,13 @@ fallback:
 }
 long md_guest_buffer_control(unsigned command,unsigned long first,unsigned long second) {
     struct control_reply reply;
-    if ((md_adapter_buffer_shared(command) || md_fs_buffer_scalar(command))
+    if ((md_adapter_buffer_shared(command) || md_fs_buffer_shared(command))
             && control_request(MD_ENTRY_BUFFER_CONTROL,command,(uint64_t[6]){first,second},&reply)) return reply.value;
     return md_guest_buffer_control_kernel(command,first,second);
 }
 struct md_adapter_input md_guest_buffer_start(unsigned command,unsigned long first,unsigned long second) {
     struct control_reply reply;
-    if ((md_adapter_buffer_shared(command) || md_fs_buffer_scalar(command))
+    if ((md_adapter_buffer_shared(command) || md_fs_buffer_shared(command))
             && control_request(MD_ENTRY_BUFFER_CONTROL,command,(uint64_t[6]){first,second},&reply))
         return (struct md_adapter_input){reply.value,(void *)reply.extra};
     return md_guest_buffer_start_kernel(command,first,second);
@@ -589,6 +680,19 @@ long md_guest_resource_control(unsigned service,unsigned operation,
     if (control_request(MD_ENTRY_RESOURCE_CONTROL,service,(uint64_t[6]){operation,first,second,third,fourth},&reply))
         return reply.value;
     return RAW6(prctl,service,operation,first,second,third,fourth);
+}
+extern long md_guest_native_call_kernel(long,long,long,long,long,long,long);
+long md_guest_native_call(long number,const unsigned long args[6]) {
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    if (md_svc_frame_client(md_svc_runtime.frames,sp)) {
+        struct control_reply reply;
+        uint64_t values[6]; memcpy(values,args,sizeof(values));
+        if (!control_request(MD_ENTRY_NATIVE_REQUEST,(unsigned)number,values,&reply))
+            md_die("entry native completion",-EPROTO);
+        return reply.value;
+    }
+    return md_guest_native_call_kernel(number,args[0],args[1],args[2],args[3],args[4],args[5]);
 }
 static long thread_identity(void) { return RAW0(gettid); }
 static uintptr_t client_block(unsigned bucket) {

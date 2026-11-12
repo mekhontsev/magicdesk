@@ -131,6 +131,8 @@ int md_fd_origins_close_untracked(const struct md_fd_order *,int number);
 struct md_fd_native { unsigned kind, flags; struct md_fs_anchor *origin; };
 int md_fd_origins_native(const struct md_fd_order *,int number,struct md_fd_native *);
 int md_fd_origins_native_regular(const struct md_fd_order *,int number);
+/* Regular data files and metadata-only anonymous pipes, not virtual FIFOs. */
+int md_fd_origins_native_io(const struct md_fd_order *,int number);
 /* No published object can supply virtual readiness. Requires a RUNNING turn;
  * counts potential providers, not their mutable current readiness. */
 int md_fd_origins_native_poll(const struct md_fd_order *);

@@ -1,4 +1,5 @@
 #include "terminal_calls.h"
+#include "guest_execution.h"
 #include "raw.h"
 #include <errno.h>
 
@@ -23,7 +24,8 @@ static int encode(unsigned *flags,unsigned shift,unsigned rate) {
 }
 long md_terminal_attributes(const unsigned long *a) {
     unsigned command=(unsigned)a[1];
-    long result=RAW3(ioctl,a[0],command,a[2]);
+    long result=command==TCGETS2 ? RAW3(ioctl,a[0],command,a[2])
+        : md_guest_native_call(SYS_ioctl,(unsigned long[6]){a[0],command,a[2]});
     if (result!=-EACCES && result!=-ENOTTY) return result;
     /* Some Android policies allow the original terminal ABI but not termios2.
      * Keep the same task and FD: this does not acquire a privileged executor. */
@@ -39,5 +41,5 @@ long md_terminal_attributes(const unsigned long *a) {
     if (!result) result=encode(&value.c_cflag,0,value.c_ospeed);
     if (!result) result=encode(&value.c_cflag,IBSHIFT,value.c_ispeed);
     unsigned legacy=command==TCSETS2 ? TCSETS : command==TCSETSW2 ? TCSETSW : TCSETSF;
-    return result ? result : RAW3(ioctl,a[0],legacy,&value);
+    return result ? result : md_guest_native_call(SYS_ioctl,(unsigned long[6]){a[0],legacy,(uintptr_t)&value});
 }

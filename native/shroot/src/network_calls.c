@@ -245,7 +245,7 @@ static long control_call(long nr,const unsigned long *a,int events) {
         if (!events) return md_network_packet_receive(nr,a);
         if (events) { long error=device_receive_ready(); if (error) return error; }
         if (nr==SYS_recvfrom && a[4]) {
-            long result=RAW6(recvfrom,a[0],a[1],a[2],a[3],0,0);
+            long result=md_guest_native_call(SYS_recvfrom,(unsigned long[6]){a[0],a[1],a[2],a[3]});
             struct sockaddr_nl source={.nl_family=AF_NETLINK};
             struct iovec vector={(void *)a[1],a[2]};
             struct msghdr message={.msg_iov=&vector,.msg_iovlen=1};
@@ -258,7 +258,8 @@ static long control_call(long nr,const unsigned long *a,int events) {
             long error=md_read_memory(&original,(void *)a[1],sizeof(original)); if (error) return error;
             struct msghdr native=original;
             native.msg_name=NULL; native.msg_namelen=0;
-            long result=RAW3(recvmsg,a[0],&native,a[2]); if (result<0) return result;
+            long result=md_guest_native_call(SYS_recvmsg,(unsigned long[6]){a[0],(uintptr_t)&native,a[2]});
+            if (result<0) return result;
             if (original.msg_name) {
                 struct sockaddr_nl source={.nl_family=AF_NETLINK};
                 if (events) { error=device_source(&native,result,&source); if (error) return error; }
@@ -272,7 +273,7 @@ static long control_call(long nr,const unsigned long *a,int events) {
             return error ? error : result;
         }
         if (nr==SYS_recvmmsg) return -EOPNOTSUPP;
-        return md_raw(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
+        return md_guest_native_call(nr,a);
     }
     size_t size=0; const void *input=NULL;
     unsigned filter_capacity=0;

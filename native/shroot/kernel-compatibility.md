@@ -1403,13 +1403,15 @@ tests also cover repeated custody of the oldest event before delivery.
 A caller-owned getuid checkpoint handles pending signals; its syscall must exit
 before delivery installs the recovered guest registers. It is not a service
 SIGTRAP. This mechanism adds no post-5.15 dependency.
-The regular-file cursor lease uses only baseline `lseek` and the existing raw
-service gate. It is issued under the exclusive file-table turn and revoked by
+The descriptor view uses baseline `fcntl`, regular-file `lseek`/`FIONREAD`, and
+the existing admitted native-effect gates. It is issued under the exclusive file-table turn and revoked by
 task stops, ordinary notifications, new requests and borrowed execution. The
 resident private frame retains signals through the call; the explicit entry API
 and shared tables keep ordinary admission. `test_cooperative_runtime.py` checks
-repeated relative seeks, invalid offsets, directory cursors, pipe replacement,
-CLONE_FILES replacement, asynchronous signals and seccomp revocation.
+repeated relative seeks, live size/status queries, invalid offsets and pointers,
+directory cursors, pipe replacement, CLONE_FILES replacement, asynchronous
+signals and seccomp revocation. Typed immutable ioctl values use the same
+provider schema and protected copy path in Base and resident execution.
 
 The integrated cooperative suite, stock Go with and without seccomp, glibc
 signal/churn fixtures and deterministic instruction-boundary fixture cover it.

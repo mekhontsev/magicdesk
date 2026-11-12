@@ -8,10 +8,18 @@
 #include "epoll_calls.h"
 #include "poll_calls.h"
 #include "network_packet.h"
+#include "identity_transfer.h"
+#include "pid_calls.h"
+#include "signal_calls.h"
 
 /* Protocol views share capacity, never live ownership. Callers publish only
  * initialized bytes; the common allocator owns no filesystem or IPC policy. */
 union md_adapter_frame {
+    union md_identity_transfer identity;
+    struct md_process_query process;
+    union md_process_wait waited;
+    siginfo_t signal;
+    struct md_signal_query signal_query;
     struct md_fs_buffer_frame filesystem;
     struct md_task_outgoing_frame outgoing;
     struct md_epoll_frame epoll;

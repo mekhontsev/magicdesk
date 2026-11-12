@@ -1,10 +1,11 @@
 #include <asm/unistd.h>
 #include "task_stack.h"
 #include "signal_entry.h"
+#include "guest_execution.h"
 .text
 .balign 4
-/* Markers have a fixed syscall identity, never a register-copy payload or the
- * preceding native call's number. x19 preserves x8 for bounded group loads. */
+/* Markers have a fixed syscall identity. x19 records the preceding native
+ * call so cancellation can recognize its result at any marker instruction. */
 .macro MARKER name
     mov x19, x8
     mov x8, #__NR_gettid
@@ -48,13 +49,22 @@ md_guest_signal_entry_end:
 .global md_guest_dispatch_entry
 .type md_guest_dispatch_entry, %function
 md_guest_dispatch_entry:
-    /* The kernel restores x7 after ARM64 syscall stops. Supervisor policy
-     * arrives in x9; only userspace turns it into the eighth C argument. */
-    mov x7, x9
-    stp x10, x30, [sp, #-16]!
-    bl md_guest_dispatch
-    ldr x30, [sp, #8]
-    add sp, sp, #16
+    /* A stopped task has no resident channel. Materialize the same execution
+     * record on its owned stack, without another mapping or acknowledgement.
+     * x7/x8 belong to the kernel's syscall-stop ABI and are not transport. */
+    sub sp, sp, #(MD_EXECUTION_SIZE+8)
+    stp x0, x1, [sp]
+    stp x2, x3, [sp, #16]
+    stp x4, x5, [sp, #32]
+    str x6, [sp, #48]
+    str w9, [sp, #MD_EXECUTION_POLICY_OFFSET]
+    str w10, [sp, #MD_EXECUTION_CONTROL_OFFSET]
+    str x11, [sp, #MD_EXECUTION_PREPARED_OFFSET]
+    str x30, [sp, #MD_EXECUTION_SIZE]
+    mov x0, sp
+    bl md_guest_execute
+    ldr x30, [sp, #MD_EXECUTION_SIZE]
+    add sp, sp, #(MD_EXECUTION_SIZE+8)
     ret
 .size md_guest_dispatch_entry, .-md_guest_dispatch_entry
 .global md_guest_task_call
@@ -109,40 +119,6 @@ md_guest_watch_gate:
 .global md_guest_watch_return
 md_guest_watch_return:
     MARKER md_guest_watch_completed
-.global md_guest_store
-md_guest_store:
-    stp x2, x3, [x0]
-    MARKER md_guest_stored
-.global md_guest_load_byte
-md_guest_load_byte:
-    ldrb w2, [x0]
-    MARKER md_guest_loaded_byte
-.global md_guest_store_ids
-md_guest_store_ids:
-    str w3, [x0]
-    str w4, [x1]
-    str w5, [x2]
-    MARKER md_guest_stored_ids
-/* Bounded task-affine credential transfer, including nondumpable programs.
- * x0 points at 1..16 gids, x1 is their count, w3..w18 carry their values. */
-.global md_guest_load_groups
-md_guest_load_groups:
-.irp reg,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
-    ldr w\reg, [x0], #4
-    subs x1, x1, #1
-    b.eq 1f
-.endr
-1:
-    MARKER md_guest_loaded_groups
-.global md_guest_store_groups
-md_guest_store_groups:
-.irp reg,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
-    str w\reg, [x0], #4
-    subs x1, x1, #1
-    b.eq 1f
-.endr
-1:
-    MARKER md_guest_stored_groups
 .global md_guest_allocate
 .type md_guest_allocate, %function
 md_guest_allocate:

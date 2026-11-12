@@ -26,6 +26,16 @@ static inline int md_fs_buffer_scalar(unsigned long command) {
         || command==MD_FS_BUFFER_IPC_IO_PREPARE || command==MD_FS_BUFFER_IPC_IO_COPY
         || command==MD_FS_BUFFER_IPC_IO_SELECT;
 }
+static inline int md_fs_buffer_resident(unsigned long command) {
+    return command==MD_FS_BUFFER_SEND_PREPARE || command==MD_FS_BUFFER_SEND_COMMIT
+        || command==MD_FS_BUFFER_TASK_RECEIVE || command==MD_FS_BUFFER_RECEIVED_INSPECT
+        || command==MD_FS_BUFFER_RECEIVED_RIGHTS || command==MD_FS_BUFFER_RECEIVED_DROP
+        || command==MD_FS_BUFFER_IPC_CAPTURE_READY || command==MD_FS_BUFFER_IPC_CAPTURE_SENT
+        || command==MD_FS_BUFFER_IPC_CAPTURE_OBSERVED || command==MD_FS_BUFFER_IPC_RECEIVE;
+}
+static inline int md_fs_buffer_shared(unsigned long command) {
+    return md_fs_buffer_scalar(command) || md_fs_buffer_resident(command);
+}
 enum { MD_FS_BUFFER_SOURCE=-2 };
 /* Kernel ancillary FDs do not index a capsule-expanded application vector. */
 enum md_received_source { MD_RECEIVED_KERNEL, MD_RECEIVED_APPLICATION };

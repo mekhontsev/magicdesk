@@ -517,15 +517,14 @@ static void ip_guards(void) {
             if (i==1) expected=gate.decision;
             assert(!md_seccomp_program_eval(&routed,&call,&value) && value==expected);
         }
-        md_seccomp_policy_bind_entry(policy,17);
+        assert(!md_seccomp_policy_bind_entry(policy,17,&gate,1));
         assert(md_seccomp_policy_entry_image(policy)==17);
-        assert(md_seccomp_policy_internal_gates(policy,17));
+        assert(md_seccomp_policy_internal_gates(policy,&gate,1));
         struct md_seccomp_policy *child=NULL;
         assert(!md_seccomp_policy_capture(policy,&source,&child));
-        md_seccomp_policy_bind_entry(child,invert ? 18 : 17);
+        assert(!md_seccomp_policy_bind_entry(child,invert ? 18 : 17,&gate,1));
         assert(md_seccomp_policy_entry_image(child)==(invert ? 0 : 17));
-        assert(md_seccomp_policy_internal_gates(child,17)==!invert);
-        assert(!md_seccomp_policy_internal_gates(child,18));
+        assert(md_seccomp_policy_internal_gates(child,&gate,1));
         md_seccomp_policy_release(child); md_seccomp_policy_release(policy);
     }
     puts("PASS IP-sensitive gates: both PC halves, ALLOW alias interception, original actions and image ancestry");
@@ -729,26 +728,53 @@ static void inherited_entry(void) {
     struct sock_filter allow[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
     struct sock_fprog program={1,allow};
     struct md_seccomp_policy *parent=NULL,*child=NULL;
+    struct md_seccomp_gate gates[]={
+        {0x1204,0x1204,SYS_gettid,SECCOMP_RET_TRACE|201},
+        {0x1000,0x2000,-1,SECCOMP_RET_ALLOW}};
     assert(!md_seccomp_policy_capture(NULL,&program,&parent));
     assert(!md_seccomp_policy_entry_compatible(parent,17));
-    assert(!md_seccomp_policy_internal_gates(parent,17));
-    assert(!md_seccomp_policy_internal_gates(NULL,17));
-    md_seccomp_policy_bind_entry(parent,17);
-    assert(md_seccomp_policy_internal_gates(parent,17));
-    assert(!md_seccomp_policy_internal_gates(parent,0) && !md_seccomp_policy_internal_gates(parent,18));
+    assert(!md_seccomp_policy_internal_gates(parent,gates,2));
+    assert(!md_seccomp_policy_internal_gates(NULL,gates,2));
+    assert(!md_seccomp_policy_bind_entry(parent,17,gates,2));
+    assert(md_seccomp_policy_internal_gates(parent,gates,2));
+    assert(!md_seccomp_policy_internal_gates(parent,NULL,0));
     assert(md_seccomp_policy_entry_compatible(parent,17) && md_seccomp_policy_entry_compatible(parent,18));
     assert(md_seccomp_policy_entry_checkpoint(parent)==SYS_gettid);
     assert(!md_seccomp_policy_capture(parent,&program,&child));
-    md_seccomp_policy_bind_entry(child,18);
+    assert(!md_seccomp_policy_bind_entry(child,18,gates,2));
     assert(md_seccomp_policy_entry_image(child)==18 && md_seccomp_policy_entry_compatible(child,19));
-    assert(!md_seccomp_policy_internal_gates(child,17) && !md_seccomp_policy_internal_gates(child,18));
+    assert(md_seccomp_policy_internal_gates(child,gates,2));
     struct md_seccomp_policy *grandchild=NULL;
     assert(!md_seccomp_policy_capture(child,&program,&grandchild));
-    md_seccomp_policy_bind_entry(grandchild,18);
+    assert(!md_seccomp_policy_bind_entry(grandchild,18,gates,2));
     assert(md_seccomp_policy_entry_compatible(grandchild,18));
-    assert(!md_seccomp_policy_internal_gates(grandchild,18));
+    assert(md_seccomp_policy_internal_gates(grandchild,gates,2));
     md_seccomp_policy_release(grandchild);
     md_seccomp_policy_release(child); child=NULL;
+    /* Changing any part of the contract, including precedence, cannot restore
+     * a missing ancestor allowance merely by installing another filter. */
+    for (unsigned variant=0;variant<7;++variant) {
+        struct md_seccomp_gate changed[2]; memcpy(changed,gates,sizeof(changed));
+        size_t count=2;
+        if (variant==0) changed[1].first+=4;
+        if (variant==1) changed[1].end+=4;
+        if (variant==2) changed[0].number=SYS_getpid;
+        if (variant==3) ++changed[0].decision;
+        if (variant==4) { changed[0]=gates[1]; changed[1]=gates[0]; }
+        if (variant==5) count=1;
+        if (variant==6) count=0;
+        assert(!md_seccomp_policy_internal_gates(parent,changed,count));
+        assert(md_seccomp_policy_internal_gates(parent,gates,2));
+        assert(!md_seccomp_policy_capture(parent,&program,&child));
+        assert(!md_seccomp_policy_bind_entry(child,18,changed,count));
+        assert(!md_seccomp_policy_internal_gates(child,changed,count));
+        assert(!md_seccomp_policy_internal_gates(child,gates,2));
+        assert(!md_seccomp_policy_capture(child,&program,&grandchild));
+        assert(!md_seccomp_policy_bind_entry(grandchild,19,gates,2));
+        assert(!md_seccomp_policy_internal_gates(grandchild,gates,2));
+        md_seccomp_policy_release(grandchild); grandchild=NULL;
+        md_seccomp_policy_release(child); child=NULL;
+    }
     struct sock_filter denied[]={
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,1),
@@ -756,13 +782,13 @@ static void inherited_entry(void) {
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
     program=(struct sock_fprog){4,denied};
     assert(!md_seccomp_policy_capture(parent,&program,&child));
-    md_seccomp_policy_bind_entry(child,18);
+    assert(!md_seccomp_policy_bind_entry(child,18,gates,2));
     assert(md_seccomp_policy_entry_checkpoint(child)==SYS_getpid);
     md_seccomp_policy_release(child); child=NULL;
     allow[0].k=SECCOMP_RET_ERRNO|EPERM;
     program=(struct sock_fprog){1,allow};
     assert(!md_seccomp_policy_capture(parent,&program,&child));
-    md_seccomp_policy_bind_entry(child,18);
+    assert(!md_seccomp_policy_bind_entry(child,18,gates,2));
     assert(md_seccomp_policy_entry_compatible(child,18) && !md_seccomp_policy_entry_compatible(child,19));
     assert(md_seccomp_policy_entry_checkpoint(child)<0);
     md_seccomp_policy_release(child); md_seccomp_policy_release(parent);

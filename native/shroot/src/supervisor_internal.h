@@ -23,12 +23,6 @@
 #define DISPATCH abi.dispatch
 #define EXPORT abi.export_fd
 #define EXPORTED abi.exported
-#define STORE abi.store
-#define STORED abi.stored
-#define LOAD_BYTE abi.load_byte
-#define LOADED_BYTE abi.loaded_byte
-#define STORE_IDS abi.store_ids
-#define STORED_IDS abi.stored_ids
 #define RAW_GATE abi.raw_gate
 #define COPY_BEGIN abi.copy_begin
 #define COPY_END abi.copy_end
@@ -53,7 +47,7 @@ struct interception_statistics {
     uint64_t entry_executions, entry_completions, entry_promotions, entry_effects,entry_native;
     uint64_t entry_contexts[MD_CONTEXT_COUNT];
     uint64_t entry_stop_reasons[MD_CONTEXT_COUNT];
-    uint64_t entry_local_contexts[MD_CONTEXT_COUNT],entry_local_native;
+    uint64_t entry_local_native;
     uint64_t signal_frames[5];
     struct md_cost event_collect, event_sleep;
     struct { uint64_t trace, notification; } calls[512];

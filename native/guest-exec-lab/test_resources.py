@@ -716,10 +716,6 @@ def main():
                 expected = [r"MD_SYSCALL nr=20 trace=2 notification=0"]
                 absent = [r"MD_SYSCALL nr=(?:21|22|72|73) "]
                 if filtered:
-                    # Poll/select retain their kernel owner. Patched epoll
-                    # probes use the native journal under the same FD turn.
-                    expected += [r"MD_SYSCALL nr=" + str(nr) + r" trace=" + str(count) + r" notification=0"
-                                 for nr, count in ((72, 10000), (73, 10000))]
                     absent = []
                 value = check("guest wait fast paths " + str(filtered), guest_run + " --statistics --store "
                       + root + "/wait-store --deadline-seconds 30 " + ("--diagnostics " if args.diagnostics else "")
@@ -732,6 +728,11 @@ def main():
                 # waits must still avoid interception under either executor.
                 assert counts.get(441, 0) <= 1, counts
                 if filtered:
+                    # Resident poll/select finish classification before the
+                    # terminal native effect; only discovery may stop.
+                    assert counts.get(72, 0) <= 2 and counts.get(73, 0) <= 2, counts
+                    terminal = [int(count) for count in re.findall(r'"nativeCompleted":(\d+)', value['output'])]
+                    assert terminal and max(terminal) >= 19996, value['output']
                     assert counts.get(21, 0) <= 3, counts
                     # Only cold admission may stop; not one stop per loop.
                     assert counts.get(22, 0) <= 8, counts

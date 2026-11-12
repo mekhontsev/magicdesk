@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 import uuid
-from test_oci_services import Suite, Server, write_script
+from test_oci_services import Suite, Server, write_script, add_machine_entry_argument
 
 CASES = ('pid-metadata', 'pid-metadata-native', 'atomic', 'buffer-slots', 'shm-slots', 'shm-denied', 'shm-terminal', 'shm-concurrent', 'shm-owner-death', 'shm-exec', 'wait-slots', 'wait-capacity', 'wait-denied', 'wait-stopped',
          'sem-wake', 'sem-signal', 'sem-remove', 'timed', 'undo-fork-exec',
@@ -18,17 +18,18 @@ def main():
     parser.add_argument('--build', type=Path)
     parser.add_argument('--case', choices=CASES, action='append')
     parser.add_argument('--diagnostics', action='store_true')
+    add_machine_entry_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.output, args.build)
+    suite = Suite(args.output, args.build, machine_entry=args.machine_entry)
     try:
         fixture = '/tmp/md-sysv-contract'
         write_script(suite, args.instance, fixture+'.c', Path(__file__).with_name('test_sysv_guest.c').read_text())
         suite.command(suite.run(args.instance, '--', 'gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-pthread',
                                 fixture+'.c', '-o', fixture))
         def command(*argv):
-            if args.diagnostics:
-                return [suite.runner, '--diagnostics', '--store', args.instance, '--user', '2000:2000', '--', *argv]
-            return suite.run(args.instance, '--user', '2000:2000', '--', *argv)
+            return suite.run(args.instance, *(['--diagnostics'] if args.diagnostics else []),
+                             *([] if args.machine_entry else ['--statistics']),
+                             '--user', '2000:2000', '--', *argv)
         for name in args.case or CASES:
             case = {'name': name, 'passed': False}; suite.report['cases'].append(case)
             try:

@@ -45,6 +45,7 @@
 #include "task_pending.h"
 #include "task_registry.h"
 #include "task_signal_control.h"
+#include "signal_calls.h"
 #include "task_status.h"
 #include "task_stop.h"
 
@@ -86,6 +87,7 @@ void signal_origin_capture(void *context,const siginfo_t *info,struct md_signal_
     if (!md_signal_origin_matches(saved,info)) saved=t->signals.delivery.child_origin;
     if (!md_signal_origin_matches(saved,info)) saved=md_signal_pending_origin(t->signals.pending,info);
     if (saved) { *out=*saved; return; }
+    if (md_task_registry_signal_origin(tasks,info,out)) return;
     struct proc_owner owner=proc_owner(info->si_pid);
     if (!owner.identity) return;
     struct md_pid_identity *pid=owner.resources ? owner.resources->pid
@@ -134,6 +136,12 @@ static int child_signals_capture(struct thread *t) {
 }
 
 void process_reap(struct thread *t,pid_t child) {
+    /* A shared wait receipt is not a kernel stop. Keep only sender values
+     * until a real signal/stop observes the kernel's coalesced SIGCHLD slots. */
+    if (t && !t->kernel_stopped) {
+        md_task_registry_reap_deferred(tasks,child);
+        md_signal_pending_child_changed(t->signals.pending); return;
+    }
     if (child_signals_capture(t)) md_task_registry_reap(tasks,child);
     else md_signal_pending_child_changed(t->signals.pending);
 }
@@ -181,6 +189,22 @@ static int namespace_init(const struct thread *t) {
     return md_pid_identity_number(t->resources.pid_group,md_pid_identity_namespace(t->resources.pid))==1;
 }
 
+int signal_ignored(struct thread *t,int signal,struct md_task_signal_stop *stop) {
+    if (signal==SIGKILL || signal==SIGSTOP || !signal_observe(t,stop,0)
+            || md_signal_synchronous(&stop->info)) return 0;
+    struct md_kernel_action action;
+    uint64_t bit=UINT64_C(1)<<(signal-1),caught=0,ignored=0;
+    if (!md_signal_actions_read(t->signals.actions,signal,&action)) {
+        ignored=action.handler==(uintptr_t)SIG_IGN ? bit : 0;
+        caught=action.handler!=(uintptr_t)SIG_DFL && !ignored ? bit : 0;
+    } else if (md_task_signal_dispositions(t->pid,&caught,&ignored)) return 0;
+    int ignored_delivery=(ignored&bit) || (!(caught&bit) && (namespace_init(t)
+        || signal==SIGCHLD || signal==SIGURG || signal==SIGWINCH || signal==SIGCONT));
+    SUPERVISOR_TRACE("PROBE signal-disposition pid=%d signal=%d ignored=%d wait=%d\n",
+        t->pid,signal,ignored_delivery,t->entry.waiting);
+    return ignored_delivery;
+}
+
 void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *stop) {
     struct thread *t=thread(pid);
     struct md_task_signal_stop local;
@@ -203,11 +227,11 @@ void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *s
         siginfo_t info=stop->info;
         int fault=md_signal_synchronous(&info);
         if (namespace_init(t) && sig!=SIGKILL && sig!=SIGSTOP && !fault) {
-            uint64_t caught=0;
+            uint64_t caught=0,ignored=0;
             long error=0;
             int handled=md_signal_actions_caught(t->signals.actions,sig);
             if (handled>=0) caught=handled ? UINT64_C(1)<<(sig-1) : 0;
-            else error=md_task_signal_handlers(t->pid,&caught);
+            else error=md_task_signal_dispositions(t->pid,&caught,&ignored);
             if (error) {
                 fprintf(stderr,"Shroot: cannot observe PID init signal disposition: %ld\n",error);
                 syscall(SYS_tgkill,t->tgid,t->pid,SIGKILL);
@@ -275,6 +299,12 @@ static int signal_pending_wake(struct thread *t) {
     return 0;
 }
 
+int signal_return_pending(const struct thread *t) {
+    return md_signal_delivery_pending(&t->signals.delivery)
+        || (!t->signals.host_blocked && (md_signal_pending_has(t->signals.pending,MD_SIGNAL_PRIVATE)
+            || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED)));
+}
+
 int signal_logical_enqueue(struct thread *to,enum md_signal_scope scope,const siginfo_t *info) {
     struct md_kernel_action action;
     int error=md_signal_actions_read(to->signals.actions,SIGSYS,&action);
@@ -291,14 +321,14 @@ int signal_logical_enqueue(struct thread *to,enum md_signal_scope scope,const si
     return 0;
 }
 
-long signal_logical_send(struct thread *from,const struct user_pt_regs *r,const siginfo_t *supplied) {
-    long nr=r->regs[8];
+long signal_logical_send(struct thread *from,const struct seccomp_data *call,const siginfo_t *supplied) {
+    long nr=call->nr;
     int directed=nr==SYS_tgkill || nr==SYS_tkill || nr==SYS_rt_tgsigqueueinfo;
     int index=nr==SYS_tgkill || nr==SYS_rt_tgsigqueueinfo;
-    pid_t pid=native_pid(from,(pid_t)r->regs[index]);
+    pid_t pid=native_pid(from,(pid_t)call->args[index]);
     struct thread *to=find_thread(pid);
     if (!to || !to->born || !to->signals.host) return -ESRCH;
-    if (index && to->tgid!=native_pid(from,(pid_t)r->regs[0])) return -ESRCH;
+    if (index && to->tgid!=native_pid(from,(pid_t)call->args[0])) return -ESRCH;
     if (!signal_allowed(from,to,SIGSYS)) return -EPERM;
     if (supplied && (supplied->si_code>=0 || supplied->si_code==SI_TKILL) && pid!=from->pid) return -EPERM;
     if (init_signal_suppressed(from,to,SIGSYS)) return 0;
@@ -309,6 +339,10 @@ long signal_logical_send(struct thread *from,const struct user_pt_regs *r,const 
 }
 
 long signal_process_next(struct thread *from,pid_t selector,int signal,pid_t after) {
+    if (from->phase!=DISPATCHING) return -EPERM;
+    if (from->execution.request.nr!=SYS_kill || selector>0
+            || selector!=(pid_t)from->execution.request.args[0]
+            || signal!=(int)from->execution.request.args[1]) return -EINVAL;
     if (signal<0 || signal>=NSIG) return -EINVAL;
     pid_t group=selector==0 ? getpgid(from->tgid)
         : selector < -1 && selector!=INT32_MIN ? native_pid(from,-selector) : 0;
@@ -431,12 +465,42 @@ static void signal_wait_info(void *context,siginfo_t *info) {
     }
 }
 
-void signal_query_publish(struct thread *t) {
-    if (!t->signals.host) return;
-    int native=!t->signals.host_blocked && !t->signals.shielded && !t->signals.delivery.active
+static int signal_query_native(const struct thread *t) {
+    return !t->signals.host_blocked && !t->signals.shielded && !t->signals.delivery.active
         && (t->phase==IDLE || (t->phase==SIGNAL_ENTRY && t->signals.control && t->signals.control->entry_packet))
         && !md_seccomp_policy_may_trace(t->seccomp.policy) && !md_seccomp_policy_may_notify(t->seccomp.policy)
         && !t->debug.options && !t->debug.call_active;
+}
+
+int signal_descriptor_call(struct thread *t,long number,int descriptor) {
+    if (number==SYS_signalfd4) return 1;
+    if (number!=SYS_read && number!=SYS_readv) return 0;
+    struct md_fd_object *object=md_fd_origins_object(t->resources.files,descriptor,NULL);
+    int selected=md_signal_fd_from_object(object)!=NULL;
+    md_fd_object_release(object);
+    return selected;
+}
+
+int signal_entry_call(struct thread *t,const struct seccomp_data *call,unsigned long cookie) {
+    /* Query notifications belong to the signal owner too. The kernel route's
+     * USER_NOTIF transport does not make them filesystem C-adapter calls. */
+    if (call->nr==SYS_rt_sigprocmask && !call->args[1] && signal_query_native(t)) {
+        native_continue(t); return 1;
+    }
+    if (call->nr==SYS_rt_sigpending || (call->nr==SYS_rt_sigprocmask && !call->args[1])) {
+        if (!t->signals.host) native_continue(t);
+        else execution_begin(t,call,NULL,"signal-query");
+        return 1;
+    }
+    if (cookie!=MD_INTERCEPT_SIGNAL && call->nr!=SYS_rt_sigprocmask
+            && !signal_descriptor_call(t,call->nr,(int)call->args[0])) return 0;
+    CHECK(entry_context(t,MD_CONTEXT_SIGNAL));
+    return 1;
+}
+
+void signal_query_publish(struct thread *t) {
+    if (!t->signals.host) return;
+    int native=signal_query_native(t);
     if (native!=t->signals.native_query) {
         md_broker_signal_query(broker,t->pid,native);
         t->signals.native_query=native;
@@ -570,27 +634,22 @@ static void signal_control_finish(struct thread *t,int ready) {
         return;
     }
     struct user_pt_regs original=t->execution.registers;
-    if (!result && owner->control.sending)
-        result=signal_logical_send(t,&original,&owner->control.wait_info);
     int passthrough=owner->control.passthrough;
     int restarting=owner->control.descriptor==2 && result==-EINTR;
     uint64_t restart_mask=owner->control.native.mask;
     enum md_task_call_boundary restart_at=owner->control.native.boundary;
     enum md_task_call_boundary boundary=owner->control.boundary;
-    if (!result && original.regs[8]==SYS_rt_sigaction && original.regs[0]==SIGSYS
-            && original.regs[1] && owner->control.requested.handler==(uintptr_t)SIG_IGN)
+    const struct seccomp_data *request=&t->execution.request;
+    if (!result && request->nr==SYS_rt_sigaction && request->args[0]==SIGSYS
+            && request->args[1] && owner->control.requested.handler==(uintptr_t)SIG_IGN)
         for (struct thread *peer=threads;peer;peer=peer->next)
             if (peer->pid && peer->tgid==t->tgid) md_signal_pending_clear(peer->signals.pending,1);
     signal_control_discard(t); t->phase=IDLE;
     if (restarting) { restart_boundary(t,&original,restart_mask,RESTART_SIGNAL,restart_at); return; }
     if (passthrough) {
         unsigned long cookie=MD_INTERCEPT_PROCESS;
-        struct seccomp_data call=syscall_description(&original);
-        if (!process_call(t,&call,&original,&cookie) && set_registers(t->pid,&original)) resume(t->pid,0);
+        if (!process_call(t,request,&original,&cookie) && set_registers(t->pid,&original)) resume(t->pid,0);
         return;
-    }
-    if (original.regs[8]==SYS_rt_sigprocmask && t->metadata_restart) {
-        metadata_restart_return(t,result); return;
     }
     return_task_value(t,&original,result,boundary);
 }
@@ -719,25 +778,19 @@ void signal_control_progress(struct thread *t) {
         ? md_task_signal_default_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
             abi.task_call,abi.task_return,t->signals.actions,&t->signals.host_blocked,&owner->action,
             span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
-        : t->execution.request.nr==SYS_rt_sigprocmask
-        ? md_task_signal_query_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
-            abi.task_call,abi.task_return,owner->entry_mask,
-            span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
         : t->execution.request.nr==SYS_signalfd4 || t->execution.request.nr==SYS_read || t->execution.request.nr==SYS_readv
         ? md_task_signal_descriptor_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
+            &t->execution.request,
             abi.task_call,abi.task_return,t->signals.pending,&t->signals.host_blocked,
             signal_wait_info,t,span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
         : t->execution.request.nr==SYS_rt_sigtimedwait
         ? md_task_signal_wait_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
+            &t->execution.request,
             abi.task_call,abi.task_return,t->signals.pending,&t->signals.host_blocked,
             signal_wait_info,t,span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
-        : t->execution.request.nr==SYS_rt_sigqueueinfo || t->execution.request.nr==SYS_rt_tgsigqueueinfo
-        ? md_task_signal_send_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
-            abi.task_call,abi.task_return,span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size)
         : md_task_signal_control_begin(&owner->control,native_trace,t->pid,&t->execution.registers,
+            &t->execution.request,
             abi.task_call,abi.task_return,t->signals.actions,&t->signals.host_blocked,
-            (md_signal_pending_has(t->signals.pending,MD_SIGNAL_PRIVATE)
-                || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED)) ? MD_SIGNAL_SYS_BIT : 0,
             span.data,md_memory_buffer_address(t->memory,&owner->scratch),span.size);
     signal_control_finish(t,ready);
 }
@@ -868,7 +921,7 @@ void signal_native_complete(struct thread *t) {
             || signal_native_mask_commit(t,mask&~MD_SIGNAL_SYS_BIT)) resume(t->pid,0);
 }
 
-int signal_control_begin(struct thread *t,const struct user_pt_regs *r,int signal,
+int signal_control_begin(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *r,int signal,
         const struct md_kernel_action *action,uint64_t entry_mask,const siginfo_t *info) {
     CHECK(!t->signals.control);
     struct signal_control *owner=calloc(1,sizeof(*owner));
@@ -878,7 +931,7 @@ int signal_control_begin(struct thread *t,const struct user_pt_regs *r,int signa
     if (info) owner->entry_info=*info;
     if (action) owner->action=*action;
     t->signals.control=owner;
-    if (r) execution_capture(t,r);
+    if (r) { CHECK(call); execution_retain(t,call,r); }
     t->phase=SIGNAL_CONTROL;
     signal_control_progress(t); return 0;
 }
@@ -914,7 +967,7 @@ static int signal_control_delivery(struct thread *t,int signal,struct md_task_si
         t->signals.host_blocked=!!(md_signal_view_enter(signal,&entered,0,NULL,&saved)&MD_SIGNAL_SYS_BIT);
         resume(t->pid,signal); return 1;
     }
-    int error=signal_control_begin(t,NULL,signal,&action,mask,stop && stop->has_info ? &stop->info : NULL);
+    int error=signal_control_begin(t,NULL,NULL,signal,&action,mask,stop && stop->has_info ? &stop->info : NULL);
     if (error) {
         fprintf(stderr,"Shroot: signal admission failed: %d\n",error);
         syscall(SYS_tgkill,t->tgid,t->pid,SIGKILL); resume(t->pid,0);
@@ -1005,9 +1058,44 @@ void child_signals_observe(struct thread *t,int status) {
     pid_collection_pending=1;
 }
 
+static uint64_t signal_query_value(const struct thread *t,long number,uint64_t value) {
+    if (!t->signals.host) return value;
+    if (number==SYS_rt_sigpending) {
+        /* Base shields the C adapter; expose only the application's
+         * blocked queue, not signals deferred by that temporary mask. */
+        if (!t->entry.execution) value&=t->execution.mask;
+        value&=~MD_SIGNAL_SYS_BIT;
+        if (t->signals.host_blocked && (md_signal_pending_has(t->signals.pending,MD_SIGNAL_PRIVATE)
+                || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED))) value|=MD_SIGNAL_SYS_BIT;
+        return value;
+    }
+    if (t->signals.delivery.active) value=t->signals.delivery.mask;
+    else if (!t->entry.execution) value=t->execution.mask;
+    return md_signal_view_mask(value,t->signals.host_blocked);
+}
+
 void signals_buffer_control(struct thread *t,const struct supervisor_control_request *control) {
     long result=-EINVAL;
     switch (control->command) {
+    case MD_BUFFER_SIGNAL_QUERY: {
+        const struct seccomp_data *call=&t->execution.request;
+        if (t->phase!=DISPATCHING || control->args[0] || control->args[1] || !t->fs.buffer.pool
+                || (call->nr!=SYS_rt_sigpending && (call->nr!=SYS_rt_sigprocmask || call->args[1]))) break;
+        struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
+        struct md_signal_query *query=span.data;
+        query->value=signal_query_value(t,call->nr,query->value); result=0;
+        break;
+    }
+    case MD_BUFFER_SIGNAL_SEND: {
+        const struct seccomp_data *call=&t->execution.request;
+        int index=call->nr==SYS_rt_tgsigqueueinfo;
+        if (t->phase!=DISPATCHING || control->args[0] || control->args[1] || !t->fs.buffer.pool
+                || (call->nr!=SYS_rt_sigqueueinfo && call->nr!=SYS_rt_tgsigqueueinfo)
+                || (int)call->args[index+1]!=SIGSYS) break;
+        struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
+        result=signal_logical_send(t,call,span.data);
+        break;
+    }
     case MD_BUFFER_SIGNAL_ENABLE: {
         struct { struct md_kernel_action action; uint64_t mask; } initial;
         if (t->entered || t->phase!=IDLE || !md_memory_buffers(t->memory)
@@ -1058,45 +1146,8 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
         if (!signal_observe(t,signal_stop,1)) return;
         regs=signal_stop->regs;
     }
-    if ((sig == SIGSEGV || sig == SIGBUS) && t->phase == DOMAIN_PATH
-            && regs.pc == LOAD_BYTE) {
-        domain_path_finish(t, -EFAULT); return;
-    }
-    if ((sig == SIGSEGV || sig == SIGBUS) && t->phase == IDENTITY_COPY
-            && ((regs.pc >= abi.load_groups && regs.pc < abi.loaded_groups)
-                || (regs.pc >= abi.store_groups && regs.pc < abi.stored_groups))) {
-        identity_copy_finish(t, -EFAULT); return;
-    }
-    if ((sig == SIGSEGV || sig == SIGBUS) && t->phase == STORING_IDS) {
-        if (regs.pc >= STORE_IDS && regs.pc < STORED_IDS) {
-            regs = t->execution.registers; regs.regs[0] = (uint64_t)-EFAULT;
-            if (!set_registers(pid, &regs) || !restore_mask(t)) return;
-            t->phase = IDLE; resume(pid, 0); return;
-        }
-    }
-    if ((sig==SIGSEGV || sig==SIGBUS) && t->phase==PROCESS_TID_STORE
-            && regs.pc>=abi.store_groups && regs.pc<abi.stored_groups) {
-        /* Linux ignores a failed CLONE_*SETTID store. The child still
-         * exists; never report a second failed clone to its parent. */
-        if (!set_registers(pid,&t->execution.registers) || !restore_mask(t)) return;
-        t->phase=IDLE; resume(pid,0); return;
-    }
-    if ((sig==SIGSEGV || sig==SIGBUS) && ((t->phase==PROCESS_INFO_LOAD
-            && regs.pc>=abi.load_groups && regs.pc<abi.loaded_groups)
-            || ((t->phase==PROCESS_INFO_STORE || t->phase==PROCESS_VALUE_STORE)
-                && regs.pc>=abi.store_groups && regs.pc<abi.stored_groups))) {
-        t->process_op.returned.regs[0]=(uint64_t)-EFAULT;
-        if (!set_registers(pid,&t->process_op.returned) || !restore_mask(t)) return;
-        t->phase=IDLE; resume(pid,0); return;
-    }
-    if (sig == SIGSEGV && t->phase == LOADING_PATH && regs.pc == LOAD_BYTE) {
-        t->metadata.error = -EFAULT; replay(t); return;
-    }
-    if (sig == SIGSEGV && t->phase == STORING && regs.pc == STORE) {
-        t->metadata.error = -EFAULT; store_next(t); return;
-    }
     if ((sig==SIGSEGV || sig==SIGBUS) && regs.pc>=COPY_BEGIN && regs.pc<COPY_END
-            && (t->phase==DISPATCHING || cooperative_copying(t))) {
+            && (t->phase==DISPATCHING || t->phase==TRANSFERRING || cooperative_copying(t))) {
         if (!signal_observe(t,signal_stop,0)) return;
         siginfo_t info=signal_stop->info;
         if (info.si_code>0) {

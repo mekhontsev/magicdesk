@@ -11,7 +11,9 @@
 
 struct md_seccomp_policy {
     struct md_seccomp_policy *parent;
-    uint64_t identity,entry_image,internal_image;
+    uint64_t identity,entry_image;
+    struct md_seccomp_gate *internal_gates;
+    size_t internal_gate_count;
     struct md_seccomp_cache cache;
     struct md_fd_weak *listener;
     atomic_size_t references;
@@ -72,6 +74,7 @@ void md_seccomp_policy_release(struct md_seccomp_policy *p) {
         assert(!p->users);
         struct md_seccomp_policy *parent = p->parent;
         md_fd_weak_release(p->listener);
+        free(p->internal_gates);
         free(p); p = parent;
     }
 }
@@ -126,15 +129,34 @@ int md_seccomp_policy_capture(struct md_seccomp_policy *parent, const struct soc
 }
 int md_seccomp_policy_may_trace(const struct md_seccomp_policy *p) { return p && p->may_trace; }
 int md_seccomp_policy_may_notify(const struct md_seccomp_policy *p) { return p && p->may_notify; }
-uint64_t md_seccomp_policy_entry_image(const struct md_seccomp_policy *p) { return p ? p->entry_image : 0; }
-int md_seccomp_policy_internal_gates(const struct md_seccomp_policy *p,uint64_t image) {
-    return p && image && p->internal_image==image;
+int md_seccomp_policy_address_independent(const struct md_seccomp_policy *p) {
+    for (;p;p=p->parent) if (p->uses_ip) return 0;
+    return 1;
 }
-void md_seccomp_policy_bind_entry(struct md_seccomp_policy *p,uint64_t image) {
-    assert(p && !p->users && !p->entry_image);
+uint64_t md_seccomp_policy_entry_image(const struct md_seccomp_policy *p) { return p ? p->entry_image : 0; }
+int md_seccomp_policy_internal_gates(const struct md_seccomp_policy *p,
+        const struct md_seccomp_gate *gates,size_t count) {
+    if (!p || !gates || !count || p->internal_gate_count!=count) return 0;
+    for (size_t i=0;i<count;++i) {
+        const struct md_seccomp_gate *a=p->internal_gates+i,*b=gates+i;
+        if (a->first!=b->first || a->end!=b->end || a->number!=b->number
+                || a->decision!=b->decision) return 0;
+    }
+    return 1;
+}
+int md_seccomp_policy_bind_entry(struct md_seccomp_policy *p,uint64_t image,
+        const struct md_seccomp_gate *gates,size_t count) {
+    assert(p && !p->users && !p->entry_image && !p->internal_gate_count);
+    if (!image || (count && !gates) || count>SIZE_MAX/sizeof(*gates)) return -EINVAL;
+    if (count && (!p->parent || md_seccomp_policy_internal_gates(p->parent,gates,count))) {
+        p->internal_gates=malloc(count*sizeof(*gates));
+        if (!p->internal_gates) return -ENOMEM;
+        memcpy(p->internal_gates,gates,count*sizeof(*gates));
+        p->internal_gate_count=count;
+    }
     if (!p->parent || md_seccomp_policy_entry_compatible(p->parent,image)) p->entry_image=image;
-    if (!p->parent || md_seccomp_policy_internal_gates(p->parent,image)) p->internal_image=image;
     p->entry_portable=p->entry_image && !p->uses_ip && (!p->parent || p->parent->entry_portable);
+    return 0;
 }
 int md_seccomp_policy_entry_checkpoint(const struct md_seccomp_policy *p) {
     if (!p || !p->entry_portable) return -1;
@@ -352,6 +374,8 @@ static unsigned constant_allow_prefix(struct sock_filter *out,const struct md_se
 }
 int md_seccomp_policy_route(const struct md_seccomp_policy *p,const uint32_t *calls,size_t count,
         uint16_t cookie,struct sock_filter *out,size_t capacity,const struct md_seccomp_route *route) {
+    if (route && (route->internal_gate_count>route->gate_count
+            || (route->internal_gate_count && (!route->entry_first || !route->entry_image)))) return -EINVAL;
     if (!route || !route->gate_count) return policy_route(p,calls,count,cookie,out,capacity,route);
     if (!out || !route->gates || route->instruction_pointer) return -EINVAL;
     unsigned gates=0;

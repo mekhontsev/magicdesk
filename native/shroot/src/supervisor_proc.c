@@ -2,6 +2,7 @@
 #include "adapter_buffer.h"
 #include "control_file.h"
 #include "control_ioctl.h"
+#include "descriptor_calls.h"
 #include "fd_install.h"
 #include "fd_native_pin.h"
 #include "fd_object.h"
@@ -809,12 +810,15 @@ void proc_lookup_start(struct thread *t) {
     retry_clear(t,RETRY_PROC_LOOKUP);
     if (md_fd_order_state(&t->proc.lookup)!=MD_RESOURCE_ORDER_READY) { retry_wait(t,RETRY_PROC_LOOKUP); return; }
     CHECK(t->phase==PROC_LOOKUP && !md_fd_order_start(&t->proc.lookup));
-    struct user_pt_regs regs=t->execution.registers;
-    long nr=regs.regs[8];
-    struct md_proc_file *file=proc_file_capture(t,(int)regs.regs[nr==SYS_mmap ? 4 : 0]);
+    const struct seccomp_data *call=&t->execution.request;
+    struct user_pt_regs *regs=entry_pending(t) ? NULL : &t->execution.registers;
+    unsigned long args[6];
+    for (unsigned i=0;i<6;++i) args[i]=call->args[i];
+    long nr=call->nr;
+    struct md_proc_file *file=proc_file_capture(t,(int)args[nr==SYS_mmap ? 4 : 0]);
     t->proc.splice_write=!file;
     if (!file && (nr==SYS_sendfile || nr==SYS_tee || nr==SYS_splice || nr==SYS_copy_file_range))
-        file=proc_file_capture(t,(int)regs.regs[nr==SYS_sendfile || nr==SYS_tee ? 1 : 2]);
+        file=proc_file_capture(t,(int)args[nr==SYS_sendfile || nr==SYS_tee ? 1 : 2]);
     CHECK(!md_fd_order_complete(&t->proc.lookup));
     t->phase=IDLE;
     /* A selector collision changes the filter cookie, not syscall ownership.
@@ -823,33 +827,31 @@ void proc_lookup_start(struct thread *t) {
     struct md_control_file operations=md_proc_file_control(file);
     if (md_proc_file_filesystem_paths(file) && (nr==SYS_fstatfs || nr==SYS_syncfs
             || ((nr==SYS_fsync || nr==SYS_fdatasync) && (!operations.ops || !operations.ops->command))
-            || (nr==SYS_ioctl && md_filesystem_ioctl_command((unsigned)regs.regs[1])))) {
+            || (nr==SYS_ioctl && md_filesystem_ioctl_command((unsigned)args[1])))) {
         md_proc_file_release(file); file=NULL;
     }
     int filesystem=!file && (nr==SYS_lseek || nr==SYS_getdents64 || nr==SYS_fstatfs
         || nr==SYS_fsync || nr==SYS_fdatasync || nr==SYS_syncfs
-        || (nr==SYS_ioctl && md_filesystem_ioctl_command((unsigned)regs.regs[1])));
+        || (nr==SYS_ioctl && md_filesystem_ioctl_command((unsigned)args[1])));
     if (nr==SYS_mmap) {
         md_proc_file_release(file);
-        memory_begin(t,&regs,MEMORY_KERNEL,0); return;
+        memory_begin(t,call,regs,MEMORY_KERNEL); return;
     }
     if (file && nr==SYS_fcntl) {
         long result=0;
-        if (regs.regs[1]==F_SETFL && (regs.regs[2]&O_NOATIME)
+        if (args[1]==F_SETFL && (args[2]&O_NOATIME)
                 && !(md_proc_file_flags(file)&(O_NOATIME|O_PATH))) {
             struct stat st;
             result=md_proc_file_control(file).ops && !md_proc_file_task(md_proc_file_kind(file)) ? md_proc_file_control_stat(file,&st)
                 : md_proc_file_retained_stat(file,tasks,0,&st);
             if (!result) result=md_file_noatime(&st,&t->identity);
         }
-        int handled=result ? 1 : md_proc_file_fcntl(file,(int)regs.regs[1],regs.regs[2],&result);
+        int handled=result ? 1 : md_proc_file_fcntl(file,(int)args[1],args[2],&result);
         md_proc_file_release(file);
-        if (handled) return_value(t,&regs,result); else resume(t->pid,0);
+        if (handled) return_value(t,regs,result); else native_continue(t);
         return;
     }
     if (file) {
-        unsigned long args[6];
-        for (unsigned i=0;i<6;++i) args[i]=regs.regs[i];
         struct md_proc_io_spec spec;
         struct md_control_file control=md_proc_file_control(file);
         int namespace_ioctl=nr==SYS_ioctl && (md_proc_file_namespace(md_proc_file_kind(file))
@@ -864,15 +866,22 @@ void proc_lookup_start(struct thread *t) {
         if (!error && nr!=SYS_fstatfs && !namespace_ioctl) error=md_proc_file_access(file,
             spec.command ? MD_PROC_FILE_COMMAND : spec.seek ? MD_PROC_FILE_SEEK : spec.directory ? MD_PROC_FILE_GETDENTS
                 : spec.writing ? MD_PROC_FILE_WRITE : MD_PROC_FILE_READ);
-        if (error) { md_proc_file_release(file); return_value(t,&regs,error); return; }
+        if (error) { md_proc_file_release(file); return_value(t,regs,error); return; }
         t->proc.file=file;
     } else if (!filesystem && nr!=SYS_read && nr!=SYS_readv
-            && (nr!=SYS_ioctl || md_watch_ioctl_native(nr,regs.regs[1]))
+            && (nr!=SYS_ioctl || md_watch_ioctl_native(nr,args[1]))
             && nr!=SYS_splice && nr!=SYS_tee && nr!=SYS_sendfile) {
         /* Without a typed control, only FIONREAD can require watch adaptation.
          * Other ioctls already passed their domain owners; execute at the
          * original PC/mask, without a cancel/replay trip through WATCH_ENTRY. */
-        resume(t->pid,0); return;
+        native_continue(t); return;
+    }
+    if (entry_pending(t)) {
+        /* Lookup only needs the typed request and an ordered FD reference.
+         * Request a stopped context for the selected operation, never merely
+         * to identify the descriptor after a broad sandbox selector. */
+        execution_begin(t,call,NULL,"proc-lookup-mask");
+        return;
     }
     t->watch_wait=0;
     if (!save_signal_mask(t,&t->execution.mask,"proc-lookup-mask")
@@ -883,14 +892,14 @@ void proc_lookup_start(struct thread *t) {
     } else { t->phase=WATCH_CANCEL; resume(t->pid,0); }
 }
 
-void proc_lookup_begin(struct thread *t,const struct user_pt_regs *regs) {
-    if (entry_context(t,MD_CONTEXT_DESCRIPTOR)) return;
+void proc_lookup_begin(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *regs) {
     if (!t->ready || t->phase!=IDLE || t->proc.file || t->proc.lookup.table)
         fprintf(stderr,"Shroot: proc lookup conflict pid=%d ready=%d phase=%d file=%d lookup=%d pc=%#llx nr=%llu original=%d originalPc=%#llx\n",
             t->pid,t->ready,t->phase,!!t->proc.file,!!t->proc.lookup.table,
-            regs->pc,regs->regs[8],t->execution.request.nr,t->execution.request.instruction_pointer);
+            call->instruction_pointer,(unsigned long long)call->nr,t->execution.request.nr,t->execution.request.instruction_pointer);
     CHECK(t->ready && t->phase==IDLE && !t->proc.file && !t->proc.lookup.table);
-    execution_capture(t,regs); t->phase=PROC_LOOKUP;
+    execution_retain(t,call,entry_pending(t) ? NULL : regs);
+    t->phase=PROC_LOOKUP;
     CHECK(md_fd_order_begin(t->resources.files,&t->proc.lookup,fd_wakeup)>=0);
     /* EVENT_WAIT: preceding kernel close/dup and its metadata publication must
      * precede classification of a possibly reused number. Exit cancels lookup. */

@@ -106,7 +106,7 @@ guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c ${src}/
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/proc_image.c ${src}/proc_control.c ${src}/program_files.c ${src}/task_status.c
     ${src}/namespace.c ${src}/namespace_proc.c ${src}/namespace_mount.c ${src}/namespace_mount_fd.c ${src}/namespace_bpf.c ${src}/namespace_landlock.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_identity.c ${src}/socket_ancillary.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/task_receive.c ${src}/fs_client.c ${src}/fs_buffer_client.c ${src}/adapter_buffer.c ${src}/file_open.c ${wire} ${src}/raw.c ${src}/raw.S)
-target_sources(bootstrap PRIVATE ${src}/guest_execution.c ${src}/descriptor_calls.c ${src}/epoll_calls.c ${src}/descriptor_capture.c ${src}/freestanding_memory.c)
+target_sources(bootstrap PRIVATE ${src}/guest_execution.c ${src}/guest_transfer.c ${src}/identity_transfer.c ${src}/signal_calls.c ${src}/descriptor_calls.c ${src}/epoll_calls.c ${src}/descriptor_capture.c ${src}/freestanding_memory.c)
 target_sources(bootstrap PRIVATE ${src}/host_open.c)
 target_sources(bootstrap PRIVATE ${src}/fd_filter_program.c)
 target_sources(bootstrap PRIVATE ${src}/task_atomic.S)
@@ -130,7 +130,7 @@ target_compile_definitions(supervisor PRIVATE MD_NO_START MD_USE_LIBC)
 set(supervisor_owners
     ${src}/supervisor_identity.c ${src}/supervisor_signals.c
     ${src}/supervisor_seccomp.c ${src}/supervisor_readiness.c
-    ${src}/supervisor_task.c ${src}/supervisor_execution.c
+    ${src}/supervisor_task.c ${src}/supervisor_execution.c ${src}/supervisor_transfer.c
     ${src}/supervisor_domain.c ${src}/supervisor_descriptors.c
     ${src}/supervisor_actors.c ${src}/supervisor_memory.c
     ${src}/supervisor_fs.c ${src}/supervisor_proc.c
@@ -237,7 +237,8 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_compile_options(supervisor_state PRIVATE -iquote ${src} -UNDEBUG)
     target_link_libraries(supervisor_state PRIVATE guest-sqlite guest-sha256 m)
     target_link_options(supervisor_state PRIVATE -Wl,--wrap=md_fs_buffer_adopt
-        -Wl,--wrap=md_task_wait_ready -Wl,--wrap=md_debugger_active)
+        -Wl,--wrap=md_task_wait_ready -Wl,--wrap=md_debugger_active
+        -Wl,--wrap=md_broker_resumed -Wl,--wrap=md_broker_entry_reply)
     guest_executable(test_svc_direct_signal ../guest-exec-lab/test_svc_direct_signal.c
         ../guest-exec-lab/test_svc_context.S ../guest-exec-lab/svc_text.c)
     target_compile_options(test_svc_direct_signal PRIVATE -iquote ${src} -UNDEBUG $<$<COMPILE_LANGUAGE:C>:-mgeneral-regs-only> -fno-stack-protector)

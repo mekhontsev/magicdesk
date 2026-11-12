@@ -29,7 +29,7 @@ native kernel access ceiling.
 
 Exec admission always selects the distribution's original `PT_INTERP`.
 Stock `libthread_db` matches libc's private thread layout and realtime signal
-handling. Debugger ownership revokes lazy SVC entry in the inferior; other
+handling. Debugger ownership suspends lazy SVC entry in the inferior; other
 untraced processes retain their normal admission. This is shared by all
 distributions and needs no GDB wrapper or sandbox override.
 
@@ -49,6 +49,20 @@ Supported requests include register sets, memory peek/poke, signal information
 and masks, continue, single step, syscall entry/exit information, interrupt,
 listen, detach, kill, event messages and fork/vfork/clone/exec/exit options.
 Attach/interrupt stops are published at a guest boundary, outside adapter code.
+Stop demand survives intermediate preparation and borrowed-task stops. Before
+an interruptible service wait resumes, an outstanding debugger stop is handed
+to that wait's cancellation owner. Provider waits distinguish that interruption
+from data readiness; a pending stop cannot cause a resume/interrupt loop while
+waiting for data that the debugger itself will supply after detach.
+A resident native call uses its effect journal
+to restore the original context, including the interval between publication and
+kernel entry. EVENT_STOP recovery uses the kernel's completed restart decision;
+signal-delivery recovery keeps the native PC until that decision commits.
+Recovery and guest register writes use the same continuation decoder, so a
+restored application PC cannot retain a service checkpoint's execution scope.
+Lazy SVC admission is suspended for the shared address space, not permanently
+disabled. The last detach or debugger exit permits lazy re-admission through
+the same registry owner, subject to independent filter and mapping constraints.
 An inferior's unmaskable SIGSTOP also waits for that boundary, after its internal
 file-table and filesystem turns finish. Its original siginfo belongs to the
 debugger relationship; suppressing the stop does not group-stop the application
@@ -225,6 +239,9 @@ open arguments and child creation, and rejects stray exec-event recovery.
 The `strace-detach` case attaches to 41 idle threads, observes a stable wait,
 sends SIGINT and requires prompt tracer exit without killing the target. The
 target must then accept input, release its workers and exit normally.
+`gdb-attach-poll` and `gdb-attach-epoll` check blocked native and mixed-provider
+readiness, the original caller's backtrace, a register-visible data edit and
+continued input after detach.
 `gdb-attach-fork` inherits an admitted readiness selector, attaches to 41 threads,
 waits for GDB's idle native poll, then requires four fork/exec detachments and
 normal target/debugger exit. `--machine-entry --pid-namespace` checks the

@@ -1,44 +1,35 @@
 #include "guest_execution.h"
-#include "interception.h"
-#include "identity_call.h"
-#include "seccomp_install.h"
-#include "terminal_calls.h"
+#include "descriptor_calls.h"
 #include "socket_calls.h"
 #include <linux/ipc.h>
 
-enum md_execution_context md_execution_context_needed(long nr,const uint64_t args[6],unsigned cookie) {
-    if (cookie&MD_INTERCEPT_CLOSE) cookie=MD_INTERCEPT_FD;
-    switch (cookie) {
-    case MD_INTERCEPT_MEMORY: return MD_CONTEXT_MEMORY;
-    case MD_INTERCEPT_FD:
-        return nr==SYS_clone || nr==SYS_clone3 ? MD_CONTEXT_BIRTH : MD_CONTEXT_DESCRIPTOR;
-    case MD_INTERCEPT_PROC: case MD_INTERCEPT_WATCH: case MD_INTERCEPT_CWD: case MD_INTERCEPT_CAPTURE:
-        return MD_CONTEXT_DESCRIPTOR;
-    case MD_INTERCEPT_SIGNAL: return MD_CONTEXT_SIGNAL;
-    case MD_INTERCEPT_OBSERVE:
-        if (md_seccomp_filter_call(nr,args[0],args[1])) return MD_CONTEXT_POLICY;
-        if (nr==SYS_chroot || nr==SYS_unshare || nr==SYS_setns) return MD_CONTEXT_NAMESPACE;
-        return MD_CONTEXT_PROCESS;
-    case MD_INTERCEPT_PROCESS:
-        if (nr!=SYS_getpid && nr!=SYS_gettid) return MD_CONTEXT_PROCESS;
-        break;
-    case MD_INTERCEPT_IDENTITY:
-        if (md_identity_scalar_call(nr) || md_identity_scalar_update(nr) || nr==SYS_prctl) break;
-        return MD_CONTEXT_COPY;
-    }
+enum md_execution_context md_execution_dispatch_context(const struct md_guest_execution *call) {
+    long nr=call->number;
+    const unsigned long *args=call->args;
+    /* These C adapters still require their original-stack continuation. This
+     * is not a property of all calls that can block: retained owners handle
+     * ordinary IO, provider waits and SysV IPC without a stopped task. */
+    if (nr==SYS_execve || nr==SYS_execveat) return MD_CONTEXT_EXEC;
+    if (nr==SYS_rt_sigsuspend || ((nr==SYS_epoll_pwait || nr==SYS_epoll_pwait2) && args[4])
+            || (nr==SYS_ppoll && args[3]) || (nr==SYS_pselect6 && args[5])) return MD_CONTEXT_SIGNAL;
+    return MD_CONTEXT_COUNT;
+}
+
+enum md_execution_context md_execution_native_context(long nr,const uint64_t args[6]) {
+    if (nr==SYS_clone || nr==SYS_clone3) return MD_CONTEXT_BIRTH;
     if (nr==SYS_ptrace) return MD_CONTEXT_DEBUG;
-    /* A descriptor owner may decline an ioctl to a native driver, including
-     * blocking terminal operations. Preserve that continuation's caller frame. */
-    if (nr==SYS_ioctl && (unsigned)args[1]!=FIONREAD && (unsigned)args[1]!=TIOCGWINSZ
-            && (unsigned)args[1]!=TCGETS && (unsigned)args[1]!=TCGETS2) return MD_CONTEXT_DESCRIPTOR;
+    /* An admitted driver command can block, just like native payload IO.
+     * The journal owns interruption/restart; descriptor classification alone
+     * does not require a stopped caller or a second adapter invocation. */
+    if (nr==SYS_ioctl && !md_descriptor_query_call(nr,(unsigned)args[1])) return MD_CONTEXT_WAIT;
     if (nr==SYS_wait4 || nr==SYS_waitid) return MD_CONTEXT_WAIT;
     if (nr==SYS_execve || nr==SYS_execveat) return MD_CONTEXT_EXEC;
     if (nr==SYS_shmat || nr==SYS_shmdt) return MD_CONTEXT_MEMORY;
-    if (nr==SYS_rt_sigreturn || nr==SYS_rt_sigaction || nr==SYS_rt_sigprocmask
+    if (nr==SYS_rt_sigreturn || nr==SYS_rt_sigaction || (nr==SYS_rt_sigprocmask && args[1])
             || nr==SYS_sigaltstack) return MD_CONTEXT_SIGNAL;
-    if (nr==SYS_set_robust_list || nr==SYS_set_tid_address) return MD_CONTEXT_PROCESS;
-    /* These adapters can sleep or return a kernel restart. Their owners need
-     * the original mask and restart boundary, not a resident C stack. */
+    if (nr==SYS_set_robust_list) return MD_CONTEXT_PROCESS;
+    /* Sleeping effects need the signal-aware native journal, not a raw call
+     * from the C stack. Lack of service-gate admission alone requires Base. */
     if (nr==SYS_epoll_pwait2 || nr==SYS_ppoll || nr==SYS_pselect6 || nr==SYS_rt_sigsuspend
             || (nr==SYS_epoll_pwait && ((int)args[3] || args[4]))
             || nr==SYS_semop || nr==SYS_semtimedop

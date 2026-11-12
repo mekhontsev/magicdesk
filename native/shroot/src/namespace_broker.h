@@ -33,10 +33,11 @@ void md_broker_cooperative_revoke(struct md_namespace_broker *,pid_t);
 /* Supervisor-side control admission; the existing operation owner publishes
  * its eventual response. No guest register snapshot or kernel stop is implied. */
 void md_broker_entry_handler(struct md_namespace_broker *,void (*)(pid_t,struct md_entry_channel *));
-/* Bounded supervisor-owned control dispatch. Returns pending runnable work;
- * the caller must not sleep while it is nonzero. Worker IO stays independent. */
+/* Bounded supervisor-owned control dispatch. Returns progress or pending work;
+ * revisit resource owners before sleeping when nonzero. Worker IO stays independent. */
 int md_broker_entry_progress(struct md_namespace_broker *);
 void md_broker_entry_reply(struct md_namespace_broker *,struct md_entry_channel *,enum md_entry_outcome,long);
+void md_broker_entry_wait(struct md_entry_channel *);
 /* Publish one journaled caller action. The control owner retains its resource
  * turns until MD_ENTRY_EFFECT_DONE; the worker never retires it as an FD call. */
 void md_broker_entry_effect(struct md_namespace_broker *,struct md_entry_channel *,long,const uint64_t [6]);
@@ -78,19 +79,22 @@ void md_broker_native_return(struct md_namespace_broker *,pid_t);
 /* Retain a real kernel event while its admitted worker operation retires.
  * No synchronous worker wait or filesystem IO occurs on the supervisor. */
 int md_broker_hold_event(struct md_namespace_broker *,pid_t,int,const struct rusage *);
+/* A barrier owns an undecoded stop. Revoke local leases and pause admission,
+ * but retain the native journal: entry registers are not syscall results. */
+void md_broker_park(struct md_namespace_broker *,pid_t);
 pid_t md_broker_take_event(struct md_namespace_broker *,int *,struct rusage *);
 /* Includes terminal events already reaped from the kernel but still owned by
  * worker retirement. ECHILD does not finish the dispatcher while these remain. */
 int md_broker_pending_events(struct md_namespace_broker *);
 /* Eligibility publication and kernel resumption are distinct. Only resuming=1
  * releases the recorded stop; a context update must not resume a held event. */
-struct md_broker_code_ranges { uintptr_t starts[8]; size_t size; unsigned count; };
+struct md_svc_registry;
 int md_broker_task(struct md_namespace_broker *, int pid, int eligible, uintptr_t raw_gate, uintptr_t watch_gate,
-    const struct md_broker_code_ranges *,int resuming);
+    const struct md_svc_registry *,int resuming);
 /* Stopped-task authority: a pure mask query needs no logical translation.
  * Revoked before resuming with a different logical mask or debugger policy. */
 void md_broker_signal_query(struct md_namespace_broker *,pid_t,int native);
-/* A barrier restored an unchanged continuation after its synthetic stop.
+/* A barrier or checkpoint decoder restored an unchanged continuation.
  * Retain eligibility and resource ownership; wake a request published before
  * this acknowledgement. Never use for an injected helper or held real event. */
 void md_broker_resumed(struct md_namespace_broker *,pid_t);

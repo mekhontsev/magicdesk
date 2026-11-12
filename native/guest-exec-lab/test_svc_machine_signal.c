@@ -34,10 +34,11 @@ static unsigned mode;
 static int expected_restart, word;
 static char alternate[65536];
 static sigjmp_buf escape;
-static unsigned info_reads,register_reads;
+static unsigned info_reads,register_reads,register_writes;
 static long signal_trace(int request,pid_t pid,void *address,void *data) {
     if (request==PTRACE_GETSIGINFO) ++info_reads;
     if (request==PTRACE_GETREGSET) ++register_reads;
+    if (request==PTRACE_SETREGSET) ++register_writes;
     return ptrace(request,pid,address,data);
 }
 static void handler(int number,siginfo_t *info,void *context) {
@@ -58,6 +59,24 @@ static int stop(pid_t pid) {
     /* EVENT_WAIT: exact ptraced child stop; the suite alarm bounds failure. */
     assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status));
     return status;
+}
+static void retry_observation(pid_t pid) {
+    struct ptrace_syscall_info info={0};
+    assert(ptrace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info)>0);
+    assert(info.op==PTRACE_SYSCALL_INFO_ENTRY);
+    for (unsigned variant=0;variant<3;++variant) {
+        struct md_svc_machine_thread retry={.retry_svc=info.instruction_pointer-4+(variant==1 ? 4 : 0),
+            .retry_number=info.entry.nr+(variant==2)};
+        struct seccomp_data call;
+        memset(&call,0xa5,sizeof(call));
+        struct seccomp_data untouched=call;
+        assert(md_svc_machine_retry(signal_trace,&retry,pid,&call)==!variant && !retry.retry_svc);
+        if (!variant) {
+            assert(call.nr==(int)info.entry.nr && call.arch==info.arch
+                && call.instruction_pointer==info.instruction_pointer);
+            assert(!memcmp(call.args,info.entry.args,sizeof(call.args)));
+        } else assert(!memcmp(&call,&untouched,sizeof(call)));
+    }
 }
 static void run(unsigned selected,int timed) {
     mode=selected; shared->handled=0; word=0;
@@ -114,9 +133,10 @@ static void run(unsigned selected,int timed) {
         assert(ptrace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info)>0);
         if (info.op==PTRACE_SYSCALL_INFO_ENTRY && info.instruction_pointer==(uintptr_t)alias_svc+4) break;
     }
+    retry_observation(pid);
     struct md_svc_site sites[1];
     struct md_svc_registry registry={.count=1,.pool_count=1,.sites=sites,
-        .pools={{.address=(uintptr_t)alias_svc,.used=8}}};
+        .pools=(struct md_svc_code_pool[]){{.address=(uintptr_t)alias_svc,.used=8}}};
     registry.sites[0]=(struct md_svc_site){.direct={.gate=(uintptr_t)alias_svc,
         .svc=(uintptr_t)original_svc,.number=timed ? SYS_futex : SYS_read},.kernel_alias=(uintptr_t)alias_svc,
         .original=0xd4000001,.replacement=0xd4000001,.state=MD_SVC_PUBLISHED};
@@ -128,25 +148,25 @@ static void run(unsigned selected,int timed) {
         assert(!ptrace(PTRACE_GETREGSET,pid,(void *)NT_PRSTATUS,&io));
         struct user_pt_regs after=before;
         registry.disabled=1;
-        assert(!md_svc_machine_native_entry(&registry,&after) && !memcmp(&before,&after,sizeof(before)));
+        assert(!md_svc_machine_native_entry(&registry,after.pc,after.regs[8]) && !memcmp(&before,&after,sizeof(before)));
         registry.disabled=0; after.regs[8]^=1;
-        assert(md_svc_machine_native_entry(&registry,&after)==2);
+        assert(md_svc_machine_native_entry(&registry,after.pc,after.regs[8])==2);
         registry.sites[0].state=MD_SVC_RETIRED;
-        assert(!md_svc_machine_native_entry(&registry,&after));
+        assert(!md_svc_machine_native_entry(&registry,after.pc,after.regs[8]));
         registry.sites[0].state=MD_SVC_PUBLISHED;
         after=before; ++after.pc;
-        assert(!md_svc_machine_native_entry(&registry,&after));
+        assert(!md_svc_machine_native_entry(&registry,after.pc,after.regs[8]));
         after=before;
-        assert(md_svc_machine_native_entry(&registry,&after)==1);
+        assert(md_svc_machine_native_entry(&registry,after.pc,after.regs[8])==1);
         assert(!memcmp(&before,&after,sizeof(before)));
     }
     if (mode&QUIET_RETURN) {
         struct md_svc_machine_thread machine={0};
-        assert(!md_svc_machine_drain(&registry,&machine,pid,NULL,1) && machine.draining);
+        assert(!md_svc_machine_drain(signal_trace,&registry,&machine,pid,NULL,1) && machine.draining);
         assert(write(data[1],"x",1)==1);
         assert(!ptrace(PTRACE_SYSCALL,pid,NULL,NULL));
         int status=stop(pid); assert(WSTOPSIG(status)==(SIGTRAP|0x80));
-        assert(!md_svc_machine_flush(&registry,&machine,pid) && !machine.draining);
+        assert(!md_svc_machine_flush(signal_trace,&registry,&machine,pid) && !machine.draining);
         struct user_pt_regs returned;
         struct iovec io={&returned,sizeof(returned)};
         assert(!ptrace(PTRACE_GETREGSET,pid,(void *)NT_PRSTATUS,&io));
@@ -177,8 +197,8 @@ static void run(unsigned selected,int timed) {
         assert(md_svc_machine_signal(&registry,&machine,pid,&queue,&observation,&deliver)==1 && deliver==signal);
         assert(info_reads==1 && register_reads==1);
         assert(machine.signal_alias==(uintptr_t)alias_svc);
-        assert(md_svc_machine_flush(&registry,&machine,pid)==1);
-        assert(!md_svc_machine_drain(&registry,&machine,pid,NULL,0) && machine.draining);
+        assert(md_svc_machine_flush(signal_trace,&registry,&machine,pid)==1);
+        assert(!md_svc_machine_drain(signal_trace,&registry,&machine,pid,NULL,0) && machine.draining);
         struct user_pt_regs before;
         struct iovec registers={&before,sizeof(before)};
         assert(!ptrace(PTRACE_GETREGSET,pid,(void *)NT_PRSTATUS,&registers));
@@ -186,7 +206,7 @@ static void run(unsigned selected,int timed) {
         assert(!ptrace(PTRACE_CONT,pid,NULL,(void *)(intptr_t)(mode&SUPPRESS ? 0 : deliver)));
         status=stop(pid);
         assert((unsigned)status>>16==PTRACE_EVENT_STOP && !shared->handled);
-        int result=md_svc_machine_signal_committed(&registry,&machine,pid,status);
+        int result=md_svc_machine_signal_committed(signal_trace,&registry,&machine,pid,status);
         if (result) fprintf(stderr,"signal commit mode=%u timed=%d error=%d\n",mode,timed,result);
         assert(!result && !machine.signal_alias && !machine.draining);
         assert(write(data[1],"x",1)==1);
@@ -195,8 +215,59 @@ static void run(unsigned selected,int timed) {
     assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
     assert(!close(gate[0]) && !close(gate[1]) && !close(data[0]) && !close(data[1]));
 }
+static void interrupted_native_frame(void) {
+    size_t size=2*MD_SVC_POOL_SIZE;
+    void *allocation=mmap(NULL,size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(allocation!=MAP_FAILED);
+    uintptr_t frame=((uintptr_t)allocation+MD_SVC_POOL_SIZE-1)&~(uintptr_t)(MD_SVC_POOL_SIZE-1);
+    pid_t pid=fork(); assert(pid>=0);
+    if (!pid) { for (;;) pause(); }
+    assert(!ptrace(PTRACE_SEIZE,pid,NULL,NULL) && !ptrace(PTRACE_INTERRUPT,pid,NULL,NULL));
+    assert((unsigned)stop(pid)>>16==PTRACE_EVENT_STOP);
+    struct md_svc_site site={.state=MD_SVC_PAUSED,
+        .direct={.frames=frame,.svc=0x1000,.gate=0x4000,.number=SYS_read}};
+    struct md_svc_registry registry={.frames=frame,.disabled=1,.sites=&site,.count=1,
+        .native={0x2000,0x2020,0x2030}};
+    const struct { unsigned state; uintptr_t pc; int done; } cases[]={
+        {MD_NATIVE_READY,0x9000,0},{MD_NATIVE_RUNNING,0x2000,0},
+        {MD_NATIVE_RUNNING,0x2020,0},{MD_NATIVE_RUNNING,0x2024,1},
+        {MD_NATIVE_RUNNING,0x2028,1},{MD_NATIVE_DONE,0x9000,1}};
+    for (unsigned i=0;i<sizeof(cases)/sizeof(*cases);++i) {
+        uint64_t saved[34]={0};
+        for (unsigned j=0;j<31;++j) saved[j]=0xabc000+j;
+        saved[8]=SYS_read; saved[31]=0xa0000000; saved[32]=0x1000000;
+        uint64_t pending=1;
+        struct md_entry_native native={.state=cases[i].state,.number=SYS_read,.result=17};
+        assert(!md_svc_registry_write(pid,frame,&frame,8));
+        assert(!md_svc_registry_write(pid,frame+MD_SVC_OWNER_OFFSET,&site.direct.gate,8));
+        assert(!md_svc_registry_write(pid,frame+MD_SVC_FRAME_OFFSET,saved,sizeof(saved)));
+        assert(!md_svc_registry_write(pid,frame+MD_SVC_SAVED_SP,&saved[32],8));
+        assert(!md_svc_registry_write(pid,frame+MD_SVC_DIRECT_PENDING,&pending,8));
+        assert(!md_svc_registry_write(pid,frame+MD_SVC_NATIVE_OFFSET,&native,sizeof(native)));
+        struct user_pt_regs r={.sp=frame+MD_SVC_SLOT_SIZE-16,.pc=cases[i].pc,.pstate=0x60000000};
+        r.regs[0]=cases[i].done ? 17 : saved[0];
+        struct iovec io={&r,sizeof(r)};
+        assert(!ptrace(PTRACE_SETREGSET,pid,(void *)NT_PRSTATUS,&io));
+        struct md_svc_machine_thread machine={.draining=1};
+        register_writes=0;
+        assert(!md_svc_machine_flush(signal_trace,&registry,&machine,pid) && !machine.draining);
+        assert(register_writes==1);
+        assert(!ptrace(PTRACE_GETREGSET,pid,(void *)NT_PRSTATUS,&io));
+        assert(r.sp==saved[32] && r.pc==site.direct.svc+(cases[i].done ? 4 : 0));
+        assert(r.regs[0]==(cases[i].done ? 17 : saved[0]) && r.pstate==saved[31]);
+        assert(!memcmp(r.regs+1,saved+1,30*8));
+        assert(machine.retry_svc==(cases[i].done ? 0 : site.direct.svc));
+        uint64_t busy=1;
+        assert(!md_svc_registry_read(pid,frame,&busy,8) && !busy);
+    }
+    assert(!kill(pid,SIGKILL));
+    int status; assert(waitpid(pid,&status,0)==pid && WIFSIGNALED(status));
+    assert(!munmap(allocation,size));
+    puts("PASS native frame interrupt: prepared, running, restarted and completed effects restore exact guest context");
+}
 int main(void) {
     alarm(30);
+    interrupted_native_frame();
     shared=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(shared!=MAP_FAILED);
     unsigned cases=0;

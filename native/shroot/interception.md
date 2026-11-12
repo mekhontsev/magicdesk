@@ -31,16 +31,18 @@ channel; its internal buffer, descriptor and IPC controls retain their existing
 supervisor owners. Native actions have an acknowledged completion, and a required
 kernel continuation retains the pending operation rather than replaying it;
 see [execution and transport](cooperative-entry.md#execution-and-transport).
-The dispatch gate receives policy and the retained typed-descriptor kind in x9
-and moves them to the C argument register in userspace. Descriptor classification
+The stopped-task dispatch gate builds the same `md_guest_execution` record as
+resident entry, on its already owned private stack. Its machine boundary carries
+policy in x9, retained typed-descriptor kind in w10 and prepared input in x11;
+the C executor receives only a pointer to the record. Descriptor classification
 belongs to the supervisor's ordered OFD capture; the adapter does not ask for
 the same classification again or cache guest FD numbers. It does not rely on
 changing x7 at an ARM64 syscall stop: the
 [kernel restores that register](https://github.com/torvalds/linux/blob/v5.15/arch/arm64/kernel/ptrace.c#L1694-L1726)
 after the stop. Notification cancellation, ordinary
 seccomp entry and debugger syscall stepping share this entry contract.
-For recvmsg, poll and managed exec adapters, x10 can carry an already leased input-buffer
-address. The assembly gate passes it as the ninth C argument. Missing mappings,
+For recvmsg, poll and managed exec adapters, the record can carry an already
+leased input-buffer address. Missing mappings,
 pool pressure and unsupported calls retain ordinary TAKE admission; this is not
 a per-thread buffer cache. Completion releases even an unclaimed lease after
 early argument failure. Exec keeps that lease through preparation until kernel
@@ -120,7 +122,10 @@ predicates compare the full 64-bit value; other commands retain the dispatcher.
 descriptor mutations whose origins need ordered observation. Their fcntl command
 is normalized to the kernel's 32-bit argument. Close, dup/dup3, close_range and
 F_SETFD/F_DUPFD/F_DUPFD_CLOEXEC complete in the kernel; the supervisor publishes
-metadata at the syscall-exit event. These capabilities remain available after
+metadata from the shared native-effect receipt or Base syscall-exit event.
+Ordered memory effects use the same completion owner for mapping provenance
+and SysV detachments, with refreshed fast-path exclusions before guest return.
+These capabilities remain available after
 the admitted proc-root restriction, with application filters still in force.
 An ordinary unfiltered close with an immediately available table turn obtains
 its low-int FD directly from a tagged seccomp event cookie. It needs no entry
@@ -152,17 +157,23 @@ namespace does not add a PID filter. Service waits and filter installation use
 owned task gates; a guest's direct forbidden syscall still receives its selected
 seccomp denial.
 Preflight releases its memory turn before replaying the application syscall.
+A prepared replay at a published lazy-SVC site uses its native alias, retaining
+the original policy identity and continuation without recursively entering the
+payload. Clone preparation and metadata replay use the same registry lookup.
 Signals may run at that boundary, including handlers that install another
 filter; the next entry reacquires ownership and captures the current arguments.
-With the all-FD selector active, ordinary regular-file read/write and vectored
-or positional IO can resume directly from `PTRACE_GET_SYSCALL_INFO`. The syscall
-number and arguments come from the kernel, not the filter cookie. Admission
-requires a running file-table turn, a sole stopped table owner and an explicit
-ordinary regular-file origin. Unknown, typed, provisional and uncertain FDs,
-shared tables and debugger execution retain the full route. No registers,
-arguments, instruction address or application filter are rewritten; the table
-turn ends before potentially blocking IO. This removes redundant capture and
-watch-adapter stops, not the seccomp stop itself. Unselected native IO is unchanged.
+With the all-FD selector active, ordinary regular-file and anonymous-pipe IO use
+one classifier for Base and resident entry. Base reads the real number and
+arguments from `PTRACE_GET_SYSCALL_INFO`, not the filter cookie; resident entry
+supplies its admitted logical call. Admission requires a running file-table
+turn, sole task ownership and explicit native-data provenance. Unknown,
+provider-backed, provisional and uncertain FDs, shared tables and debugger
+execution retain their owners. The table turn ends before potentially blocking
+IO. Base resumes the untouched kernel call; under an application filter its
+blocking continuation retains an exit observer so TSYNC does not interrupt and
+re-admit the operation under a newer policy. Resident entry transfers it to the
+terminal native journal without another ptrace entry/exit. Unselected native IO
+and unfiltered Base IO are unchanged.
 Poll and pselect can similarly resume at their original syscall when an ordered
 table snapshot contains no potential readiness providers. A maintained provider
 count avoids scanning the FD table or copying the vector for this decision.
@@ -170,7 +181,7 @@ Mixed tables retain typed classification. The kernel validates pointers, limits,
 timeouts and masks; no table turn spans the blocking wait. Adapted poll copies
 its first vector chunk with BEGIN and uses supervisor monotonic timing, without
 injecting guest clock syscalls or querying foreign process limits on every poll.
-When mixed-table classification finds only native descriptors in the selected
+In Base, when mixed-table classification finds only native descriptors in the selected
 vector, it retires the input buffer and resumes the original wait directly;
 there is no output to copy or intermediate adapter acknowledgement.
 Short ppoll vectors can be classified directly from an ordered snapshot, without
@@ -190,6 +201,14 @@ limit for the independent native waits.
 An internal quiescence interrupt before the wait's SVC resumes the same entry
 under its signal shield; it is not a syscall result. Its service wake is consumed
 at that boundary, independently of subsequent application signals or FD eviction.
+Resident unmasked epoll/poll/select waits execute journaled native effects on
+their existing channel. Only real signals, cold descriptor admission and loan
+changes need a stopped context; ordinary wait entry and completion do not.
+Virtual epoll subscription changes reuse the shared owner once its transport is
+admitted. Repeated MOD/DEL/ADD do not promote merely to update a virtual interest.
+Ignored signal stops retain the original deadline and resample, in both Base and
+resident execution. Base keeps interrupted ownership through the delivery stop,
+so a syscall-exit stop cannot decide EINTR before the signal disposition is known.
 After an interrupted caller-context wait, its temporary signal mask remains
 kernel-owned through delivery. That task cannot lend its continuation to FD
 retirement or publish retained signal carriers until its next syscall entry.
@@ -250,11 +269,19 @@ does not require an unrelated `gettid` permission or change ordinary data IO.
 Internal syscall-entry/exit stops are retained before checkpoint continuation;
 replayed and newly collected events use the same checkpoint driver. A barrier
 therefore cannot lose a stop to an internal syscall replay loop.
+An undecoded stop parks broker admission without completing its native journal.
+Only a normalized stop may recover that result: an entry PC is also a post-SVC
+address, but its registers still contain input arguments. Barrier release replays
+the retained event through decoding before handing it to operation retirement.
 A barrier release returns debugger-owned tasks through normal continuation
 admission: a shared kernel interrupt must publish the debugger's pending stop
 before resuming guest execution. Untraced releases retain direct continuation.
-The shared ptrace adapter records each successful owner's resume mode, including
-SYSEMU; barriers must not reuse the enclosing guest phase's older mode.
+The checkpoint owner records each actual successful kernel resume, including
+internally selected SYSEMU and intermediate syscall replay, and clears the
+coordinator's stopped state. Barrier release preserves that owner's retained
+stage; it must not reset decoding by treating an unchanged continuation as a
+new explicit syscall-step request. Without a retained stage, the exact saved
+resume mode applies.
 When a native task call borrows such a stop, the checkpoint owner suspends its
 decoder until the exact boundary has been restored. SYSEMU entries retain their
 kernel skip state independently of register edits and stop-decoder ownership,
@@ -374,11 +401,18 @@ Typed descriptor IO without an input payload acquires its buffer and begins the
 operation in one request. Buffer exhaustion retains no OFD turn; ordinary pool
 release resumes admission. Provider completion returns both the result and the
 leased address, including interrupted or failed IO that still needs cleanup.
-UTS queries, shared-memory status and SysV packet preparation use the same
+UTS queries, shared-memory status, SysV packet preparation and typed ioctl schemas use the same
 combined acquisition principle: their first owner request leases and fills the
 buffer. Pool exhaustion retains that request without starting the operation;
 failure after acquisition still returns the lease for ordinary cleanup. UTS
 mutations retain explicit input capture before their owner changes the namespace.
+An ioctl schema can publish a bounded immutable scalar for the retained object
+and command. The common adapter then copies it directly, with normal guest
+policy and pointer checks, instead of requesting a second owner execution.
+This is not a per-FD result cache. Mutable or revocable answers, asynchronous
+commands, indirect outputs and descriptor transfers retain their typed owners.
+TUN feature discovery uses this contract; input-device version queries do not,
+because device revocation can change their result.
 Typed descriptor IO combines its final copy acknowledgement, buffer release
 and syscall completion in one checkpoint. Intermediate pages retain the OFD turn
 and buffer; the last acknowledgement commits only confirmed bytes before releasing
@@ -386,7 +420,7 @@ the slot. Acknowledgement and cleanup errors retain their original precedence,
 including partial reads. Both terminal IO and ordinary adapter returns use the
 same completion owner for signal/debugger state, registers and scratch-stack
 retirement. This transport is shared by proc files, FUSE and other virtual devices.
-The same terminal FINISH control retires poll and scalar socket receives, avoiding
+The same terminal FINISH control retires poll, epoll, typed ioctls and scalar socket receives, avoiding
 a separate RELEASE followed by DONE. Only scalar TAKE may publish a checkpoint
 directly at syscall entry; full-context returns keep their post-syscall boundary.
 An inline recvmsg/recvmmsg error can complete at the receive owner when the adapter

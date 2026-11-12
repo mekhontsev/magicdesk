@@ -3,6 +3,12 @@
 #include "adapter_buffer.h"
 #include "fd_capture.h"
 #include <signal.h>
+#include <stdint.h>
+
+struct md_process_query { uint64_t value[2]; };
+union md_process_wait { siginfo_t info; int status; };
+long md_process_query(long number,const unsigned long *args);
+long md_process_wait_result(long number,const unsigned long *args);
 
 static inline long md_pid_visible(int native) {
 #ifdef MD_USE_LIBC

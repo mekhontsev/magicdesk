@@ -26,6 +26,10 @@ static int device,events[2],stopping[2],release_events[2];
 static atomic_int delay_flush,flush_error;
 static atomic_uint flushes,releases;
 static _Atomic(const char *) stage="startup";
+static void begin_stage(const char *name) {
+    stage=name;
+    fprintf(stderr,"FUSE close stage=%s\n",name);
+}
 static void response(uint64_t unique,int error,const void *data,size_t size) {
     unsigned char packet[512];
     struct fuse_out_header h={.len=sizeof(h)+size,.unique=unique,.error=error};
@@ -95,8 +99,9 @@ static uint64_t pending_flush(void) {
 struct closing { int fd,result,error,replacement,range; atomic_int done; };
 static void *close_thread(void *arg) {
     struct closing *c=arg;
+    /* Test the kernel result: some libc close wrappers suppress EINTR. */
     c->result=c->range ? syscall(SYS_close_range,c->fd,c->fd,0)
-        : c->replacement ? dup2(c->replacement,c->fd) : close(c->fd);
+        : c->replacement ? dup2(c->replacement,c->fd) : syscall(SYS_close,c->fd);
     c->error=errno; atomic_store(&c->done,1); return NULL;
 }
 static volatile sig_atomic_t signalled;
@@ -144,13 +149,16 @@ static void traced_exit(const char *path) {
     /* EVENT_WAIT: the debugger sees the terminal stop before file retirement.
      * The fixture alarm bounds a wrong FLUSH-before-debugger dependency. */
     int status; assert(waitpid(child,&status,__WALL)==child && WIFSTOPPED(status));
+    begin_stage("traced-exit-stop");
     assert((unsigned)status>>16==PTRACE_EVENT_EXIT);
     struct pollfd p={events[0],POLLIN,0}; assert(!poll(&p,1,0));
     assert(!ptrace(PTRACE_CONT,child,0,0));
     uint64_t unique=pending_flush();
+    begin_stage("traced-exit-flush");
     assert(!waitpid(child,&status,__WALL|WNOHANG));
     response(unique,0,NULL,0);
     assert(waitpid(child,&status,__WALL)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    begin_stage("traced-exit-reaped");
     atomic_store(&delay_flush,0); assert(!close(fd));
 }
 int main(int argc,char **argv) {
@@ -178,16 +186,16 @@ int main(int argc,char **argv) {
     pthread_t daemon; assert(!pthread_create(&daemon,NULL,serve,NULL));
     char path[256]; snprintf(path,sizeof(path),"%s/file",work);
     int fd=open(path,O_RDONLY); assert(fd>=0);
-    stage="alias-close";
+    begin_stage("alias-close");
     int alias=dup(fd); assert(alias>=0);
     atomic_store(&flush_error,-EIO); errno=0;
     assert(close(alias)==-1 && errno==EIO && atomic_load(&flushes)==1);
     errno=0; assert(fcntl(alias,F_GETFD)==-1 && errno==EBADF);
     assert(fcntl(fd,F_GETFD)>=0 && !atomic_load(&releases));
     atomic_store(&flush_error,0); assert(!close(fd) && atomic_load(&flushes)==2);
-    stage="delayed-close"; delayed_close(path,0);
-    stage="interrupted-close"; delayed_close(path,1);
-    stage="killed-close";
+    begin_stage("delayed-close"); delayed_close(path,0);
+    begin_stage("interrupted-close"); delayed_close(path,1);
+    begin_stage("killed-close");
     fd=open(path,O_RDONLY); assert(fd>=0);
     atomic_store(&delay_flush,1);
     pid_t killed=fork(); assert(killed>=0);
@@ -200,7 +208,7 @@ int main(int argc,char **argv) {
     response(interrupted,0,NULL,0);
     atomic_store(&delay_flush,0); assert(!close(fd));
     for (unsigned mode=0;mode<5;++mode) {
-        stage=(const char *[]) {"dup-close","exit","exec","range-close","thread-exec"}[mode];
+        begin_stage((const char *[]) {"dup-close","exit","exec","range-close","thread-exec"}[mode]);
         fd=open(path,O_RDONLY); assert(fd>=0);
         atomic_store(&delay_flush,1);
         if (!mode || mode==3) {
@@ -238,8 +246,8 @@ int main(int argc,char **argv) {
         }
         atomic_store(&delay_flush,0); if (mode!=3) assert(!close(fd));
     }
-    stage="traced-exit"; traced_exit(path);
-    stage="unsupported-flush";
+    begin_stage("traced-exit"); traced_exit(path);
+    begin_stage("unsupported-flush");
     fd=open(path,O_RDONLY); assert(fd>=0);
     atomic_store(&flush_error,-ENOSYS); assert(!close(fd));
     unsigned final_flushes=atomic_load(&flushes);

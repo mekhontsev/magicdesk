@@ -46,6 +46,7 @@
 #include "svc_registry.h"
 #include "syscall_result.h"
 #include "task_checkpoint.h"
+#include "supervisor_transfer.h"
 #include "task_copy.h"
 #include "task_descriptor.h"
 #include "task_helper.h"
@@ -81,6 +82,7 @@ void buffer_admission_yield(struct thread *t) {
     if (sent) ++t->fs.admission_yields;
     if (t->memory_op.notification && t->memory_op.notification->id==t->fs.admission_id) {
         free(t->memory_op.notification); t->memory_op.notification=NULL;
+        if (!t->memory_op.resume) md_pending_cancel(&t->memory_op.continuation);
     }
     t->fs.admission_pending=0;
 }
@@ -247,7 +249,7 @@ void handle_notification(const struct seccomp_notif *request) {
         if (!t->memory_op.notification) { t->memory_op.notification=malloc(sizeof(*request)); CHECK(t->memory_op.notification); }
         else CHECK(t->memory_op.notification->id==request->id
             || (ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&t->memory_op.notification->id)<0 && errno==ENOENT));
-        *t->memory_op.notification=*request; return;
+        *t->memory_op.notification=*request; task_continuation_defer(t); return;
     }
     if (!buffer_admission && guest_trace_rejected(t,&q.data)) {
         struct seccomp_notif_resp reply={.id=q.id,.error=-ENOSYS};
@@ -386,7 +388,8 @@ void handle_notification(const struct seccomp_notif *request) {
         } else if (q.data.args[0] == MD_GUEST_BUFFER) {
             buffer_setup(t,&q);
         }
-        else if (q.data.args[0]==MD_GUEST_SHM || q.data.args[0]==MD_GUEST_IPC) resource_request(t,&q);
+        else if (q.data.args[0]==MD_GUEST_SHM || q.data.args[0]==MD_GUEST_IPC
+                || q.data.args[0]==MD_GUEST_PID_SIGNAL_GROUP) resource_request(t,&q);
         else image_request(t, &q);
         return;
     }
@@ -539,6 +542,14 @@ static int metadata_instruction(struct thread *t,uintptr_t pc,uint32_t word) {
     return (word&0xffe0001f)==0xd4000001;
 }
 
+static void metadata_instruction_complete(struct thread *t,int error) {
+    struct metadata_restart *r=t->metadata_restart;
+    if (error || !metadata_instruction(t,r->saved.pc,r->instruction)) {
+        CHECK(completed_event_resume(t)); return;
+    }
+    metadata_restart_enter(t);
+}
+
 int interrupted_metadata_event(struct thread *t,int status,const struct rusage *usage,
         struct md_task_signal_stop *stop) {
     if (t->metadata_signal_restored) { t->metadata_signal_restored=0; return 0; }
@@ -582,7 +593,7 @@ int interrupted_metadata_event(struct thread *t,int status,const struct rusage *
      * Verify the instruction (or our exact replacement), then replay with its
      * original identity. Newer application filters remain authoritative. */
     struct metadata_restart *restart=calloc(1,sizeof(*restart)); CHECK(restart);
-    restart->saved=regs; restart->stage=copied==sizeof(instruction) ? METADATA_ENTRY : METADATA_CHECK;
+    restart->saved=regs; restart->stage=METADATA_ENTRY;
     t->metadata_restart=restart;
     t->kernel_stopped=1; t->interrupt_pending=0;
     t->broker_event.held=1; t->broker_event.status=status;
@@ -593,10 +604,10 @@ int interrupted_metadata_event(struct thread *t,int status,const struct rusage *
     t->signals.retained=md_signal_delivery_retain(&t->signals.delivery,t->pid,&info);
     CHECK(t->signals.retained>=0);
     restart->requeued_signal=t->signals.retained;
-    if (restart->stage==METADATA_CHECK) {
-        regs.regs[0]=regs.pc; regs.regs[1]=1; regs.pc=abi.load_groups;
-        if (set_registers(t->pid,&regs)) resume(t->pid,0);
-    } else metadata_restart_enter(t);
+    if (copied!=sizeof(instruction))
+        transfer_begin(t,&regs,regs.pc,&restart->instruction,sizeof(restart->instruction),
+            MD_TRANSFER_READ,metadata_instruction_complete);
+    else metadata_restart_enter(t);
     return 1;
 }
 
@@ -618,15 +629,6 @@ int metadata_restart_event(struct thread *t,int status) {
     struct user_pt_regs regs;
     if (!registers(t->pid,&regs)) return 1;
     t->kernel_stopped=1; t->interrupt_pending=0;
-    if (r->stage==METADATA_CHECK) {
-        int loaded=(unsigned)status>>16==MD_TASK_CHECKPOINT_EVENT && regs.pc==abi.loaded_groups+4;
-        int fault=(sig==SIGSEGV || sig==SIGBUS) && regs.pc>=abi.load_groups && regs.pc<abi.loaded_groups;
-        if (!loaded && !fault) return 0;
-        if (!set_registers(t->pid,&r->saved)) return 1;
-        if (fault || !metadata_instruction(t,r->saved.pc,(unsigned)regs.regs[3])) return completed_event_resume(t);
-        SUPERVISOR_TRACE("PROBE interrupted-metadata pid=%d nr=%llu\n",t->pid,r->saved.regs[8]);
-        metadata_restart_enter(t); return 1;
-    }
     if (sig==(SIGTRAP|0x80) && (r->stage==METADATA_ENTRY || r->stage==METADATA_WAIT)) {
         struct ptrace_syscall_info info;
         if (!tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"metadata-restart-boundary")) return 1;

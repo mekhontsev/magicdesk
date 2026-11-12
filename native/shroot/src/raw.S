@@ -28,9 +28,9 @@ md_raw_return:
     ret
 .size md_raw, .-md_raw
 
-.global md_socket_native
-.type md_socket_native, %function
-md_socket_native:
+.global md_guest_native_call_kernel
+.type md_guest_native_call_kernel, %function
+md_guest_native_call_kernel:
     mov x8, x0
     mov x0, x1
     mov x1, x2
@@ -39,10 +39,10 @@ md_socket_native:
     mov x4, x5
     mov x5, x6
     svc #0
-.global md_socket_native_return
-md_socket_native_return:
+.global md_guest_native_return
+md_guest_native_return:
     ret
-.size md_socket_native, .-md_socket_native
+.size md_guest_native_call_kernel, .-md_guest_native_call_kernel
 
 .global md_enter
 .type md_enter, %function

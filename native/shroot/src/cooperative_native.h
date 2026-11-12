@@ -7,6 +7,8 @@
 #define MD_NATIVE_DONE 3
 #define MD_NATIVE_UNKNOWN 4
 #define MD_NATIVE_CANCELLED 5
+/* Private resident frame: a control owner, not this frame, retires the effect. */
+#define MD_NATIVE_OWNED 6
 #define MD_NATIVE_RESULT 8
 #define MD_NATIVE_ARGS 16
 #ifndef __ASSEMBLER__
@@ -21,6 +23,7 @@ struct md_entry_native {
     int64_t result;
     uint64_t args[6];
 };
+struct md_native_gate { uintptr_t begin,call,end; };
 _Static_assert(offsetof(struct md_entry_native,result)==MD_NATIVE_RESULT,"native result offset");
 _Static_assert(offsetof(struct md_entry_native,args)==MD_NATIVE_ARGS,"native args offset");
 void md_cooperative_native(struct md_entry_native *);

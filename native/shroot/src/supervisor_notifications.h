@@ -3,13 +3,14 @@
 
 #include "supervisor_thread.h"
 
-enum metadata_restart_stage { METADATA_CHECK, METADATA_ENTRY, METADATA_WAIT };
+enum metadata_restart_stage { METADATA_ENTRY, METADATA_WAIT };
 
 struct metadata_restart {
     enum metadata_restart_stage stage;
     struct user_pt_regs saved;
     uint64_t mask;
     int requeued_signal;
+    uint32_t instruction;
 };
 
 void completed_event_discard(struct thread *t);

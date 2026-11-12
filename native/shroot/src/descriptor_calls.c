@@ -4,6 +4,7 @@
 #include "file_metadata.h"
 #include "adapter_buffer.h"
 #include "fd_client.h"
+#include "guest_execution.h"
 #include "fd_filter.h"
 #include "watch_calls.h"
 #include "interception.h"
@@ -43,10 +44,13 @@ long md_descriptor_duplicate(const struct md_fs *fs, long nr, const unsigned lon
         /* Admission failure must not replace the caller's destination. */
         result=md_fd_filter_arm_mask(required,(int)a[1]);
     }
-    if (!result) result=md_raw(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
+    if (!result) result=md_guest_native_call(nr,a);
     if (result>=0 && nr!=SYS_dup3) {
         long activation=md_fd_filter_arm_mask(required,(int)result);
-        if (activation) { RAW1(close,result); result=activation; }
+        if (activation) {
+            md_guest_native_call(SYS_close,(unsigned long[6]){(unsigned long)result});
+            result=activation;
+        }
     }
     long released=md_fd_control(MD_FD_DUPLICATE_END,0,0,0);
     return result<0 ? result : released<0 ? released : result;

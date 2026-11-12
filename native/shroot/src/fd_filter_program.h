@@ -18,10 +18,10 @@
     BPF_STMT(BPF_RET|BPF_A,0), \
     BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_FD)
 
-struct md_fd_filter_gates { uintptr_t raw,watch,task,native,socket; };
+struct md_fd_filter_gates { uintptr_t raw,watch,task,native,adapter; };
 static inline struct md_fd_filter_gates md_fd_filter_runtime_gates(const struct md_interception_abi *abi) {
     return (struct md_fd_filter_gates){.raw=abi->raw_gate,.watch=abi->watch_return,
-        .task=abi->task_return,.native=abi->native_return,.socket=abi->socket_return};
+        .task=abi->task_return,.native=abi->native_return,.adapter=abi->adapter_native_return};
 }
 enum { MD_FD_FILTER_GATES=5, MD_FD_FILTER_EXEMPTIONS=5*MD_FD_FILTER_GATES+1,
     MD_FD_FILTER_INSTRUCTIONS=291 };

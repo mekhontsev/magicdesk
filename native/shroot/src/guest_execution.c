@@ -19,14 +19,22 @@
 #include "epoll_calls.h"
 #include "poll_calls.h"
 #include "clone_call.h"
+#include "identity_transfer.h"
+#include "signal_calls.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/prctl.h>
 #include <sys/utsname.h>
 
 static long execute_files(const struct md_fs *fs,const struct md_guest_execution *call) {
     long nr=call->number;
     const unsigned long *args=call->args;
     unsigned long a0=args[0],a1=args[1];
+    if (md_identity_transfer_call(nr)) return md_identity_dispatch(nr,args);
+    if (nr==SYS_rt_sigpending || (nr==SYS_rt_sigprocmask && !a1)) return md_signal_query_call(nr,args);
+    if (nr==SYS_get_robust_list || (nr==SYS_prctl && a0==PR_GET_CHILD_SUBREAPER))
+        return md_process_query(nr,args);
+    if (nr==SYS_wait4 || nr==SYS_waitid) return md_process_wait_result(nr,args);
     if (nr==SYS_clone3) return md_clone3_prepare(a0,a1);
     if (nr==SYS_epoll_ctl || nr==SYS_epoll_pwait || nr==SYS_epoll_pwait2) return md_epoll_call(nr,args);
     if (nr==SYS_ppoll || nr==SYS_pselect6 || nr==SYS_rt_sigsuspend) return md_poll_call(nr,args,call->prepared);
@@ -38,6 +46,7 @@ static long execute_files(const struct md_fs *fs,const struct md_guest_execution
     if (nr==SYS_unshare || nr==SYS_clone) return md_pid_filter_install();
     if (nr==SYS_setns) return md_setns(args);
     if (nr==SYS_kill && (int)a0<=0) return md_pid_signal_group((int)a0,(int)a1);
+    if (nr==SYS_rt_sigqueueinfo || nr==SYS_rt_tgsigqueueinfo) return md_signal_queue_call(nr,args);
     if (nr==SYS_pidfd_send_signal) return md_pidfd_signal(args);
     if (nr==SYS_ioctl && md_pidfd_namespace_command((unsigned)a1)) return md_pidfd_namespace(args);
     if (nr==SYS_ioctl && md_terminal_identity_command((unsigned)a1))

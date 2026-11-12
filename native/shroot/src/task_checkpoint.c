@@ -38,9 +38,11 @@ static struct md_task_checkpoint *find(struct md_task_checkpoints *m,pid_t pid,i
 static long forward(struct md_task_checkpoints *m,struct md_task_checkpoint *c,
         int request,pid_t pid,void *address,void *data) {
     long result=m->trace(request,pid,address,data);
-    if (result>=0 && c && !c->suspended && (request==PTRACE_CONT || request==PTRACE_SYSCALL
-            || request==PTRACE_SINGLESTEP || request==PTRACE_SYSEMU))
-        c->emulated=request==PTRACE_SYSEMU;
+    if (result>=0 && (request==PTRACE_CONT || request==PTRACE_SYSCALL
+            || request==PTRACE_SINGLESTEP || request==PTRACE_SYSEMU)) {
+        if (c && !c->suspended) c->emulated=request==PTRACE_SYSEMU;
+        if (m->resumed) m->resumed(pid,request);
+    }
     return result;
 }
 static int trace(struct md_task_checkpoints *m,int request,pid_t pid,void *address,void *data) {
@@ -58,7 +60,7 @@ static void forget(struct md_task_checkpoints *m,pid_t pid) {
 long md_task_checkpoint_trace(struct md_task_checkpoints *m,int request,pid_t pid,void *address,void *data) {
     struct md_task_checkpoint *c=find(m,pid,request==PTRACE_SYSEMU);
     if (!c && request==PTRACE_SYSEMU) { errno=ENOMEM; return -1; }
-    if (c && c->suspended) return m->trace(request,pid,address,data);
+    if (c && c->suspended) return forward(m,c,request,pid,address,data);
     if (c && (c->registers_valid || c->event_valid || c->info_valid)) {
         /* Each observation is handed off once within this stop. Only the
          * other retained observations may intervene; all other requests,
@@ -113,6 +115,11 @@ long md_task_checkpoint_trace(struct md_task_checkpoints *m,int request,pid_t pi
         if (c) c->stage=0;
     }
     return forward(m,c,request,pid,address,data);
+}
+long md_task_checkpoint_continue(struct md_task_checkpoints *m,int request,pid_t pid) {
+    struct md_task_checkpoint *c=find(m,pid,0);
+    if (c && !c->suspended && c->stage) request=PTRACE_CONT;
+    return md_task_checkpoint_trace(m,request,pid,NULL,NULL);
 }
 static int marker(struct md_task_checkpoints *m,struct md_task_checkpoint *c,pid_t pid,
         uintptr_t pc,unsigned long command,int emulated,int *status) {
@@ -223,11 +230,20 @@ int md_task_checkpoint_suspend(struct md_task_checkpoints *m,pid_t pid) {
     struct md_task_checkpoint *c=find(m,pid,1);
     if (!c) return -ENOMEM;
     if (c->suspended) return -EBUSY;
+    int emulated=c->emulated;
+    if (emulated) {
+        /* A borrower can restore a different boundary while decoding is
+         * suspended. The old resume mode is not proof of a skipped ENTRY at
+         * a subsequent signal, exit or SECCOMP stop. */
+        struct ptrace_syscall_info info={0};
+        if (m->trace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info)<0) return -errno;
+        emulated=info.op==PTRACE_SYSCALL_INFO_ENTRY;
+    }
     c->registers_valid=c->event_valid=c->info_valid=0;
     c->suspended=1;
     /* Kernel skip state survives register edits and is independent of which
      * owner requested SYSEMU or will decode the next stop. */
-    return c->emulated;
+    return emulated;
 }
 void md_task_checkpoint_restore(struct md_task_checkpoints *m,pid_t pid) {
     struct md_task_checkpoint *c=find(m,pid,0);

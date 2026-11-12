@@ -12,6 +12,10 @@ extern const unsigned char md_svc_single_origin[];
 extern const unsigned char md_svc_single_done_replay[],md_svc_single_kernel_replay[],md_svc_single_busy_replay[];
 extern const unsigned char md_svc_single_done_branch[],md_svc_single_kernel_branch[],md_svc_single_busy_branch[];
 extern const unsigned char md_svc_single_claim[],md_svc_single_claimed[],md_svc_single_owned[];
+extern const unsigned char md_svc_single_frame[],md_svc_single_private_sp[];
+extern const unsigned char md_svc_single_probe1[],md_svc_single_tested1[];
+extern const unsigned char md_svc_single_probe2[],md_svc_single_tested2[];
+extern const unsigned char md_svc_single_probe3[],md_svc_single_tested3[],md_svc_single_probes_end[];
 extern const unsigned char md_svc_single_borrow_lr[],md_svc_single_saved_gprs[],md_svc_single_saved_sp[];
 extern const unsigned char md_svc_single_invoke[],md_svc_single_returned[],md_svc_single_outcome[];
 extern const unsigned char md_svc_single_done[],md_svc_single_kernel[];
@@ -67,19 +71,18 @@ int md_svc_direct_plan(uintptr_t svc,uint64_t number,uintptr_t destination,
         for (unsigned i=0;i<GUARD_BYTES;i+=4) memcpy(code+i,&nop,4);
         memcpy(code,guard,sizeof(guard));
         if (number==SYS_mmap) {
-            /* Reject nonreplacing/file-backed mappings before saving the full context.
-             * TBZ leaves args/NZCV untouched; x8 is still reversible scratch.
-             * These predicates never grant execution: the API checks the
-             * complete flag set and current mapping exclusions on every call. */
+            /* Only anonymous nonreplacing mappings bypass interception in
+             * the baseline filter. File-backed and replacing calls enter the
+             * same C memory owner; this is not a second admission whitelist. */
             _Static_assert(MAP_FIXED==(1u<<4) && MAP_ANONYMOUS==(1u<<5),"AArch64 mmap flags");
             for (unsigned i=0;i<2;++i) {
                 unsigned at=MAP_GUARD+4*i;
-                uint32_t test=UINT32_C(0x36000003)|((4+i)<<19)
-                    |(((uint32_t)((12-(int)at)/4)&0x3fff)<<5);
+                uint32_t test=UINT32_C(0x36000003)|((5-i)<<19)|(i<<24)
+                    |(((uint32_t)((GUARD_BYTES-at)/4)&0x3fff)<<5);
                 memcpy(code+at,&test,4);
             }
             uint32_t enter;
-            error=md_svc_branch(destination+MAP_GUARD_END,body_pc,&enter);
+            error=md_svc_branch(destination+MAP_GUARD_END,destination+12,&enter);
             if (error) return error;
             memcpy(code+MAP_GUARD_END,&enter,4);
         }
@@ -108,13 +111,13 @@ int md_svc_direct_plan(uintptr_t svc,uint64_t number,uintptr_t destination,
     *replacement=jump;
     return 0;
 }
-size_t md_svc_direct_signal_size(void) { return md_svc_direct_size()+32; }
+size_t md_svc_direct_signal_size(void) { return md_svc_direct_size()+40; }
 uintptr_t md_svc_direct_checkpoint(const struct md_svc_direct_context *c) {
-    return c->gate+md_svc_direct_size()+20;
+    return c->checkpoint;
 }
 int md_svc_direct_signal_plan(const struct md_svc_direct_context *c,uintptr_t dispatch,
         struct md_svc_direct_fallback exits,void *output,size_t capacity,uint32_t *replacement) {
-    if (!c || capacity<md_svc_direct_signal_size()) return -EINVAL;
+    if (!c || !c->checkpoint || (c->checkpoint&3) || capacity<md_svc_direct_signal_size()) return -EINVAL;
     int error=md_svc_direct_plan(c->svc,c->number,c->gate,dispatch,c->frames,exits,output,capacity,replacement);
     if (error) return error;
     size_t returned=GUARD_BYTES+at(md_svc_single_returned),size=md_svc_direct_size();
@@ -127,15 +130,72 @@ int md_svc_direct_signal_plan(const struct md_svc_direct_context *c,uintptr_t di
     unsigned checkpoint=c->checkpoint_number ? c->checkpoint_number : SYS_getuid;
     if (checkpoint>65535) return -EINVAL;
     tail[4]=UINT32_C(0xd2800008)|(checkpoint<<5);
-    tail[5]=UINT32_C(0xd4000001);
-    tail[6]=UINT32_C(0xd4200000);
-    tail[7]=UINT32_C(0x14000000);
+    /* A chosen syscall number need not be intercepted at an arbitrary PC.
+     * The fixed marker owns return admission, including inherited policies. */
+    tail[5]=UINT32_C(0x5800007e); /* ldr x30, [pc, #12] */
+    tail[6]=UINT32_C(0xd61f03c0); /* br x30 */
+    tail[7]=UINT32_C(0xd503201f);
+    memcpy(tail+8,&c->checkpoint,sizeof(c->checkpoint));
     error=md_svc_branch(c->gate+returned,c->gate+size,&jump);
     if (!error) memcpy((char *)output+returned,&jump,4);
     return error;
 }
 static uintptr_t frame_for_sp(const struct md_svc_direct_context *c,uintptr_t sp) {
     return c->frames+(((sp^(sp>>16))>>8)&63)*MD_SVC_SLOT_SIZE;
+}
+static int saved_context(struct user_pt_regs *r,uintptr_t frame,
+        md_svc_direct_memory memory,void *opaque) {
+    uint64_t flags;
+    int error=memory(opaque,frame+MD_SVC_FRAME_OFFSET,r->regs,31*8,0);
+    if (!error) error=memory(opaque,frame+MD_SVC_SAVED_SP,&r->sp,8,0);
+    if (!error) error=memory(opaque,frame+MD_SVC_FRAME_OFFSET+248,&flags,8,0);
+    if (!error) r->pstate=(r->pstate&~UINT64_C(0xf0000000))|(flags&UINT64_C(0xf0000000));
+    return error;
+}
+int md_svc_direct_unwind(const struct md_svc_direct_context *c,struct user_pt_regs *r,
+        md_svc_direct_memory memory,void *opaque) {
+    if (!c || !r || !memory) return -EINVAL;
+    if (r->sp<=c->frames || r->sp>c->frames+MD_SVC_POOL_SIZE) return -EINVAL;
+    uintptr_t frame=(r->sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
+    uint64_t busy,owner,zero=0;
+    int error=memory(opaque,frame,&busy,8,0);
+    if (!error) error=memory(opaque,frame+MD_SVC_OWNER_OFFSET,&owner,8,0);
+    if (error) return error;
+    if (!busy || owner!=c->gate) return -EPROTO;
+    error=saved_context(r,frame,memory,opaque);
+    if (!error) error=memory(opaque,frame+MD_SVC_DIRECT_PENDING,&zero,8,1);
+    if (!error) error=memory(opaque,frame,&zero,8,1);
+    if (!error) { r->regs[8]=c->number; r->pc=c->svc+4; }
+    return error;
+}
+int md_svc_direct_native_recover(const struct md_svc_direct_context *c,const struct md_native_gate *gate,
+        struct user_pt_regs *r,md_svc_direct_memory memory,void *opaque) {
+    if (!c || !gate || !r || !memory) return -EINVAL;
+    if (r->sp<=c->frames || r->sp>c->frames+MD_SVC_POOL_SIZE) return 0;
+    uintptr_t frame=(r->sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
+    uint64_t busy,owner,zero=0;
+    int error=memory(opaque,frame,&busy,8,0);
+    if (error || !busy) return error;
+    struct md_entry_native native;
+    error=memory(opaque,frame+MD_SVC_NATIVE_OFFSET,&native,sizeof(native),0);
+    if (error) return error;
+    unsigned state=atomic_load_explicit(&native.state,memory_order_relaxed);
+    if (state==MD_NATIVE_EMPTY || state==MD_NATIVE_OWNED) return 0;
+    error=memory(opaque,frame+MD_SVC_OWNER_OFFSET,&owner,8,0);
+    if (error || owner!=c->gate) return error ? error : -EPROTO;
+    int restart=state==MD_NATIVE_RUNNING && r->pc==gate->call;
+    int done=state==MD_NATIVE_DONE || (state==MD_NATIVE_RUNNING
+        && r->pc>gate->call && r->pc<=gate->end);
+    if (state!=MD_NATIVE_READY && state!=MD_NATIVE_DONE
+            && !(state==MD_NATIVE_RUNNING && r->pc>=gate->begin && r->pc<=gate->end)) return -EPROTO;
+    long result=state==MD_NATIVE_DONE ? native.result : (long)r->regs[0];
+    error=saved_context(r,frame,memory,opaque);
+    if (error) return error;
+    if (done || restart) r->regs[0]=(uint64_t)result;
+    r->pc=restart ? gate->call : c->svc+(done ? 4 : 0);
+    error=memory(opaque,frame+MD_SVC_DIRECT_PENDING,&zero,8,1);
+    if (!error) error=memory(opaque,frame,&zero,8,1);
+    return error ? error : restart ? MD_SVC_NATIVE_RESTART : 1;
 }
 int md_svc_direct_recover(const struct md_svc_direct_context *c,struct user_pt_regs *r,
         md_svc_direct_memory memory,void *opaque) {
@@ -150,7 +210,8 @@ int md_svc_direct_recover(const struct md_svc_direct_context *c,struct user_pt_r
         return 1;
     }
     int private_sp=r->sp>c->frames && r->sp<=c->frames+MD_SVC_POOL_SIZE;
-    int tail=pc>=c->gate+size && pc<=c->gate+size+24;
+    int tail=(pc>=c->gate+size && pc<=c->gate+size+24)
+        || pc==c->checkpoint || pc==c->checkpoint+4;
     int post=pc>=body+at(md_svc_single_returned) && pc<body+at(md_svc_single_busy_replay);
     int done=0;
     if (tail || post) {
@@ -171,15 +232,17 @@ int md_svc_direct_recover(const struct md_svc_direct_context *c,struct user_pt_r
                 if (target!=body+at(md_svc_single_done) && target!=body+at(md_svc_single_kernel)) return -EINVAL;
                 done=target==body+at(md_svc_single_done);
             }
-            uint64_t flags;
-            int error=memory(opaque,frame+MD_SVC_FRAME_OFFSET,r->regs,31*8,0);
-            if (!error) error=memory(opaque,frame+MD_SVC_SAVED_SP,&r->sp,8,0);
-            if (!error) error=memory(opaque,frame+MD_SVC_FRAME_OFFSET+248,&flags,8,0);
+            int error=saved_context(r,frame,memory,opaque);
             if (error) return error;
-            r->pstate=(r->pstate&~UINT64_C(0xf0000000))|(flags&UINT64_C(0xf0000000));
         }
     } else if (pc>=body && pc<=body+at(md_svc_single_invoke)) {
-        frame=frame_for_sp(c,r->sp);
+        if (pc>=body+at(md_svc_single_private_sp)) {
+            if (!private_sp) return -EINVAL;
+            frame=(r->sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
+        } else if (pc>=body+at(md_svc_single_prefix)+4) {
+            frame=r->regs[30]-(pc==body+at(md_svc_single_saved_sp)+8 ? 0 : MD_SVC_FRAME_OFFSET);
+        } else if (pc>=body+at(md_svc_single_frame)) frame=r->regs[8];
+        else frame=frame_for_sp(c,r->sp);
         if (pc>=body+at(md_svc_single_saved_sp)) {
             /* SP may already be private, while x30 may already be scratch. */
             if (private_sp) frame=(r->sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
@@ -195,6 +258,16 @@ int md_svc_direct_recover(const struct md_svc_direct_context *c,struct user_pt_r
         }
         if (pc<body+at(md_svc_single_claimed)
                 || (pc==body+at(md_svc_single_claimed) && r->regs[8])) frame=0;
+    } else if (pc>=body+at(md_svc_single_probe1) && pc<body+at(md_svc_single_probes_end)) {
+        const unsigned char *begins[]={md_svc_single_probe1,md_svc_single_probe2,md_svc_single_probe3,
+            md_svc_single_probes_end};
+        const unsigned char *tested[]={md_svc_single_tested1,md_svc_single_tested2,md_svc_single_tested3};
+        for (unsigned i=0;i<MD_SVC_SLOT_ALTERNATIVES-1;++i) {
+            if (pc>=body+at(begins[i+1])) continue;
+            if (pc>body+at(tested[i]) || (pc==body+at(tested[i]) && !r->regs[8]))
+                frame=frame_for_sp(c,r->sp)^((uintptr_t)MD_SVC_SLOT_XOR(i+1)*MD_SVC_SLOT_SIZE);
+            break;
+        }
     } else if (pc==body+at(md_svc_single_busy_replay) || pc==body+at(md_svc_single_busy_branch)) {
         frame=0;
     } else if (private_sp) {

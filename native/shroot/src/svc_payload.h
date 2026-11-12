@@ -19,6 +19,7 @@ struct md_svc_payload_state {
      * Fork/CLONE_VM publication refreshes it before either task resumes. */
     uint64_t sole_owner;
     uint64_t statistics;
+    uint64_t native_completed;
     struct md_svc_client_slot clients[MD_SVC_INLINE_CLIENTS];
     uintptr_t client_buckets[MD_SVC_CLIENT_BUCKETS];
 };

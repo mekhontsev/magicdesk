@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Mixed native/control epoll through the production shell runtime."""
 import argparse
+import re
 from pathlib import Path
 from test_oci_services import Suite, add_machine_entry_argument
 
 MODES = ('exclusive', 'exclusive-filtered', 'mixed', 'filtered', 'shared', 'shared-filtered', 'concurrent-admission', 'admission-file-waiters', 'cold-admission', 'native-ready', 'native-capacity', 'close-filtered', 'retire-filtered',
-         'poll-sandbox', 'poll-sandbox-protected')
+         'poll-sandbox', 'poll-sandbox-protected', 'wait-fence')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -38,7 +39,7 @@ def main():
                 if args.trace:
                     command = ['/usr/bin/strace', '-f', '-qq', '-o', target + '/' + trace] + command
                 try:
-                    output = suite.command(prefix + ['--bind', suite.base, target, '--deadline-seconds', '20',
+                    output = suite.command(prefix + ['--statistics', '--bind', suite.base, target, '--deadline-seconds', '20',
                                                      '--'] + command, timeout=35, expected=0)
                 finally:
                     if args.trace:
@@ -50,6 +51,11 @@ def main():
                             suite.download(path, artifact)
                             suite.report.setdefault('traces', []).append(str(artifact))
                 assert ('PASS poll sandbox' if mode.startswith('poll-sandbox') else 'PASS mixed epoll') in output
+                if mode in ('mixed', 'filtered', 'shared', 'shared-filtered') and args.machine_entry is not False and not args.trace:
+                    stops = re.search(r'MD_EXECUTION_STOP reason=wait calls=(\d+)', output)
+                    assert not stops or int(stops[1]) < 128, output
+                    completed = re.search(r'MD_EXECUTION taskEntries=\d+ completed=(\d+)', output)
+                    assert completed and int(completed[1]) >= 1024, output
         suite.report['passed'] = True
     finally:
         try:

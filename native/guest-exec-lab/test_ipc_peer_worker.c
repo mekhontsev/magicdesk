@@ -1166,7 +1166,11 @@ static void transfer_guest_send(const char *path, const char *runner, unsigned m
         char byte; struct md_fs_rights rights={0};
         unsigned sender=mode!=9 && mode!=10 && (mode==8 || mode==13 || mode==15 || (protected&4));
         unsigned tokens=mode==9 || mode==10 || sender, data=mode!=10;
-        assert(md_fs_receive(application[1],&byte,1,&rights)==1 && byte=='s' && rights.count==data+tokens);
+        assert(md_fs_receive(application[1],&byte,1,&rights)==1 && byte=='s');
+        /* Both task-affine and resident send preserve identity. The latter
+         * authenticates its implicit sender through an additional capability. */
+        if (!tokens && rights.count==data+1) sender=tokens=1;
+        assert(rights.count==data+tokens);
         if (tokens) {
             struct work read={.operation=READ_MESSAGE,.sender_identity=sender,
                 .fds={application[1],rights.fd[rights.count-1]}};

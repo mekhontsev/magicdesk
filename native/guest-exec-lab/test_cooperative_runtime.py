@@ -12,8 +12,11 @@ def main():
     parser.add_argument('--entry-only', action='store_true')
     parser.add_argument('--diagnostics', action='store_true')
     add_machine_entry_argument(parser)
-    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'cursor-lease', 'xattr-pins', 'signal-abandon', 'native-payload'), default='all')
+    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'socket-discovery', 'cursor-lease', 'object-queries', 'xattr-pins', 'signal-abandon', 'native-payload', 'jit-resume', 'jit-busy'), default='all')
     args = parser.parse_args()
+    # Focused runtime cases share no state with the standalone unit fixtures.
+    # The default full run retains both layers of coverage.
+    entry_only = args.entry_only or args.case != 'all'
     suite = Suite(Path('build/cooperative-runtime'), args.build, machine_entry=args.machine_entry)
     runner = [suite.runner, *suite.entry_options]
     try:
@@ -28,6 +31,9 @@ def main():
                                   ('test_guest_copy', suite.base + '/guest-copy'),
                                   ('test_freestanding_memory', suite.base + '/freestanding-memory'),
                                   ('test_task_resources', suite.base + '/task-resources'),
+                                  ('test_render_device', suite.base + '/render-device'),
+                                  ('test_input_devices', suite.base + '/input-devices'),
+                                  ('test_input_uinput', suite.base + '/input-uinput'),
                                   ('test_inodes', suite.base + '/inodes'),
                                   ('test_mounts', suite.base + '/mounts'),
                                   ('test_publication', suite.base + '/publication'),
@@ -40,9 +46,11 @@ def main():
                                   ('test_directory_record', suite.base + '/directory-record'),
                                   ('fuse_transport', suite.base + '/fuse-transport'),
                                   ('fs_dispatch', suite.base + '/dispatch')):
+            if entry_only and name not in ('service', 'cooperative_guest'):
+                continue
             suite.upload(args.build / ('libmagicdesk_guest_' + name + '.so'), destination)
             suite.chmod('700', destination)
-        if not args.entry_only:
+        if not entry_only:
             suite.command([suite.base + '/mapping-reader'], timeout=10)
             suite.command([suite.base + '/task-memory'], timeout=10)
             suite.command([suite.base + '/received-fds'], timeout=10)
@@ -56,6 +64,9 @@ def main():
             suite.command([suite.base + '/freestanding-memory'], timeout=15)
             suite.command([suite.base + '/native-journal'], timeout=45)
             suite.command([suite.base + '/task-resources'], timeout=90)
+            suite.command([suite.base + '/render-device'], timeout=15)
+            suite.command([suite.base + '/input-devices'], timeout=15)
+            suite.command([suite.base + '/input-uinput'], timeout=30)
             suite.command([suite.base + '/inodes', suite.base + '/inode-store'], timeout=60)
             suite.command([suite.base + '/mounts', suite.base + '/mount-store'], timeout=120)
             suite.command([suite.base + '/publication', suite.base + '/publication-store'], timeout=120)
@@ -68,6 +79,18 @@ def main():
         # Distribution imports carry virtual ownership; a host-directory import
         # without it deliberately retains real Android permission semantics.
         suite.command([suite.base + '/service', '--import', root, suite.base + '/store', '--preserve-ownership'])
+        if args.case in ('all', 'object-queries'):
+            output = suite.command([*runner, '--statistics', '--store', suite.base + '/store',
+                                   '--user', '0:0', '--', '/bin/probe', '--object-queries'])
+            assert 'PASS object queries:' in output
+            controls = {int(command): int(count) for command, count in
+                        re.findall(r'MD_BUFFER command=(\d+) calls=(\d+)', output)}
+            assert controls.get(84, 0) >= 64, 'Typed schemas did not use the combined buffer query'
+            assert controls.get(81, 0) < 8, 'Immutable queries still execute a second owner exchange'
+            if args.case == 'object-queries':
+                suite.report['passed'] = True
+                suite.command(['rm', '-rf', suite.base])
+                return
         if args.case in ('all', 'native-payload'):
             for filtered in (0, 1):
                 output = suite.command([*runner, '--statistics', '--store', suite.base + '/store',
@@ -81,10 +104,43 @@ def main():
                 suite.report['passed'] = True
                 suite.command(['rm', '-rf', suite.base])
                 return
+        if args.case in ('all', 'socket-discovery'):
+            for filtered in (0, 1):
+                output = suite.command(['timeout', '30', *runner, *(['--diagnostics'] if args.diagnostics else []), '--statistics', '--store', suite.base + '/store',
+                                        '--user', '0:0', '--', '/bin/probe', '--socket-discovery', str(filtered)])
+                assert 'PASS resident socket IO:' in output
+                if args.machine_entry is not False:
+                    stops = sum(int(trace) + int(notifications) for trace, notifications in re.findall(
+                        r'MD_SYSCALL nr=(?:211|212) trace=(\d+) notification=(\d+)', output))
+                    assert stops <= 12, ('socket IO still requires stopped registers', filtered, stops)
+                    assert 'MD_EXECUTION_STOP reason=wait ' not in output, 'socket readiness still stops the task'
+            if args.case == 'socket-discovery':
+                suite.report['passed'] = True
+                suite.command(['rm', '-rf', suite.base])
+                return
         if args.case in ('all', 'proc-discovery'):
-            output = suite.command(['timeout', '30', *runner, '--store', suite.base + '/store',
-                                   '--user', '0:0', '--', '/bin/probe', '--proc-discovery'])
-            assert 'PASS native proc discovery:' in output
+            for filtered in (0, 1):
+                output = suite.command(['timeout', '30', *runner, '--statistics', '--store', suite.base + '/store',
+                                        '--user', '0:0', '--', '/bin/probe', '--proc-discovery', str(filtered)])
+                assert 'PASS native proc discovery:' in output
+                assert 'PASS resident provider wait:' in output
+                if args.machine_entry is not False:
+                    stops = sum(int(trace) + int(notifications) for trace, notifications in re.findall(
+                        r'MD_SYSCALL nr=61 trace=(\d+) notification=(\d+)', output))
+                    assert stops <= 40, ('typed directory lookup still requires stopped registers', filtered, stops)
+                    stops = sum(int(trace) + int(notifications) for trace, notifications in re.findall(
+                        r'MD_SYSCALL nr=67 trace=(\d+) notification=(\d+)', output))
+                    assert stops <= 4, ('typed proc reads still require stopped registers', filtered, stops)
+                    stops = sum(int(trace) + int(notifications) for trace, notifications in re.findall(
+                        r'MD_SYSCALL nr=62 trace=(\d+) notification=(\d+)', output))
+                    assert stops <= 8, ('typed cursor delegation still falls back to Base', filtered, stops)
+                    for number in (63, 64):
+                        stops = sum(int(trace) + int(notifications) for trace, notifications in re.findall(
+                            rf'MD_SYSCALL nr={number} trace=(\d+) notification=(\d+)', output))
+                        assert stops <= 16, ('typed stream IO still falls back to Base', filtered, number, stops)
+                    entries = re.search(r'MD_EXECUTION taskEntries=(\d+)', output)
+                    assert entries and int(entries[1]) >= 1024, 'typed provider did not exercise shared execution'
+                    assert 'MD_EXECUTION_STOP reason=wait ' not in output, 'provider readiness still stops the task'
             if args.case == 'proc-discovery':
                 suite.report['passed'] = True
                 suite.command(['rm', '-rf', suite.base])
@@ -115,6 +171,11 @@ def main():
                 suite.report['passed'] = True
                 suite.command(['rm', '-rf', suite.base])
                 return
+        if args.case in ('jit-resume', 'jit-busy'):
+            jit_case(suite, runner, args.case)
+            suite.report['passed'] = True
+            suite.command(['rm', '-rf', suite.base])
+            return
         if args.case != 'all':
             output = suite.command(['timeout', '90', *runner,
                                     *(['--diagnostics'] if args.diagnostics else []),
@@ -125,23 +186,26 @@ def main():
                     else 'PASS native xattr pins:' if args.case == 'xattr-pins'
                     else 'PASS cooperative entry: signal longjmp' if args.case == 'signal-abandon'
                     else 'PASS execution bursts:') in output
+            if args.case == 'cursor-lease' and args.machine_entry is not False:
+                stops = sum(int(trace) + int(notifications) for trace, notifications in re.findall(
+                    r'MD_SYSCALL nr=29 trace=(\d+) notification=(\d+)', output))
+                assert stops < 32, ('admitted file queries still stop in the raw gate', stops)
+            if args.case == 'cursor-lease':
+                output = suite.command(['timeout', '90', *runner, '--store', suite.base + '/store',
+                                        '--user', '0:0', '--', '/bin/probe', '--cursor-signals'])
+                assert 'PASS native cursor lease:' in output
             suite.report['passed'] = True
             suite.command(['rm', '-rf', suite.base])
             return
-        output = suite.command(['timeout', '90', *runner, '--store', suite.base + '/store',
-                                '--user', '0:0', '--', '/bin/probe', '--cursor-lease'])
-        assert 'PASS native cursor lease:' in output
+        for case in ('--cursor-lease', '--cursor-signals'):
+            output = suite.command(['timeout', '90', *runner, '--store', suite.base + '/store',
+                                    '--user', '0:0', '--', '/bin/probe', case])
+            assert 'PASS native cursor lease:' in output
         output = suite.command(['timeout', '15', *runner, '--store', suite.base + '/store',
                                 '--user', '0:0', '--', '/bin/probe', '--initial-stack', '-silent'], quiet=True)
         assert output.count('PASS initial stack:') == 2
-        output = suite.command(['timeout', '15', *runner, '--diagnostics', '--store', suite.base + '/store',
-                                '--user', '0:0', '--', '/bin/probe', '--jit-resume'], quiet=True)
-        assert 'PASS cooperative JIT resume:' in output
-        assert 'PASS JIT internal wait:' in output
-        assert len(re.findall(r'PROBE memory-repair .* result=0 scope=address-space', output)) == 8
-        output = suite.command(['timeout', '30', *runner, '--store', suite.base + '/store',
-                                '--user', '0:0', '--', '/bin/probe', '--jit-busy'], quiet=True)
-        assert 'PASS cooperative JIT busy:' in output
+        jit_case(suite, runner, 'jit-resume')
+        jit_case(suite, runner, 'jit-busy')
         output = suite.command(['timeout', '90', *runner, *(['--diagnostics'] if args.diagnostics else []), '--statistics', '--store', suite.base + '/store',
                                '--user', '0:0', '--', '/bin/probe'])
         assert 'PASS cooperative entry: metadata' in output
@@ -175,6 +239,21 @@ def main():
         suite.command(['rm', '-rf', suite.base])
     finally:
         suite.finish()
+
+
+def jit_case(suite, runner, case):
+    resume = case == 'jit-resume'
+    output = suite.command(['timeout', '15' if resume else '30', *runner,
+                            *(['--diagnostics'] if resume else []),
+                            '--store', suite.base + '/store', '--user', '0:0',
+                            '--', '/bin/probe', '--' + case], quiet=True)
+    if resume:
+        assert 'PASS cooperative JIT resume:' in output
+        assert 'PASS JIT internal wait:' in output
+        assert 'PASS JIT application signal:' in output
+        assert len(re.findall(r'PROBE memory-repair .* result=0 scope=address-space', output)) == 8
+    else:
+        assert 'PASS cooperative JIT busy:' in output
 
 
 if __name__ == '__main__':

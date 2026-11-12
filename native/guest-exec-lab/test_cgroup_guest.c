@@ -185,17 +185,24 @@ static void freezer_groups(void) {
             assert(monotonic_ms()<deadline); sched_yield();
         }
     }
-    assert(!kill(child,SIGSTOP));
-    int status; assert(waitpid(child,&status,WUNTRACED)==child && WIFSTOPPED(status));
-    assert(writing("/tmp/cgv2/freezer/leaf/cgroup.freeze","1")==1);
-    await_frozen(leaf,1);
-    assert(writing("/tmp/cgv2/freezer/leaf/cgroup.freeze","0")==1);
-    await_frozen(leaf,0);
-    unsigned long before=freeze_shared->count;
-    assert(!poll(NULL,0,50)); assert(freeze_shared->count==before);
-    assert(!kill(child,SIGCONT));
-    assert(writing("/tmp/cgv2/freezer/leaf/cgroup.freeze","1")==1);
-    await_frozen(leaf,1);
+    int status;
+    for (unsigned i=0;i<8;++i) {
+        assert(!kill(child,SIGSTOP));
+        assert(waitpid(child,&status,WUNTRACED)==child && WIFSTOPPED(status));
+        assert(writing("/tmp/cgv2/freezer/leaf/cgroup.freeze","1")==1);
+        await_frozen(leaf,1);
+        assert(writing("/tmp/cgv2/freezer/leaf/cgroup.freeze","0")==1);
+        await_frozen(leaf,0);
+        unsigned long before=freeze_shared->count;
+        assert(!poll(NULL,0,50)); assert(freeze_shared->count==before);
+        assert(!kill(child,SIGCONT));
+        assert(writing("/tmp/cgv2/freezer/leaf/cgroup.freeze","1")==1);
+        await_frozen(leaf,1);
+        if (i!=7) {
+            assert(writing("/tmp/cgv2/freezer/leaf/cgroup.freeze","0")==1);
+            await_frozen(leaf,0);
+        }
+    }
     assert(!kill(child,SIGKILL));
     assert(waitpid(child,&status,0)==child && WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL);
     await_frozen(leaf,1);

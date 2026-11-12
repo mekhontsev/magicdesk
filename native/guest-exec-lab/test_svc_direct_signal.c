@@ -34,6 +34,8 @@ static struct shared {
     uintptr_t sp;
     unsigned effects,seen,mode,decline,busy,at_handler,unsafe;
     unsigned expected_signals;
+    unsigned collisions;
+    uint64_t occupied;
     struct { uintptr_t handler,flags,restorer; uint64_t mask; } action;
 } *shared;
 static uintptr_t sites[512];
@@ -41,7 +43,7 @@ static size_t site_count;
 static unsigned deferred_count,recovered_count;
 static unsigned accelerated(void) {
     return !shared->decline && !shared->busy && input.x[6]==plan.number
-        && (plan.number!=SYS_mmap || (input.x[3]&(MAP_FIXED|MAP_ANONYMOUS))==(MAP_FIXED|MAP_ANONYMOUS));
+        && (plan.number!=SYS_mmap || !(input.x[3]&MAP_ANONYMOUS) || (input.x[3]&MAP_FIXED));
 }
 static uint64_t native_result(void) {
     return (uint32_t)input.x[6]==SYS_mmap ? (uint64_t)-EINVAL
@@ -165,7 +167,7 @@ static void child(int injected) {
     } else assert(!shared->seen && shared->effects==accelerated());
     if (!escaped) assert(!memcmp(&expected,&output,sizeof(expected)));
     for (unsigned i=0;i<MD_SVC_SLOT_COUNT;++i) {
-        assert(!!*(uint64_t *)(plan.frames+i*MD_SVC_SLOT_SIZE)==!!shared->busy);
+        assert(!!*(uint64_t *)(plan.frames+i*MD_SVC_SLOT_SIZE)==!!(shared->occupied&(UINT64_C(1)<<i)));
         assert(!*(uint64_t *)(plan.frames+i*MD_SVC_SLOT_SIZE+MD_SVC_DIRECT_PENDING));
     }
     sigset_t mask; assert(!sigprocmask(SIG_SETMASK,NULL,&mask));
@@ -202,6 +204,7 @@ static void queue_signal(pid_t pid) {
 }
 static void exercise(uintptr_t target,unsigned mode) {
     shared->sp=0; shared->effects=0; shared->seen=0; shared->at_handler=0; shared->mode=0;
+    shared->occupied=shared->busy ? UINT64_MAX : 0;
     pid_t pid=fork(); assert(pid>=0);
     if (!pid) child(target!=0);
     wait_stop(pid,SIGSTOP);
@@ -210,7 +213,16 @@ static void exercise(uintptr_t target,unsigned mode) {
     siginfo_t held={0};
     for (unsigned steps=0;steps<10000;++steps) {
         struct user_pt_regs r; registers(pid,PTRACE_GETREGSET,&r);
-        if (r.pc==plan.svc && !shared->sp) shared->sp=r.sp;
+        if (r.pc==plan.svc && !shared->sp) {
+            shared->sp=r.sp;
+            unsigned first=((r.sp^(r.sp>>16))>>8)&(MD_SVC_SLOT_COUNT-1);
+            for (unsigned i=0;i<shared->collisions;++i) {
+                unsigned slot=first^MD_SVC_SLOT_XOR(i);
+                uint64_t claim=plan.frames+slot*MD_SVC_SLOT_SIZE;
+                assert(!remote((void *)(intptr_t)pid,claim,&claim,sizeof(claim),1));
+                shared->occupied|=UINT64_C(1)<<slot;
+            }
+        }
         if (!target && (in_gate(r.pc) || (r.sp>plan.frames && r.sp<=plan.frames+MD_SVC_POOL_SIZE))) {
             size_t i=0; while (i<site_count && sites[i]!=r.pc) ++i;
             if (i==site_count) { assert(site_count<sizeof(sites)/sizeof(*sites)); sites[site_count++]=r.pc; }
@@ -345,8 +357,9 @@ int main(int argc,char **argv) {
         assert(!mprotect((char *)frames+i*MD_SVC_SLOT_SIZE+MD_SVC_GUARD_OFFSET,MD_SVC_GUARD_SIZE,PROT_NONE));
     void *code=mmap((void *)0x3000000,page,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0); assert(code==(void *)0x3000000);
-    plan=(struct md_svc_direct_context){(uintptr_t)md_svc_lab_call,(uintptr_t)code,MD_SVC_POOL_BASE,
-        map_guard ? SYS_mmap : SYS_getpid,0};
+    plan=(struct md_svc_direct_context){.svc=(uintptr_t)md_svc_lab_call,.gate=(uintptr_t)code,
+        .frames=MD_SVC_POOL_BASE,.number=map_guard ? SYS_mmap : SYS_getpid,
+        .checkpoint=(uintptr_t)md_svc_signal_checkpoint};
     uintptr_t cold=(uintptr_t)code+2048;
     assert(!md_svc_direct_kernel(plan.svc,cold,(uint32_t *)cold));
     struct md_svc_direct_fallback exits={cold,cold,cold}; uint32_t branch;
@@ -387,8 +400,9 @@ int main(int argc,char **argv) {
         return 0;
     }
     unsigned cases=0;
-    for (unsigned path=0;path<5;++path) {
+    for (unsigned path=0;path<5+MD_SVC_SLOT_ALTERNATIVES-1;++path) {
         shared->decline=path==1; shared->busy=path==2;
+        shared->collisions=path>=5 ? path-4 : 0;
         input.x[6]=path==3 ? SYS_getppid : path==4 ? (UINT64_C(1)<<32)|SYS_getpid : SYS_getpid;
         site_count=0; exercise(0,0);
         const unsigned behaviors[]={0,4,8,20};

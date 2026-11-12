@@ -1173,6 +1173,24 @@ static int signal_wait_threads(void) {
     private.si_code=SI_KERNEL; private.si_errno=93;
     assert(!syscall(SYS_rt_tgsigqueueinfo,getpid(),syscall(SYS_gettid),SIGSYS,&private));
     assert(seen==2 && cookie==93);
+    pid_t self=getpid(),tid=syscall(SYS_gettid);
+    pidfd=syscall(SYS_pidfd_open,self,0); assert(pidfd>=0);
+    for (int i=0;i<128;++i) {
+        sig_atomic_t before=seen;
+        private.si_code=SI_QUEUE;
+        private.si_errno=i;
+        switch (i%6) {
+        case 0: assert(!kill(self,SIGSYS)); break;
+        case 1: assert(!syscall(SYS_tgkill,self,tid,SIGSYS)); break;
+        case 2: assert(!syscall(SYS_tkill,tid,SIGSYS)); break;
+        case 3: assert(!syscall(SYS_rt_sigqueueinfo,self,SIGSYS,&private)); break;
+        case 4: assert(!syscall(SYS_rt_tgsigqueueinfo,self,tid,SIGSYS,&private)); break;
+        default: assert(!syscall(SYS_pidfd_send_signal,pidfd,SIGSYS,&private,0)); break;
+        }
+        assert(seen==before+1);
+        if (i%6>=3) assert(cookie==i);
+    }
+    close(pidfd);
     alarm(0);
     puts("PASS signal queue ownership: private/shared SI_QUEUE, coalescing and 64 cross-thread waits");
     return 0;

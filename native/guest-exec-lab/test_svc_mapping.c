@@ -7,6 +7,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <sched.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdatomic.h>
@@ -17,7 +18,9 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/inotify.h>
+#include <sys/ioctl.h>
 #include <sys/prctl.h>
+#include <sys/ptrace.h>
 #include <sys/resource.h>
 #include <sys/select.h>
 #include <sys/stat.h>
@@ -26,6 +29,7 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/socket.h>
 #include <ucontext.h>
 
 static long (*call)(void);
@@ -42,6 +46,10 @@ extern long live_uname(struct utsname *);
 extern long live_mknod(long,const char *,long,long);
 extern long live_prctl(long,long,long,long,long);
 extern long live_epoll(long,void *,long,long,void *,long);
+extern long live_native_read(long,void *,long,long);
+extern long live_ioctl(long,unsigned long,void *,long);
+extern long live_wait4(long,void *,long,void *);
+extern long live_waitid(long,long,void *,long,void *);
 __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     "image_uid:\nmov x8,#174\nsvc #0\nret\n.p2align 16\n"
     ".global live_uid\nlive_uid:\nmov x8,#174\nsvc #0\nret\n"
@@ -54,10 +62,78 @@ __asm__(".pushsection .text\n.p2align 16\n.global image_uid\n"
     ".global live_uname\nlive_uname:\nmov x8,#160\nsvc #0\nret\n"
     ".global live_mknod\nlive_mknod:\nmov x8,#33\nsvc #0\nret\n"
     ".global live_prctl\nlive_prctl:\nmov x8,#167\nsvc #0\nret\n"
-    ".global live_epoll\nlive_epoll:\nmov x8,#22\nsvc #0\nret\n.popsection");
+    ".global live_epoll\nlive_epoll:\nmov x8,#22\nsvc #0\nret\n"
+    ".global live_native_read\nlive_native_read:\nmov x8,#63\nsvc #0\nret\n"
+    ".global live_ioctl\nlive_ioctl:\nmov x8,#29\nsvc #0\nret\n"
+    ".global live_wait4\nlive_wait4:\nmov x8,#260\nsvc #0\nret\n"
+    ".global live_waitid\nlive_waitid:\nmov x8,#95\nsvc #0\nret\n.popsection");
 static void publication_check(uintptr_t function,int patched) {
     uint32_t word=*(volatile const uint32_t *)(function+4);
     assert(patched ? (word&0xfc000000)==0x14000000 : word==0xd4000001);
+}
+static void debugger_rearm(int patched,int filtered) {
+    alarm(30);
+    if (filtered) {
+        struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={1,code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    int ready[2],proceed[2]; assert(!pipe(ready) && !pipe(proceed));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        char byte;
+        for (unsigned round=0;round<3;++round) {
+            for (unsigned i=0;i<32;++i) assert(live_uid()==getuid());
+            publication_check((uintptr_t)live_uid,patched);
+            assert(write(ready[1],"x",1)==1);
+            /* EVENT_WAIT: the debugger detaches before releasing this round. */
+            assert(read(proceed[0],&byte,1)==1);
+        }
+        for (unsigned i=0;i<32;++i) assert(live_uid()==getuid());
+        publication_check((uintptr_t)live_uid,patched);
+        _exit(0);
+    }
+    close(ready[1]); close(proceed[0]);
+    for (unsigned round=0;round<3;++round) {
+        char byte; assert(read(ready[0],&byte,1)==1);
+        pid_t tracer=round==2 ? fork() : 0; assert(tracer>=0);
+        if (!tracer) {
+            assert(!ptrace(round==1 ? PTRACE_SEIZE : PTRACE_ATTACH,child,NULL,NULL));
+            if (round==1) assert(!ptrace(PTRACE_INTERRUPT,child,NULL,NULL));
+            int status; assert(waitpid(child,&status,__WALL)==child && WIFSTOPPED(status));
+            errno=0;
+            long word=ptrace(PTRACE_PEEKTEXT,child,(void *)live_uid+4,NULL);
+            assert(!errno && (uint32_t)word==0xd4000001);
+            if (round==2) _exit(0);
+            assert(!ptrace(PTRACE_DETACH,child,NULL,NULL));
+        } else {
+            int status; assert(waitpid(tracer,&status,0)==tracer && WIFEXITED(status) && !WEXITSTATUS(status));
+        }
+        assert(write(proceed[1],"x",1)==1);
+    }
+    int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    close(ready[0]); close(proceed[1]);
+    puts("PASS SVC debugger rearm: attach, seize, owner exit, original instructions and resumed publication");
+}
+static void native_ioctls(int patched,int filtered) {
+    publication_check((uintptr_t)live_ioctl,0);
+    assert(live_ioctl(-1,FIONBIO,NULL,0)==-EBADF);
+    publication_check((uintptr_t)live_ioctl,patched);
+    int pipefd[2]; assert(!pipe(pipefd));
+    int alias=dup(pipefd[0]); assert(alias>=0);
+    for (unsigned i=0;i<64;++i) {
+        int enabled=i&1;
+        assert(!live_ioctl(pipefd[0],FIONBIO,&enabled,0));
+        assert(!!(fcntl(alias,F_GETFL)&O_NONBLOCK)==enabled);
+        assert(live_ioctl(alias,FIONBIO,(void *)1,0)==-EFAULT);
+        if (filtered) {
+            int denied=!enabled;
+            assert(live_ioctl(alias,FIONBIO,&denied,7)==-EACCES);
+            assert(!!(fcntl(pipefd[0],F_GETFL)&O_NONBLOCK)==enabled);
+        }
+    }
+    assert(!close(alias) && !close(pipefd[0]) && !close(pipefd[1]));
 }
 static void first_encounter(int patched,int filtered) {
     if (filtered) {
@@ -103,16 +179,138 @@ static void first_encounter(int patched,int filtered) {
     assert(live_map((void *)mapped,page,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)==mapped);
     assert(!munmap((void *)mapped,page));
-    puts("PASS SVC first encounter: common prctl entry, task execution, failed arguments and file mmap context");
+    for (unsigned i=0;i<64;++i) {
+        mapped=live_map(NULL,page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+        assert(mapped>0); *(volatile unsigned *)mapped=i;
+        assert(!live_protect((void *)mapped,page,PROT_READ));
+        long moved=live_remap((void *)mapped,page,page*2,MREMAP_MAYMOVE,NULL);
+        assert(moved>0 && *(volatile unsigned *)moved==i);
+        assert(!live_unmap((void *)moved,page*2));
+        assert(live_protect((void *)1,page,PROT_READ)==-EINVAL);
+    }
+    native_ioctls(patched,0);
+    /* A failed cold admission is not retirement of a published gate. Changing
+     * one byte's protection changes the whole page, including this tail site. */
+    void *writable=mmap(NULL,page,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(writable!=MAP_FAILED);
+    uint32_t *deferred=(uint32_t *)((char *)writable+page-16);
+    deferred[0]=0xd2800008|(SYS_getuid<<5); deferred[1]=0xd4000001; deferred[2]=0xd65f03c0;
+    __builtin___clear_cache((char *)deferred,(char *)(deferred+3));
+    long (*invoke)(void)=(void *)deferred;
+    for (unsigned i=0;i<32;++i) { assert(invoke()==getuid()); publication_check((uintptr_t)invoke,0); }
+    assert(!live_protect(writable,1,PROT_READ|PROT_EXEC));
+    assert(invoke()==getuid()); publication_check((uintptr_t)invoke,patched);
+    assert(!munmap(writable,page));
+    assert(live_wait4(-1,NULL,WNOHANG,NULL)==-ECHILD);
+    publication_check((uintptr_t)live_wait4,patched);
+    assert(live_waitid(P_ALL,0,NULL,WEXITED|WNOHANG,NULL)==-ECHILD);
+    publication_check((uintptr_t)live_waitid,patched);
+    for (unsigned i=0;i<8;++i) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) _exit(23);
+        siginfo_t info={0};
+        assert(!live_waitid(P_PID,child,&info,WEXITED|WNOWAIT,NULL));
+        assert(info.si_pid==child && info.si_code==CLD_EXITED && info.si_status==23);
+        int status=0;
+        assert(live_wait4(child,&status,0,NULL)==child);
+        assert(WIFEXITED(status) && WEXITSTATUS(status)==23);
+        assert(live_wait4(child,NULL,WNOHANG,NULL)==-ECHILD);
+    }
+    puts("PASS SVC first encounter: common prctl entry, task execution, failed arguments and mapping effects");
 }
 static size_t unmap_page;
+static atomic_int *native_seen;
+static pid_t native_reader;
+static int native_pipe[2];
+static int native_jump;
+static sigjmp_buf native_escape;
+static void native_signal(int number,siginfo_t *info,void *opaque) {
+    (void)info;
+    ucontext_t *u=opaque;
+    assert(number==SIGUSR1);
+    uintptr_t pc=u->uc_mcontext.pc;
+    if (pc!=(uintptr_t)live_native_read+4 && pc!=(uintptr_t)live_native_read+8) return;
+    assert(u->uc_mcontext.regs[8]==SYS_read);
+    uintptr_t sp=u->uc_mcontext.sp,here=(uintptr_t)&u;
+    assert(sp>here && sp-here<65536);
+    atomic_store_explicit(native_seen,1,memory_order_release);
+    if (native_jump) siglongjmp(native_escape,1);
+}
+static void native_sender(void) {
+    /* EVENT_WAIT: deliver until the handler observes the original wait site;
+     * the fixture alarm bounds failure, not a presumed settling interval. */
+    while (!atomic_load_explicit(native_seen,memory_order_acquire)) {
+        assert(!kill(native_reader,SIGUSR1));
+        struct timespec pause={0,100000}; nanosleep(&pause,NULL);
+    }
+    assert(write(native_pipe[1],"x",1)==1);
+    _exit(0);
+}
+static void native_waits(int patched) {
+    alarm(30);
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_read,1,0),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[3])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,7,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    native_ioctls(patched,1);
+    char byte;
+    int fd=open("/dev/null",O_RDONLY|O_CLOEXEC); assert(fd>=0);
+    for (unsigned i=0;i<1024;++i) assert(!live_native_read(fd,&byte,1,0));
+    publication_check((uintptr_t)live_native_read,patched);
+    assert(live_native_read(fd,&byte,1,7)==-EACCES);
+    native_seen=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
+    assert(native_seen!=MAP_FAILED); native_reader=getpid();
+    for (unsigned mode=0;mode<3;++mode) {
+        struct sigaction action={.sa_sigaction=native_signal,.sa_flags=SA_SIGINFO|(mode ? SA_RESTART : 0)};
+        sigemptyset(&action.sa_mask); assert(!sigaction(SIGUSR1,&action,NULL));
+        assert(!pipe(native_pipe)); atomic_store(native_seen,0); native_jump=mode==2;
+        pid_t peer=fork(); assert(peer>=0);
+        if (!peer) native_sender();
+        if (!sigsetjmp(native_escape,1)) {
+            long result=live_native_read(native_pipe[0],&byte,1,0);
+            assert(result==(mode ? 1 : -EINTR));
+            assert(!native_jump);
+        } else assert(native_jump);
+        int status;
+        assert(waitpid(peer,&status,0)==peer && WIFEXITED(status) && !WEXITSTATUS(status));
+        assert(atomic_load(native_seen));
+        assert(!close(native_pipe[0]) && !close(native_pipe[1]));
+        for (unsigned i=0;i<128;++i) assert(!live_native_read(fd,&byte,1,0));
+    }
+    assert(!close(fd) && !munmap(native_seen,4096)); alarm(0);
+    puts("PASS SVC native waits: policy, original signal frame, EINTR, restart and longjmp");
+}
 static volatile sig_atomic_t task_signals;
 static void task_alarm(int signal) { assert(signal==SIGALRM); ++task_signals; }
+static void *task_signal_wait(void *unused) {
+    (void)unused;
+    int ep=epoll_create1(EPOLL_CLOEXEC),fd=eventfd(0,EFD_CLOEXEC);
+    assert(ep>=0 && fd>=0);
+    struct epoll_event event={.events=EPOLLIN,.data.u64=91};
+    assert(!epoll_ctl(ep,EPOLL_CTL_ADD,fd,&event));
+    for (unsigned i=0;i<512;++i) {
+        long result=syscall(SYS_epoll_pwait,ep,&event,1,i&1,NULL,8);
+        if (result && !(result==-1 && errno==EINTR))
+            fprintf(stderr,"signal wait fd=%d result=%ld errno=%d round=%u\n",ep,result,errno,i);
+        assert(!result || (result==-1 && errno==EINTR));
+    }
+    assert(!close(fd) && !close(ep));
+    return NULL;
+}
 static void task_signal_completion(void) {
     struct sigaction action={.sa_handler=task_alarm},previous;
     assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGALRM,&action,&previous));
     struct itimerval timer={.it_interval={0,100},.it_value={0,100}};
     assert(!setitimer(ITIMER_REAL,&timer,NULL));
+    pthread_t peers[4];
+    for (unsigned i=0;i<4;++i) assert(!pthread_create(peers+i,NULL,task_signal_wait,NULL));
     char path[96]; snprintf(path,sizeof(path),"/tmp/svc-task-once-%d",getpid());
     for (unsigned i=0;i<512;++i) {
         /* Creation exposes accidental replay: a second effect would change
@@ -121,9 +319,19 @@ static void task_signal_completion(void) {
         struct stat st; assert(!stat(path,&st) && S_ISREG(st.st_mode));
         assert(!unlink(path));
     }
+    for (unsigned i=0;i<4;++i) assert(!pthread_join(peers[i],NULL));
     timer=(struct itimerval){0}; assert(!setitimer(ITIMER_REAL,&timer,NULL));
     assert(task_signals && !sigaction(SIGALRM,&previous,NULL));
-    puts("PASS SVC task signals: non-idempotent creation completes once across interruption");
+    puts("PASS SVC task signals: non-idempotent creation and concurrent empty epoll across interruption");
+}
+static void task_signal_exec(const char *path) {
+    struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    char *args[]={(char *)path,"task-signals",NULL};
+    execv(path,args);
+    assert(!"exec with inherited signal-test filter failed");
 }
 static volatile sig_atomic_t policy_traps;
 static void policy_trap(int number,siginfo_t *info,void *opaque) {
@@ -256,7 +464,7 @@ static void filter_probe_invalid(void) {
     program.len=0;
     assert(syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program)<0 && errno==EINVAL);
 }
-static void filter_exec(const char *path,int child) {
+static void filter_exec(const char *path,int child,int waits) {
     if (!child) {
         struct sock_filter code[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
@@ -270,11 +478,13 @@ static void filter_exec(const char *path,int child) {
         struct sock_fprog program={sizeof(code)/sizeof(*code),code};
         assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
         assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
-        char *argv[]={(char *)path,"filter-exec-child",NULL};
+        char *argv[]={(char *)path,waits<0 ? "filter-exec-child" : "filter-exec-waits-child",
+            waits==1 ? "patched" : "original",NULL};
         execv(path,argv);
         assert(!"exec with inherited filter failed");
     }
     assert(prctl(PR_GET_SECCOMP,0,0,0,0)==SECCOMP_MODE_FILTER);
+    if (waits>=0) { native_waits(waits); return; }
     filter_probe_invalid();
     struct sigaction action={.sa_sigaction=policy_trap,.sa_flags=SA_SIGINFO};
     assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGSYS,&action,NULL));
@@ -690,7 +900,7 @@ static void joined(pid_t child) {
 static atomic_uint ready, finished;
 static long expected_uid;
 static int protected;
-enum { FILTER_WAITERS = 5 };
+enum { FILTER_WAITERS = 6 };
 static int waiters, wait_provider, wake_pipes[FILTER_WAITERS][2];
 static int watch_descriptor;
 static pid_t waiter_tids[FILTER_WAITERS];
@@ -706,6 +916,17 @@ static void *waiting_peer(void *argument) {
         assert(!epoll_ctl(epoll,EPOLL_CTL_ADD,event.data.fd,&event));
     }
     waiter_tids[index]=(pid_t)syscall(SYS_gettid);
+    if (index==5) {
+        char byte;
+        struct iovec vector={&byte,1};
+        struct msghdr message={.msg_iov=&vector,.msg_iovlen=1};
+        /* Warm this same wrapper before the admitted receive must survive
+         * another thread's TSYNC and its subsequent readiness publication. */
+        assert(recvmsg(wake_pipes[index][0],&message,MSG_DONTWAIT)==-1 && errno==EAGAIN);
+        atomic_fetch_add(&ready,1);
+        assert(recvmsg(wake_pipes[index][0],&message,0)==1 && byte=='x');
+        return NULL;
+    }
     atomic_fetch_add(&ready,1);
     if (index==4) {
         char events[4096];
@@ -732,23 +953,76 @@ static void *waiting_peer(void *argument) {
         int result=index==2 ? ppoll(items,count,NULL,&mask) : poll(items,count,-1);
         assert(result==1 && items[count-1].revents==POLLIN);
     }
-    assert(!pthread_sigmask(SIG_SETMASK,NULL,&mask) && !sigismember(&mask,SIGUSR2));
+    int mask_result=pthread_sigmask(SIG_SETMASK,NULL,&mask);
+    if (mask_result || sigismember(&mask,SIGUSR2))
+        fprintf(stderr,"filter waiter index=%u mask-result=%d USR2=%d\n",
+            index,mask_result,sigismember(&mask,SIGUSR2));
+    assert(!mask_result && !sigismember(&mask,SIGUSR2));
     char byte=0;
     assert(read(wake_pipes[index][0],&byte,1)==1 && byte=='x');
     if (epoll>=0) assert(!close(epoll));
     return NULL;
 }
-static void waiter_blocked(unsigned index,long number) {
+static void waiter_blocked_tid(pid_t tid,long number,int peek_descriptor) {
     char path[96],data[256];
-    snprintf(path,sizeof(path),"/proc/self/task/%d/syscall",waiter_tids[index]);
+    snprintf(path,sizeof(path),"/proc/self/task/%d/syscall",tid);
     for (;;) {
         int fd=open(path,O_RDONLY|O_CLOEXEC); assert(fd>=0);
         ssize_t n=read(fd,data,sizeof(data)-1); assert(n>0);
         assert(!close(fd)); data[n]=0;
         long current=-1;
         if (sscanf(data,"%ld",&current)==1 && current==number) return;
+        /* A resident watch read retains its original operation while waiting
+         * non-consumingly on the same queue. Observe that exact kernel wait,
+         * not an arbitrary futex or presumed startup delay. */
+        unsigned long descriptor,buffer,size,flags;
+        if (peek_descriptor>=0 && sscanf(data,"%ld %lx %lx %lx %lx",
+                &current,&descriptor,&buffer,&size,&flags)==5 && current==SYS_recvfrom
+                && (int)descriptor==peek_descriptor && size==1 && flags==MSG_PEEK) return;
         sched_yield();
     }
+}
+static void waiter_blocked(unsigned index,long number) {
+    waiter_blocked_tid(waiter_tids[index],number,index==4 ? watch_descriptor : -1);
+}
+static atomic_int native_waiter_tid;
+static int native_waiter_patched;
+static void *native_fence_peer(void *unused) {
+    (void)unused;
+    assert(!unshare(CLONE_FILES));
+    char byte;
+    assert(!live_native_read(native_pipe[0],&byte,0,0));
+    publication_check((uintptr_t)live_native_read,native_waiter_patched);
+    atomic_store_explicit(&native_waiter_tid,(int)syscall(SYS_gettid),memory_order_release);
+    long result=live_native_read(native_pipe[0],&byte,1,0);
+    if (result!=1 || byte!='x')
+        fprintf(stderr,"native wait fence: read=%ld byte=%u tid=%d\n",result,(unsigned char)byte,(int)syscall(SYS_gettid));
+    assert(result==1 && byte=='x');
+    assert(live_native_read(native_pipe[0],&byte,1,0)==-EACCES);
+    return NULL;
+}
+static void native_wait_fence(int patched) {
+    alarm(30); native_waiter_patched=patched;
+    struct sock_filter allow[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog initial={1,allow};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&initial));
+    assert(!pipe(native_pipe));
+    pthread_t peer; assert(!pthread_create(&peer,NULL,native_fence_peer,NULL));
+    while (!atomic_load_explicit(&native_waiter_tid,memory_order_acquire)) sched_yield();
+    waiter_blocked_tid(atomic_load(&native_waiter_tid),SYS_read,-1);
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_read,0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(unsigned)native_pipe[0],0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_TSYNC,&program));
+    assert(write(native_pipe[1],"x",1)==1 && !pthread_join(peer,NULL));
+    assert(!close(native_pipe[0]) && !close(native_pipe[1])); alarm(0);
+    puts("PASS SVC native wait fence: admitted read survives TSYNC, next read denied");
 }
 static void *racing_peer(void *unused) {
     (void)unused;
@@ -862,7 +1136,8 @@ static void entry_transition_race(void) {
                 assert(!epoll_ctl(filtered_epoll,EPOLL_CTL_ADD,source,&event));
             }
             if (waiters) for (unsigned i=0;i<FILTER_WAITERS;++i) {
-                assert(!pipe2(wake_pipes[i],O_CLOEXEC));
+                if (i==5) assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,wake_pipes[i]));
+                else assert(!pipe2(wake_pipes[i],O_CLOEXEC));
                 assert(!pthread_create(&sleepers[i],NULL,waiting_peer,(void *)(uintptr_t)i));
             }
             for (unsigned i=0;i<4;++i) assert(!pthread_create(&peers[i],NULL,racing_peer,NULL));
@@ -934,8 +1209,60 @@ static void entry_transition_race(void) {
     puts(protected ? "PASS SVC protected race: 24 transitions, live peers and protected fork"
         : "PASS SVC filter race: 24 TSYNC installs, live peers, forbidden helper and post-filter denial");
 }
+static void distant_sites(int patched,int filtered) {
+    if (filtered) {
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getuid,0,3),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[0])),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,7,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    size_t page=(size_t)sysconf(_SC_PAGESIZE);
+    long uid=getuid();
+    enum { COUNT=24 };
+    void *sites[COUNT];
+    for (unsigned i=0;i<COUNT;++i) {
+        void *address=(void *)(UINT64_C(0x3000000000)+(uint64_t)i*0x20000000);
+        sites[i]=mmap(address,page,PROT_READ|PROT_WRITE,
+            MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+        assert(sites[i]==address);
+        unsigned nr=(i&1) ? SYS_openat : SYS_getuid;
+        const uint32_t code[]={0xd2800008|(nr<<5),0xd4000001,0xd65f03c0};
+        memcpy(address,code,sizeof(code));
+        __builtin___clear_cache(address,(char *)address+sizeof(code));
+        assert(!mprotect(address,page,PROT_READ|PROT_EXEC));
+        long (*invoke)(long,const char *,long)=address;
+        long argument=(i&1) ? AT_FDCWD : 0,expected=(i&1) ? -ENOENT : uid;
+        assert(invoke(argument,"/absent-svc-fixture",O_RDONLY)==expected);
+        publication_check((uintptr_t)address,patched);
+        for (unsigned j=0;j<32;++j) assert(invoke(argument,"/absent-svc-fixture",O_RDONLY)==expected);
+        if (filtered && !(i&1)) assert(invoke(7,NULL,0)==-EACCES);
+    }
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        for (unsigned i=0;i<COUNT;++i)
+            assert(((long (*)(long,const char *,long))sites[i])((i&1) ? AT_FDCWD : 0,
+                "/absent-svc-fixture",O_RDONLY)==((i&1) ? -ENOENT : uid));
+        _exit(0);
+    }
+    joined(child);
+    for (unsigned i=0;i<COUNT;++i) assert(!munmap(sites[i],page));
+    puts("PASS SVC distant sites: 24 regions, first-call publication, policy denial and fork");
+}
 int main(int argc,char **argv) {
+    if (argc>1 && !strcmp(argv[1],"debugger-rearm")) {
+        debugger_rearm(argc>2 && !strcmp(argv[2],"patched"),argc>3); return 0;
+    }
+    if (argc>1 && !strcmp(argv[1],"distant-sites")) {
+        distant_sites(argc>2 && !strcmp(argv[2],"patched"),argc>3); return 0;
+    }
     if (argc>1 && !strcmp(argv[1],"task-signals")) { task_signal_completion(); return 0; }
+    if (argc>1 && !strcmp(argv[1],"task-signals-exec")) { task_signal_exec(argv[0]); return 0; }
     if (argc>1 && !strcmp(argv[1],"first-encounter")) {
         first_encounter(argc>2 && !strcmp(argv[2],"patched"),argc>3); return 0;
     }
@@ -944,8 +1271,12 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"filter-readiness-trace")) { filter_readiness(SECCOMP_RET_TRACE|13); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-readiness-notify")) { filter_readiness(SECCOMP_RET_USER_NOTIF); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-actions")) { filter_actions(); return 0; }
-    if (argc>1 && !strcmp(argv[1],"filter-exec")) { filter_exec(argv[0],0); return 0; }
-    if (argc>1 && !strcmp(argv[1],"filter-exec-child")) { filter_exec(argv[0],1); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-exec")) { filter_exec(argv[0],0,-1); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-exec-child")) { filter_exec(argv[0],1,-1); return 0; }
+    if (argc>1 && (!strcmp(argv[1],"filter-exec-waits") || !strcmp(argv[1],"filter-exec-waits-child"))) {
+        filter_exec(argv[0],!strcmp(argv[1],"filter-exec-waits-child"),argc>2 && !strcmp(argv[2],"patched"));
+        return 0;
+    }
     if (argc>1 && !strcmp(argv[1],"filter-probe")) { filter_probe(argv[0],0); return 0; }
     if (argc>1 && !strcmp(argv[1],"channels")) { channel_threads(argv[0],0,0,0); return 0; }
     if (argc>1 && !strcmp(argv[1],"channels-signals")) { channel_signals=1; channel_threads(argv[0],0,0,0); return 0; }
@@ -956,8 +1287,14 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"channels-full-filter")) { channel_threads(argv[0],1,0,1); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-probe-exec")) { filter_probe(argv[0],1); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-probe-exec-thread")) { filter_probe(argv[0],2); return 0; }
-    if (argc>1 && !strcmp(argv[1],"filter-probe-child")) { filter_exec(argv[0],0); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-probe-child")) { filter_exec(argv[0],0,-1); return 0; }
     image_path=argv[0];
+    if (argc>1 && !strcmp(argv[1],"native-waits")) {
+        native_waits(argc>2 && !strcmp(argv[2],"patched")); return 0;
+    }
+    if (argc>1 && !strcmp(argv[1],"native-wait-fence")) {
+        native_wait_fence(argc>2 && !strcmp(argv[2],"patched")); return 0;
+    }
     if (argc>1 && !strcmp(argv[1],"native-unmap")) { native_unmap(); return 0; }
     if (argc>1 && !strcmp(argv[1],"native-protect")) { native_protect(); return 0; }
     if (argc>1 && !strcmp(argv[1],"native-map")) { native_map(); return 0; }

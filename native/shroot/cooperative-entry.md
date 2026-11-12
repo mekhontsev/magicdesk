@@ -7,6 +7,7 @@ need no hooks: observed, eligible syscall sites enter the same provider.
 `--env SHROOT_MACHINE_ENTRY=0` selects Base without removing the shared handler.
 
 - [Call Contract](#call-contract)
+- [Stop Ownership](#stop-ownership)
 - [Execution Ownership](#execution-ownership)
 - [Sandboxes And Debuggers](#sandboxes-and-debuggers)
 - [Machine-Code Frontend](#machine-code-frontend)
@@ -15,7 +16,7 @@ need no hooks: observed, eligible syscall sites enter the same provider.
 ## Call Contract
 
 `cooperative_entry.h` accepts a syscall number and six original 64-bit arguments,
-with one zero-initialized opaque handle per thread. ABI version 11 supplies a
+with one zero-initialized opaque handle per thread. ABI version 13 supplies a
 runtime-owned syscall-offer table and a caller-compiled action driver,
 `md_entry_invoke`, with these terminal results:
 
@@ -24,6 +25,11 @@ runtime-owned syscall-offer table and a caller-compiled action driver,
   SVC. Unsupported numbers, nested entry and inherited clients decline before
   request publication.
 - `UNKNOWN` is a terminal protocol failure, never permission to replay.
+
+The resident driver also accepts `NATIVE_CALL`: original policy and native
+routing have admitted the operation, no adapter ownership remains, and the only
+remaining work is its kernel effect and return. Generic API clients do not
+receive this outcome.
 
 The size-checked descriptor also supplies `thread_identity` for callers without
 libc TLS. It returns the runtime's native thread key, not a guest PID namespace
@@ -94,9 +100,9 @@ offered calls as follows:
 | Worker | Stat/statx/statfs, directory reads, readlink, mkdir/unlink/rename/link/symlink, access/ownership/mode/timestamp operations and path/link/FD xattrs use the existing filesystem dispatcher and checked task-memory copying. |
 | Value | Scalar UID/GID reads use owner-published atomic values with the same user-namespace translation as the ordinary supervisor path. Publication is valid only after the complete namespace-map chain is immutable; an unfinished map retains registry-backed execution. |
 | FD | Existing regular-file/directory `openat` and `openat2`, including O_PATH and writable/append/truncate flags, can use a checked native plan. Known ordinary-file close, dup/dup3, lseek and supported fcntl commands share that protocol and the existing file-table owner. Other open/fsopen calls retain their exact kernel publication carrier. |
-| Memory | The resident SVC driver can execute private untracked `munmap`/nonfixed `mremap`, ordinary-range `mprotect` and anonymous private `MAP_FIXED` replacement directly in the caller, using a supervisor-published exclusion snapshot. Shared address spaces, tracked mappings and generic API callers keep ordered kernel interception. |
-| Task | Default route. The guest evaluates the shared interception programs against the published selector inventory, choosing native execution, a direct error, an operation-owned context requirement or the common C executor. The supervisor retains ownership of shared process/resource state. |
-| Readiness | An unmasked native epoll queue can execute a zero-time probe through the existing worker/native-effect journal, including under an admitted guest filter. Virtual queues retain their readiness owner; an empty infinite-wait probe continues to the real interruptible wait. |
+| Memory | The resident SVC driver can execute private untracked `munmap`/nonfixed `mremap`, ordinary-range `mprotect` and anonymous private `MAP_FIXED` replacement directly in the caller, using a supervisor-published exclusion snapshot. Other mappings use ordered native effects through the common memory owner. Original-context operations retain explicit admission below. |
+| Task | Default route. The guest evaluates the shared interception programs against the published selector inventory, choosing native execution, a direct error or the common owner request. The supervisor retains shared process/resource state and explicitly requests any original context it needs. |
+| Readiness | An unmasked native epoll queue can execute a zero-time probe through the existing worker/native-effect journal, including under an admitted guest filter. Native poll/select classification can finish before a terminal kernel wait. Virtual queues retain their readiness owner; an empty infinite-wait probe continues to the real interruptible wait. |
 
 An original-context task route, failed registration and a worker's explicit pre-execution decline
 invoke the kernel continuation and return `COMPLETED`. The callback receives the
@@ -122,14 +128,45 @@ for an already admitted scalar control operation.
 filters, including FD argument positions, process selectors and signal policy.
 The channel publishes a monotonic selector view; a concurrent older routing hint
 falls back to native interception, not to a weaker guest policy. Native routing
-and known context requirements need no preliminary supervisor exchange.
-`execution_context` names the original-stack, mask, publication or lifecycle
-requirement. A state-dependent owner can request context before its first effect;
-an already-started operation instead retains its exact continuation.
+needs no preliminary supervisor exchange. Intercepted calls have no second
+guest-side context whitelist: only the selected owner can request a stop.
+`execution_context` separates native-effect requirements from the remaining
+original-context C adapters. Native `WAIT` selects a signal-aware journal, not
+ptrace transport. A state-dependent owner can request context before its first
+effect; an already-started operation instead retains its exact continuation.
 Explicit `MSG_DONTWAIT` socket calls and `IPC_NOWAIT` message operations do not
 acquire a blocking-context requirement. The socket adapter and ingress share
 the same flag classifier. Descriptor publication and other independent context
 requirements still apply; an FD's mutable `O_NONBLOCK` flag alone is not proof.
+An `ioctl` admitted as native uses the same signal-aware journal, including
+commands that may block. The descriptor owner still decides whether the command
+is native; classification does not itself require a stopped caller. C adapters
+that retain an original-stack requirement request it separately. Internal native
+effects of an admitted C adapter use that same journal, including the extended
+terminal setter's legacy ABI fallback. Cancellation returns a restart request
+to the C owner; only after its cleanup can original-context signal delivery
+resume. Completed effects, including a completed `EINTR`, are never replayed.
+Socket adapters use this same internal-native entry, not a separate ptrace
+transport. Base restores the application mask around that kernel effect and
+shields the remaining C cleanup. Terminal job-control signals therefore retain
+their native meaning in both execution modes.
+Stopped result consumers read or replace only the scalar result register;
+restorable GPR images belong to actual continuation changes, not ordinary IO
+completion.
+Child waits retain the process owner's native-effect receipt: an internal
+interrupt rechecks debugger/private-child selection only if the journal proves
+the wait was cancelled. Completed waits, including `WNOWAIT` observations,
+retain their exact result and PID translation without replay or GPR capture.
+Signal cancellation restores the original wait boundary for the kernel's
+`SA_RESTART` decision; it is not a completed `EINTR` receipt.
+Process-group signal enumeration uses the resource channel, or the listener in
+Base. Both validate the admitted selector and signal through the same process
+owner before selecting each native recipient; enumeration needs no stopped GPR
+context. Signal delivery itself retains the normal kernel/guest identity rules.
+`set_tid_address` executes in the caller through the native journal and translates
+its returned TID through the process owner when needed. The kernel retains the
+clear-on-exit address, including replacement or disabling; this does not require
+the stopped registration machinery used for emulated robust-list cleanup.
 Addressless `sendto`/`recvfrom` use native payload IO in the shared kernel
 selector program, in both Base and lazy execution. Provider FD selectors retain
 virtual control sockets, including duplicated descriptors and reused numbers.
@@ -144,6 +181,20 @@ selects the ordinary owner instead of spinning on a descheduled writer.
 The supervisor's `resource_call` routes both TRACE and channel ingress through
 the same process, identity, domain, descriptor and memory owners, in that order.
 Kernel-only capture requests require their exact carrier before FD publication.
+Broad FD selectors classify the live object under the same file-table turn for
+Base and resident requests. Classification consumes the typed call, not stopped
+registers. Scalar provider results, directory cursors and admitted native
+fallbacks return through the selected ingress; only the resulting operation can
+request a stopped context. A context handoff releases the lookup reference
+before re-entering the stopped owner.
+The memory owner retains its address-space and file-table turns through the
+native effect and publishes mapping provenance and SysV detachments on its exact
+receipt. Base uses the same completion owner. Changes covering published SVC
+sites or exclusion snapshots, task-affine provider mappings, private-memory
+repair and unavailable backing capture request original context before the
+effect. This handoff releases unexecuted preparation without marking the mapping
+unknown. Ordinary map/unmap/protection/remap requests need no GPR capture; later
+context acquisition preserves their already-admitted logical request.
 `execution_begin` prepares a new C execution; an already-started operation keeps
 its owner's continuation instead. Kernel entry, post-SIGSYS recovery and resident
 entry retain distinct stop/mask preparation rather than inventing a common
@@ -168,6 +219,51 @@ No guest socket or persistent helper thread is created. Fork cannot reuse an inh
 a fresh client registers separately. Thread exit returns its slot, and exec
 replaces the descriptor and pool.
 
+## Stop Ownership
+
+Audit `entry_context` (before effects) and `entry_require_stop` (retained
+continuation) in the owning modules, not only syscall profiles. Both publish
+reason counters with `--statistics`. The transport interprets the same result,
+native action and C continuation at initial admission and after a wait. A
+post-effect context request must never replay the syscall; it carries the
+owner's final result, not the value that originally started the wait.
+
+| Owner | Shared execution / remaining stopped boundary |
+| --- | --- |
+| Execution and proc lookup | Typed FD lookup, ordinary native reads and watch reads share admission. Provider IO and asynchronous completion retain their owner. No stop is needed merely because a syscall can block or a broad FD selector matched it. |
+| Readiness, sockets and SysV IPC | Unmasked waits retain event/deadline callbacks or journaled native effects. Watch readiness uses a non-consuming wake before resuming the original read. Temporary signal-mask waits still use the original-frame adapter. |
+| Descriptors and filesystem | Ordered slot mutations use the native-effect journal and shared completion. Provider close waits and typed device ioctls retain event-driven owners without registers. Cold selector installation, task-affine capture, table unsharing and real descriptor publication retain stopped continuations where required. |
+| Identity and process | Scalar values and updates share the channel. Capabilities, groups, real/effective/saved IDs, virtualized limits, subreaper queries and managed robust-list queries use the common C executor and adapter buffer in Base and resident entry. Ordinary PID translation/inspection, PIDFD creation and native child waits use the native-effect journal and common result owners. Wait-result translation uses a typed C buffer after the exact receipt, without replay. Debugger waits and private-child selection share journaled probes and event waits; restricted inherited policy retains original-site admission. Managed robust registration needs a stop to prepare terminal observation and its retained executor. |
+| Namespaces | Validation and pure state results need no register frame. Root changes use the common C filesystem executor; restricted proc-root/cwd changes use direct path copying and the domain owner. Unreadable memory retains the stopped transfer helper. Namespace joins use the common C executor and retain their resource candidate; a required PID-filter installation alone requests a stopped continuation before committing it. |
+| Memory and lifecycle | Private untracked native mappings use the exclusion view. Tracked mmap/munmap/mprotect/mremap use ordered native effects and publish metadata on the exact receipt. SysV attach/detach and provider mapping preparation use the common C executor. The mapping owner checks access, retains backing and acquires its memory turn through the shared channel; only actual private-table mapping or guarded FD publication requests a stopped continuation. SVC/snapshot mutation, mapping repair, task-affine backing capture, clone/vfork birth and exec retain stopped continuations where required. |
+| Signals and debugger | Ordinary signal-mask queries use a native effect when the kernel mask already matches the guest view. Translated mask and pending queries share protected C copying and a typed buffer in Base and resident entry; they do not borrow a stopped task for each copy/native query. Mask mutations, disposition exchange, actual delivery/restart, sigreturn and debugger events retain their context owner. A pending C wait is completed or cancelled before that context is exposed. |
+| Policy | Guest cBPF admission runs before effects. Filter installation/TSYNC retains its commit barrier. An inherited policy without admitted helper gates requests context before entering a potentially native blocking adapter. |
+
+The C dispatcher's remaining context list is explicit and separate from native
+effect classification. Its contract test checks the whole syscall-number table:
+new C handlers enter the common protocol by default. This is not a claim that
+every existing handler has already eliminated register-based continuations.
+
+Guest debugger control and wait events consume a typed call without a caller
+register frame. Inferior register access and execution remain owned by the
+debugger relationship. Resident candidate probes use the native-effect journal;
+an empty probe parks on the existing channel until an actual child/debugger event
+or signal arrives. Native fallback uses the process owner. The model retains no
+machine registers, including during buffer pressure. Only the stopped transport
+constructs probe registers from its retained continuation. A cancelled journal
+effect or an interrupted park requests the original signal/restart boundary;
+a completed error is not replayed. NULL wait4/waitid output pointers use a
+temporary result buffer so reaping and PID identity retirement remain exact.
+
+Stopped debugger parks share the provider poll-boundary and cancellation owner.
+The preceding syscall exit must drain before a poll can be treated as entered;
+an early wake cancels that exact entry before publishing the wait result.
+
+An ignored signal at a resident readiness effect retires that interrupted
+native phase before resampling. The same owner retains its deadline and pending
+readiness, suppressing internal EINTR without leaving a kernel-restarted wait
+behind an already-consumed wake marker. Base retains its syscall-exit owner.
+
 ## Execution Ownership
 
 ### Execution And Transport
@@ -175,8 +271,9 @@ replaces the descriptor and pool.
 `guest_execution` owns the task-affine C dispatcher. Its admitted operation
 contains the syscall number, original arguments, selected policy, retained
 control-file kind and optional prepared input. It does not encode ARM64 register
-positions or resume a tracee. `interception` adapts the Base register ABI to this
-executor; existing file, network, IPC and readiness handlers remain its owners.
+positions or resume a tracee. The stopped-task assembly gate constructs this
+same record on its owned stack without a new mapping or handshake; existing file,
+network, IPC and readiness handlers remain its owners.
 
 The supervisor carries the logical syscall as `seccomp_data`: number, six
 arguments and original instruction address. Channel requests never fabricate
@@ -185,12 +282,63 @@ separately; shared handlers receive a register context only when that ingress
 actually owns one. Buffer/FD commands likewise carry a typed command and three
 arguments, independently of any checkpoint frame.
 
+`execution_retain` and `descriptor_retain` accept an already admitted request;
+they never decode it again from a continuation or native probe. Only the actual
+stopped-task ingress uses `execution_capture`. Signal, filter, namespace,
+descriptor and debugger adapters retain the same request contract.
+
+Barrier release dispatches an intrusive queue of deferred continuations, not
+the full task tree. Notification and resume ownership share one deduplicated
+node per task. A still-held barrier requeues that node; recursive releases defer
+to the event loop, and terminal cleanup cancels it before task storage is reused.
+
+Admission ownership is retained separately from the current channel packet:
+native-effect receipts and provider waits do not turn an admitted syscall into
+a new request. Descriptor effects retire only from their own journal receipt,
+not from an unrelated signal/checkpoint syscall exit. Provider close completion
+releases the table turn before waiting and never replays an already closed slot.
+
+Compact memory observation carries `seccomp_data` directly from the kernel's
+syscall-info record. SVC discovery needs only its PC and number; alias admission
+uses the original typed policy input. No partial register frame is stored or
+restored. Error rewriting and task-affine mapping adapters acquire genuine
+registers on demand, preserving the compact native path.
+
+Signal action, debugger wait and descriptor owners retain their logical request separately
+from the machine continuation. Only signal-frame entry decodes its ABI registers;
+request validation, FD selection and output publication use the captured request.
+The query adapter preserves the application's pending mask even when Base has
+temporarily shielded execution. Native data and logical SIGSYS state are combined
+by the signal owner before the common protected output copy.
+
+`supervisor_transfer` owns bounded maintenance copies at an already stopped
+boundary: newborn TID publication, metadata/path transfer and interrupted-SVC
+inspection. Permission-respecting direct access is allocation-free. When that
+access is denied, one reserved buffer and an existing private stack run the
+shared protected C accessors in the exact task. The owner restores the full
+continuation before returning the result; cancellation releases both loans.
+Paths are read through their terminator without a stop per byte. These copies
+do not change the logical syscall or use argument registers as payload storage.
+
 The supervisor separates operation retirement from continuation delivery.
 `execution_complete` releases operation-owned resources and chooses return,
 preflight replay, clone, restart, IPC wait or native execution. The Base adapter
 then publishes registers, restores the application mask and resumes at the
 selected boundary. A native wait is not a completed result, and an interrupted
 operation is not permission to repeat an already committed effect.
+Resident completion uses the same restart owner: after cancelling provider
+ownership and retiring the C operation, END requests an explicit stopped
+handoff. The SVC owner restores the full original register frame and releases
+its private stack; the kernel then decides `SA_RESTART`. Normal typed-provider
+reads and writes do not acquire this context in advance. Handler `longjmp`
+cannot strand a private frame or an OFD turn.
+
+Terminal shared responses publish a required signal checkpoint together with the
+result. The resident driver marks its existing return boundary before releasing
+the application, so self-directed logical signals cannot race an asynchronous
+interrupt and arrive after the sending call returns. Blocked logical signals do
+not request a checkpoint. The same completion contract covers scalar handlers,
+native effects and the C executor, without a new stop on ordinary returns.
 
 The ordinary cooperative API and resident SVC driver share `md_entry_advance`
 for caller actions and their continuation handshake. A terminal kernel fallback
@@ -205,6 +353,10 @@ operation before publishing its result. Resource state is not copied into a
 second guest-side implementation. Scalar controls also borrow this channel from
 an existing Base C adapter when the thread already owns one; they do not require
 lazy admission to be re-enabled during that adapter.
+When the filesystem worker cannot serve an otherwise admitted operation, it
+releases its turns and hands the unexecuted request to BEGIN. This is distinct
+from a cancellation, policy fence or retained-result decline: those keep their
+original kernel boundary. The worker fast path needs no extra exchange.
 Buffer completion returns to a resident C frame; only its END retires the guest
 operation. A Base terminal checkpoint can retire directly after acquiring the
 original stopped context. The two deliveries share resource cleanup, not a
@@ -213,12 +365,36 @@ Resident internal controls reuse the client belonging to their claimed private
 frame, without another thread-ID syscall or client lookup. The pointer is scoped
 to that runtime stack; ordinary Base adapters retain identity-based lookup.
 
+Provider, adapted socket and SysV IPC waits retain their exact channel request. Readiness
+completes it through the response futex, without a synthetic kernel poll or a
+ptrace wakeup. Only finite deadlines enter the ordered timer list; checking the
+next deadline and removing a completed wait are constant-time operations.
+Signals cancel the admitted operation through the same owner as Base; a real
+restart or generated SIGPIPE acquires the completed original frame before kernel
+delivery. Partial IO and committed ancillary transfers are never replayed.
+These already-admitted waits can cross a policy publication; the next syscall
+uses the new policy. The drain check applies to the retained native journal,
+not a syscall-family whitelist: watch and readiness waits release preparation
+turns before sleeping, while unfinished capture or publication still blocks
+the fence. Native peers requiring kernel sender credentials retain an
+explicit task-affine send continuation, not a blanket socket fallback.
+An explicit parked-channel response publishes this admitted wait to the private
+frame journal. Policy installation does not mistake its occupied stack for
+unadmitted work. SysV IPC releases transport buffers before parking; the retained
+operation resumes through the same C executor with captured input and deadline,
+without reinterpreting policy or exhausting the buffer pool with idle waiters.
+
 `cooperative_exchange` owns the shared publication and park handshake, separately
 from channel layout and operation semantics. Filesystem requests run on the
 worker; controls run directly on the supervisor. A control request does not
 allocate a filesystem operation or traverse the worker completion queue.
 The single notification listener remains worker-owned and forwards a cold
 supervisor wake; hot control exchanges need no worker round trip.
+Each owner watches only channels enrolled by an exact wake or retained pending
+request. Registration does not enroll an idle channel. The existing atomic
+park/request handshake removes inactive channels; retirement and resume enroll
+the precise pending caller before waking its owner. Both owners share this
+watch-set implementation and remove membership before task identity reuse.
 Control bursts retain the existing 32-operation/100-microsecond fairness bound
 and round-robin channel selection. Idle spinning is adaptive and bounded; no
 additional service thread is created and native event handling keeps its turn.
@@ -227,9 +403,26 @@ Control and terminal replies can offer a journaled native effect to the common
 caller-action driver. The effect's completion is acknowledged on the same channel
 before its owner releases the resource turn. A stopped caller's journal distinguishes an
 unstarted action from an executed result; teardown never repeats an uncertain
-effect. Native decisions for admitted nonblocking journal operations also use
-this protocol, without returning through the original SVC and repeating FD
-classification. Blocking or context-dependent native decisions retain that SVC.
+effect. Native decisions with retained resource ownership also use this protocol,
+without returning through the original SVC and repeating FD classification.
+An admitted terminal native call instead uses a private-frame journal after
+releasing its client and channel. It neither retains a file-table turn across
+blocking IO nor requires ptrace on entry or completion. An actual signal restores
+the original GPRs, flags and stack; the kernel decides restart before the signal
+continuation is translated to the original SVC. The general-register-only
+payload does not alter SIMD state. A retained signal is checked again after
+terminal publication, before the call can sleep.
+Policy fences exclude these already-admitted terminal operations; their next
+guest call sees the new policy. Fork clears every copied claim, including native
+waits excluded from a policy drain. The private frame remains occupied until
+normal return or signal recovery, so frame collisions still retain Base entry.
+The entry probes four distinct slots before falling back. The uncontended path
+uses one atomic claim; collisions need no syscall, register snapshot or shared
+channel. Signal recovery recognizes every probe boundary and releases only the
+slot actually acquired, including before the original registers have been saved.
+The claim word and native journal have independent meanings: collision probes
+cannot change the operation state. A fresh owner clears the journal before
+private-stack execution and policy admission.
 The exact journal gate does not carry another syscall allow-list: the operation
 owner admits the effect, and the common context classifier decides whether it
 can run on the resident frame. A supervisor reply either supplies a result, an
@@ -238,8 +431,23 @@ executor operation or an explicit context requirement, never an ambiguous
 Existing worker/FD/value fast paths do not acquire an extra supervisor
 round trip.
 
+Unmasked epoll/poll/select adapters retain their readiness owner and use this
+same native-effect journal, without syscall-entry/exit stops for each wait.
+The resident frame marks an owned effect separately from a terminal native call:
+an actual signal first retires the operation, then restores the original
+application boundary. The common owner retains deadlines, virtual readiness,
+FD loans and output publication across service wakes and TSYNC. Ignored signals
+resample interrupted waits without exposing a synthetic EINTR. Base retains an
+interrupted owner until signal delivery distinguishes a handler from an ignored
+signal. None of these checks adds work to an uninterrupted native data syscall.
+
 When an internal operation needs actual stopped registers, its owner retains
-the pending request, an explicit context reason and a kernel continuation. This
+the request rather than requiring a checkpoint for every control message.
+Resident proc-provider IO exchanges its buffers and results through the channel.
+Provider/OFD admission parks on its channel; task-affine operations request
+context only at their concrete effect boundary. A completion racing that
+checkpoint is retained and delivered exactly once.
+The handoff retains an explicit context reason and a kernel continuation. This
 promotion is distinct from an unstarted BEGIN's context fallback. The caller enters the
 matching internal checkpoint, whose continuation resumes that request exactly
 once. It does not resubmit the original guest syscall. Buffer/FD waits remain
@@ -255,26 +463,29 @@ may still decline without an effect. Task teardown remains their cancellation ow
 An unadmitted BEGIN takes the terminal kernel continuation without reading an
 execution descriptor; a previous request's action cannot cause a second effect.
 
-Original-stack operations (clone/exec/signal return), blocking IPC/readiness
-with kernel signal semantics, FD selector installation and typed descriptor
+Original-stack operations (clone/exec/signal return), atomic-mask
+readiness waits, FD selector installation and typed descriptor
 publication retain their existing kernel boundaries. The shared task entry does
 not synthesize a complete application register image from six syscall arguments.
 `MD_EXECUTION` distinguishes task entries/completions, promoted checkpoints and
 native effects; broker controls are counted separately from guest calls.
-`MD_EXECUTION_LOCAL_NATIVE` and `MD_EXECUTION_LOCAL_CONTEXT` identify guest-local
-routing, while `MD_EXECUTION_NATIVE` and `MD_EXECUTION_CONTEXT` identify decisions
-requiring shared state. `MD_EXECUTION_STOP` records the reasons for promoting
+`SVC_RUNTIME_STATS.nativeCompleted` counts terminal native returns in the guest;
+signal recovery can finish or restart an operation without incrementing it.
+`MD_EXECUTION_LOCAL_NATIVE` identifies guest-local native routing, while
+`MD_EXECUTION_NATIVE` and `MD_EXECUTION_CONTEXT` identify decisions requiring
+shared state. `MD_EXECUTION_STOP` records the reasons for promoting
 already-owned operations. Native decisions are a subset of task entries, not a
 separate outcome: their journaled result counts as a completion, or their explicit
 original-context continuation counts in `MD_EXECUTION_CONTEXT`. For fully retired
 calls, task entries equal completions plus original-context continuations.
 These counters are enabled only by `--statistics`.
 
-Checkpoint admission uses the installed policy chain's exact runtime-image
-identity. When every filter admits those internal gates, checkpoints keep the
-ordinary kernel path instead of SYSEMU. This is a constant-time admission check,
-not a per-call filter walk. An unbound ancestor or a filter inherited across exec
-retains emulated checkpoints, even when portable policy permits lazy entry.
+Checkpoint admission uses the installed policy chain's exact stable service-gate
+contract: addresses, selectors and actions. When every ancestor admits that
+contract, checkpoints keep the ordinary kernel path instead of SYSEMU, including
+after exec reuses the same bootstrap gates. The proof is intersected once at
+installation, not rebuilt per call. An unbound ancestor or changed gate contract
+retains emulated checkpoints. Image-local SVC pool addresses are not this proof.
 
 ### Native Memory Effects
 
@@ -401,6 +612,13 @@ An alias can also return without a signal. A requested drain is reconciled at
 the next observed ordinary guest boundary even with no pending signal; a
 completed alias must not leave a filter barrier waiting on stale drain state.
 
+A deferred resident return branches to one bootstrap checkpoint registered in
+the common interception table. Its policy-admitted syscall number is transport,
+not the completion result: the checkpoint skips it before reconstructing the
+original frame. This also applies after exec with inherited application filters;
+an ordinary native syscall number must not turn a private return into a kernel
+call. Without deferred work the resident return never visits this checkpoint.
+
 `task_checkpoint` owns all normal bootstrap control markers: selective TRACE
 outside application filters, scoped SYSEMU inside them, and a synthetic
 interrupt to recover ARM64's hidden x7 before publishing one typed event.
@@ -409,6 +627,11 @@ original IP and arguments. Register copies, C adapter returns, helper custody,
 memory repair and readiness use this same event; actual SIGTRAP and guest
 debugger steps are not service completions. `task_call` separately owns native
 call entry/exit and exact continuation restoration without a return BRK.
+Every successful native resume clears the coordinator's stopped-task state.
+Decoder progress also releases that state and the broker's recorded stop when
+replaying an event retained by a barrier. This wakes already-published requests
+without lending a running task as a stopped actor; borrowed helper execution
+retains its separate stop ownership.
 Marker decoding uses the PC and seccomp cookie from `PTRACE_GET_SYSCALL_INFO`;
 it does not read the full register set merely to identify a known site.
 Stop decoding hands each exact observation to its consumer once, without another
@@ -421,11 +644,10 @@ Checkpoint registers retain the kernel's post-SVC PC. Consumers identify the
 marker at PC-4 and resume from the unchanged continuation; there is no preliminary
 register write just to rewind the marker. Native-call entry/exit stops remain
 distinct from this typed event, including when they share a helper's code site.
-The C-facing gates in `checkpoint_entry.S` and register-copy gates in
+The C-facing gates in `checkpoint_entry.S` and bootstrap gates in
 `interception_entry.S` set x8 explicitly before the marker:
 ARM64 otherwise replaces x0 with ENOSYS before tracing syscall(-1). Entry and
-marker addresses are distinct. Group-copy gates preserve their x8 payload in
-x19. Native-call returns and their following markers have separate ABI fields;
+marker addresses are distinct. Native-call returns and their following markers have separate ABI fields;
 a native syscall number never doubles as the marker's number.
 MAPPED, TAKE, RELEASE and the filesystem CALL, EXEC_PREPARE,
 EXEC_CANCEL and PROC_LINK commands return scalar values to C and can complete
@@ -469,7 +691,13 @@ release. Root/cwd are captured afresh under their filesystem owner, and resource
 contents such as file-table entries and mount topology stay live. This shared
 registry path also serves ordinary kernel notifications and filesystem RPC.
 Retirement invalidates admission before releasing the registry reference; no
-allocation is required to retire or reap a task.
+allocation is required for terminal retirement or final collection. A shared
+native wait can reap before the next kernel stop observes coalesced `SIGCHLD`.
+That interval retains a compact PID/UID sender snapshot, not namespace or quota
+ownership; native PID snapshots need no allocation. Proc and credential queries
+no longer expose the reaped task. If the namespace-number
+snapshot cannot be allocated, the existing retired record stays until signal
+observation permits final collection. This does not add a stop to ordinary waits.
 
 For cooperative calls, the caller can capture two bounded path operands before
 publication, using the same string-argument selectors as the worker. Bootstrap
@@ -558,14 +786,18 @@ uncertain, provisional, channel and typed-wrapper slots are not native authority
 regular IO additionally requires a known regular-file kind. A dup3 destination
 must also have an unambiguous selector observation.
 
-An admitted existing regular-file open or seek on an exclusively owned table
-can also issue a single revocable FD lease. Open binds that lease only to its
+An admitted existing regular-file open, seek or native descriptor query on an
+exclusively owned table can publish one value-only `md_fd_view`. Open binds it only to its
 completed native result, never an expected FD or a provisional file birth.
 Subsequent `lseek` calls on that FD execute in the
 identified resident entry, without another worker request. Linux still owns the
 shared OFD cursor and validates the offset and whence. `F_GETFD` and unchanged
 `F_SETFD` use the authoritative descriptor flags; `F_GETFL` reads the actual
-kernel OFD. Changing flags retains the ordinary mutation owner. Every new channel request,
+kernel OFD. Regular-file `FIONREAD` uses the existing admitted native-effect gate
+with a private completion journal, without overwriting a preceding operation's
+pending retirement. Size and available bytes are read by the kernel, not cached.
+The same command on devices, pipes and watches retains its ordinary owner.
+Changing flags retains the ordinary mutation owner. Every new channel request,
 ordinary kernel notification, task stop/resume or borrowed execution revokes
 the lease. Shared tables never receive it. The explicit entry API does not use
 this shortcut: only the resident private frame defers signal handlers until the
@@ -707,6 +939,11 @@ operation wakes the next request's owner if the caller has already published its
 next request. Registration replies may resume the caller before supervisor-side
 retirement; that overlap must not require a later unrelated syscall to progress.
 The broker fixture forces this ordering and waits without any further guest IO.
+Supervisor dispatch also reports a completed burst as progress: resource owners
+must run once more before the event loop sleeps. A callback can enqueue a mapping
+behind an outstanding signal-frame acknowledgement without leaving another
+runnable channel request. An empty dispatch reports no progress and does not
+keep the supervisor awake.
 Owner clock reads are batched every eight empty iterations. The caller bounds
 active work rather than wall time: iteration duration depends on CPU and cache
 behavior. It never replenishes the budget after a wake or spurious futex return.
@@ -850,7 +1087,7 @@ service gates precede the guest program, so an admitted service syscall does not
 execute that program again. A syscall-number/architecture-only prefix preserves
 the kernel's constant-ALLOW cache; remaining original sites evaluate the guest
 program unchanged. Local native routing uses the admitted bootstrap gate only
-when the entire installed chain covers that runtime image. Context recovery and
+when the entire installed chain covers its exact service-gate contract. Context recovery and
 unproven inherited gates retain their original-site continuation. This does not
 intercept every native read/write or remove Android's inherited filters.
 
@@ -861,11 +1098,27 @@ never reuse former code-pool addresses. Other inherited policies and excessive
 mirror size retain Base. The image registration hint grants no policy authority.
 Exec discards the retired address space's entry-revocation state; inherited policy
 and debugger ownership still govern admission in the new image.
-Debugger tracing selects Base. Restricted native roots decline worker path
+Debugger tracing selects Base while any inferior in the address space remains
+owned. Debugger and filter suspension are independent, composable reasons owned
+by the SVC registry, not permanent retirement. The common stopped-task admission
+releases debugger suspension after the last relationship ends, including detach,
+tracer exit and a fork inheriting a suspended registry without that relationship.
+Remaining filter fences still hold admission. Re-admission preserves each valid
+site's prepared gate and verifies its original instruction on the next encounter;
+mapping retirement or permanent memory exposure is not undone.
+Resident completion publishes a pending signal or debugger boundary with its
+response, including a response that delegates a native wait. A preparation stop
+cannot consume that demand and allow the subsequent wait to block ahead of it.
+All context restoration uses the common continuation decoder; its service scope
+and stop observations are invalidated with the register mutation.
+Restricted native roots decline worker path
 operations but can retain pathless value, native FD and readiness entry.
 
-Filter suspension preserves eligible sites for lazy re-admission after the
-policy fence. Mapping retirement remains permanent. Already admitted work,
+Temporary suspension preserves eligible sites for lazy re-admission after the
+last owner releases it. Retirement of a published gate remains permanent. A failed cold
+admission has no resident continuation: its negative lookup is invalidated by
+a completed mapping change, allowing RX code to be admitted after an earlier
+RWX observation without re-reading mappings on every call. Already admitted work,
 including listener CONTINUE and retained pre-TSYNC calls, finishes through its
 existing owner rather than re-entering an accelerated gate under a newer policy.
 
@@ -909,8 +1162,10 @@ ptrace stops, in addition to provider/FUSE and signal-restart coverage.
 `svc_runtime.c` owns per-image preparation; `svc_registry.c` admits observed
 single-SVC sites. Publication does not stop neighboring threads. Signal,
 mapping, fork/exec, debugger and filter transitions use the existing task and
-memory owners. The frontend supplies original registers and arguments to this
-protocol rather than a second syscall implementation.
+memory owners. The frontend supplies the original syscall number, arguments and
+instruction address to this protocol rather than a second syscall implementation.
+Only an explicit context request restores the original machine registers at a
+kernel boundary; the shared transport does not manufacture a register frame.
 
 The first eligible observation publishes the entry independently of the
 invocation's fast-path eligibility. TASK routes, invalid arguments and tracked

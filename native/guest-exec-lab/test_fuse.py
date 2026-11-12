@@ -30,8 +30,10 @@ def main():
                 'fuse-close.c' if args.case == 'close' else f'fuse-{args.case}.py')
         suite.upload(fixtures / name, suite.base + '/fixture')
         if args.case == 'close':
-            command = suite.run(args.store, '--bind-ro', suite.base, '/mnt',
-                '--user', '0:0', '--entrypoint', '/bin/sh', '--', '-ec',
+            launch = suite.guest if args.debug else suite.run
+            command = launch(args.store, *(['--diagnostics'] if args.debug else []),
+                '--bind-ro', suite.base, '/mnt',
+                '--user', '0:0', *(['--', '/bin/sh'] if args.debug else ['--entrypoint', '/bin/sh', '--']), '-ec',
                 'work=$(mktemp -d /tmp/md-fuse-close-build.XXXXXXXX); '
                 'trap \'rm -rf "$work"\' EXIT; '
                 'cc -x c -Wall -Wextra -Werror -O2 -pthread /mnt/fixture -o "$work/close"; '

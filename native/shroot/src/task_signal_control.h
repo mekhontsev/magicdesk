@@ -5,6 +5,7 @@
 #include "signal_pending.h"
 #include "signal_view.h"
 #include "signal_fd.h"
+#include <linux/seccomp.h>
 #include <sys/uio.h>
 #include <time.h>
 struct md_signal_wait_exchange { uint64_t set; struct timespec timeout; siginfo_t info; };
@@ -16,6 +17,8 @@ struct md_task_signal_control {
     long (*trace)(int,pid_t,void *,void *);
     pid_t pid;
     struct user_pt_regs original;
+    struct seccomp_data request;
+    uintptr_t signal_frame;
     enum md_task_call_boundary boundary;
     uintptr_t call, returned, peer;
     void *scratch;
@@ -25,12 +28,12 @@ struct md_task_signal_control {
     struct md_task_copy copy;
     struct md_task_call native;
     struct md_kernel_action requested, previous;
-    uint64_t previous_mask, next_mask, pending;
+    uint64_t previous_mask, next_mask;
     unsigned stage;
     int entering, signal, force_default;
     int copying, invoking;
     long result;
-    int waiting, sending, passthrough;
+    int waiting, passthrough;
     int wait_native, wait_woken, wait_timed, wait_interrupt;
     int64_t wait_deadline;
     uintptr_t wait_peer;
@@ -54,16 +57,13 @@ struct md_task_signal_control {
     void (*translate)(void *,siginfo_t *);
     void *context;
 };
-/* Signal action and pending queries. Returns 1 complete, 0 resumed,
+/* Signal action exchange. Returns 1 complete, 0 resumed,
  * negative infrastructure failure; syscall errors are in result. */
 int md_task_signal_control_begin(struct md_task_signal_control *,
-    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,
+    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,const struct seccomp_data *,
     uintptr_t call,uintptr_t returned,
-    struct md_signal_actions *,int *blocked,uint64_t pending,void *scratch,uintptr_t peer,size_t capacity);
+    struct md_signal_actions *,int *blocked,void *scratch,uintptr_t peer,size_t capacity);
 int md_task_signal_control_event(struct md_task_signal_control *,int status);
-int md_task_signal_query_begin(struct md_task_signal_control *,
-    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,
-    uintptr_t call,uintptr_t returned,uint64_t mask,void *scratch,uintptr_t peer,size_t capacity);
 enum { MD_SIGNAL_WAIT_RELEASE=2, MD_SIGNAL_WAIT_ACQUIRE=3,
     MD_SIGNAL_FD_ACQUIRE=4, MD_SIGNAL_FD_RELEASE=5,
     MD_SIGNAL_WAIT_STORAGE=6, MD_SIGNAL_WAIT_PARKED=7 };
@@ -79,7 +79,7 @@ void md_task_signal_control_quiesced(struct md_task_signal_control *);
 int md_task_signal_descriptor_changed(struct md_task_signal_control *,const struct md_signal_fd *);
 void md_task_signal_control_dispose(struct md_task_signal_control *);
 int md_task_signal_descriptor_begin(struct md_task_signal_control *,
-    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,
+    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,const struct seccomp_data *,
     uintptr_t call,uintptr_t returned,struct md_signal_pending *,int *blocked,
     void (*translate)(void *,siginfo_t *),void *,void *scratch,uintptr_t peer,size_t capacity);
 /* The caller pins metadata under its FD turn. No table turn spans a wait. */
@@ -88,12 +88,9 @@ struct md_task_call *md_task_signal_control_call(struct md_task_signal_control *
 /* Task-affine sigtimedwait with native queue priorities and a selected logical
  * pending queue. Consumption precedes output copy; waits release admission. */
 int md_task_signal_wait_begin(struct md_task_signal_control *,
-    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,
+    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,const struct seccomp_data *,
     uintptr_t call,uintptr_t returned,struct md_signal_pending *,int *blocked,void (*translate)(void *,siginfo_t *),void *,
     void *scratch,uintptr_t peer,size_t capacity);
-int md_task_signal_send_begin(struct md_task_signal_control *,
-    long (*trace)(int,pid_t,void *,void *),pid_t,const struct user_pt_regs *,
-    uintptr_t call,uintptr_t returned,void *scratch,uintptr_t peer,size_t capacity);
 /* An interrupted atomic wait retains the kernel's native saved-mask restore.
  * Called at its frame-commit stop, before any handler instruction.
  * On completion next_mask is the handler mask, previous is its disposition. */

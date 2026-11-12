@@ -3,11 +3,10 @@
 
 #include "supervisor_thread.h"
 
-void identity_copy_finish(struct thread *t, int error);
+void identity_discard(struct thread *t);
+void identity_buffer_control(struct thread *t,const struct supervisor_control_request *control);
 
 int process_limit_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r);
 int identity_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r, unsigned long cookie);
-
-int identity_checkpoint(struct thread *t,pid_t pid,uintptr_t checkpoint,struct user_pt_regs *regs);
 
 #endif

@@ -114,6 +114,14 @@ int main(void) {
 
     struct md_control_ioctl s={.size=16,.direction=MD_CONTROL_IN|MD_CONTROL_OUT};
     assert(md_control_ioctl_size(&s)==16);
+    struct md_control_ioctl constant={.size=4,.direction=MD_CONTROL_OUT|MD_CONTROL_CONST,.value=0x12345678};
+    unsigned output=0;
+    assert(md_control_ioctl_size(&constant)==4 && md_control_ioctl_constant(&constant,&output));
+    assert(output==0x12345678);
+    constant.direction|=MD_CONTROL_IN;
+    assert(md_control_ioctl_size(&constant)==-EPROTO);
+    constant.direction=MD_CONTROL_OUT|MD_CONTROL_CONST; constant.size=9;
+    assert(md_control_ioctl_size(&constant)==-EPROTO);
     s.fields=1; assert(md_control_ioctl_size(&s)==-EPROTO);
     s.direction|=MD_CONTROL_INDIRECT;
     s.field[0]=(struct md_control_ioctl_field){0,8,32,MD_CONTROL_OUT};

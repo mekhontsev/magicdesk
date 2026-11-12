@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 from fixture_executor import FixtureExecutor
-from test_oci_services import Suite
+from test_oci_services import Suite, add_machine_entry_argument
 
 
 def main():
@@ -18,12 +18,13 @@ def main():
                         help='Build a static fixture and compare the native Shell executor outside Shroot')
     parser.add_argument('--output', type=Path, default=Path('build/thread-identity'))
     FixtureExecutor.add_argument(parser)
+    add_machine_entry_argument(parser)
     args = parser.parse_args()
     if args.native_control and args.executor != 'shell':
         parser.error('Native ELF control requires the Shell executor executable directory')
-    suite = Suite(args.output, args.build, executor=args.executor)
+    suite = Suite(args.output, args.build, executor=args.executor, machine_entry=args.machine_entry)
     target = '/tmp/md-thread-' + suite.report['id']
-    base = [suite.runner, '--store', args.store, '--user', '0:0']
+    base = suite.guest(args.store, '--user', '0:0')
     try:
         suite.command(base + ['--', '/bin/mkdir', target])
         if args.fixture:

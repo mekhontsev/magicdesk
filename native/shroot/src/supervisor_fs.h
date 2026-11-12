@@ -47,6 +47,6 @@ int fs_result_exit(struct thread *t,pid_t pid);
 int fs_direct_exit(struct thread *t,pid_t pid);
 int fs_wait_exit(struct thread *t,pid_t pid);
 int fs_export_exit(struct thread *t,pid_t pid);
-int fs_checkpoint(struct thread *t,uintptr_t checkpoint,struct user_pt_regs *regs);
+int fs_checkpoint(struct thread *t,uintptr_t checkpoint);
 
 #endif

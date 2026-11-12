@@ -18,17 +18,21 @@ md_svc_single_begin:
     single_mark claim
     swpal x8,x8,[x8]
     single_mark claimed
-    cbnz x8,single_busy_8
+    cbnz x8,md_svc_single_probe1
     single_mark owned
     md_svc_slot x8
+    single_mark frame
     str x30,[x8,#MD_SVC_FRAME_OFFSET+240]
+    single_mark borrow_lr
+    mov x30,x8
+    add x30,x30,#MD_SVC_FRAME_OFFSET
 md_svc_single_prefix:
     nop
-    single_mark borrow_lr
-    md_svc_slot x30
-    add x30,x30,#MD_SVC_FRAME_OFFSET
     md_svc_save_gprs x30
     single_mark saved_gprs
+    /* Collision probes rewrite the claim word, never the native journal.
+     * Clear the previous journal before entering private-stack execution. */
+    str xzr,[x30,#MD_SVC_NATIVE_OFFSET-MD_SVC_FRAME_OFFSET]
     ldr x1,single_owner_8
     str x1,[x30,#MD_SVC_OWNER_OFFSET-MD_SVC_FRAME_OFFSET]
     mrs x8,nzcv
@@ -39,6 +43,7 @@ md_svc_single_prefix:
     mov x0,x30
     sub x30,x30,#MD_SVC_FRAME_OFFSET
     add sp,x30,#(MD_SVC_SLOT_SIZE >> 12),lsl#12
+    single_mark private_sp
     ldr x16,single_dispatch_8
     ldr x1,single_state_8
     ldr x2,single_origin_8
@@ -82,6 +87,22 @@ md_svc_single_busy_replay:
     nop
 md_svc_single_busy_branch:
     b .
+/* A blocked native wait retains its frame. Probe disjoint alternatives before
+ * falling back; only x8 is scratch until the selected frame saves x30. */
+.macro single_probe attempt,next
+    single_mark probe\attempt
+    md_svc_slot x8,\attempt
+    single_mark claimed\attempt
+    swpal x8,x8,[x8]
+    single_mark tested\attempt
+    cbnz x8,\next
+    md_svc_slot x8,\attempt
+    b md_svc_single_frame
+.endm
+    single_probe 1,md_svc_single_probe2
+    single_probe 2,md_svc_single_probe3
+    single_probe 3,single_busy_8
+    single_mark probes_end
 .balign 8
 md_svc_single_dispatch:
 single_dispatch_8:
@@ -96,4 +117,9 @@ md_svc_single_origin:
 single_origin_8:
     .quad 0
 md_svc_single_end:
+.balign 4
+.global md_svc_signal_checkpoint
+md_svc_signal_checkpoint:
+    svc #0
+    brk #0
 .section .note.GNU-stack,"",%progbits

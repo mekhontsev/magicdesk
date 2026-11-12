@@ -31,13 +31,13 @@
 #include "supervisor_internal.h"
 #include "supervisor_seccomp.h"
 #include "supervisor_task.h"
+#include "supervisor_transfer.h"
 #include "task_resources.h"
 #include "terminal_calls.h"
 #include "uts_namespace.h"
 static int guest_root_path(struct thread *t, long nr);
 static int domain_path_apply(struct thread *t, long nr, const char *path);
-static void domain_path_load(struct thread *t);
-static void domain_path_call(struct thread *t, struct user_pt_regs *r);
+static void domain_path_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r);
 
 static int guest_root_path(struct thread *t, long nr) {
     return nr == SYS_chroot && t->endpoint[0] && !md_domain_restricted(t->resources.fs);
@@ -61,44 +61,30 @@ static int domain_path_apply(struct thread *t, long nr, const char *path) {
 
 void domain_path_finish(struct thread *t, int error) {
     struct user_pt_regs r = t->execution.registers;
-    if (!error && guest_root_path(t, r.regs[8])) {
-        dispatch_with_stack(t); return;
-    }
-    if (!error) error = domain_path_apply(t, r.regs[8], t->metadata.path);
+    long nr=t->execution.request.nr;
+    if (!error) error = domain_path_apply(t,nr,t->metadata.path);
     r.regs[0] = (uint64_t)error;
     if (!set_registers(t->pid, &r) || !restore_mask(t)) return;
     t->phase = IDLE; resume(t->pid, 0);
 }
 
-static void domain_path_load(struct thread *t) {
-    size_t offset = t->metadata.path_size;
-    if (offset == sizeof(t->metadata.path)) { domain_path_finish(t, -ENAMETOOLONG); return; }
-    if (t->execution.request.args[0] > UINTPTR_MAX - offset) { domain_path_finish(t, -EFAULT); return; }
-    struct user_pt_regs r = t->execution.registers;
-    r.pc = LOAD_BYTE; r.regs[0] += offset;
-    if (!set_registers(t->pid, &r)) return;
-    t->phase = DOMAIN_PATH; resume(t->pid, 0);
-}
-
-static void domain_path_call(struct thread *t, struct user_pt_regs *r) {
+static void domain_path_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r) {
+    if (guest_root_path(t,call->nr)) {
+        execution_begin(t,call,r,"root-path-mask"); return;
+    }
     char path[4096];
-    int error = read_string(t->pid, r->regs[0], path, sizeof(path));
+    int error = read_string(t->pid,call->args[0],path,sizeof(path));
     if (error != -EPERM && error != -EACCES) {
-        if (!error && guest_root_path(t, r->regs[8])) {
-            CHECK(t->ready && t->phase == IDLE);
-            execution_capture(t,r);
-            if (!save_signal_mask(t,&t->execution.mask,"get-mask")
-                    || !shield(t) || !skip(t->pid)) return;
-            dispatch_with_stack(t); return;
-        }
-        if (!error) error = domain_path_apply(t, r->regs[8], path);
+        if (!error) error = domain_path_apply(t,call->nr,path);
         return_value(t, r, error); return;
     }
+    if (entry_context(t,MD_CONTEXT_MEMORY)) return;
     CHECK(t->ready && t->phase == IDLE);
-    execution_capture(t,r); t->metadata.path_size = 0;
+    execution_retain(t,call,r);
     if (!save_signal_mask(t,&t->execution.mask,"get-mask")
             || !shield(t) || !skip(t->pid)) return;
-    domain_path_load(t);
+    transfer_begin(t,&t->execution.registers,t->execution.request.args[0],t->metadata.path,
+        sizeof(t->metadata.path),MD_TRANSFER_STRING,domain_path_finish);
 }
 
 void domain_buffer_control(struct thread *t,const struct supervisor_control_request *control) {
@@ -129,10 +115,15 @@ void setns_complete(struct thread *t,int error) {
     buffer_reply(t,MD_PIDFD_DONE);
 }
 
+static void setns_filter_begin(struct thread *t) {
+    if (entry_require_stop(t,MD_CONTEXT_POLICY,0,setns_filter_begin)) return;
+    struct user_pt_regs continuation;
+    if (registers(t->pid,&continuation)) pid_filter_begin(t,&continuation,setns_prepared);
+}
+
 void setns_prepared(struct thread *t,long error) {
     if (!error && t->resource_change.pid_children_pending && !t->process_op.filter) {
-        struct user_pt_regs continuation;
-        if (registers(t->pid,&continuation)) pid_filter_begin(t,&continuation,setns_prepared);
+        setns_filter_begin(t);
         return;
     }
     if (!error && t->resource_change.join_mounts) {
@@ -178,8 +169,8 @@ int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
         /* Revoke existing entries before filter commit, including TSYNC. The
          * guest preflight revokes new registration in its own address space;
          * a protected fork need not grant the supervisor memory-write access. */
-        if (!filter_revoke_entry(t,r)) return 1;
-        filter_install_begin(t,r); return 1;
+        if (!filter_revoke_entry(t,call)) return 1;
+        filter_install_begin(t,call,r); return 1;
     }
     if (t->phase==PROCESS_INIT_EXIT && nr==SYS_prctl && call->instruction_pointer==RAW_GATE
             && call->args[0]==PR_SET_CHILD_SUBREAPER && call->args[1]==1
@@ -240,11 +231,10 @@ int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
                 && !md_identity_capable(&t->identity,CAP_SYS_ADMIN)) {
             return_value(t,r,-EPERM); return 1;
         }
-        if (!entry_context(t,MD_CONTEXT_DESCRIPTOR)) fd_begin(t,r,0);
+        fd_begin(t,call,r,0);
         return 1;
     }
     if (nr == SYS_setns) {
-        if (entry_context(t,MD_CONTEXT_NAMESPACE)) return 1;
         execution_begin(t,call,r,"namespace-entry-mask");
         return 1;
     }
@@ -276,7 +266,7 @@ int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
     }
     if (nr == SYS_chroot) {
         if ((admitted_path || virtual_identity) && !md_identity_may_chroot(&t->identity)) return_value(t, r, -EPERM);
-        else if (!entry_context(t,MD_CONTEXT_NAMESPACE)) domain_path_call(t,r);
+        else domain_path_call(t,call,r);
         return 1;
     }
     if (nr==SYS_sethostname || nr==SYS_setdomainname) {
@@ -324,19 +314,10 @@ int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
     }
     int error = cookie == MD_INTERCEPT_DISPATCH ? md_domain_path_error(t->resources.fs) : -EPERM;
     if (nr == SYS_chdir) {
-        if (!entry_context(t,MD_CONTEXT_NAMESPACE)) domain_path_call(t,r);
+        domain_path_call(t,call,r);
         return 1;
     }
     if (error && ++restricted_denials <= 32)
         SUPERVISOR_TRACE("PROBE restricted pid=%d nr=%ld result=%d\n", t->pid, nr, error);
     return_value(t, r, error); return 1;
-}
-
-int domain_checkpoint(struct thread *t,uintptr_t checkpoint,struct user_pt_regs *regs) {
-    if (checkpoint == LOADED_BYTE && t->phase == DOMAIN_PATH) {
-        t->metadata.path[t->metadata.path_size++] = (char)regs->regs[2];
-        if (regs->regs[2]) domain_path_load(t); else domain_path_finish(t, 0);
-        return 1;
-    }
-    return 0;
 }

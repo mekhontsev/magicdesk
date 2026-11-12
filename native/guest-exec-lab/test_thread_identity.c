@@ -42,7 +42,8 @@ static void credentials(void) {
     assert(!pthread_barrier_destroy(&ready));
     assert(!pthread_barrier_destroy(&done));
 }
-static volatile pid_t parent_tid, child_tid;
+static volatile pid_t parent_tid, child_tid, redirected_tid;
+static unsigned clear_target;
 /* Exercise the kernel clone contract: libc wrappers may reject clear_child_tid
  * for application-created tasks before issuing any syscall. */
 extern long identity_clone(unsigned long,void *,volatile pid_t *,void *,volatile pid_t *,int (*)(void *));
@@ -54,6 +55,14 @@ static int clone_child(void *unused) {
     (void)unused;
     assert(parent_tid==syscall(SYS_gettid));
     assert(child_tid==parent_tid);
+    /* Repeat at the same syscall site before changing the kernel exit target;
+     * both cold and resident entries must return the visible thread identity. */
+    for (unsigned i=0;i<3;++i) {
+        volatile pid_t *target=&child_tid;
+        if (i==2 && clear_target) target=clear_target==1 ? &redirected_tid
+            : clear_target==2 ? NULL : (void *)1;
+        assert(syscall(SYS_set_tid_address,target)==parent_tid);
+    }
     return 0;
 }
 static void *worker(void *unused) {
@@ -81,7 +90,9 @@ static void threads(void) {
     char *stack=malloc(length);
     assert(stack);
     for (unsigned i=0;i<16;++i) {
+        clear_target=i%4;
         parent_tid=child_tid=-1;
+        redirected_tid=-1;
         pid_t child=(pid_t)identity_clone(CLONE_VM|CLONE_PARENT_SETTID
             |CLONE_CHILD_SETTID|CLONE_CHILD_CLEARTID|SIGCHLD,stack+length,&parent_tid,NULL,&child_tid,clone_child);
         if (child<=0 || parent_tid!=child)
@@ -90,7 +101,8 @@ static void threads(void) {
         assert(child>0 && parent_tid==child);
         int status;
         assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
-        assert(!child_tid);
+        assert(child_tid==(clear_target ? child : 0));
+        assert(redirected_tid==(clear_target==1 ? 0 : -1));
     }
     free(stack);
 }
@@ -142,6 +154,14 @@ static void robust_query(void) {
     struct robust_list_head *again=NULL;
     assert(!syscall(SYS_get_robust_list,syscall(SYS_gettid),&again,&length));
     assert(again==head && length==sizeof(*head));
+    length=0;
+    errno=0;
+    assert(syscall(SYS_get_robust_list,0,(void *)1,&length)==-1 && errno==EFAULT);
+    assert(length==sizeof(*head));
+    again=NULL;
+    errno=0;
+    assert(syscall(SYS_get_robust_list,0,&again,(void *)1)==-1 && errno==EFAULT);
+    assert(!again);
     assert(!pthread_mutex_unlock(&lock));
     assert(!pthread_mutex_destroy(&lock));
     puts("PASS robust list registration and query");

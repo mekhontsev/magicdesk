@@ -12,7 +12,7 @@
 /* Runtime gates normally share one code mapping. Group their high words so
  * every persistent selector does not spend five instructions per gate. */
 static void exemptions(const struct md_fd_filter_gates *gates,struct md_fd_filter_program *out) {
-    const uintptr_t addresses[]={gates->raw,gates->watch,gates->task,gates->native,gates->socket};
+    const uintptr_t addresses[]={gates->raw,gates->watch,gates->task,gates->native,gates->adapter};
     _Static_assert(sizeof(addresses)/sizeof(*addresses)==MD_FD_FILTER_GATES,"FD gate capacity");
     unsigned seen=0;
     for (unsigned i=0;i<sizeof(addresses)/sizeof(*addresses);++i) {

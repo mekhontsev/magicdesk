@@ -7,7 +7,9 @@
 #include <sys/prctl.h>
 #include <sys/ioctl.h>
 
-void md_pid_filter_build(uintptr_t gate,uintptr_t task,struct md_pid_filter_program *out) {
+void md_pid_filter_build(const struct md_interception_abi *abi,struct md_pid_filter_program *out) {
+    uintptr_t gate=abi->raw_gate,task=abi->task_return,native=abi->native_return;
+    uintptr_t adapter=abi->adapter_native_return;
 #define PROCESS(name) BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_##name,0,1), \
     BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_PROCESS),
     const struct sock_filter code[]={
@@ -62,10 +64,22 @@ void md_pid_filter_build(uintptr_t gate,uintptr_t task,struct md_pid_filter_prog
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(unsigned)task,0,1),
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+        /* A retained effect has already translated arguments and owns its
+         * completion. Reapplying PID translation would corrupt native IDs. */
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(unsigned)(native>>32),0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(unsigned)native,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(unsigned)(adapter>>32),0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(unsigned)adapter,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_PROCESS)
     };
 #undef PROCESS
-    enum { count=sizeof(code)/sizeof(*code), tail=count-11 };
+    enum { count=sizeof(code)/sizeof(*code), tail=count-21 };
     _Static_assert(count<=MD_PID_FILTER_INSTRUCTIONS,"PID filter capacity");
     out->count=count;
     for (unsigned i=0;i<count;++i) {

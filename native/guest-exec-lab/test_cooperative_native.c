@@ -231,21 +231,27 @@ static void boundary(uintptr_t pc,int kind) {
 static struct md_entry_channel channel;
 static void descriptor_lease(void) {
     struct md_entry_channel c={0};
-    assert(md_entry_regular_descriptor(&c)==-1);
-    atomic_store(&c.native_regular,43);
-    assert(md_entry_regular_descriptor(&c)==42);
-    atomic_store(&c.native_regular,MD_ENTRY_RESULT_FD);
+    assert(md_entry_view_descriptor(&c)==-1);
+    md_fd_view_publish(&c.descriptor,43,FD_CLOEXEC,S_IFREG);
+    assert(md_entry_view_descriptor(&c)==42 && c.descriptor.flags==FD_CLOEXEC);
+    md_fd_view_publish(&c.descriptor,MD_FD_VIEW_RESULT,0,S_IFREG);
     c.native.number=SYS_openat; c.native.result=42;
     for (unsigned state=MD_NATIVE_EMPTY;state<=MD_NATIVE_CANCELLED;++state) {
         atomic_store(&c.native.state,state);
-        assert(md_entry_regular_descriptor(&c)==(state==MD_NATIVE_DONE ? 42 : -1));
+        assert(md_entry_view_descriptor(&c)==(state==MD_NATIVE_DONE ? 42 : -1));
     }
     atomic_store(&c.native.state,MD_NATIVE_DONE);
-    c.native.result=-ENOENT; assert(md_entry_regular_descriptor(&c)==-1);
-    c.native.result=INT64_MAX; assert(md_entry_regular_descriptor(&c)==-1);
-    c.native.result=42; c.native.number=SYS_close; assert(md_entry_regular_descriptor(&c)==-1);
-    c.native.number=SYS_openat; atomic_store(&c.native_regular,0);
-    assert(md_entry_regular_descriptor(&c)==-1);
+    c.native.result=-ENOENT; assert(md_entry_view_descriptor(&c)==-1);
+    c.native.result=INT64_MAX; assert(md_entry_view_descriptor(&c)==-1);
+    c.native.result=42; c.native.number=SYS_close; assert(md_entry_view_descriptor(&c)==-1);
+    c.native.number=SYS_openat; md_fd_view_revoke(&c.descriptor);
+    assert(md_entry_view_descriptor(&c)==-1);
+    uint64_t args[6]={42,FIONREAD,0};
+    assert(md_fd_view_query(SYS_ioctl,args,S_IFREG));
+    assert(!md_fd_view_query(SYS_ioctl,args,S_IFCHR));
+    assert(!md_fd_view_query(SYS_ioctl,args,S_IFIFO));
+    args[1]=F_GETFL;
+    assert(md_fd_view_query(SYS_fcntl,args,S_IFIFO));
     puts("PASS native descriptor lease: exact FD or successful open, cancellation, failure and revocation");
 }
 static pthread_barrier_t phase;

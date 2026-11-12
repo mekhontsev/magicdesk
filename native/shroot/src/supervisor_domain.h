@@ -8,6 +8,5 @@ void domain_buffer_control(struct thread *t,const struct supervisor_control_requ
 void setns_complete(struct thread *t,int error);
 void setns_prepared(struct thread *t,long error);
 int domain_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r, unsigned long cookie);
-int domain_checkpoint(struct thread *t,uintptr_t checkpoint,struct user_pt_regs *regs);
 
 #endif

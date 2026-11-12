@@ -2,6 +2,7 @@
 #include "task_resources.h"
 #include "task_status.h"
 #include "kernel_policy.h"
+#include "signal_origin.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -16,12 +17,19 @@ struct md_task_snapshot_state {
     atomic_int status_fd;
     struct md_task_snapshot value;
 };
+struct reaped_sender {
+    uid_t uid;
+    unsigned count;
+    int reboot_signal;
+    struct md_pid_number_value *numbers;
+};
 struct entry {
     struct entry *next;
     struct entry *retired_next, **retired_previous;
     pid_t tid, tgid, parent;
     uint64_t generation;
-    int retired;
+    int retired, reaped;
+    struct reaped_sender sender;
     struct task_group *group;
     struct md_process_member *process;
     struct md_identity value;
@@ -44,6 +52,12 @@ struct md_task_registry { pthread_mutex_t lock; pid_t owner; struct entry *retir
     struct md_kernel_policy *kernel_policy;
     uint64_t generation;
 };
+/* Caller holds the registry lock or is its sole writer. */
+static struct entry *find_entry(const struct md_task_registry *r,pid_t tid) {
+    struct entry *e=r->entries[(unsigned)tid%BUCKETS];
+    while (e && e->tid!=tid) e=e->next;
+    return e;
+}
 static struct task_group *group_join(struct md_task_registry *r,pid_t pid) {
     unsigned bucket=(unsigned)pid%BUCKETS;
     struct task_group *g=r->groups[bucket];
@@ -104,6 +118,7 @@ static void release_entry(struct entry *e) {
     release_live(e); md_identity_release(&e->value);
     md_pid_identity_release(e->pid);
     md_cgroup_member_depart(e->cgroup,e->tid); md_cgroup_member_release(e->cgroup);
+    free(e->sender.numbers);
     free(e);
 }
 struct md_task_registry *md_task_registry_create(void) {
@@ -131,7 +146,10 @@ int md_task_registry_publish(struct md_task_registry *r, pid_t tid, pid_t tgid,
     int error=md_process_member_identity(process,v);
     if (error) return error;
     /* Publication proves this number belongs to a new live task. */
-    if (r->retired && md_task_registry_retired(r,tid).identity) md_task_registry_reap(r,tid);
+    if (r->retired) {
+        const struct entry *previous=find_entry(r,tid);
+        if (previous && previous->retired) md_task_registry_reap(r,tid);
+    }
     struct md_guest_domain *fs=resources ? resources->fs : NULL;
     struct md_mount_namespace *mounts=resources ? resources->mounts : NULL, *old_mounts=NULL;
     struct md_guest_domain *old_fs=NULL;
@@ -252,16 +270,15 @@ void md_task_registry_retire(struct md_task_registry *r,pid_t tid,pid_t parent,c
 }
 struct md_task_retired_view md_task_registry_retired(const struct md_task_registry *r,pid_t tid) {
     if (!r || tid<=0) return (struct md_task_retired_view){0};
-    struct entry *e=r->entries[(unsigned)tid%BUCKETS];
-    while (e && e->tid!=tid) e=e->next;
-    return e && e->retired ? (struct md_task_retired_view){&e->value,e->pid,e->cgroup,e->process,e->parent}
+    const struct entry *e=find_entry(r,tid);
+    return e && e->retired ? (struct md_task_retired_view){e->reaped ? NULL : &e->value,e->pid,e->cgroup,e->process,e->parent}
         : (struct md_task_retired_view){0};
 }
 int md_task_registry_has_retired(const struct md_task_registry *r) { return r && r->retired!=NULL; }
 void md_task_registry_retired_processes(const struct md_task_registry *r,
         void (*visit)(void *,pid_t,struct md_task_retired_view),void *context) {
     if (!r) return;
-    for (const struct entry *e=r->retired;e;e=e->retired_next) if (e->tid==e->tgid)
+    for (const struct entry *e=r->retired;e;e=e->retired_next) if (e->tid==e->tgid && !e->reaped)
         visit(context,e->tid,(struct md_task_retired_view){&e->value,e->pid,e->cgroup,e->process,e->parent});
 }
 void md_task_registry_reap(struct md_task_registry *r,pid_t tid) {
@@ -277,6 +294,47 @@ void md_task_registry_reap(struct md_task_registry *r,pid_t tid) {
     }
     pthread_mutex_unlock(&r->lock);
     if (e) { md_cgroup_member_reaped(e->cgroup); release_entry(e); }
+}
+void md_task_registry_reap_deferred(struct md_task_registry *r,pid_t tid) {
+    if (!r || tid<=0) return;
+    pthread_mutex_lock(&r->lock);
+    struct entry *e=find_entry(r,tid);
+    struct entry released={0};
+    if (e && e->retired && !e->reaped) {
+        unsigned count=md_pid_namespace_depth(md_pid_identity_namespace(e->pid));
+        struct md_pid_number_value *numbers=count ? malloc(count*sizeof(*numbers)) : NULL;
+        if (!count || numbers) {
+            released=*e;
+            e->sender=(struct reaped_sender){.uid=e->value.uid.real,.numbers=numbers,
+                .reboot_signal=md_pid_identity_reboot_signal(e->pid),
+                .count=md_pid_identity_export(e->pid,numbers)};
+            e->reaped=1; e->value=(struct md_identity){0};
+            e->pid=NULL; e->cgroup=NULL; e->process=NULL;
+        }
+    }
+    pthread_mutex_unlock(&r->lock);
+    if (released.tid) {
+        md_identity_release(&released.value);
+        md_pid_identity_reap(released.pid); md_pid_identity_release(released.pid);
+        md_cgroup_member_reaped(released.cgroup); md_cgroup_member_release(released.cgroup);
+        md_process_member_release(released.process);
+    }
+}
+int md_task_registry_signal_origin(const struct md_task_registry *r,const siginfo_t *info,
+        struct md_signal_origin *out) {
+    if (!r || !md_signal_child_notice(info) || info->si_pid<=0) return 0;
+    const struct entry *e=find_entry(r,info->si_pid);
+    if (!e) return 0;
+    *out=(struct md_signal_origin){.info=*info,.valid=1};
+    if (e->reaped) {
+        out->uid=e->sender.uid; out->count=e->sender.count;
+        out->reboot_signal=e->sender.reboot_signal;
+        if (out->count) memcpy(out->numbers,e->sender.numbers,out->count*sizeof(*out->numbers));
+    } else {
+        out->uid=e->value.uid.real; out->count=md_pid_identity_export(e->pid,out->numbers);
+        out->reboot_signal=md_pid_identity_reboot_signal(e->pid);
+    }
+    return 1;
 }
 void md_task_registry_collect(struct md_task_registry *r,int (*gone)(pid_t)) {
     if (!md_task_registry_has_retired(r)) return;
@@ -359,6 +417,7 @@ int md_task_registry_credentials(struct md_task_registry *r,pid_t tid,struct md_
     pthread_mutex_lock(&r->lock);
     struct entry *e=r->entries[(unsigned)tid%BUCKETS];
     while (e && e->tid!=tid) e=e->next;
+    if (e && e->reaped) e=NULL;
     int found=e!=NULL;
     if (e) *out=(struct md_task_credentials){.group=e->tgid,.retired=e->retired,
         .access=md_process_access_retain(e->access),.generation=e->generation,.identity=md_identity_copy(&e->value)};
@@ -375,6 +434,7 @@ int md_task_registry_proc(struct md_task_registry *r,pid_t tid,struct md_task_sn
     pthread_mutex_lock(&r->lock);
     struct entry *e=r->entries[(unsigned)tid%BUCKETS];
     while (e && e->tid!=tid) e=e->next;
+    if (e && e->reaped) e=NULL;
     int found=e!=NULL;
     if (e) *out=(struct md_task_snapshot){.tid=tid,.tgid=e->tgid,.generation=e->generation,.identity=md_identity_copy(&e->value),
         .access=md_process_access_retain(e->access),
