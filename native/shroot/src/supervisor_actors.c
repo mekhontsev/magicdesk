@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "supervisor_io.h"
 #include "clone_call.h"
+#include "cooperative_channel.h"
 #include "event_signal.h"
 #include "fd_client.h"
 #include "fd_filter_program.h"
@@ -62,6 +63,7 @@ static int task_action_releasing;
 static void task_action_release(struct task_action *owner);
 static void task_action_finish(struct task_action *owner,long result);
 static void loan_failed(struct task_action *owner,long result);
+static long loan_close_finish(struct task_action *owner,long result);
 static void task_action_call_complete(long result,int retry);
 static void capture_borrowed_complete(void *context,struct md_task_helper_result result);
 static void task_action_call_start(struct task_action *owner);
@@ -249,6 +251,23 @@ static void task_action_finish(struct task_action *owner,long result) {
 void task_action_discard(struct thread *t) {
     struct task_action *owner=t->action;
     if (!owner) return;
+    if (owner->resident) {
+        struct md_entry_native *native=&t->entry.control->native;
+        unsigned state=atomic_load_explicit(&native->state,memory_order_acquire);
+        /* READY can race the resident's claim during fatal cleanup. Only an
+         * owned stop may inspect RUNNING; otherwise retain uncertainty rather
+         * than replaying a possibly completed close against a reused slot. */
+        if (state==MD_NATIVE_READY && atomic_compare_exchange_strong_explicit(
+                &native->state,&state,MD_NATIVE_CANCELLED,memory_order_acq_rel,memory_order_acquire))
+            state=MD_NATIVE_CANCELLED;
+        if (state==MD_NATIVE_RUNNING && t->kernel_stopped && !cooperative_native_observe(t->pid,native))
+            state=atomic_load_explicit(&native->state,memory_order_acquire);
+        struct md_fd_mutation close={.nr=native->number,
+            .args={native->args[0],native->args[1],native->args[2]}};
+        if (state==MD_NATIVE_DONE) (void)loan_close_finish(owner,native->result);
+        else if (state!=MD_NATIVE_CANCELLED) CHECK(!md_fd_mutation_abandon(&close,owner->loan_table));
+        t->entry.effect=NULL; t->entry.waiting=0; owner->resident=0;
+    }
     t->action=NULL; owner->requester=NULL;
     if (owner->loan) { if (!owner->retired) owner->loan_turn=NULL; return; }
     /* A foreign actor can still be using this payload. Its exact completion
@@ -305,6 +324,39 @@ static void loan_failed(struct task_action *owner,long result) {
     cancel_tree(125);
 }
 
+static int loan_close_denied(long number,long result) {
+    return number==SYS_close && (result==-EPERM || result==-EACCES || result==-ENOSYS);
+}
+
+static long loan_close_finish(struct task_action *owner,long result) {
+    struct md_fd_mutation close={.nr=owner->native.arguments.number,
+        .args={owner->native.arguments.value[0],owner->native.arguments.value[1],owner->native.arguments.value[2]}};
+    CHECK(!md_fd_mutation_finish(&close,owner->loan_table,result));
+    struct md_fd_order *turn=owner->loan_turn ? owner->loan_turn : &owner->files;
+    int remaining=md_fd_origins_loan_matches(turn,owner->number,owner->loan);
+    if (remaining<0) return remaining;
+    if (!remaining) return 0;
+    if (result==-EBADF) return md_fd_origins_close_range(owner->loan_table,owner->number,owner->number,0);
+    return result;
+}
+
+static void loan_entry_complete(struct thread *t,long result) {
+    struct task_action *owner=t->action;
+    CHECK(owner && owner->resident && owner->loan);
+    owner->resident=0;
+    if (t->entry.effect_cancelled) { loan_start(owner); return; }
+    if (loan_close_denied(owner->native.arguments.number,result)) {
+        owner->native.arguments=(struct md_task_call_arguments){.number=SYS_close_range,
+            .value={(unsigned long)owner->number,(unsigned long)owner->number,0}};
+        uint64_t args[6]={owner->number,owner->number,0};
+        owner->resident=1;
+        entry_effect(t,SYS_close_range,args,loan_entry_complete); return;
+    }
+    result=loan_close_finish(owner,result);
+    if (result<0) { loan_failed(owner,result); return; }
+    task_action_finish(owner,result);
+}
+
 static void task_action_call_complete(long result,int retry) {
     struct task_action *owner=task_action_execution;
     struct thread *actor=owner->actor;
@@ -324,17 +376,7 @@ static void task_action_call_complete(long result,int retry) {
         md_task_checkpoint_restore(&checkpoints,actor->pid); owner->checkpoint_suspended=0;
     }
     if (owner->loan) {
-        if (!retry && result!=-ESRCH) {
-            struct md_fd_mutation close={.nr=owner->native.arguments.number,
-                .args={owner->native.arguments.value[0],owner->native.arguments.value[1],owner->native.arguments.value[2]}};
-            CHECK(!md_fd_mutation_finish(&close,owner->loan_table,result));
-            struct md_fd_order *turn=owner->loan_turn ? owner->loan_turn : &owner->files;
-            int remaining=md_fd_origins_loan_matches(turn,owner->number,owner->loan);
-            if (remaining<0) result=remaining;
-            else if (!remaining) result=0;
-            else if (result==-EBADF)
-                result=md_fd_origins_close_range(owner->loan_table,owner->number,owner->number,0);
-        }
+        if (!retry && result!=-ESRCH) result=loan_close_finish(owner,result);
     } else if (!owner->capture && !result && !retry) {
         if (owner->pid_filter) {
             for (struct thread *peer=threads;peer;peer=peer->next)
@@ -554,10 +596,12 @@ int task_completion_available(pid_t pid) {
 
 int task_action_borrowable(struct thread *p,struct thread *requester) {
     if (retained_task_held(p)) return 0;
-    /* A queued table user is stopped before its operation. Other candidates
-     * retain their exact kernel continuation. Never borrow an active worker,
+    /* A queued table user is parked before its operation, through either
+     * transport. Other candidates retain their exact kernel continuation.
+     * Never borrow an active worker,
      * mutation or newborn awaiting its first stop. */
-    int waiter=p->kernel_stopped && (task_files_queued(p)
+    int continuation=p->kernel_stopped || (p->entry.control && !p->entry.effect && !p->entry.stop.resume);
+    int waiter=continuation && (task_files_queued(p)
         || (p->action && !task_action_call(p->action)->stage));
     int mapping_active=p->memory_op.mapping
         && md_fd_order_state(&p->memory_op.mapping->files)!=MD_RESOURCE_ORDER_QUEUED;
@@ -786,7 +830,7 @@ static int loan_borrow(struct task_action *owner,struct thread *p,int *alive,int
 }
 
 static void loan_start(struct task_action *owner) {
-    if (cancelling || quiescence_busy(owner->retired_context)) return;
+    if (owner->resident || cancelling || quiescence_busy(owner->retired_context)) return;
     struct md_fd_order *turn=owner->loan_turn ? owner->loan_turn : &owner->files;
     if (!turn->table) {
         int error=md_fd_order_begin(owner->loan_table,turn,fd_wakeup);
@@ -797,6 +841,16 @@ static void loan_start(struct task_action *owner) {
     int exists=md_fd_origins_loan_matches(turn,owner->number,owner->loan);
     if (exists<0) { loan_failed(owner,exists); return; }
     if (!exists) { task_action_finish(owner,0); return; }
+    struct thread *t=owner->requester;
+    if (t && t->pid && !t->kernel_stopped && !t->listening && !t->terminal_stop && !t->resume_lost
+            && t->resources.files==owner->loan_table
+            && t->entry.control && !t->entry.effect && !t->entry.stop.resume && !retained_task_held(t)) {
+        owner->native.arguments=(struct md_task_call_arguments){.number=SYS_close,
+            .value={(unsigned long)owner->number}};
+        uint64_t args[6]={owner->number};
+        owner->resident=1;
+        entry_effect(t,SYS_close,args,loan_entry_complete); return;
+    }
     struct thread *candidate=NULL;
     int alive=0,stopped=0;
     /* The requester already owns an exact stopped continuation. A peer can
@@ -957,8 +1011,7 @@ int task_action_event(pid_t pid,int status,const struct rusage *usage) {
     if (result<0) { CHECK(result==-ESRCH); t->resume_lost=1; return 1; }
     if (result) {
         t->kernel_stopped=1;
-        if (owner->loan && call->arguments.number==SYS_close
-                && (call->result==-EPERM || call->result==-EACCES || call->result==-ENOSYS)) {
+        if (owner->loan && loan_close_denied(call->arguments.number,call->result)) {
             struct md_task_call_arguments args={.number=SYS_close_range,
                 .value={(unsigned long)owner->number,(unsigned long)owner->number,0}};
             result=md_task_call_again(call,&args);

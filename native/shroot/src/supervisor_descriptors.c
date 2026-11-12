@@ -91,6 +91,9 @@ static void fd_policy_release(struct thread *t) {
 }
 
 void fd_discard(struct thread *t) {
+    /* A temporary close may borrow this descriptor turn. Reconcile its native
+     * receipt before cancellation admits another mutation of the same slot. */
+    task_action_discard(t);
     /* Fork owns the address-space turn even before kernel admission. Early
      * quota/allocation failure must retire it just like a completed clone. */
     if (t->memory_op.action==MEMORY_FORK) {

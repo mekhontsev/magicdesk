@@ -1154,6 +1154,7 @@ void task_vfork_done_event(struct thread *t,pid_t pid,unsigned event) {
 }
 
 void task_exec_event(struct thread *t,pid_t pid,unsigned event) {
+    task_action_discard(t);
     md_svc_machine_forget(&t->machine);
     /* A non-leader exec replaces the task behind the leader's PID. */
     md_broker_forget(broker, pid);

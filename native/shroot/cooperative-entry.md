@@ -870,6 +870,13 @@ failure is reported without retry. Conflicts never remove another creator's file
 
 If publication fails, the existing task-action/FD-loan owner closes the exact
 provisional FD under its original table turn before the error is returned.
+The same retirement owner serves readiness aliases and other temporary FDs.
+An available resident caller executes the close through its native-effect
+journal, without a ptrace stop. Base and orphan cleanup retain the borrowed
+actor path. Both use the same mutation receipt and close-range fallback;
+terminal cleanup reconciles the receipt before releasing a borrowed table turn.
+A withdrawn plan is distinct from a completed `close(-EINTR)`, and an unknown
+effect makes the slot uncertain rather than authorizing a repeated close.
 An exclusive loser preserves the winner and returns `EEXIST`; a nonexclusive
 loser may resolve the winning name only after its private effect is compensated.
 Cancellation before the effect removes the unpublished backing. Process death

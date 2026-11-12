@@ -23,9 +23,10 @@ struct task_action {
     struct md_fd_order files;
     pid_t rejected_group, rejected_task;
     int borrowed, remote, synthetic, checkpoint_suspended;
-    /* A short native close uses the same actor/quiescence owner as filter
-     * installation. The table pin survives the originating task's death. */
+    /* The requester closes through its resident journal when available;
+     * orphan retirement borrows an actor. Both retain the same table turn. */
     struct md_fd_loan *loan;
+    int resident;
     struct capture_owner *capture;
     struct md_process_member *capture_capacity;
     int capture_capacity_needed;

@@ -142,6 +142,12 @@ The same suite verifies execution retirement independently of register delivery,
 the Base argument ABI, and exact-image checkpoint admission across filter
 ancestry. Signal-delivery controls cover standard carriers coalescing with
 pending kernel SIGALRM, SIGCHLD and SIGIO, retaining siginfo and the original mask.
+Temporary-FD retirement checks resident execution without ptrace, borrowed and
+owned table turns, cancelled versus completed effects, close-range fallback and
+terminal uncertainty. Queued descriptor, memory, metadata, transfer and readiness
+owners admit the same borrowed continuation whether parked through a resident
+channel or a kernel stop. `test_epoll_runtime.py` exercises these owners with
+shared-table replacement, killed waiters and concurrent cold admission.
 
 `test_resources.py BUILD --case fs-results` additionally exercises ready-result
 custody with four concurrent threads and 32 killed children, both natively and
