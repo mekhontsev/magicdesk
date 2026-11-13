@@ -13,6 +13,7 @@
 #include "fd_client.h"
 #include "resource_control.h"
 #include "descriptor_calls.h"
+#include "entry_wakeup.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
@@ -81,6 +82,12 @@ enum { CALL_NATIVE=1, CALL_DESCRIPTOR=2, CALL_NATIVE_SENT=4, CALL_KIND_SHIFT=3,
 static enum md_entry_outcome progress(struct md_entry_client *,struct md_entry_call *);
 static enum md_entry_outcome publish(struct md_entry_client *,struct md_entry_call *);
 static enum md_entry_outcome task_execute(struct md_entry_client *,struct md_entry_call *);
+static void wake_owner(struct md_entry_channel *c) {
+    if (md_entry_control_request(c->call.reserved) && c->control_target>0
+            && (atomic_load_explicit(&c->routes.flags,memory_order_acquire)&MD_ROUTE_ADMITTED_KERNEL)
+            && !md_entry_wakeup_send(c->control_target,c->owner)) return;
+    md_guest_buffer_admit(MD_ENTRY_WAKE);
+}
 extern long md_guest_buffer_control_kernel(unsigned,unsigned long,unsigned long);
 static struct md_entry_channel *continuation(struct md_entry_client *client,struct md_entry_call *call) {
     struct md_entry_channel *c=(void *)call->continuation[CONT_CHANNEL];
@@ -122,7 +129,7 @@ static enum md_entry_outcome resume_native(struct md_entry_client *client,struct
         c->call.reserved=MD_ENTRY_EFFECT_DONE;
         call->continuation[CONT_FLAGS]&=~CALL_NATIVE_SENT;
         call->continuation[CONT_SEQUENCE]=c->sequence;
-        if (md_entry_publish_request(c,MD_ENTRY_REQUEST)) md_guest_buffer_admit(MD_ENTRY_WAKE);
+        if (md_entry_publish_request(c,MD_ENTRY_REQUEST)) wake_owner(c);
         return progress(client,call);
     }
     if (!c->native_commit && atomic_load_explicit(&c->native.state,memory_order_acquire)==MD_NATIVE_DONE) {
@@ -447,7 +454,7 @@ static enum md_entry_outcome publish(struct md_entry_client *client,struct md_en
         call->next=resume_kernel;
         return kernel_call(call);
     } else if (wake)
-        md_guest_buffer_admit(MD_ENTRY_WAKE);
+        wake_owner(c);
     return progress(client,call);
 }
 static enum md_entry_outcome progress(struct md_entry_client *client,struct md_entry_call *call) {

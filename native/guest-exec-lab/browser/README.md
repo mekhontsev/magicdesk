@@ -116,10 +116,13 @@ python native/guest-exec-lab/browser/benchmark.py --build BUILD --store DEVICE_G
 
 `--chromium` selects the installed ELF. Use `--executor shell` with a Shell-owned
 store for the same workload. Reports retain the video hash, browser version,
-supervisor/thread CPU deltas, CPU-frequency samples, video frame/drop counters,
+supervisor/thread CPU deltas, CPU-frequency samples, host display state/mode
+before and after playback, video frame/drop counters,
 input receipts and screenshots. Input latency is the DevTools insertion and
 next-animation-frame round trip, not a physical-keyboard-to-display measurement.
 CPU percentages use one core as 100%; they exclude the browser's own processes.
+Display snapshots are read outside the timing interval and do not change refresh
+rate; they do not observe every intermediate mode change.
 Profiles and processes are removed after each run; images and reports remain.
 
 For a running `installed_desktop.py` graphical fixture, replace `--build` and

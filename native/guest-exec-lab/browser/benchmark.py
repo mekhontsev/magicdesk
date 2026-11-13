@@ -190,6 +190,13 @@ class DesktopBrowser:
                                                 result=self.result))
 
 
+def display_clocks(client):
+    snapshot = client.call('list_displays')
+    return dict(generatedAtMillis=snapshot.get('generatedAtMillis'), error=snapshot.get('catalogError'),
+                displays=[{key: display.get(key) for key in ('id', 'state', 'mode')}
+                          for display in snapshot.get('displays', [])])
+
+
 def run(args, server_url, mode, index):
     state = json.loads(args.desktop_session.read_text()) if args.desktop_session else None
     suite = Suite(args.output, None if state else args.build, executor=args.executor, session=state)
@@ -247,6 +254,7 @@ def run(args, server_url, mode, index):
         pid = owned[0]['pid']
         row['launch'] = owned[0]
         protocol.evaluate('document.getElementById("input").focus();true', session)
+        row['hostDisplaysBefore'] = display_clocks(suite.client)
         with sample_profile(args, row, pid, suite.report['id']), observe_cpu(host) as cpu:
             before = threads(pid)
             first = protocol.evaluate('snapshot()', session)
@@ -264,6 +272,7 @@ def run(args, server_url, mode, index):
             last = protocol.evaluate('snapshot()', session)
             elapsed = time.monotonic()-start
             after = threads(pid)
+        row['hostDisplaysAfter'] = display_clocks(suite.client)
         ticks = os.sysconf('SC_CLK_TCK')
         delta = {str(tid): (state['ticks']-before[tid]['ticks'])/ticks for tid,state in after.items()
                  if tid in before and state['start'] == before[tid]['start']}

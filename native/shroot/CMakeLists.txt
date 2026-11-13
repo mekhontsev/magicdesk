@@ -125,7 +125,7 @@ guest_executable(supervisor ${src}/supervisor.c ${src}/task_resources.c ${src}/c
     ${ipc}
     ${identity} ${src}/guest_accounts.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
     ${src}/fs_worker.c ${src}/fs_service.c ${src}/ipc_peer_service.c ${src}/ipc_origins.c ${src}/fs_buffer_service.c ${src}/file_open_job.c ${src}/file_snapshot.c ${src}/command_image.c ${src}/exec_prepare.c ${namespace_engine} ${src}/image_catalogue.c ${inodes} ${mounts}
-    ${src}/namespace_broker.c ${src}/notification_result.c ${src}/watch_broker.c ${src}/proc_paths.c)
+    ${src}/namespace_broker.c ${src}/entry_wakeup.c ${src}/notification_result.c ${src}/watch_broker.c ${src}/proc_paths.c)
 target_compile_definitions(supervisor PRIVATE MD_NO_START MD_USE_LIBC)
 set(supervisor_owners
     ${src}/supervisor_identity.c ${src}/supervisor_signals.c
@@ -405,7 +405,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_compile_options(test_interception_buffers PRIVATE -iquote ${src} -UNDEBUG)
     target_link_options(test_interception_buffers PRIVATE -Wl,--wrap=calloc -Wl,--wrap=malloc -Wl,--wrap=realloc)
     guest_executable(fs_dispatch ../guest-exec-lab/test_fs_dispatch.c ../guest-exec-lab/test_ipc_peer_worker.c ../guest-exec-lab/test_namespace_broker.c ../guest-exec-lab/test_fd_lifecycle.S
-        ${src}/namespace_broker.c ${src}/notification_result.c ${src}/watch_broker.c ${src}/fd_install.c
+        ${src}/namespace_broker.c ${src}/entry_wakeup.c ${src}/notification_result.c ${src}/watch_broker.c ${src}/fd_install.c
         ${src}/interception_buffers.c ${src}/fs_buffer_service.c ${src}/file_open_job.c ${src}/task_wait.c ${src}/file_snapshot.c ${src}/command_image.c ${src}/exec_prepare.c ${src}/proc_paths.c
         ${src}/fs_worker.c ${src}/fs_service.c ${src}/ipc_peer_service.c ${src}/ipc_origins.c ${src}/launch_registry.c ${src}/launch_peer.c ${namespace_engine} ${mounts} ${inodes}
         ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw})

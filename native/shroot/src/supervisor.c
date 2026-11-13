@@ -8,6 +8,7 @@
 #include "elf_admission.h"
 #include "event_signal.h"
 #include "event_wait.h"
+#include "entry_wakeup.h"
 #include "fd_exchange.h"
 #include "fd_native_pin.h"
 #include "fd_object.h"
@@ -108,6 +109,7 @@ unsigned live, total, images, signals, copy_faults, fstat_failures;
 unsigned calls;
 struct denial denials[64];
 int result, signal_fd;
+static int entry_wake_fd=-1;
 int listener = -1;
 int fd_ready = -1;
 struct md_resource_wakeup *fd_wakeup;
@@ -431,6 +433,11 @@ static void drain(void) {
 
 static void progress_events(const struct pollfd *events) {
     if (events[0].revents) drain();
+    if (events[7].revents) {
+        int callers[32];
+        int count=md_entry_wakeup_read(entry_wake_fd,callers,32); CHECK(count>=0);
+        for (int i=0;i<count;++i) md_broker_entry_wake(broker,callers[i]);
+    }
     if (events[6].revents) cancellation_expired();
     if (events[2].revents) { CHECK(!md_fs_worker_dispatch(filesystem)); adapter_progress(); }
     if (events[3].revents) fd_progress();
@@ -443,7 +450,8 @@ static void progress_events(const struct pollfd *events) {
 static void event_sources(struct pollfd events[EVENT_SOURCES]) {
     const struct pollfd current[EVENT_SOURCES] = {{signal_fd,POLLIN,0}, {broker ? -1 : listener,POLLIN,0},
         {md_fs_worker_fd(filesystem),POLLIN,0}, {fd_ready,POLLIN,0},
-        {ipc_events,POLLIN,0}, {socket_events,POLLIN,0}, {cancellation_timer,POLLIN,0}};
+        {ipc_events,POLLIN,0}, {socket_events,POLLIN,0}, {cancellation_timer,POLLIN,0},
+        {entry_wake_fd,POLLIN,0}};
     memcpy(events,current,sizeof(current));
 }
 
@@ -838,6 +846,7 @@ int main(int argc, char **argv) {
     close(channel[1]);
     int keep[] = {signal_fd, channel[0], command_owner};
     CHECK(!md_process_close_fds(keep, command_owner >= 0 ? 3 : 2));
+    if (store) entry_wake_fd=md_entry_wakeup_open();
     fd_exchanges=md_fd_exchanges_create(); CHECK(fd_exchanges);
     const struct md_task_helper_callbacks helper_callbacks={.trace=native_trace,.newborn=helper_newborn,.wait=&task_wait};
     helpers=md_task_helpers_new(&helper_callbacks); CHECK(helpers);
@@ -871,6 +880,7 @@ int main(int argc, char **argv) {
         md_broker_control_query(broker,control_file_query);
         md_broker_native_observer(broker,cooperative_native_observe);
         md_broker_entry_handler(broker,entry_control);
+        if (entry_wake_fd>=0) md_broker_entry_target(broker,getpid());
         md_broker_retirement_handler(broker,broker_retire);
         buffer_service=md_fs_buffer_service_new(filesystem,tasks,fd_wakeup,&task_wait,buffer_complete); CHECK(buffer_service);
         md_fs_buffer_admission(buffer_service,task_completion_available);

@@ -17,6 +17,18 @@ from browser import benchmark
 
 
 class BrowserBenchmark(unittest.TestCase):
+    def test_display_clock_snapshot_is_read_only_and_bounded(self):
+        client = mock.Mock()
+        mode = dict(modeId=3, refreshRate=120)
+        client.call.return_value = dict(generatedAtMillis=17, catalogError=None,
+            displays=[dict(id=0, state=2, mode=mode, supportedModes=[mode], profile='unused')])
+        self.assertEqual(benchmark.display_clocks(client), dict(generatedAtMillis=17, error=None,
+            displays=[dict(id=0, state=2, mode=mode)]))
+        client.call.assert_called_once_with('list_displays')
+        client.call.return_value = dict(catalogError='unavailable')
+        self.assertEqual(benchmark.display_clocks(client),
+                         dict(generatedAtMillis=None, error='unavailable', displays=[]))
+
     def test_instrumentation_reports_the_execution_owner(self):
         args = SimpleNamespace(statistics=False, diagnostics=False)
         self.assertEqual(benchmark.instrumentation(args), dict(statistics=False, diagnostics=False))

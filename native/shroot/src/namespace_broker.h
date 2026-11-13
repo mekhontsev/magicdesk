@@ -35,6 +35,11 @@ void md_broker_cooperative_revoke(struct md_namespace_broker *,pid_t);
 /* Supervisor-side control admission; the existing operation owner publishes
  * its eventual response. No guest register snapshot or kernel stop is implied. */
 void md_broker_entry_handler(struct md_namespace_broker *,void (*)(pid_t,struct md_entry_channel *));
+/* Optional native supervisor wake endpoint, published before any binding. */
+void md_broker_entry_target(struct md_namespace_broker *,pid_t);
+/* Supervisor-thread hint only. Validates the current task/channel request;
+ * stale hints cannot resume a stopped task or execute an old packet. */
+void md_broker_entry_wake(struct md_namespace_broker *,pid_t);
 /* Bounded supervisor-owned control dispatch. Returns progress or pending work;
  * revisit resource owners before sleeping when nonzero. Worker IO stays independent. */
 int md_broker_entry_progress(struct md_namespace_broker *);

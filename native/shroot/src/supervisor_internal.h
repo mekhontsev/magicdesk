@@ -58,7 +58,7 @@ struct interception_statistics {
 
 struct denial { unsigned nr, adapted, count; enum phase phase; };
 
-enum { EVENT_SOURCES = 7 };
+enum { EVENT_SOURCES = 8 };
 
 extern struct md_interception_abi abi;
 extern int diagnostics;

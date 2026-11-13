@@ -7,10 +7,13 @@
 #include "../shroot/src/cooperative_channel.h"
 #include "../shroot/src/cooperative_exchange.h"
 #include "test_syscall_sites.h"
+#include "entry_wakeup.h"
+#include "process_owner.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/audit.h>
 #include <linux/filter.h>
 #include <linux/futex.h>
@@ -31,6 +34,7 @@
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 static atomic_int cancel_pid;
@@ -682,6 +686,7 @@ static void registration_retirement(const char *store,int control) {
     assert(!md_task_registry_publish(tasks,child,child,&identity,&resources));
     registration.broker=md_broker_create(registration.worker,0,registration_delegate);
     md_broker_entry_handler(registration.broker,registration_control);
+    md_broker_entry_target(registration.broker,parent);
     assert(registration.broker && !md_broker_task(registration.broker,child,MD_BROKER_READ,0,0,NULL,1));
     md_broker_listen(registration.broker,registration.listener);
     assert(write(sockets[0],"r",1)==1);
@@ -691,6 +696,7 @@ static void registration_retirement(const char *store,int control) {
         assert(poll(&ready,1,5000)==1 && !md_fs_worker_dispatch(registration.worker));
     }
     struct md_entry_channel *c=&registration.channel;
+    assert(c->control_target==parent);
     for (;;) {
         if (control) md_broker_entry_progress(registration.broker);
         unsigned state=atomic_load(&c->state);
@@ -711,6 +717,7 @@ static void registration_retirement(const char *store,int control) {
         c->sequence=update+2;
         atomic_store(&c->state,MD_ENTRY_REQUEST);
         assert(!md_broker_task(registration.broker,child,MD_BROKER_COOPERATIVE,0,0,NULL,0));
+        md_broker_entry_wake(registration.broker,child);
         assert(!md_broker_entry_progress(registration.broker));
         assert(atomic_load(&c->state)==MD_ENTRY_REQUEST);
         if (update) assert(!md_broker_task(registration.broker,child,MD_BROKER_COOPERATIVE,0,0,NULL,1));
@@ -755,9 +762,25 @@ static void registration_retirement(const char *store,int control) {
         }
         registration.native=0;
     }
+    if (control==2) {
+        for (unsigned i=0;i<128;++i) {
+            c->sequence=136+i; c->call.reserved=MD_ENTRY_BUFFER_CONTROL;
+            assert(md_entry_publish_request(c,MD_ENTRY_REQUEST));
+            md_broker_entry_wake(registration.broker,INT_MAX);
+            assert(!md_broker_entry_progress(registration.broker));
+            md_broker_entry_wake(registration.broker,c->owner);
+            md_broker_entry_wake(registration.broker,c->owner);
+            assert(md_broker_entry_progress(registration.broker));
+            assert(c->receipt==136+i && atomic_load(&c->state)==MD_ENTRY_RESPONSE);
+            md_broker_entry_wake(registration.broker,c->owner);
+            assert(!md_broker_entry_progress(registration.broker));
+        }
+    }
     assert(write(sockets[0],"c",1)==1); int status;
     assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
     md_broker_forget(registration.broker,child);
+    md_broker_entry_wake(registration.broker,child);
+    assert(!md_broker_entry_progress(registration.broker));
     assert(!md_fs_worker_stop(registration.worker)); md_broker_destroy(registration.broker);
     close(registration.listener); close(sockets[0]);
     md_task_registry_destroy(tasks); md_domain_release(resources.fs);
@@ -765,8 +788,61 @@ static void registration_retirement(const char *store,int control) {
     assert(descriptors()==before);
     puts("PASS delegated retirement: published next request wakes after parked worker without another guest syscall");
 }
+static void direct_wake_transport(void) {
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        struct md_kernel_action ignored={.handler=(uintptr_t)SIG_IGN},restored;
+        assert(!RAW4(rt_sigaction,MD_ENTRY_WAKE_SIGNAL,&ignored,0,8));
+        uint64_t before,after;
+        assert(!RAW4(rt_sigprocmask,SIG_SETMASK,0,&before,8));
+        struct rlimit files,none;
+        assert(!getrlimit(RLIMIT_NOFILE,&files));
+        none=files; none.rlim_cur=0;
+        assert(!setrlimit(RLIMIT_NOFILE,&none));
+        assert(md_entry_wakeup_open()==-EMFILE);
+        assert(!setrlimit(RLIMIT_NOFILE,&files));
+        assert(!RAW4(rt_sigprocmask,SIG_SETMASK,0,&after,8) && before==after);
+        assert(!RAW4(rt_sigaction,MD_ENTRY_WAKE_SIGNAL,0,&restored,8));
+        assert(restored.handler==ignored.handler && !restored.mask && !restored.flags);
+        int fd=md_entry_wakeup_open(); assert(fd>=0);
+        const pid_t owner=getpid();
+        pid_t sender=fork(); assert(sender>=0);
+        if (!sender) {
+            for (int i=1;i<=128;++i) assert(!md_entry_wakeup_send(owner,i));
+            _exit(0);
+        }
+        unsigned received=0;
+        while (received<128) {
+            struct pollfd ready={fd,POLLIN,0};
+            /* EVENT_WAIT: the exact native endpoint receives queued caller
+             * hints; bounded failure catches coalescing or lost delivery. */
+            assert(poll(&ready,1,5000)==1);
+            int callers[32],count=md_entry_wakeup_read(fd,callers,32);
+            assert(count>0);
+            for (int i=0;i<count;++i) assert(callers[i]==(int)++received);
+        }
+        int status;
+        assert(waitpid(sender,&status,0)==sender && WIFEXITED(status) && !WEXITSTATUS(status));
+        int caller;
+        assert(!md_entry_wakeup_read(fd,&caller,1));
+        assert(md_entry_wakeup_send(INT_MAX,owner)==-ESRCH);
+        struct rlimit previous,empty;
+        assert(!getrlimit(RLIMIT_SIGPENDING,&previous));
+        empty=previous; empty.rlim_cur=0;
+        assert(!setrlimit(RLIMIT_SIGPENDING,&empty));
+        assert(md_entry_wakeup_send(owner,owner)==-EAGAIN);
+        assert(!setrlimit(RLIMIT_SIGPENDING,&previous));
+        assert(!md_entry_wakeup_send(owner,owner));
+        assert(md_entry_wakeup_read(fd,&caller,1)==1 && caller==owner);
+        assert(!close(fd)); _exit(0);
+    }
+    int status;
+    assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    puts("PASS direct control wake: open rollback, queued identities, bounded reads, dead owner and queue exhaustion");
+}
 void md_test_namespace_broker(const char *root) {
     setbuf(stdout,NULL); alarm(60);
+    direct_wake_transport();
     extern void md_test_notification_result(void);
     md_test_notification_result();
     assert(!mkdir(root,0700));

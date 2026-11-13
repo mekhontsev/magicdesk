@@ -74,7 +74,7 @@ struct md_entry_channel {
      * Every new request, task stop and borrowed execution revokes this lease. */
     struct md_fd_view descriptor;
     _Alignas(64) atomic_uint copying, caller;
-    int32_t owner;
+    int32_t owner, control_target;
     struct md_spin_policy feedback[MD_ENTRY_WAITS];
     uint64_t sequence;
     _Alignas(64) struct md_entry_request {

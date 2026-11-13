@@ -106,6 +106,7 @@ struct md_namespace_broker {
         unsigned count;
     } watching[2];
     atomic_uint control_pending;
+    pid_t control_target;
     struct md_spin_policy control_spin;
     struct {
         struct md_entry_channel **channels;
@@ -302,6 +303,9 @@ static void channel_reply(struct md_namespace_broker *b,struct md_entry_channel 
 }
 void md_broker_entry_handler(struct md_namespace_broker *b,void (*handler)(pid_t,struct md_entry_channel *)) {
     b->entry=handler;
+}
+void md_broker_entry_target(struct md_namespace_broker *b,pid_t target) {
+    b->control_target=target;
 }
 void md_broker_entry_reply(struct md_namespace_broker *b,struct md_entry_channel *c,
         enum md_entry_outcome outcome,long result) {
@@ -1132,7 +1136,7 @@ int md_broker_cooperative_bind(struct md_namespace_broker *b,pid_t pid,struct md
         atomic_init(&channel->policy,0);
         atomic_init(&channel->copying,0);
         atomic_init(&channel->descriptor.descriptor,0);
-        channel->owner=pid;
+        channel->owner=pid; channel->control_target=b->control_target;
         t->channel=channel; t->cooperative_gate=gate; t->sequence=0; ++b->cooperative_count;
     }
     pthread_mutex_unlock(&b->lock); return error;
@@ -1522,6 +1526,16 @@ static int channel_available(const struct task *t) {
 static int control_request_pending(const struct task *t) {
     return atomic_load_explicit(&t->channel->state,memory_order_acquire)==MD_ENTRY_REQUEST
         && md_entry_control_request(t->channel->call.reserved);
+}
+void md_broker_entry_wake(struct md_namespace_broker *b,pid_t pid) {
+    if (!b) return;
+    pthread_mutex_lock(&b->lock);
+    struct task *t=find_task(b,pid);
+    if (t && !t->stopped && t->channel && control_request_pending(t)) {
+        channel_watch(t,MD_ENTRY_SUPERVISOR_OWNER);
+        atomic_store_explicit(&b->control_pending,1,memory_order_release);
+    }
+    pthread_mutex_unlock(&b->lock);
 }
 /* Only the supervisor releases channel mappings. Between callbacks it can
  * poll a snapshot without borrowing tasks or contending with worker progress.

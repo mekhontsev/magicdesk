@@ -3257,6 +3257,13 @@ static void signal_group_resource(void) {
         struct md_interception_program program;
         md_interception_program_build(&abi,&program);
         struct sock_fprog filter={program.count,program.code};
+        for (unsigned original=0;original<2;++original) {
+            struct seccomp_data call={.nr=SYS_rt_tgsigqueueinfo,.arch=AUDIT_ARCH_AARCH64,
+                .instruction_pointer=abi.raw_gate+original*4};
+            uint32_t decision;
+            assert(!md_seccomp_program_eval(&filter,&call,&decision));
+            assert(original ? decision!=SECCOMP_RET_ALLOW : decision==SECCOMP_RET_ALLOW);
+        }
         const unsigned services[]={MD_GUEST_PID_SIGNAL_GROUP,MD_GUEST_FD_CHANNEL,MD_GUEST_BUFFER,
             MD_GUEST_PROC_IMAGE,MD_GUEST_SHM,MD_GUEST_IPC,MD_GUEST_MAP_IMAGE};
         for (unsigned i=0;i<sizeof(services)/sizeof(*services);++i) {

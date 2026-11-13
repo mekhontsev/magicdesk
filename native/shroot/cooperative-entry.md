@@ -396,8 +396,15 @@ without reinterpreting policy or exhausting the buffer pool with idle waiters.
 from channel layout and operation semantics. Filesystem requests run on the
 worker; controls run directly on the supervisor. A control request does not
 allocate a filesystem operation or traverse the worker completion queue.
-The single notification listener remains worker-owned and forwards a cold
-supervisor wake; hot control exchanges need no worker round trip.
+The single notification listener remains worker-owned. An admitted control caller
+can wake the native supervisor directly with `rt_tgsigqueueinfo`; its blocked
+realtime signal is consumed by a supervisor-owned `signalfd`, not a guest handler.
+The endpoint is created after the guest fork and before native worker creation.
+No guest FD, signal mask or disposition is changed. The queued native TID is only
+an enrollment hint: the broker validates the live task, channel, sequence and
+stop state before execution. Unsupported endpoints, restricted service gates
+and send failures (including queue exhaustion) retain the notification wake.
+File requests still wake their worker directly; hot exchanges need no wake syscall.
 Each owner watches only channels enrolled by an exact wake or retained pending
 request. Registration does not enroll an idle channel. The existing atomic
 park/request handshake removes inactive channels; retirement and resume enroll
@@ -1262,9 +1269,11 @@ tests also kill owners while their operation window is still held.
 Another 2000 concurrent park/publication
 checks cover both requests and completed native effects.
 `--statistics` reports direct completions, declines and kernel notification wakes
-separately. The ready handshake enables resident payload counters only in this
-mode; ordinary entry performs no atomic increment for diagnostic completions or
-declines. Revocation and client ownership are independent of instrumentation.
+separately. `cooperativeWakes` counts notification wakes, not direct queued
+control hints or all cross-thread exchanges. The ready handshake enables resident
+payload counters only in this mode; ordinary entry performs no atomic increment
+for diagnostic completions or declines. Revocation and client ownership are
+independent of instrumentation.
 `cooperativeDescriptors` counts FD-request adoptions and
 `cooperativeNativeYields` counts avoided idle spins. FD receipts also contribute
 to `cooperativeCompleted`; that total is not an SVC-free syscall count.

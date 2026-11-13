@@ -1403,6 +1403,13 @@ tests also cover repeated custody of the oldest event before delivery.
 A caller-owned getuid checkpoint handles pending signals; its syscall must exit
 before delivery installs the recovered guest registers. It is not a service
 SIGTRAP. This mechanism adds no post-5.15 dependency.
+Cold cooperative controls can also use `rt_tgsigqueueinfo` (2.6.31), directed
+only at the native supervisor, with `signalfd4` (2.6.27) for bounded consumption.
+`entry_wakeup` owns this optional endpoint; `namespace_broker` validates its
+task hints. Guest signal state is unchanged. Failed endpoint creation restores
+native mask/disposition; unavailable service admission and failed sends retain
+the existing notification transport. The broker fixture covers rollback,
+queued identities, duplicate/stale hints, dead targets and queue exhaustion.
 The descriptor view uses baseline `fcntl`, regular-file `lseek`/`FIONREAD`, and
 the existing admitted native-effect gates. It is issued under the exclusive file-table turn and revoked by
 task stops, ordinary notifications, new requests and borrowed execution. The
