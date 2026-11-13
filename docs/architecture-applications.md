@@ -118,10 +118,14 @@ must not mistake that partial result for either no allocation or a ready portabl
 workspace. Shared creation does not initialize Desktop or acquire HOME/input.
 
 Every shared Start surface uses the same grid and `StartLaunchControls`: Current
-or an explicit display, App default / Desktop window / Desktop fullscreen /
-Independent, and an optional New window request. Desktop choices require an
-existing workspace on the destination. Independent applications are ordinary
-fullscreen tasks, even on a display hosting Desktop. Explicit selection of a
+or an explicit display, and App default / Window / Fullscreen / Independent.
+Display and mode menus are exclusive selections. New window is the last checkbox
+in application context menus, initially unchecked on every opening. It affects
+only Open commands from that menu and is never saved. Window and Fullscreen use Desktop
+when it exists on the destination, otherwise ordinary Activity placement.
+Independent always selects ordinary fullscreen, even alongside Desktop.
+Independent freeform requires Shell and the platform windowing policy;
+Nubia keeps it restricted to managed Desktop. Explicit selection of a
 recent task or terminal session reuses it. New window requests another Android
 task subject to the application's manifest, not another account or process.
 
@@ -1110,8 +1114,8 @@ and the live `BuiltInWindowRegistry` presentation for Running, independent windo
 and Desktop switchers. Running resolves metadata on its existing task worker;
 rendering does not query packages. Refresh and tab selection request a new typed
 snapshot, as does resume; stopped instances discard pending results. Clicks and
-context-menu actions retain the exact task and destination, and New window is
-disabled for Running. An unavailable snapshot is an error, not a fabricated empty
+context-menu actions retain the exact task and destination; Running does not
+offer New window. An unavailable snapshot is an error, not a fabricated empty
 history. The phone uses only application search, without
 constructing the desktop file-search worker. `ApplicationCatalog` is shared by
 all Start windows in the application process/profile. Android discovery uses

@@ -551,6 +551,13 @@ final class DesktopContextMenuController {
                     }
                 },
                 mActivity::hideAllPanels);
+        final var shortcut = file.applicationShortcut();
+        final String sourcePath = ShellDesktopDirectory.ABSOLUTE_PATH + "/" + file.relativePath;
+        if (GraphicalScaleDialog.supports(shortcut, sourcePath)) {
+            FileItemContextMenu.addAction(mPanel, mUi, R.string.app_presentation_scale,
+                    UiColor.SURFACE, true, mActivity::hideAllPanels,
+                    () -> GraphicalScaleDialog.show(mActivity, shortcut, sourcePath, null));
+        }
         positionAndShow(x, y);
     }
 
@@ -632,6 +639,7 @@ final class DesktopContextMenuController {
         final TaskRepository.TaskEntry task = exactTask != null
                 ? exactTask
                 : destination == null ? mActivity.findFirstTask(app) : null;
+        final var options = new ApplicationContextMenu.Options();
         showAppMenu(new AppMenuState(
                 x,
                 y,
@@ -639,7 +647,7 @@ final class DesktopContextMenuController {
                 task,
                 desktopFile,
                 List.of(),
-                false, destination, presentation, removeRecent));
+                false, destination, presentation, removeRecent, options));
         if (!panels.isRequested(mMenuRoot)) {
             return;
         }
@@ -652,7 +660,7 @@ final class DesktopContextMenuController {
             }
             final boolean hasWidgets = mActivity.hasDesktopWidgets(app.packageName);
             return new AppMenuState(x, y, app, task, desktopFile,
-                    shortcuts, hasWidgets, destination, presentation, removeRecent);
+                    shortcuts, hasWidgets, destination, presentation, removeRecent, options);
         }, null).thenAccept(completion -> request.deliver(mActivity::runOnUiThread, () -> {
             if (request != mShortcutRequest) {
                 return;
@@ -769,6 +777,7 @@ final class DesktopContextMenuController {
                 forceClose != null
                         || (ShellAccess.isReady() && !BuildConfig.APPLICATION_ID.equals(state.app.packageName)),
                 view -> mActivity.confirmForceStop(state.app, state.task));
+        addNewWindowOption(state);
         positionAndShow(state.x, state.y);
     }
 
@@ -835,28 +844,19 @@ final class DesktopContextMenuController {
                     true, view -> mActivity.arrangeTask(state.task, DesktopWindowAction.RESTORE));
             addSubmenuAction(R.string.action_arrange_window, view -> showArrangeMenu(state));
         }
-        if (state.app.canFloat && windowControl) {
+        if (state.app.canFloat && (windowControl || OrdinaryActivityLaunch.canLaunchWindowed())) {
             addAction(
                     R.string.action_open_floating,
                     UiColor.SURFACE,
                     true,
                     view -> launchApp(state, DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)));
-            if (BuiltInDesktopAppCatalog.supportsMultipleWindows(
-                    state.app.launchTarget)) {
-                addAction(
-                        R.string.action_new_window,
-                        UiColor.SURFACE,
-                        true,
-                        view -> launchApp(state, DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)
-                                .withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW)));
-            }
         }
         addAction(
                 R.string.action_open_fullscreen,
                 UiColor.SURFACE,
                 true,
                 view -> {
-                    if (state.task == null) {
+                    if (state.task == null || state.options.newWindow) {
                         launchApp(state, DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN));
                     } else {
                         mActivity.openTaskFullscreen(
@@ -874,7 +874,16 @@ final class DesktopContextMenuController {
                     view -> mActivity.moveTaskToOtherDisplay(
                             state.app, state.task));
         }
+        addNewWindowOption(state);
         positionAndShow(state.x, state.y);
+    }
+
+    private void addNewWindowOption(AppMenuState state) {
+        if (!BuiltInDesktopAppCatalog.supportsMultipleWindows(state.app.launchTarget)) return;
+        final var checkbox = mUi.menuCheckBox(mActivity.getString(R.string.start_new_window), state.options.newWindow);
+        addMenuItem(checkbox, null, true, false, false,
+                view -> state.options.newWindow = checkbox.isChecked());
+        mActivity.registerAutomationUiElement(checkbox, "context.action.start_new_window", "checkbox", checkbox.getText());
     }
 
     private void showArrangeMenu(final AppMenuState state) {
@@ -919,17 +928,13 @@ final class DesktopContextMenuController {
     }
 
     private void launchApp(AppMenuState state, DesktopLaunchPresentation presentation) {
-        if (state.destination == null) {
-            if (presentation.mode == DesktopLaunchMode.AUTO) { mActivity.launchDefault(state.app); }
-            else if (presentation.mode == DesktopLaunchMode.FULLSCREEN) { mActivity.launchFullscreen(state.app); }
-            else if (presentation.instancePolicy == DesktopTaskInstancePolicy.CREATE_NEW) {
-                mActivity.launchNewWindow(state.app);
-            } else { mActivity.launchWindowed(state.app); }
-            return;
-        }
-        final StartDisplaySelector.Target destination = presentation.mode == DesktopLaunchMode.WINDOWED
-                ? new StartDisplaySelector.Target(state.destination.displayId(), state.destination.uniqueId(), "desktop")
+        presentation = state.options.apply(presentation);
+        final var selected = state.destination == null
+                ? new StartDisplaySelector.Target(mActivity.getCurrentDisplayId(), null, "desktop")
                 : state.destination;
+        final StartDisplaySelector.Target destination = presentation.mode == DesktopLaunchMode.WINDOWED
+                ? new StartDisplaySelector.Target(selected.displayId(), selected.uniqueId(), "auto")
+                : selected;
         DisplayAppLauncher.launch(mActivity, state.app, StartEntryLauncher.placement(destination), destination.uniqueId(),
                 presentation, () -> !mActivity.isActivityUnavailable(),
                 mActivity::hideAllPanels, this::launchFailed);
@@ -1196,6 +1201,7 @@ final class DesktopContextMenuController {
         final StartDisplaySelector.Target destination;
         final DesktopLaunchPresentation presentation;
         final Runnable removeRecent;
+        final ApplicationContextMenu.Options options;
 
         AppMenuState(
                 final float x,
@@ -1205,7 +1211,8 @@ final class DesktopContextMenuController {
                 final DesktopFile desktopFile,
                 final List<AppShortcutAction> shortcuts,
                 final boolean hasWidgets, final StartDisplaySelector.Target destination,
-                final DesktopLaunchPresentation presentation, final Runnable removeRecent) {
+                final DesktopLaunchPresentation presentation, final Runnable removeRecent,
+                final ApplicationContextMenu.Options options) {
             this.x = x;
             this.y = y;
             this.app = app;
@@ -1216,6 +1223,7 @@ final class DesktopContextMenuController {
             this.destination = destination;
             this.presentation = presentation;
             this.removeRecent = removeRecent;
+            this.options = options;
         }
     }
 }

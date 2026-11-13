@@ -247,7 +247,7 @@ final class HostedWindowPresentation {
                 if (bounds != null) clientSizes.put(window, new HostedWindowSizing());
                 ToolApplications.openSibling(activity, intent, bounds, done);
             }
-            else ToolApplications.open(context, intent, placement.target(), placement.uniqueId(), done);
+            else ToolApplications.open(context, intent, placement.target(), placement.uniqueId(), placement.presentation(), done);
         } catch (RuntimeException error) { done.onComplete(error); }
         return true;
     }

@@ -71,9 +71,11 @@ tasks without recreating Activities. Start includes search, pins, app actions,
 widgets, notifications, media controls and capture tools.
 
 Every Start has a destination selector: **Current** launches on its own screen.
-Choose app-default placement, a Desktop window, Desktop fullscreen, or an
-independent fullscreen application. **Apps** opens the same Start without
-Desktop. Opening an app does not redirect mouse or keyboard input.
+Choose app-default placement, **Window**, **Fullscreen**, or an explicitly
+independent application. **Apps** opens the same Start without Desktop.
+Windowed launch without Desktop requires Shell access and supporting firmware;
+stock Nubia windowing requires managed Desktop. Opening an app does not
+redirect mouse or keyboard input.
 
 MagicDesk acquires HOME for managed Desktop and restores the previous role after
 the last Desktop closes. **Close desktop** releases surviving applications as
@@ -89,6 +91,10 @@ Choose **App scale > Custom** in an application's Desktop context menu.
 **Interface scale** ranges from 50% to 200% of the display density; **System**
 removes the override. Saved profiles also appear in
 **Settings > Application profiles**.
+
+Linux launchers expose **Interface scale** directly in their context menu for
+User, Shell and Termux execution, with the same setting in **Linux graphics**.
+Their scale also applies without managed Desktop.
 
 The preference follows managed windows through snap, maximize and fullscreen.
 Returning to ordinary phone use removes the active override but retains the
@@ -194,7 +200,8 @@ For Termux applications, enable Termux external commands, grant MagicDesk
 Use **Refresh** after installing packages.
 
 Choose the destination and window mode as for Android applications. Launching an
-existing entry returns to its window; **New window** requests another instance,
+existing entry returns to its window; **New window**, at the end of the context
+menu, requests another instance for the selected Open action only,
 subject to the application's rules.
 
 X11 and Wayland share Android clipboard/file exchange, audio, interface scaling

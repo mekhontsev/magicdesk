@@ -74,8 +74,8 @@
     <string name="display_tasks_unknown">应用：不可用</string>
     <string name="display_independent_apps">独立应用</string>
     <string name="start_mode_default">自动</string>
-    <string name="start_mode_windowed">桌面窗口</string>
-    <string name="start_mode_fullscreen">桌面全屏</string>
+    <string name="start_mode_windowed">窗口</string>
+    <string name="start_mode_fullscreen">全屏</string>
     <string name="start_mode_independent">独立</string>
     <string name="start_new_window">新建窗口</string>
     <string name="start_launch_mode">启动模式</string>

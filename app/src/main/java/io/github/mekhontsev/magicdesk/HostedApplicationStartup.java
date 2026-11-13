@@ -120,11 +120,12 @@ final class HostedApplicationStartup {
             var layout = session.windows().stream().filter(item -> item.id() == window).findFirst().orElseThrow().layout();
             float scale = session.protocol() == GraphicalProtocol.X11 ? 1
                     : (float) HostedUiScale.adjust(HostedUiScale.resolve(displayContext), session.scalePercent());
-            HostedStartupWindow.bind(intent, layout, scale, !destination.desktop);
+            HostedStartupWindow.bind(intent, layout, scale,
+                    !destination.desktop && presentation.mode != DesktopLaunchMode.WINDOWED);
             session.presentation().claimSized(window);
             presentation = destination.desktop
                     ? ToolApplications.hostedWindowPresentation(destination.displayId, layout, scale)
-                    : DesktopLaunchPresentation.automatic().withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW);
+                    : presentation;
         } else if (replacesTemporary) session.presentation().detach(window);
         var target = AppLaunchTarget.explicit(host.context().getPackageName(), intent.getComponent().getClassName(), "");
         var launch = new DesktopLaunchRequest(request.name, request.icon,

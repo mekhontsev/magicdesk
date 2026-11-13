@@ -120,8 +120,10 @@ final class StartMenuController implements StartMenuContent.Host {
     @Override public void appContext(final View view, final StartMenuEntry entry, final Runnable removeRecent) {
         mActivity.registerStartContextTarget(view, entry.app, mContent::destination, mContent::presentation, removeRecent);
     }
-    @Override public void fileContext(final View view, final DesktopFile file) {
-        mActivity.registerFileContextTarget(view, file);
+    @Override public void fileActions(final ApplicationContextMenu menu, final DesktopFile file) {
+        menu.add(R.string.action_rename, () -> mActivity.renameDesktopFile(file));
+        menu.add(R.string.action_delete_shortcut, () -> mActivity.confirmDeleteDesktopFile(file));
+        menu.add(R.string.file_manager_properties, () -> mActivity.showDesktopFileProperties(file));
     }
     @Override public void populateTools(
             final LinearLayout parent, final int spacing, final boolean capture) {
@@ -132,10 +134,11 @@ final class StartMenuController implements StartMenuContent.Host {
         }
     }
 
-    @Override public void open(final StartMenuEntry result) {
+    @Override public void open(final StartMenuEntry result, final StartDisplaySelector.Target destination,
+            final DesktopLaunchPresentation presentation) {
         if (result.action == null) {
-            StartEntryLauncher.open(mActivity, result, mContent.destination(),
-                    mContent.presentation(), () -> !mActivity.isActivityUnavailable(),
+            StartEntryLauncher.open(mActivity, result, destination,
+                    presentation, () -> !mActivity.isActivityUnavailable(),
                     mActivity::hideAllPanels, error -> android.widget.Toast.makeText(mActivity,
                             ShellAccess.usefulMessage(error), android.widget.Toast.LENGTH_LONG).show());
             return;

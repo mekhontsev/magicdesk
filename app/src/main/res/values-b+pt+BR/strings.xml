@@ -74,8 +74,8 @@
     <string name="display_tasks_unknown">Aplicativos: indisponível</string>
     <string name="display_independent_apps">Aplicativos independentes</string>
     <string name="start_mode_default">Auto</string>
-    <string name="start_mode_windowed">Janela da área de trabalho</string>
-    <string name="start_mode_fullscreen">Tela cheia na área de trabalho</string>
+    <string name="start_mode_windowed">Janela</string>
+    <string name="start_mode_fullscreen">Tela cheia</string>
     <string name="start_mode_independent">Independente</string>
     <string name="start_new_window">Nova janela</string>
     <string name="start_launch_mode">Modo de inicialização</string>

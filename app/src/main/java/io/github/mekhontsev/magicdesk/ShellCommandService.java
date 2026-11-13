@@ -303,10 +303,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     public void launchActivityOnDisplay(
             final Intent intent,
             final int displayId,
-            final boolean fullscreen) {
+            final boolean fullscreen, final Rect bounds) {
         try {
             FrameworkActivityLaunchApi.launch(
-                    HiddenTaskApi.getService(), intent, displayId, fullscreen);
+                    HiddenTaskApi.getService(), intent, displayId, fullscreen, bounds);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw FailureDiagnostics.binderFailure(
                     "shell Activity launch failed", error);
@@ -314,9 +314,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
-    public void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId) {
+    public void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId,
+            final Rect bounds) {
         try {
-            FrameworkActivityLaunchApi.send(mContext, intent, displayId);
+            FrameworkActivityLaunchApi.send(mContext, intent, displayId, bounds);
         } catch (ReflectiveOperationException | android.app.PendingIntent.CanceledException error) {
             throw FailureDiagnostics.binderFailure("shell pending Activity launch failed", error);
         }
@@ -334,10 +335,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override public void moveOrdinaryTask(final int taskId, final int sourceDisplayId,
-            final int targetDisplayId, final int userId) {
+            final int targetDisplayId, final int userId, final Rect bounds) {
         try {
             FrameworkActivityLaunchApi.moveTask(HiddenTaskApi.getService(), taskId,
-                    sourceDisplayId, targetDisplayId, userId);
+                    sourceDisplayId, targetDisplayId, userId, bounds);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw FailureDiagnostics.binderFailure("ordinary task transfer failed", error);
         }

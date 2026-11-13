@@ -18,6 +18,7 @@ public final class PlatformDriversTest {
                 "nubia", "nubia", "NX809J", "NX809J", "NX809J"), true);
 
         assertEquals("nubia", driver.id());
+        assertFalse(driver.windowing().supportsIndependentFreeform());
         assertEquals("android", driver.selection().baselineId());
         assertEquals("nubia", driver.selection().extensionId());
         assertEquals("nubia", driver.selection()
@@ -51,6 +52,7 @@ public final class PlatformDriversTest {
                 "Google", "google", "Pixel", "pixel", "pixel"), false);
 
         assertEquals("android", driver.id());
+        assertTrue(driver.windowing().supportsIndependentFreeform());
         assertEquals("", driver.selection().extensionId());
         assertFalse(driver.diagnostics().hasNativeCaptionSnapSelfTest());
         assertEquals("android", driver.selection()
@@ -130,6 +132,7 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.AUDIO_CAPTURE).evidence);
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.WINDOWING).id);
+        assertTrue(driver.windowing().supportsIndependentFreeform());
         assertFalse(driver.diagnostics().hasNativeCaptionSnapSelfTest());
         assertFalse(driver.features().compatibilityDefaults.enabled(
                 DesktopCompatibilityPolicy.Option.ACTIVITY_HANDOFF_REPAIR));

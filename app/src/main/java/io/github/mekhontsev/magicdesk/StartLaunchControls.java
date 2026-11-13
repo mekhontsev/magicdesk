@@ -2,16 +2,27 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 
 /** Start-local launch choices; no session or input selection is changed here. */
 final class StartLaunchControls {
+    static void addMenuItems(ApplicationContextMenu menu, StartDisplaySelector.Target target,
+            DesktopLaunchPresentation selected,
+            java.util.function.BiConsumer<StartDisplaySelector.Target, DesktopLaunchPresentation> launch) {
+        menu.add(R.string.action_open, () -> launch.accept(target, menu.options.apply(selected)));
+        menu.add(R.string.action_open_fullscreen, () -> launch.accept(target,
+                menu.options.apply(DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN))));
+        menu.add(R.string.action_open_floating,
+                Mode.WINDOWED.available(DesktopRuntimeBridge.hasWorkspace(target.displayId())),
+                () -> launch.accept(new StartDisplaySelector.Target(target.displayId(), target.uniqueId(), "auto"),
+                        menu.options.apply(DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED))));
+    }
+
     enum Mode {
         DEFAULT("auto", DesktopLaunchMode.AUTO, R.string.start_mode_default),
-        WINDOWED("desktop", DesktopLaunchMode.WINDOWED, R.string.start_mode_windowed),
-        FULLSCREEN("desktop", DesktopLaunchMode.FULLSCREEN, R.string.start_mode_fullscreen),
+        WINDOWED("auto", DesktopLaunchMode.WINDOWED, R.string.start_mode_windowed),
+        FULLSCREEN("auto", DesktopLaunchMode.FULLSCREEN, R.string.start_mode_fullscreen),
         INDEPENDENT("display", DesktopLaunchMode.FULLSCREEN, R.string.start_mode_independent);
 
         final String placement;
@@ -22,12 +33,13 @@ final class StartLaunchControls {
             this.windowMode = windowMode;
             this.label = label;
         }
-        boolean available(boolean desktop) { return !placement.equals("desktop") || desktop; }
+        boolean available(boolean desktop) {
+            return this != WINDOWED || desktop || OrdinaryActivityLaunch.canLaunchWindowed();
+        }
     }
 
     private final LinearLayout mView;
     private final StartDisplaySelector mDisplay;
-    private final CheckBox mNew;
     private final Button mModeButton;
     private Mode mMode = Mode.DEFAULT;
     private PopupMenu mMenu;
@@ -62,25 +74,17 @@ final class StartLaunchControls {
                             return true;
                         });
             }
+            mMenu.getMenu().setGroupCheckable(0, true, true);
             mMenu.show();
         });
         final var modeParams = new LinearLayout.LayoutParams(0, ui.dp(52), 1);
         modeParams.setMarginStart(ui.dp(4));
         mView.addView(mode, modeParams);
-        mNew = new CheckBox(activity);
-        UiAppearance.button(mNew, UiColor.ACCENT);
-        mNew.setText(R.string.start_new_window);
-        UiAppearance.text(mNew, UiColor.TEXT);
-        mNew.setTextSize(12);
-        mNew.setMaxLines(2);
-        mView.addView(mNew, new LinearLayout.LayoutParams(ui.dp(90), ui.dp(52)));
         automation.register(mDisplay.view(), "start.display", "button", activity.getString(R.string.display_selector));
         automation.register(mode, "start.mode", "button", activity.getString(R.string.start_launch_mode));
-        automation.register(mNew, "start.new_window", "checkbox", activity.getString(R.string.start_new_window));
     }
 
     LinearLayout view() { return mView; }
-    void setExistingWindow(boolean existing) { mNew.setEnabled(!existing); }
     void refresh() {
         if (!mMode.available(DesktopRuntimeBridge.hasWorkspace(mDisplay.target().displayId()))) {
             mMode = Mode.DEFAULT;
@@ -97,8 +101,7 @@ final class StartLaunchControls {
         return new StartDisplaySelector.Target(target.displayId(), target.uniqueId(), mMode.placement);
     }
     DesktopLaunchPresentation presentation() {
-        return DesktopLaunchPresentation.forMode(mMode.windowMode).withInstancePolicy(mNew.isEnabled() && mNew.isChecked()
-                ? DesktopTaskInstancePolicy.CREATE_NEW : DesktopTaskInstancePolicy.REUSE_EXISTING);
+        return DesktopLaunchPresentation.forMode(mMode.windowMode);
     }
     void dismiss() {
         mDisplay.dismiss();

@@ -92,7 +92,7 @@ final class TerminalSessions {
                 final var session = id == null ? null : ConsoleTerminalRegistry.status(id);
                 if (session != null && session.taskId >= 0) {
                     final var local = target.desktop ? InteractiveActivityLaunch.OwnTaskResult.NEEDS_PLACEMENT
-                            : InteractiveActivityLaunch.showOwnTask(context, session.taskId, target.displayId);
+                            : InteractiveActivityLaunch.showOwnTask(context, session.taskId, target.displayId, presentation);
                     if (local == InteractiveActivityLaunch.OwnTaskResult.SHOWN) {
                         callback.onComplete(null);
                         return;

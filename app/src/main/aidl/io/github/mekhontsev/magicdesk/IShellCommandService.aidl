@@ -424,7 +424,7 @@ interface IShellCommandService {
         int densityDpi,
         int existingTaskId) = 114;
 
-    void launchActivityOnDisplay(in Intent intent, int displayId, boolean fullscreen) = 115;
+    void launchActivityOnDisplay(in Intent intent, int displayId, boolean fullscreen, in Rect bounds) = 115;
 
     boolean setDesktopTaskDensity(
         ITaskObserverCallback callback,
@@ -468,12 +468,12 @@ interface IShellCommandService {
 
     void releaseUiAutomation(IBinder ownerToken) = 130;
 
-    void sendActivityOnDisplay(in PendingIntent intent, int displayId) = 131;
+    void sendActivityOnDisplay(in PendingIntent intent, int displayId, in Rect bounds) = 131;
 
     PendingIntent getShortcutLaunchIntent(String packageName, String shortcutId) = 132;
 
     void configureCommandEnvironment(String endpoint, String apk) = 133;
-    void moveOrdinaryTask(int taskId, int sourceDisplayId, int targetDisplayId, int userId) = 134;
+    void moveOrdinaryTask(int taskId, int sourceDisplayId, int targetDisplayId, int userId, in Rect bounds) = 134;
     String captureSecondaryHome(int userId) = 135;
     void claimSecondaryHome(int userId) = 136;
     void restoreSecondaryHome(int userId, String componentName) = 137;

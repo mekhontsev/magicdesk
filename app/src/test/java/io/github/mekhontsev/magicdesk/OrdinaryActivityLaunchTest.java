@@ -68,9 +68,19 @@ public final class OrdinaryActivityLaunchTest {
                 }
                 static class ShellAccess { static boolean ready; static boolean isReady() { return ready; } }
                 static class AndroidLaunchSpec { enum Delivery { SHELL_INTENT, APP_PENDING_INTENT } }
+                enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class DesktopLaunchPresentation {
+                    DesktopLaunchMode mode = DesktopLaunchMode.AUTO;
+                    static DesktopLaunchPresentation automatic() { return new DesktopLaunchPresentation(); }
+                }
                 static int privilegedLaunches;
                 static class OrdinaryActivityLaunch {
-                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery d, int display) {
+                    static void requirePresentation(DesktopLaunchPresentation p) {
+                        if (p.mode == DesktopLaunchMode.WINDOWED && !ShellAccess.ready)
+                            throw new IllegalStateException("Shell required");
+                    }
+                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery d, int display,
+                            DesktopLaunchPresentation p) {
                         privilegedLaunches++;
                     }
                 }
@@ -84,12 +94,13 @@ public final class OrdinaryActivityLaunchTest {
                     for (var delivery : AndroidLaunchSpec.Delivery.values()) launch(activity, intent, delivery, 0);
                     check(activity.starts == 2 && privilegedLaunches == 0 && DesktopDisplayCatalog.queries == 0,
                             "phone tools touched privileged service");
-                    check(showOwnTask(activity, 42, 0) == OwnTaskResult.MISSING, "missing window not distinguished");
+                    var automatic = DesktopLaunchPresentation.automatic();
+                    check(showOwnTask(activity, 42, 0, automatic) == OwnTaskResult.MISSING, "missing window not distinguished");
                     var task = new ActivityManager.AppTask(); activity.manager.tasks.add(task);
-                    check(showOwnTask(activity, 42, 0) == OwnTaskResult.SHOWN && task.moves == 1, "own task not reused");
+                    check(showOwnTask(activity, 42, 0, automatic) == OwnTaskResult.SHOWN && task.moves == 1, "own task not reused");
                     for (int display : new int[] {-1, 3}) {
                         BuiltInWindowRegistry.display = display;
-                        check(showOwnTask(activity, 42, 0) == OwnTaskResult.NEEDS_PLACEMENT && task.moves == 1,
+                        check(showOwnTask(activity, 42, 0, automatic) == OwnTaskResult.NEEDS_PLACEMENT && task.moves == 1,
                                 "unknown or external task raised on wrong display");
                     }
                     requireDestination(activity, 0, "display:0");
@@ -103,7 +114,7 @@ public final class OrdinaryActivityLaunchTest {
                     activity.finishing = false; activity.display.id = 3;
                     check(canLaunchLocally(activity, 0) && canLaunchLocally(activity, 3), "external host blocked");
                     BuiltInWindowRegistry.display = 3;
-                    check(showOwnTask(activity, 42, 3) == OwnTaskResult.SHOWN && task.moves == 2,
+                    check(showOwnTask(activity, 42, 3, automatic) == OwnTaskResult.SHOWN && task.moves == 2,
                             "own external window required global task access");
                     launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 3);
                     check(activity.destination == 3 && activity.starts == 3 && privilegedLaunches == 0,
@@ -124,6 +135,15 @@ public final class OrdinaryActivityLaunchTest {
                     check(!canLaunchLocally(activity, 0), "desktop topology bypass");
                     launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 0);
                     check(privilegedLaunches == 1, "desktop boundary bypass");
+                    DesktopRuntimeBridge.active = false;
+                    for (var mode : new DesktopLaunchMode[] {DesktopLaunchMode.WINDOWED, DesktopLaunchMode.FULLSCREEN}) {
+                        var explicit = new DesktopLaunchPresentation(); explicit.mode = mode;
+                        check(!canLaunchLocally(activity, 0, explicit), "explicit mode lost in local launch");
+                        check(showOwnTask(activity, 42, 0, explicit) == OwnTaskResult.NEEDS_PLACEMENT,
+                                "retained terminal/graphics ignored requested mode");
+                        launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 0, explicit);
+                    }
+                    check(privilegedLaunches == 3, "explicit ordinary placement was not dispatched");
                 }
                 """);
     }
@@ -139,13 +159,11 @@ public final class OrdinaryActivityLaunchTest {
 
     @Test public void desktopOnlyParametersAreNotSilentlyIgnored() {
         assertThrows(IllegalArgumentException.class, () -> OrdinaryActivityLaunch.requirePresentation(
-                DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)));
-        assertThrows(IllegalArgumentException.class, () -> OrdinaryActivityLaunch.requirePresentation(
                 DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN).withPreferredTask(12)));
     }
 
     @Test public void acceptanceDoesNotInventAnObservedTask() throws Exception {
-        final var result = OrdinaryActivityLaunch.accepted(0,
+        final var result = OrdinaryActivityLaunch.accepted(0, DesktopLaunchPresentation.automatic(),
                 new JSONObject().put("requestId", "result-request").put("delivery", "pending-intent"));
         assertTrue(result.success);
         assertTrue(result.data.getBoolean("accepted"));
@@ -156,17 +174,30 @@ public final class OrdinaryActivityLaunchTest {
         assertEquals("result-request", result.data.getString("requestId"));
         assertEquals("pending-intent", result.data.getString("delivery"));
         assertTrue(result.data.getString("nextAction").contains("ui.wait"));
+        assertEquals("windowed", OrdinaryActivityLaunch.accepted(7,
+                DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED), new JSONObject()).data.getString("mode"));
     }
 
     @Test public void dispatchPreservesIdentityAndRevokesOnlyItsOwnToken() throws Exception {
         RuntimeSourceFixture.verify("""
                     static class ApplicationTaskPlacement {
                         static int preparations;
-                        static void prepareIndependentLaunch(Context c, Intent i, int d) { preparations++; }
+                        static void prepareIndependentLaunch(Context c, Intent i, int d,
+                                DesktopLaunchPresentation p) { preparations++; }
                     }
                     static class Context {}
                     static class Intent {}
                     static class PendingIntent { int cancellations; void cancel() { cancellations++; } }
+                    static class Rect { }
+                    enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                    static class DesktopLaunchPresentation {
+                        DesktopLaunchMode mode = DesktopLaunchMode.AUTO;
+                        static DesktopLaunchPresentation automatic() { return new DesktopLaunchPresentation(); }
+                    }
+                    static final Rect requestedBounds = new Rect();
+                    static Rect windowBounds(int display, DesktopLaunchPresentation p) {
+                        return p.mode == DesktopLaunchMode.WINDOWED ? requestedBounds : null;
+                    }
                     static class AndroidLaunchSpec { enum Delivery { SHELL_INTENT, APP_PENDING_INTENT } }
                     static class AndroidPendingActivityLaunch {
                         static PendingIntent token; static Intent source;
@@ -176,16 +207,16 @@ public final class OrdinaryActivityLaunchTest {
                     }
                     static class ShellAccess {
                         static Intent source; static PendingIntent token; static int display;
-                        static boolean fullscreen; static boolean fail;
-                        static void sendActivityOnDisplay(PendingIntent p, int d) throws IOException {
-                            token=p; display=d;
+                        static boolean fullscreen; static boolean fail; static Rect bounds;
+                        static void sendActivityOnDisplay(PendingIntent p, int d, Rect b) throws IOException {
+                            token=p; display=d; bounds=b;
                             if(fail) throw new IOException("rejected");
                         }
-                        static void launchActivityOnDisplay(Intent i, int d, boolean f) {
-                            source=i; display=d; fullscreen=f;
+                        static void launchActivityOnDisplay(Intent i, int d, boolean f, Rect b) {
+                            source=i; display=d; fullscreen=f; bounds=b;
                         }
                     }
-                """ + RuntimeSourceFixture.methods("OrdinaryActivityLaunch", "launch") + """
+                """ + RuntimeSourceFixture.methods("OrdinaryActivityLaunch", "launch", "send") + """
                     public static void verify() throws Exception {
                         Context c=new Context(); Intent i=new Intent();
                         launch(c,i,AndroidLaunchSpec.Delivery.SHELL_INTENT,0);
@@ -200,7 +231,49 @@ public final class OrdinaryActivityLaunchTest {
                             throw new AssertionError("failure was hidden");
                         } catch(IOException expected) {}
                         if(ShellAccess.token.cancellations!=1) throw new AssertionError("failed token leaked");
+                        ShellAccess.fail=false;
+                        var windowed = new DesktopLaunchPresentation(); windowed.mode = DesktopLaunchMode.WINDOWED;
+                        for (var delivery : AndroidLaunchSpec.Delivery.values()) {
+                            launch(c,i,delivery,7,windowed);
+                            check(ShellAccess.bounds == requestedBounds && ShellAccess.display == 7,
+                                    "windowed Intent lost its presentation");
+                        }
+                        PendingIntent published = new PendingIntent();
+                        send(published,7,windowed);
+                        check(ShellAccess.token == published && published.cancellations == 0
+                                && ShellAccess.bounds == requestedBounds, "published token ownership changed");
+                        ShellAccess.fail=true;
+                        try { send(published,7,windowed); throw new AssertionError("denial ignored"); }
+                        catch (IOException expected) { }
+                        check(published.cancellations == 0, "failure revoked publisher token");
                     }
+                """);
+    }
+
+    @Test public void independentFreeformRequiresSharedFirmwarePolicyAndShellButNotDesktop() throws Exception {
+        RuntimeSourceFixture.verify("""
+                enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class DesktopLaunchPresentation { DesktopLaunchMode mode; int preferredTaskId = -1; }
+                static class ShellAccess { static boolean ready; static boolean isReady() { return ready; } }
+                static class PlatformDrivers {
+                    static boolean supported;
+                    static PlatformDrivers current() { return new PlatformDrivers(); }
+                    PlatformDrivers windowing() { return this; }
+                    boolean supportsIndependentFreeform() { return supported; }
+                }
+                """ + RuntimeSourceFixture.methods("OrdinaryActivityLaunch", "canLaunchWindowed", "requirePresentation") + """
+                public static void verify() {
+                    for (boolean shell : new boolean[] {false, true}) for (boolean supported : new boolean[] {false, true}) {
+                        ShellAccess.ready = shell; PlatformDrivers.supported = supported;
+                        check(canLaunchWindowed() == (shell && supported), "incorrect admission");
+                        for (var mode : DesktopLaunchMode.values()) {
+                            var p = new DesktopLaunchPresentation(); p.mode = mode;
+                            boolean accepted = true;
+                            try { requirePresentation(p); } catch (IllegalStateException denied) { accepted = false; }
+                            check(accepted == (mode != DesktopLaunchMode.WINDOWED || shell && supported), "wrong mode admission");
+                        }
+                    }
+                }
                 """);
     }
 }

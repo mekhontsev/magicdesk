@@ -82,32 +82,25 @@ public final class RunningWindowPresentationTest {
         RuntimeSourceFixture.verify("""
                 enum DesktopTaskInstancePolicy { CREATE_NEW, REUSE_EXISTING }
                 static class DesktopLaunchPresentation {
-                    DesktopTaskInstancePolicy policy;
+                    DesktopTaskInstancePolicy policy = DesktopTaskInstancePolicy.REUSE_EXISTING;
                     static DesktopLaunchPresentation forMode(int mode) { return new DesktopLaunchPresentation(); }
                     DesktopLaunchPresentation withInstancePolicy(DesktopTaskInstancePolicy policy) { this.policy = policy; return this; }
                 }
                 static class Mode { int windowMode; }
-                static class CheckBox {
-                    boolean enabled = true, checked = true;
-                    void setEnabled(boolean value) { enabled = value; }
-                    boolean isEnabled() { return enabled; }
-                    boolean isChecked() { return checked; }
-                }
-                Mode mMode = new Mode(); CheckBox mNew = new CheckBox();
+                Mode mMode = new Mode();
                 public static void verify() {
                     Fixture f = new Fixture();
-                    f.setExistingWindow(true);
-                    check(!f.mNew.enabled && f.presentation().policy == DesktopTaskInstancePolicy.REUSE_EXISTING, "Running creates new window");
-                    f.setExistingWindow(false);
-                    check(f.mNew.enabled && f.presentation().policy == DesktopTaskInstancePolicy.CREATE_NEW, "launch preference lost");
+                    check(f.presentation().policy == DesktopTaskInstancePolicy.REUSE_EXISTING, "ordinary click creates new window");
                 }
-                """ + RuntimeSourceFixture.methods("StartLaunchControls", "setExistingWindow", "presentation"));
+                """ + RuntimeSourceFixture.methods("StartLaunchControls", "presentation"));
     }
 
     @Test public void contextActionsKeepTaskAndRecipeIdentityAndRenderingDoesNotLoadPackages() throws Exception {
         final String menu = RuntimeSourceFixture.methods("FullscreenStartController", "appContext");
         assertTrue(menu.contains("StartMenuEntry entry"));
-        assertTrue(menu.contains("launch(entry, target, selected)"));
+        assertTrue(menu.contains("StartLaunchControls.addMenuItems(menu, target, selected"));
+        assertTrue(menu.contains("entry.task == null && BuiltInDesktopAppCatalog.supportsMultipleWindows"));
+        assertTrue(menu.contains("open(entry, destination, presentation)"));
         assertFalse(menu.contains("StartMenuEntry.app("));
         final String bind = RuntimeSourceFixture.methods("StartMenuContent", "bindContextMenu");
         assertTrue(bind.contains("mHost.appContext(view, entry, removeRecent)"));

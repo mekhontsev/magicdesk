@@ -192,38 +192,30 @@ final class FullscreenStartController implements StartMenuContent.Host {
     @Override public void appContext(android.view.View view, StartMenuEntry entry, Runnable removeRecent) {
         view.setOnContextClickListener(anchor -> anchor.performLongClick());
         view.setOnLongClickListener(anchor -> {
-            final android.widget.PopupMenu menu = new android.widget.PopupMenu(mActivity, anchor);
+            final var menu = new ApplicationContextMenu(mActivity, anchor, entry.label,
+                    entry.task == null && BuiltInDesktopAppCatalog.supportsMultipleWindows(entry.app.launchTarget), mAutomation);
             final StartDisplaySelector.Target target = mStart.destination();
             final DesktopLaunchPresentation selected = mStart.presentation();
-            if (removeRecent != null) menu.getMenu().add(R.string.action_remove_recent)
-                    .setOnMenuItemClickListener(item -> { removeRecent.run(); return true; });
-            menu.getMenu().add(R.string.action_open).setOnMenuItemClickListener(item -> {
-                launch(entry, target, selected); return true;
-            });
-            menu.getMenu().add(R.string.action_open_fullscreen).setOnMenuItemClickListener(item -> {
-                launch(entry, target,
-                        DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN)
-                                .withInstancePolicy(selected.instancePolicy)); return true;
-            });
-            menu.getMenu().add(R.string.action_open_floating)
-                    .setEnabled(DesktopRuntimeBridge.hasWorkspace(target.displayId()))
-                    .setOnMenuItemClickListener(item -> {
-                        launch(entry, new StartDisplaySelector.Target(
-                                target.displayId(), target.uniqueId(), "desktop"),
-                                DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)
-                                        .withInstancePolicy(selected.instancePolicy)); return true;
-                    });
+            StartLaunchControls.addMenuItems(menu, target, selected,
+                    (destination, presentation) -> open(entry, destination, presentation));
+            if (!BuildConfig.APPLICATION_ID.equals(entry.app.packageName)) {
+                menu.add(R.string.app_presentation_scale, DesktopRuntimeBridge.hasWorkspace(target.displayId()), () -> {
+                    ToolApplications.openSibling(mActivity,
+                            AppPresentationSettingsActivity.createIntent(mActivity, entry.app.identity),
+                            error -> {
+                                if (error != null) Toast.makeText(mActivity,
+                                        ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+                            });
+                });
+            }
+            if (removeRecent != null) menu.add(R.string.action_remove_recent, removeRecent);
             menu.show();
             return true;
         });
     }
 
     @Override
-    public void open(final StartMenuEntry result) {
-        launch(result, mStart.destination(), mStart.presentation());
-    }
-
-    private void launch(StartMenuEntry result, StartDisplaySelector.Target target,
+    public void open(StartMenuEntry result, StartDisplaySelector.Target target,
             DesktopLaunchPresentation presentation) {
         if (!canLaunch() || mLaunching) { return; }
         mLaunching = true;

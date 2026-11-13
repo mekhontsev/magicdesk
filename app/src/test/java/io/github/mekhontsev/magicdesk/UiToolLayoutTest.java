@@ -4,6 +4,45 @@ import static org.junit.Assert.*;
 import org.junit.Test;
 
 public final class UiToolLayoutTest {
+    @Test public void applicationMenusFitContentAndFileMenusRetainTheirWidth() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class View { static class MeasureSpec {
+                    static final int UNSPECIFIED = 0, AT_MOST = 1, EXACTLY = 2;
+                    static int makeMeasureSpec(int size, int mode) { return size * 4 + mode; }
+                } }
+                static class LinearLayout {
+                    int desired, width, calls, lastMode;
+                    LinearLayout(int desired) { this.desired = desired; }
+                    void measure(int w, int h) {
+                        calls++; lastMode = w % 4;
+                        check(h == 0, "menu height constrained before wrapping");
+                        width = lastMode == View.MeasureSpec.AT_MOST ? Math.min(desired, w / 4) : w / 4;
+                    }
+                    int getMeasuredWidth() { return width; }
+                }
+                public static void verify() {
+                    for (int limit : new int[]{1, 160, 360, 1080}) {
+                        for (int content : new int[]{0, 120, 240, 2000}) {
+                            var menu = new LinearLayout(content);
+                            check(measureMenuPanel(menu, limit, true) == Math.max(1, Math.min(content, limit)),
+                                    "content width not bounded");
+                            check(menu.calls == 2 && menu.lastMode == View.MeasureSpec.EXACTLY,
+                                    "rows did not receive final width");
+                            var files = new LinearLayout(content);
+                            check(measureMenuPanel(files, limit, false) == limit && files.calls == 1,
+                                    "file-menu width changed");
+                        }
+                    }
+                }
+                """ + RuntimeSourceFixture.methods("DesktopUiFactory", "measureMenuPanel"));
+        assertTrue(RuntimeSourceFixture.methods("ApplicationContextMenu", "show")
+                .contains("ui.showMenuPopup(anchor, panel, true)"));
+        assertTrue(RuntimeSourceFixture.methods("FileItemContextMenu", "showPopup")
+                .contains("ui.showMenuPopup(anchor, panel)"));
+        assertTrue(RuntimeSourceFixture.methods("DesktopUiFactory", "showMenuPopup")
+                .contains("showMenuPopup(anchor, panel, false)"));
+    }
+
     @Test public void edgeToEdgeContentKeepsSystemInsetsWithoutFormPadding() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Context {}

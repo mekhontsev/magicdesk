@@ -44,7 +44,7 @@ behavior, static verification and remaining device coverage.
   `GraphicalSessions` supplies shared manager and automation controls. Protocol
   owners retain their catalogs; `HostedWindowPresentation` owns Android placement
   reservations and replacement hosts for both protocols.
-- `ToolApplications` and `ToolLaunchTarget` select ordinary fullscreen Activity
+- `ToolApplications` and `ToolLaunchTarget` select ordinary Activity
   placement or the existing managed Desktop launch path. Phone control-panel
   tools do not acquire HOME or require Desktop provisioning. Background launches
   and privileged cross-display placement use the shell service; ordinary phone
@@ -59,6 +59,11 @@ behavior, static verification and remaining device coverage.
   a missing own task is distinct from one that needs privileged placement.
   The Android integration gateway uses the same placement selection for
   third-party Activities, content, shortcuts and notification actions.
+  Ordinary launches default to fullscreen. Explicit freeform uses the same
+  privileged Activity transport, with bounds and STANDARD activity type, without
+  acquiring HOME or Desktop. `PlatformWindowingDriver` owns firmware admission;
+  Nubia requires managed Desktop for its task/Recents recovery. The launcher
+  and automation share this policy, including retained-window placement.
 - `DisplayOperations` creates and lists display resources without starting
   Desktop. A viewer, an owned virtual display and a Desktop session have separate
   lifetimes. Removal still observes the existing session cleanup boundary.

@@ -75,8 +75,8 @@
     <string name="display_tasks_unknown">Applications: unavailable</string>
     <string name="display_independent_apps">Independent applications</string>
     <string name="start_mode_default">Auto</string>
-    <string name="start_mode_windowed">Desktop window</string>
-    <string name="start_mode_fullscreen">Desktop fullscreen</string>
+    <string name="start_mode_windowed">Window</string>
+    <string name="start_mode_fullscreen">Fullscreen</string>
     <string name="start_mode_independent">Independent</string>
     <string name="start_new_window">New window</string>
     <string name="start_launch_mode">Launch mode</string>

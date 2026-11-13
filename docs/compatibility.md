@@ -36,6 +36,13 @@ projection, optional cursor observation, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
 
+Apps can request **Windowed** on the selected display without starting Desktop.
+This requires Shell access and working firmware freeform support; it does not
+claim HOME or change system setup. Stock Nubia/REDMAGIC windowing requires
+managed Desktop because its task/Recents state needs session cleanup, so the
+independent Windowed choice is unavailable there. The diagnostic freeform probe
+remains available independently of this production policy.
+
 Device Setup enables freeform support and forced activity resizing on every
 platform through shell UID 2000. Changing these required provisioning values
 requires a reboot through the setup flow. They survive Close Desktop;

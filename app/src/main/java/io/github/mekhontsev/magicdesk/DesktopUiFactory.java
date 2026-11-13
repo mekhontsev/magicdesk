@@ -24,6 +24,39 @@ public final class DesktopUiFactory {
 
     private final Context mContext;
 
+    android.widget.PopupWindow showMenuPopup(View anchor, LinearLayout panel) {
+        return showMenuPopup(anchor, panel, false);
+    }
+
+    android.widget.PopupWindow showMenuPopup(View anchor, LinearLayout panel, boolean fitContent) {
+        final int width = measureMenuPanel(panel,
+                menuWidth(mContext.getResources().getDisplayMetrics().widthPixels, dp(12)), fitContent);
+        final int maxHeight = Math.max(dp(240), mContext.getResources().getDisplayMetrics().heightPixels - dp(24));
+        final var scroll = new android.widget.ScrollView(mContext);
+        scroll.addView(panel, new android.widget.ScrollView.LayoutParams(-1, -2));
+        final var popup = new android.widget.PopupWindow(scroll, width,
+                Math.min(panel.getMeasuredHeight(), maxHeight), true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+        popup.setOutsideTouchable(true);
+        popup.setInputMethodMode(android.widget.PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        popup.setElevation(dp(8));
+        popup.showAsDropDown(anchor, 0, -anchor.getHeight());
+        return popup;
+    }
+
+    static int measureMenuPanel(LinearLayout panel, int maximumWidth, boolean fitContent) {
+        int width = maximumWidth;
+        if (fitContent) {
+            panel.measure(View.MeasureSpec.makeMeasureSpec(maximumWidth, View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            width = Math.max(1, panel.getMeasuredWidth());
+        }
+        // Re-measure match-parent rows at the final width, including wrapped titles.
+        panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return width;
+    }
+
     DesktopUiFactory(final Context context) {
         mContext = context;
     }

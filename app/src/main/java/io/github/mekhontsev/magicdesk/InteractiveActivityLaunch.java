@@ -21,6 +21,12 @@ final class InteractiveActivityLaunch {
                 && (!ShellAccess.isReady() || displayId == 0 && activity.getDisplay().getDisplayId() == 0);
     }
 
+    static boolean canLaunchLocally(Context context, int displayId, DesktopLaunchPresentation presentation) {
+        return presentation.mode != DesktopLaunchMode.WINDOWED
+                && (presentation.mode == DesktopLaunchMode.AUTO || !ShellAccess.isReady())
+                && canLaunchLocally(context, displayId);
+    }
+
     static void requireDestination(Context context, int displayId, String uniqueId) throws IOException {
         // Preserve the phone-only path even if the display catalog is unavailable.
         if (uniqueId == null && displayId == 0 && context instanceof Activity activity
@@ -31,13 +37,19 @@ final class InteractiveActivityLaunch {
 
     static void launch(Context context, Intent intent,
             AndroidLaunchSpec.Delivery delivery, int displayId) throws IOException {
-        if (canLaunchLocally(context, displayId)) {
+        launch(context, intent, delivery, displayId, DesktopLaunchPresentation.automatic());
+    }
+
+    static void launch(Context context, Intent intent, AndroidLaunchSpec.Delivery delivery,
+            int displayId, DesktopLaunchPresentation presentation) throws IOException {
+        OrdinaryActivityLaunch.requirePresentation(presentation);
+        if (canLaunchLocally(context, displayId, presentation)) {
             requirePublicLaunch(context, intent, displayId);
             final ActivityOptions options = ActivityOptions.makeBasic();
             options.setLaunchDisplayId(displayId);
             context.startActivity(intent, options.toBundle());
         } else {
-            OrdinaryActivityLaunch.launch(context, intent, delivery, displayId);
+            OrdinaryActivityLaunch.launch(context, intent, delivery, displayId, presentation);
         }
     }
 
@@ -53,8 +65,9 @@ final class InteractiveActivityLaunch {
         }
     }
 
-    static OwnTaskResult showOwnTask(Context context, int taskId, int displayId) {
-        if (!canLaunchLocally(context, displayId)) return OwnTaskResult.NEEDS_PLACEMENT;
+    static OwnTaskResult showOwnTask(Context context, int taskId, int displayId,
+            DesktopLaunchPresentation presentation) {
+        if (!canLaunchLocally(context, displayId, presentation)) return OwnTaskResult.NEEDS_PLACEMENT;
         final ActivityManager manager = context.getSystemService(ActivityManager.class);
         if (manager == null) return OwnTaskResult.NEEDS_PLACEMENT;
         for (final ActivityManager.AppTask task : manager.getAppTasks()) {

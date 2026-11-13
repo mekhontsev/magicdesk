@@ -1,13 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.graphics.drawable.ColorDrawable;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 /** Shared file/folder context menu for the desktop and Files. */
@@ -92,40 +90,14 @@ final class FileItemContextMenu {
             final Actions actions) {
         final DesktopUiFactory ui = new DesktopUiFactory(activity);
         final LinearLayout panel = createPanel(activity, ui);
-        final int width = ui.menuWidth(
-                activity.getResources().getDisplayMetrics().widthPixels,
-                ui.dp(12));
         final PopupWindow[] popupHolder = new PopupWindow[1];
         populate(activity, ui, panel, target, actions, () -> {
             if (popupHolder[0] != null) {
                 popupHolder[0].dismiss();
             }
         });
-        panel.measure(
-                View.MeasureSpec.makeMeasureSpec(
-                        width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(
-                        0, View.MeasureSpec.UNSPECIFIED));
-        final int maxHeight = Math.max(
-                ui.dp(240),
-                activity.getResources().getDisplayMetrics().heightPixels
-                        - ui.dp(24));
-        final int height = Math.min(panel.getMeasuredHeight(), maxHeight);
-        final ScrollView scroll = new ScrollView(activity);
-        scroll.setFillViewport(false);
-        scroll.addView(panel, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        final PopupWindow popup = new PopupWindow(
-                scroll,
-                width,
-                height,
-                true);
+        final PopupWindow popup = ui.showMenuPopup(anchor, panel);
         popupHolder[0] = popup;
-        popup.setBackgroundDrawable(new ColorDrawable(0x00000000));
-        popup.setOutsideTouchable(true);
-        popup.setElevation(ui.dp(8));
-        popup.showAsDropDown(anchor, 0, -anchor.getHeight());
         return popup;
     }
 

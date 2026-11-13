@@ -215,19 +215,21 @@ public final class RuntimeWindowHandoffRegressionTest {
                 }
                 static class OrdinaryActivityLaunch {
                     static void requirePresentation(DesktopLaunchPresentation p) {}
-                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery delivery, int d) {
+                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery delivery, int d,
+                            DesktopLaunchPresentation p) {
                         ShellAccess.launchActivityOnDisplay(i, d, true);
                     }
                 }
                 static class InteractiveActivityLaunch {
                     static void requireDestination(Context c, int d, String unique) throws IOException {}
-                    static boolean canLaunchLocally(Context c, int d) {
+                    static boolean canLaunchLocally(Context c, int d, DesktopLaunchPresentation p) {
                         return c instanceof Activity a && !a.isFinishing() && !a.isDestroyed()
                                 && d == 0 && Display.id == 0 && MagicDeskRuntime.active < 0;
                     }
-                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery delivery, int d) throws IOException {
-                        if (canLaunchLocally(c, d)) c.startActivity(i, Integer.valueOf(d));
-                        else OrdinaryActivityLaunch.launch(c, i, delivery, d);
+                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery delivery, int d,
+                            DesktopLaunchPresentation p) throws IOException {
+                        if (canLaunchLocally(c, d, p)) c.startActivity(i, Integer.valueOf(d));
+                        else OrdinaryActivityLaunch.launch(c, i, delivery, d, p);
                     }
                 }
                 static class ShellAccess {

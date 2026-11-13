@@ -39,10 +39,11 @@ final class StartMenuContent {
         default void onSectionShown(int section) { }
         default List<StartMenuEntry> searchEntries(int section) { return entries(MENU_APPS); }
         DesktopAutomationUiRegistry automation();
-        void open(StartMenuEntry result);
+        void open(StartMenuEntry result, StartDisplaySelector.Target destination,
+                DesktopLaunchPresentation presentation);
         void dismiss();
         default void appContext(View view, StartMenuEntry entry, Runnable removeRecent) { }
-        default void fileContext(View view, DesktopFile file) { }
+        default void fileActions(ApplicationContextMenu menu, DesktopFile file) { }
         default void populateTools(LinearLayout parent, int spacing, boolean capture) { }
         default void requestSearchFocus() { }
         default boolean mouseTouch(MotionEvent event) { return false; }
@@ -285,7 +286,6 @@ final class StartMenuContent {
             mContent.addView(mSearchRow, searchParams);
             final var launchParams = new LinearLayout.LayoutParams(-1, dp(52));
             launchParams.topMargin = dp(8);
-            mLaunchControls.setExistingWindow(mMode == MENU_RUNNING);
             mContent.addView(mLaunchControls.view(), launchParams);
         }
 
@@ -869,7 +869,7 @@ final class StartMenuContent {
         bindIcon(views.icon(), entry);
         view.setSelected(selected);
         view.setContentDescription(entry.label + ", " + entry.detail);
-        view.setOnClickListener(v -> mHost.open(entry));
+        view.setOnClickListener(v -> openSearchResult(entry));
         view.setOnLongClickListener(null); view.setOnContextClickListener(null);
         bindContextMenu(view, entry);
         mHost.automation().register(view, "start.app." + DesktopAutomationUiRegistry.identitySegment(entry.stableKey()),
@@ -923,40 +923,31 @@ final class StartMenuContent {
         if (entry.app != null) mHost.appContext(view, entry, removeRecent);
         else if (entry.desktopApplication != null) {
             var application = entry.desktopApplication;
-            if (application.desktopFile != null) mHost.fileContext(view, application.desktopFile);
-            else if (removeRecent != null || application.shortcut.hasExecLaunch()) {
+            if (removeRecent != null || application.shortcut.hasExecLaunch()) {
                 view.setOnLongClickListener(anchor -> {
                     final boolean userShortcut = application.shortcut.execBackend == DesktopExecBackend.TERMUX
                             && (entry.recent == null
                             || entry.recent.termuxPackage().equals(IntegrationPackage.TERMUX.selected()))
                             && mCatalog.snapshot().termux().entries().stream().anyMatch(current -> current.userShortcut
                                     && current.desktopFilePath.equals(application.desktopFilePath));
-                    final boolean scale = application.shortcut.execBackend == DesktopExecBackend.TERMUX
-                            && application.shortcut.graphics != null
-                            && !application.desktopFilePath.isBlank();
+                    final boolean scale = GraphicalScaleDialog.supports(application.shortcut,
+                            application.desktopFilePath);
                     final boolean export = application.shortcut.hasExecLaunch() && !application.desktopFilePath.isBlank();
-                    if (!userShortcut && !scale && removeRecent == null && !export) return false;
-                    final android.widget.PopupMenu menu = new android.widget.PopupMenu(mActivity, anchor);
-                    if (export) menu.getMenu().add(R.string.launcher_export_title)
-                            .setOnMenuItemClickListener(item -> {
-                                LauncherExportActivity.open(mActivity, application,
-                                        entry.recent == null ? null : entry.recent.termuxPackage());
-                                return true;
-                            });
-                    if (removeRecent != null) menu.getMenu().add(R.string.action_remove_recent)
-                            .setOnMenuItemClickListener(item -> { removeRecent.run(); return true; });
-                    if (scale) menu.getMenu().add(R.string.app_presentation_scale)
-                            .setOnMenuItemClickListener(item -> {
-                                GraphicalScaleDialog.show(mActivity, entry.label, entry.recent == null
-                                        ? IntegrationPackage.TERMUX.selected() : entry.recent.termuxPackage(),
-                                        application.desktopFilePath);
-                                return true;
-                            });
-                    if (userShortcut) menu.getMenu().add(R.string.action_delete_shortcut)
-                            .setOnMenuItemClickListener(item -> {
-                                TermuxShortcutDialog.confirmDelete(mActivity, entry);
-                                return true;
-                            });
+                    final var menu = new ApplicationContextMenu(mActivity, anchor, entry.label,
+                            application.shortcut.hasExecLaunch(), mHost.automation());
+                    StartLaunchControls.addMenuItems(menu, destination(), presentation(),
+                            (target, selected) -> mHost.open(entry, target, selected));
+                    if (scale) menu.add(R.string.app_presentation_scale,
+                            () -> GraphicalScaleDialog.show(mActivity, application.shortcut,
+                                    application.desktopFilePath,
+                                    entry.recent == null ? null : entry.recent.termuxPackage()));
+                    if (export) menu.add(R.string.launcher_export_title,
+                            () -> LauncherExportActivity.open(mActivity, application,
+                                    entry.recent == null ? null : entry.recent.termuxPackage()));
+                    if (removeRecent != null) menu.add(R.string.action_remove_recent, removeRecent);
+                    if (application.desktopFile != null) mHost.fileActions(menu, application.desktopFile);
+                    if (userShortcut) menu.add(R.string.action_delete_shortcut,
+                            () -> TermuxShortcutDialog.confirmDelete(mActivity, entry));
                     menu.show();
                     return true;
                 });
@@ -1005,7 +996,7 @@ final class StartMenuContent {
     }
 
     private void openSearchResult(final StartMenuEntry result) {
-        mHost.open(result);
+        mHost.open(result, destination(), presentation());
     }
 
     private int getSearchResultLimit() {

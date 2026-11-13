@@ -503,7 +503,8 @@ whole-desktop presentation and the same **Interface scale** control. The prefere
 adjusts each Android host's automatic scale and updates its output and client
 limits together. Start's installed-app context menu and `graphics.set_scale`
 share the same profile, keyed by executor and launcher path within the Android
-profile. Ad-hoc sessions retain their percentage only until stopped. Nested
+profile, for User, Shell and Termux launchers. Ad-hoc sessions retain their
+percentage only until stopped. Nested
 compositors and applications remain responsible for their toolkit preferences.
 
 For a nested desktop, select **Nested Linux desktop** in the manager, or set

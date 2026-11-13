@@ -895,9 +895,10 @@ Viewer launch and attachment errors remain authoritative.
   a failed selection retries acquisition; repeating a ready selection is a no-op.
 - `move_task(taskId, displayId, placement, mode, uniqueId)` reuses an existing
   current-profile app task. `placement=auto` follows Desktop availability;
-  `desktop` requires a workspace and `display` selects independent fullscreen.
-  `mode=auto|windowed|fullscreen` controls managed placement; ordinary placement
-  is fullscreen. Same-display requests can change ownership or mode, not just
+  `desktop` requires a workspace and `display` selects independent placement.
+  `mode=auto|windowed|fullscreen` controls presentation; independent freeform
+  requires Shell access and supporting firmware (not stock Nubia windowing).
+  Same-display requests can change ownership or mode, not just
   focus. Optional `uniqueId` checks the destination identity. The task and its
   source are revalidated; launch acceptance must be followed by task/UI
   observation. This action never claims input. Built-ins also retain `open_builtin`
@@ -1704,10 +1705,12 @@ selects ordinary display 0; `display` requires a display id; `desktop` requires
 an active session. Ordinary placement can coexist with Desktop on the same
 display without joining it. This applies to application launches, Intents, URI/file/share
 and clipboard actions, published shortcuts and notification Activity actions.
-Ordinary launches use fullscreen Activity options and do not acquire HOME,
-provision Desktop, or initialize its organizer/input/session coordinators.
-They reject windowed mode, relative bounds and exact managed-task reuse before
-dispatch. Reusable explicit Activities are matched by application identity,
+Ordinary launches default to fullscreen. Explicit `mode=windowed` uses freeform
+Activity options with default or relative bounds, provided Shell is ready and
+the platform permits independent freeform. Stock Nubia windowing requires
+managed Desktop instead. No ordinary launch acquires HOME, provisions Desktop,
+or initializes its organizer/input/session coordinators. Exact managed-task
+reuse (`preferredTaskId`) still requires Desktop. Reusable explicit Activities are matched by application identity,
 preferring the destination display; an existing managed task is released by its
 owner before ordinary placement. Android's manifest and Intent semantics remain
 authoritative for creation and reuse.
@@ -1727,7 +1730,8 @@ observer, polling loop, or guessed delay is started for ordinary launches.
 
 Activity presentation has four independent inputs: `mode`, relative `bounds`,
 `instance`, and optional `preferredTaskId`. Bounds use a `0..10000` scale
-within the desktop work area and require `mode=windowed`. `instance` is exactly
+within the available work area (the display bounds without Desktop) and require
+`mode=windowed`. `instance` is exactly
 `reuse` or `new`; document-task flags are not accepted as a substitute.
 Known manifest restrictions (`singleTask`, `singleInstance`, or
 `documentLaunchMode=never`) reject `new` before dispatch when a matching task

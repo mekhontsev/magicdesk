@@ -10,6 +10,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public final class DesktopContextMenuControllerTest {
+    @Test public void newWindowIsPerMenuAndSurvivesOnlyItsOwnSubmenusAndAsyncRefresh() throws Exception {
+        String source = read("DesktopContextMenuController.java");
+        String open = between(source, "private void showAppMenu(\n            final float", "private void cancelShortcutRequest()");
+        assertTrue(open.contains("new ApplicationContextMenu.Options()"));
+        assertTrue(open.contains("false, destination, presentation, removeRecent, options"));
+        assertTrue(open.contains("shortcuts, hasWidgets, destination, presentation, removeRecent, options"));
+        String option = RuntimeSourceFixture.methods("DesktopContextMenuController", "addNewWindowOption");
+        assertTrue(option.contains("addMenuItem(checkbox, null, true, false, false"));
+        assertFalse(option.contains("hideAllPanels"));
+        assertTrue(RuntimeSourceFixture.methods("DesktopContextMenuController", "launchApp")
+                .contains("state.options.apply(presentation)"));
+        assertFalse(source.contains("R.string.action_new_window"));
+    }
+
     @Test public void startConsoleEntrySelectsExistingSessionsBeforeCreatingAPty() throws Exception {
         final String menu = RuntimeSourceFixture.methods("DesktopContextMenuController", "populateStartButtonMenu");
         assertTrue(menu.contains("R.string.terminal_sessions"));

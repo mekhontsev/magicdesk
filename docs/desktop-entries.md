@@ -444,8 +444,10 @@ used by apps that need to submit their own commands.
 - `fullscreen`: request a true fullscreen task.
 
 Unknown or missing values use `auto`. Window modes apply to an Android target
-or to the Android host created for a graphical recipe. They require managed Desktop
-placement for windowed mode; independent placement remains fullscreen.
+or to the Android host created for a graphical recipe. Independent placement
+defaults to fullscreen; an explicit Window selection can request freeform
+without Desktop when Shell and the firmware support it. Stock Nubia windowing
+requires managed Desktop.
 They do not alter a generic background shell process. Start's explicit mode
 selection can override the recipe's default for that launch.
 

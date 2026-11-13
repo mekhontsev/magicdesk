@@ -74,8 +74,8 @@
     <string name="display_tasks_unknown">Applications : indisponibles</string>
     <string name="display_independent_apps">Applications indépendantes</string>
     <string name="start_mode_default">Auto</string>
-    <string name="start_mode_windowed">Fenêtre de bureau</string>
-    <string name="start_mode_fullscreen">Plein écran sur le bureau</string>
+    <string name="start_mode_windowed">Fenêtre</string>
+    <string name="start_mode_fullscreen">Plein écran</string>
     <string name="start_mode_independent">Indépendant</string>
     <string name="start_new_window">Nouvelle fenêtre</string>
     <string name="start_launch_mode">Mode de lancement</string>

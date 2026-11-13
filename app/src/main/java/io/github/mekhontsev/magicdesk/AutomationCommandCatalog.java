@@ -269,11 +269,11 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put("displayId", integerProperty(
                                 "Destination display ID, or -1 to release input.")), "displayId")))
                 .put(actionTool("move_task", "Move task",
-                        "Place an existing task on a display with explicit Desktop or independent ownership. auto follows Desktop availability; mode selects windowed/fullscreen for Desktop. Can change ownership on the same display. Reuses the task; does not route input.",
+                        "Place an existing task on a display with explicit Desktop or independent ownership. auto follows Desktop availability; mode selects windowed/fullscreen. Independent freeform requires supporting firmware (not stock Nubia). Can change ownership on the same display. Reuses the task; does not route input.",
                         objectSchema(new JSONObject().put("taskId", integerProperty("Existing task ID."))
                                 .put("uniqueId", stringProperty("Optional exact destination display identity."))
                                 .put("placement", enumProperty("Task owner; auto follows Desktop availability.", "auto", "desktop", "display"))
-                                .put("mode", enumProperty("Desktop window mode; independent tasks are fullscreen.", "auto", "windowed", "fullscreen"))
+                                .put("mode", enumProperty("Window mode; independent freeform requires Shell and supporting firmware (not stock Nubia).", "auto", "windowed", "fullscreen"))
                                 .put("displayId", integerProperty("Destination display ID.")), "taskId", "displayId")))
                 .put(actionTool(
                         "close_desktop",
@@ -299,7 +299,7 @@ final class AutomationCommandCatalog {
                                         .put("preferredTaskId", integerProperty(
                                                 "Existing task to activate when instance is reuse."))
                                         .put("bounds", relativeBoundsProperty(
-                                                "Initial bounds within the desktop work area.")),
+                                                "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode.")),
                                 "appIdentity")))
                 .put(actionTool(
                         "set_app_presentation",
@@ -1176,7 +1176,7 @@ final class AutomationCommandCatalog {
 
     private static JSONObject activityPlacementProperties() throws JSONException {
         return new JSONObject().put("placement", enumProperty(
-                        "auto uses Desktop on the destination when present, otherwise ordinary fullscreen; display and phone always launch independently of Desktop.",
+                        "auto uses Desktop on the destination when present, otherwise independent placement; display and phone always launch independently of Desktop.",
                         "auto", "phone", "display", "desktop"))
                 .put("displayId", integerProperty("Destination display, including 0; defaults to active Desktop or phone. Required for display placement."));
     }
@@ -1216,7 +1216,7 @@ final class AutomationCommandCatalog {
             final JSONObject placement = activityPlacementProperties();
             properties.put("placement", placement.get("placement"))
                     .put("displayId", placement.get("displayId"))
-                    .put("mode", enumProperty("Launch mode; windowed requires Desktop.",
+                    .put("mode", enumProperty("Launch mode; independent windowed requires Shell and supporting firmware (not stock Nubia).",
                             "auto", "windowed", "fullscreen"));
             properties.put("actionId", stringProperty(
                     "Action id returned by list_app_actions."));
@@ -1254,7 +1254,7 @@ final class AutomationCommandCatalog {
                 .put("preferredTaskId", integerProperty(
                         "Existing task to receive the action when instance is reuse."))
                 .put("bounds", relativeBoundsProperty(
-                        "Initial bounds within the desktop work area."))
+                        "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                 .put("chooser", booleanProperty(
                         "Wrap an Activity request in the Android chooser."))
                 .put("chooserTitle", stringProperty(
@@ -1287,7 +1287,7 @@ final class AutomationCommandCatalog {
                         .put("preferredTaskId", integerProperty(
                                 "Existing task to receive the action."))
                         .put("bounds", relativeBoundsProperty(
-                                "Initial bounds within the desktop work area."))
+                                "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                         .put("chooser", booleanProperty("Show Android chooser."))
                         .put("chooserTitle", stringProperty("Chooser title."))
                         .put("expectResult", booleanProperty(
@@ -1314,7 +1314,7 @@ final class AutomationCommandCatalog {
                 .put("preferredTaskId", integerProperty(
                         "Existing task to receive the action."))
                 .put("bounds", relativeBoundsProperty(
-                        "Initial bounds within the desktop work area."))
+                        "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                 .put("chooser", booleanProperty("Show Android chooser."))
                 .put("chooserTitle", stringProperty("Chooser title."))
                 .put("expectResult", booleanProperty(
@@ -1343,7 +1343,7 @@ final class AutomationCommandCatalog {
                 .put("preferredTaskId", integerProperty(
                         "Existing task to receive the action."))
                 .put("bounds", relativeBoundsProperty(
-                        "Initial bounds within the desktop work area."))
+                        "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                 .put("chooser", booleanProperty("Show Android chooser."))
                 .put("chooserTitle", stringProperty("Chooser title.")));
         return schema.put("anyOf", new JSONArray()
@@ -1373,7 +1373,7 @@ final class AutomationCommandCatalog {
                         .put("preferredTaskId", integerProperty(
                                 "Existing task to receive the action."))
                         .put("bounds", relativeBoundsProperty(
-                                "Initial bounds within the desktop work area.")),
+                                "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode.")),
                 "actionId");
     }
 
@@ -1410,7 +1410,7 @@ final class AutomationCommandCatalog {
                         "desktop", "termux", "guest"))
                 .put("desktopPath", stringProperty(
                         "Absolute .desktop file path."))
-                .put("mode", enumProperty("Launch mode; windowed requires Desktop.", "auto", "windowed", "fullscreen"))
+                .put("mode", enumProperty("Launch mode; independent windowed requires Shell and supporting firmware (not stock Nubia).", "auto", "windowed", "fullscreen"))
                 .put("instance", enumProperty("Instance policy.", "reuse", "new"))
                 .put("bounds", relativeBoundsProperty("Initial managed window bounds."))
                 .put("files", arrayProperty(

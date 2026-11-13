@@ -303,8 +303,13 @@ public final class ShellAccess {
 
     static void launchActivityOnDisplay(final Intent intent, final int displayId,
             final boolean fullscreen) throws IOException {
+        launchActivityOnDisplay(intent, displayId, fullscreen, null);
+    }
+
+    static void launchActivityOnDisplay(final Intent intent, final int displayId,
+            final boolean fullscreen, final Rect bounds) throws IOException {
         try {
-            requireService().launchActivityOnDisplay(intent, displayId, fullscreen);
+            requireService().launchActivityOnDisplay(intent, displayId, fullscreen, bounds);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("Android Activity launch failed: "
@@ -312,10 +317,10 @@ public final class ShellAccess {
         }
     }
 
-    static void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId)
-            throws IOException {
+    static void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId,
+            final Rect bounds) throws IOException {
         try {
-            requireService().sendActivityOnDisplay(intent, displayId);
+            requireService().sendActivityOnDisplay(intent, displayId, bounds);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("Android pending Activity launch failed: "
@@ -332,8 +337,13 @@ public final class ShellAccess {
 
     static void moveOrdinaryTask(final TaskRepository.TaskEntry task, final int displayId)
             throws IOException {
+        moveOrdinaryTask(task, displayId, null);
+    }
+
+    static void moveOrdinaryTask(final TaskRepository.TaskEntry task, final int displayId,
+            final Rect bounds) throws IOException {
         try {
-            requireService().moveOrdinaryTask(task.taskId, task.displayId, displayId, task.userId);
+            requireService().moveOrdinaryTask(task.taskId, task.displayId, displayId, task.userId, bounds);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("task transfer failed: " + usefulMessage(error), error);

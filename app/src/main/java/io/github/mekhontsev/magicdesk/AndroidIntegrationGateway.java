@@ -682,8 +682,8 @@ final class AndroidIntegrationGateway {
             }
         }
         if (!placement.desktop) {
-            ShellAccess.sendActivityOnDisplay(pendingIntent, displayId);
-            return OrdinaryActivityLaunch.accepted(displayId, new JSONObject()
+            OrdinaryActivityLaunch.send(pendingIntent, displayId, action.presentation);
+            return OrdinaryActivityLaunch.accepted(displayId, action.presentation, new JSONObject()
                     .put("creatorPackage", value(pendingIntent.getCreatorPackage()))
                     .put("activity", true));
         }
@@ -757,9 +757,9 @@ final class AndroidIntegrationGateway {
         final AndroidShortcutSpec shortcut = action.shortcut;
         AppProfile.requireCurrent(mContext, shortcut.application);
         if (!placement.desktop) {
-            ShellAccess.sendActivityOnDisplay(ShellAccess.getShortcutLaunchIntent(
-                    shortcut.publisher.packageName, shortcut.shortcutId), displayId);
-            return OrdinaryActivityLaunch.accepted(displayId, new JSONObject()
+            OrdinaryActivityLaunch.send(ShellAccess.getShortcutLaunchIntent(
+                    shortcut.publisher.packageName, shortcut.shortcutId), displayId, action.presentation);
+            return OrdinaryActivityLaunch.accepted(displayId, action.presentation, new JSONObject()
                     .put("package", shortcut.publisher.packageName)
                     .put("appIdentity", shortcut.application.persistentKey())
                     .put("actionId", shortcut.shortcutId));
@@ -958,12 +958,12 @@ final class AndroidIntegrationGateway {
             try {
                 OrdinaryActivityLaunch.launch(mContext,
                         request.presentation.instancePolicy.applyTo(mContext.getPackageManager(), launchedIntent),
-                        delivery, displayId);
+                        delivery, displayId, request.presentation);
             } catch (IOException | RuntimeException error) {
                 AndroidActivityRelayStore.discard(relayId);
                 throw error;
             }
-            return OrdinaryActivityLaunch.accepted(displayId,
+            return OrdinaryActivityLaunch.accepted(displayId, request.presentation,
                     describeActivityLaunch(request, target, resolution, launchPolicy));
         }
         final AppLaunchTarget transportTarget = AppLaunchTarget.explicit(

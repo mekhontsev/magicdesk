@@ -68,9 +68,9 @@ final class ApplicationTaskPlacement {
         final TaskRepository.TaskEntry task = requireLive(requested);
         final boolean managed = isManaged(task);
         if (!target.desktop) {
-            OrdinaryActivityLaunch.requirePresentation(presentation);
+            final Rect bounds = OrdinaryActivityLaunch.windowBounds(target.displayId, presentation);
             if (managed) { ShellAccess.releaseDesktopTasks(task.displayId, new int[]{task.taskId}); }
-            ShellAccess.moveOrdinaryTask(task, target.displayId);
+            ShellAccess.moveOrdinaryTask(task, target.displayId, bounds);
             return;
         }
         final AppIdentity application = AppProfile.current(MagicDeskApplication.applicationContext()).application(task);
@@ -125,7 +125,8 @@ final class ApplicationTaskPlacement {
                 DesktopDisplayCatalog.require(task.displayId, displayUniqueId);
                 if (isManaged(task)) { throw new IOException("task now belongs to Desktop"); }
                 if (close) { ShellAccess.run(TaskRepository.createTaskControlCommand("remove", task.taskId)); }
-                else { ShellAccess.moveOrdinaryTask(task, task.displayId); }
+                else { ShellAccess.moveOrdinaryTask(task, task.displayId,
+                        task.isFreeform() && task.hasBounds() ? new Rect(task.bounds) : null); }
                 callback.onComplete(new TaskRepository.ActionResult(true, close ? "close requested" : "show requested"));
             } catch (IOException | RuntimeException error) {
                 callback.onComplete(new TaskRepository.ActionResult(false, ShellAccess.usefulMessage(error)));
@@ -164,7 +165,7 @@ final class ApplicationTaskPlacement {
     }
 
     static void prepareIndependentLaunch(final Context context, final Intent intent,
-            final int displayId) throws IOException {
+            final int displayId, final DesktopLaunchPresentation presentation) throws IOException {
         if (intent.getComponent() == null || (intent.getFlags() & Intent.FLAG_ACTIVITY_MULTIPLE_TASK) != 0) {
             return;
         }
@@ -173,9 +174,11 @@ final class ApplicationTaskPlacement {
         final var identity = LaunchActivityIdentity.resolve(AppProfile.current(context).userId,
                 context.getPackageManager(), intent.getComponent());
         final var task = selectExisting(identity, snapshot, displayId);
-        if (task != null && (task.displayId != displayId || task.isFreeform() || isManaged(task))) {
+        if (task != null && (task.displayId != displayId
+                || task.isFreeform() != (presentation.mode == DesktopLaunchMode.WINDOWED)
+                || presentation.bounds != null || isManaged(task))) {
             prepare(task, ToolLaunchTarget.resolve("display", displayId, java.util.Set.of()),
-                    null, DesktopLaunchPresentation.automatic());
+                    null, presentation);
         }
     }
 }

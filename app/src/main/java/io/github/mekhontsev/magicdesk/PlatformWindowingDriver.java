@@ -2,6 +2,9 @@ package io.github.mekhontsev.magicdesk;
 
 /** Platform access to optional Android desktop windowing configuration. */
 public interface PlatformWindowingDriver {
+    /** Whether ordinary application windows may outlive any managed Desktop. */
+    default boolean supportsIndependentFreeform() { return true; }
+
     String restrictionsPropertyKey();
 
     String roundedCornersPropertyKey();

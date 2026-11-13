@@ -46,6 +46,8 @@ final class BuiltInWindowLauncher {
             return;
         }
         final int displayId = placement.displayId;
+        final DesktopLaunchPresentation ordinary = presentation == null
+                ? DesktopLaunchPresentation.automatic() : presentation;
         final Callback launched = error -> {
             if (error == null) RecentApplications.recordBuiltIn(context, intent, target, RecentLaunchScope.of(placement));
             complete(context, callback, error);
@@ -57,7 +59,7 @@ final class BuiltInWindowLauncher {
                 placement.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
                 InteractiveActivityLaunch.requireDestination(context, displayId, uniqueId);
                 if (!placement.desktop) {
-                    if (presentation != null) { OrdinaryActivityLaunch.requirePresentation(presentation); }
+                    OrdinaryActivityLaunch.requirePresentation(ordinary);
                     final BuiltInDesktopAppCatalog.Entry entry =
                             BuiltInDesktopAppCatalog.find(target);
                     if (entry == null) { throw new IllegalArgumentException("unknown built-in application"); }
@@ -69,7 +71,7 @@ final class BuiltInWindowLauncher {
                         // another display, especially one owned by Desktop.
                         intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
                     }
-                    if (InteractiveActivityLaunch.canLaunchLocally(context, displayId)) {
+                    if (InteractiveActivityLaunch.canLaunchLocally(context, displayId, ordinary)) {
                         // Android checks the actual Intent and display under the app UID.
                         // A rejected public launch never retries with shell authority.
                         new Handler(Looper.getMainLooper()).post(() -> {
@@ -78,7 +80,7 @@ final class BuiltInWindowLauncher {
                             try {
                                 InteractiveActivityLaunch.requireDestination(context, displayId, uniqueId);
                                 InteractiveActivityLaunch.launch(context, intent,
-                                        AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId);
+                                        AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId, ordinary);
                                 launched.onComplete(null);
                             } catch (IOException | RuntimeException error) {
                                 launched.onComplete(error);
@@ -86,7 +88,7 @@ final class BuiltInWindowLauncher {
                         });
                     } else {
                         OrdinaryActivityLaunch.launch(context, intent,
-                                AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId);
+                                AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId, ordinary);
                         launched.onComplete(null);
                     }
                     return;

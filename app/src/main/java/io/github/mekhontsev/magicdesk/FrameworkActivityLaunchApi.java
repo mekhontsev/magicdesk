@@ -34,12 +34,17 @@ final class FrameworkActivityLaunchApi {
         ActivityOptions.class.getMethod("setAvoidMoveToFront").invoke(options);
     }
 
-    private static ActivityOptions options(final int displayId, final boolean fullscreen)
+    private static ActivityOptions options(final int displayId, final boolean fullscreen, final Rect bounds)
             throws ReflectiveOperationException {
         if (displayId < 0) { throw new IllegalArgumentException("invalid display"); }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
-        if (fullscreen) {
+        if (bounds != null) {
+            if (fullscreen || bounds.isEmpty()) { throw new IllegalArgumentException("invalid freeform bounds"); }
+            setWindowingMode(options, 5);
+            setActivityType(options, FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD);
+            options.setLaunchBounds(new Rect(bounds));
+        } else if (fullscreen) {
             setWindowingMode(options, 1);
             // Null bounds let TaskLaunchParamsModifier restore a saved freeform mode
             // on a freeform-default display, even over an explicit fullscreen request.
@@ -49,12 +54,12 @@ final class FrameworkActivityLaunchApi {
     }
 
     static void launch(final Object service, final Intent source, final int displayId,
-            final boolean fullscreen) throws ReflectiveOperationException {
+            final boolean fullscreen, final Rect bounds) throws ReflectiveOperationException {
         if (source == null || source.getComponent() == null) {
             throw new IllegalArgumentException("an explicit Activity is required");
         }
         final Intent intent = new Intent(source).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        final ActivityOptions options = options(displayId, fullscreen);
+        final ActivityOptions options = options(displayId, fullscreen, bounds);
         final int result = startActivity(service, intent, options);
         if (result < 0) { throw new IllegalStateException("startActivity returned " + result); }
     }
@@ -69,18 +74,18 @@ final class FrameworkActivityLaunchApi {
                         null, -1, 0, null, options.toBundle());
     }
 
-    static void send(final Context context, final PendingIntent intent, final int displayId)
+    static void send(final Context context, final PendingIntent intent, final int displayId, final Rect bounds)
             throws ReflectiveOperationException, PendingIntent.CanceledException {
         if (intent == null || !intent.isActivity()) {
             throw new IllegalArgumentException("an Activity PendingIntent is required");
         }
-        final ActivityOptions options = options(displayId, true);
+        final ActivityOptions options = options(displayId, bounds == null, bounds);
         AndroidPendingIntentOptions.allowSenderStart(options, false);
         intent.send(context, 0, null, null, null, null, options.toBundle());
     }
 
     static void moveTask(final Object service, final int taskId, final int sourceDisplayId,
-            final int targetDisplayId, final int userId) throws ReflectiveOperationException {
+            final int targetDisplayId, final int userId, final Rect bounds) throws ReflectiveOperationException {
         final Object task = HiddenTaskApi.requireTask(service, sourceDisplayId, taskId);
         if (HiddenTaskApi.getTaskUserId(task) != userId) {
             throw new IllegalArgumentException("task profile changed");
@@ -88,10 +93,23 @@ final class FrameworkActivityLaunchApi {
         if (HiddenTaskApi.getTaskActivityType(task) != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD) {
             throw new IllegalArgumentException("only application tasks can be transferred");
         }
-        // Existing-task launch preserves the Activity instance and lets WM own
-        // the display transition. It does not acquire a Desktop organizer.
-        final int result = HiddenTaskApi.startActivityFromRecents(
-                service, taskId, options(targetDisplayId, true).toBundle());
+        final ActivityOptions options = options(targetDisplayId, bounds == null, bounds);
+        final int requestedMode = bounds == null ? 1 : 5;
+        if (sourceDisplayId != targetDisplayId || HiddenTaskApi.getTaskWindowingMode(task) != requestedMode
+                || bounds != null && !bounds.equals(HiddenTaskApi.readBounds(task))) {
+            // Launch options alone do not change an existing task's mode on all
+            // firmware. Reuse the atomic transfer, without claiming Desktop.
+            if (bounds == null) {
+                TaskDisplayAreaLaunchCommand.moveExistingTaskAsFullscreen(service, taskId,
+                        sourceDisplayId, targetDisplayId, DesktopTaskDensity.UNCHANGED);
+            } else {
+                TaskDisplayAreaLaunchCommand.moveExistingTaskAsFreeform(service, taskId,
+                        sourceDisplayId, targetDisplayId, bounds, DesktopTaskDensity.UNCHANGED);
+            }
+            return;
+        }
+        // Steady-state activation changes only ordering, never mode or geometry.
+        final int result = HiddenTaskApi.startActivityFromRecents(service, taskId, options.toBundle());
         if (result < 0) { throw new IllegalStateException("startActivityFromRecents returned " + result); }
     }
 }
