@@ -1,135 +1,126 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.*;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.Test;
 
 public final class DesktopSelfTestPreparationTest {
-    @Test
-    public void targetAndHostPublicationMustNotOvertakeStartCompletion() throws Exception {
-        RuntimeSourceFixture.verify(fixture() + """
-                public static void verify() throws Exception {
-                    Fixture test = new Fixture();
-                    DesktopAutomationEventJournal.event = () -> {
-                        int step = DesktopAutomationEventJournal.waits;
-                        if (step == 1) DesktopRuntimeBridge.session.target = new DesktopDisplayTarget();
-                        if (step == 2) DesktopRuntimeBridge.session.host = true;
-                        if (step == 3) DesktopOperations.transitioning = false;
-                    };
-                    check(test.awaitPreparedDesktop(DesktopDisplayOutput.Kind.WIRED), "start should finish");
-                    check(DesktopAutomationEventJournal.waits == 3, "target or host alone admitted test");
-                    check(test.awaitPreparedDesktop(DesktopDisplayOutput.Kind.WIRED), "already ready");
-                    check(DesktopAutomationEventJournal.waits == 3, "ready workspace should not wait");
-                }
+    @Test public void homeRejectionReturnsItsCauseWithoutWaitingForAHost() throws Exception {
+        verify("""
+                DesktopOperations.success = false;
+                DesktopOperations.message = "HOME role assignment denied";
+                try { showReady(new DesktopDisplayTarget()); throw new AssertionError("failure lost"); }
+                catch (IOException expected) { check(expected.getMessage().contains("HOME role assignment denied"), "cause lost"); }
+                check(mStartAttempted && DesktopOperations.completed, "rollback completion not awaited");
                 """);
     }
 
-    @Test
-    public void hostRegistrationCanFollowTransitionCompletion() throws Exception {
-        RuntimeSourceFixture.verify(fixture() + """
-                public static void verify() throws Exception {
-                    DesktopRuntimeBridge.session.target = new DesktopDisplayTarget();
-                    DesktopOperations.transitioning = false;
-                    DesktopAutomationEventJournal.event = () -> DesktopRuntimeBridge.session.host = true;
-                    check(new Fixture().awaitPreparedDesktop(null), "host event completes preparation");
-                    check(DesktopAutomationEventJournal.waits == 1, "missing host must wait");
-                }
+    @Test public void targetAndHostPublicationCannotOvertakeStartCompletion() throws Exception {
+        verify("""
+                showReady(new DesktopDisplayTarget());
+                check(DesktopOperations.completed, "returned before production completion");
+                check(CountDownLatch.waits == 1, "must await the exact start callback");
                 """);
     }
 
-    @Test
-    public void absentWrongOrStillStartingWorkspaceDoesNotPass() throws Exception {
-        RuntimeSourceFixture.verify(fixture() + """
-                public static void verify() throws Exception {
-                    Fixture test = new Fixture();
-                    check(!test.awaitPreparedDesktop(null), "missing workspace");
-                    DesktopRuntimeBridge.session.target = new DesktopDisplayTarget();
-                    DesktopRuntimeBridge.session.host = true;
-                    check(!test.awaitPreparedDesktop(null), "start still in progress");
-                    DesktopOperations.transitioning = false;
-                    check(!test.awaitPreparedDesktop(DesktopDisplayOutput.Kind.WIRELESS), "wrong transport");
-                    DesktopRuntimeBridge.session.target.id = 9;
-                    check(!test.awaitPreparedDesktop(null), "wrong workspace");
-                }
+    @Test public void absentCompletionAndInterruptedWaitCannotPass() throws Exception {
+        verify("""
+                DesktopOperations.complete = false;
+                try { showReady(new DesktopDisplayTarget()); throw new AssertionError("timeout lost"); }
+                catch (IOException expected) { check(expected.getMessage().contains("timed out"), "wrong timeout"); }
+                CountDownLatch.interrupt = true;
+                try { showReady(new DesktopDisplayTarget()); throw new AssertionError("interruption lost"); }
+                catch (IOException expected) { check(Thread.interrupted(), "interrupt flag lost"); }
                 """);
     }
 
-    @Test
-    public void cancellationAndRunReplacementCannotStartWindowChecks() throws Exception {
-        RuntimeSourceFixture.verify(fixture() + """
-                public static void verify() throws Exception {
-                    Fixture test = new Fixture();
-                    DesktopAutomationEventJournal.event = () -> DesktopSelfTestRunState.cancelled = true;
-                    check(!test.awaitPreparedDesktop(null), "cancelled preparation");
-                    DesktopSelfTestRunState.cancelled = false;
-                    DesktopAutomationEventJournal.event = () -> DesktopSelfTestRunState.currentRun = 2;
-                    check(!test.awaitPreparedDesktop(null), "superseded preparation");
-                    DesktopSelfTestRunState.currentRun = 1;
-                    DesktopAutomationEventJournal.interrupt = true;
-                    try { test.awaitPreparedDesktop(null); throw new AssertionError("interruption lost"); }
-                    catch (InterruptedException expected) { }
-                }
+    @Test public void closedLeaseCannotStartDesktop() throws Exception {
+        verify("""
+                mClosed = true;
+                try { showReady(new DesktopDisplayTarget()); throw new AssertionError("closed lease used"); }
+                catch (IllegalStateException expected) { }
+                check(!mStartAttempted && !DesktopOperations.requested, "closed lease submitted start");
                 """);
     }
 
-    private static String fixture() throws Exception {
-        return """
-                final long mRunId = 1;
-                final Target mTarget = new Target();
-                static class Target {
-                    boolean matchesDisplay(int id, DesktopDisplayTarget target) {
-                        return target != null && target.id == id;
-                    }
+    @Test public void allTargetsProbeBeforeStartingDesktop() throws Exception {
+        final String launcher = source("DesktopSelfTestLauncher");
+        assertFalse(launcher.contains("DesktopOperations.show"));
+        assertFalse(launcher.contains("DesktopHomeRoleLease"));
+        final String controller = source("DesktopSelfTestController");
+        assertTrue(controller.indexOf("DesktopSelfTestFreeformProbe.run(")
+                < controller.indexOf("DesktopSelfTestWindowSuite.run("));
+        final String suite = source("DesktopSelfTestWindowSuite");
+        final String preparation = suite.substring(suite.indexOf("\"DESKTOP-001\""),
+                suite.indexOf("\"DESKTOP-002\""));
+        assertTrue(preparation.contains("workspaceLease.showReady(displayTarget)"));
+        assertFalse(preparation.contains("target == DesktopSelfTestTarget.SIMULATED"));
+    }
+
+    @Test public void independentLaunchPreservesComponentAndExtrasAcrossShellTransport() throws Exception {
+        final String probe = source("DesktopSelfTestFreeformProbe");
+        assertTrue(probe.contains("\"app \" + displayId"));
+        assertFalse(probe.contains("app-direct"));
+        assertTrue(probe.contains("intent.toUri(Intent.URI_INTENT_SCHEME)"));
+        assertFalse(probe.contains("intent.toUri(0)"));
+        assertTrue(source("TaskDisplayAreaLaunchCommand")
+                .contains("Intent.parseUri(intentUri, Intent.URI_INTENT_SCHEME)"));
+    }
+
+    private static String source(String name) throws Exception {
+        return Files.readString(Path.of("src/main/java/io/github/mekhontsev/magicdesk/" + name + ".java"));
+    }
+
+    private static void verify(String scenario) throws Exception {
+        RuntimeSourceFixture.verify("""
+                static boolean mClosed, mStartAttempted;
+                static class DesktopDisplayTarget { int workspaceDisplayId = 7; }
+                static class DesktopSelfTestRunState {
+                    long runId = 1;
+                    static int expectedClose = -1;
+                    static DesktopSelfTestRunState snapshot() { return new DesktopSelfTestRunState(); }
+                    static void expectSessionClose(long run, int display) { expectedClose = display; }
+                    static void resumeSessionCloseObservation(long run, int display) { expectedClose = -1; }
                 }
-                static class DesktopDisplayOutput {
-                    enum Kind { WIRED, WIRELESS }
-                    Kind kind = Kind.WIRED;
-                }
-                static class DesktopDisplayTarget {
-                    int id = 52;
-                    DesktopDisplayOutput output = new DesktopDisplayOutput();
-                }
-                static class DesktopSessionSnapshot {
-                    DesktopDisplayTarget target;
-                    boolean host;
-                    DesktopDisplayTarget target() { return target; }
-                    boolean hasHost() { return host; }
-                }
-                static class DesktopRuntimeBridge {
-                    static DesktopSessionSnapshot session = new DesktopSessionSnapshot();
-                    static DesktopSessionSnapshot getSessionSnapshot(int id) {
-                        check(id == 52, "read exact prepared display"); return session;
-                    }
+                enum DesktopSessionPolicy { ISOLATED_SELF_TEST }
+                static class ExternalDisplayController { static final long START_TIMEOUT_MS = 50; }
+                static class TaskRepository {
+                    record ActionResult(boolean success, String message) { }
+                    interface ActionCallback { void onComplete(ActionResult result); }
                 }
                 static class DesktopOperations {
-                    static boolean transitioning = true;
-                    static boolean isSessionTransitionInProgress() { return transitioning; }
-                }
-                static class DesktopSelfTestRunState {
-                    static long currentRun = 1;
-                    static boolean cancelled;
-                    boolean cancellationRequested;
-                    static boolean isStarting(long run) { return run == currentRun; }
-                    static int preparedDisplayId() { return 52; }
-                    static DesktopSelfTestRunState snapshot() {
-                        DesktopSelfTestRunState state = new DesktopSelfTestRunState();
-                        state.cancellationRequested = cancelled; return state;
+                    static boolean requested, completed, complete = true, success = true;
+                    static String message = "ready";
+                    static Runnable pending;
+                    static boolean showDesktop(DesktopDisplayTarget target, DesktopSessionPolicy policy,
+                            TaskRepository.ActionCallback callback) {
+                        check(policy == DesktopSessionPolicy.ISOLATED_SELF_TEST, "user workspace touched");
+                        requested = true;
+                        pending = () -> {
+                            check(DesktopSelfTestRunState.expectedClose == 7, "startup rollback could cancel the run");
+                            completed = true; callback.onComplete(new TaskRepository.ActionResult(success, message));
+                        };
+                        return true;
                     }
                 }
-                static class SystemClock {
-                    static long now;
-                    static long uptimeMillis() { return now; }
-                }
-                static class ExternalDisplayController { static final long START_TIMEOUT_MS = 50; }
-                static class DesktopAutomationEventJournal {
+                static class CountDownLatch {
                     static int waits;
                     static boolean interrupt;
-                    static Runnable event = () -> {};
-                    static long latestId() { return waits; }
-                    static long awaitChange(long id, long remaining) throws InterruptedException {
-                        check(id == waits, "do not lose an event between observation and wait");
+                    boolean ready;
+                    CountDownLatch(int count) { }
+                    void countDown() { ready = true; }
+                    boolean await(long timeout, TimeUnit unit) throws InterruptedException {
+                        waits++;
                         if (interrupt) throw new InterruptedException();
-                        waits++; SystemClock.now += 25; event.run(); return waits;
+                        if (DesktopOperations.complete) DesktopOperations.pending.run();
+                        return ready;
                     }
                 }
-                """ + RuntimeSourceFixture.methods("DesktopSelfTestLauncher", "awaitPreparedDesktop");
+                public static void verify() throws Exception { new Fixture().exercise(); }
+                void exercise() throws Exception {
+                """ + scenario + "check(DesktopSelfTestRunState.expectedClose == -1, \"session loss observation not restored\");}\n"
+                + RuntimeSourceFixture.methods("WorkspaceIsolationLease", "showReady", "requireOpen"));
     }
 }

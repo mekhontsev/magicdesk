@@ -5,7 +5,6 @@ import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.view.Display;
 
 import java.lang.ref.WeakReference;
@@ -92,13 +91,9 @@ final class DesktopSelfTestLauncher {
         }
         DesktopSelfTestHostObserver.begin(mRunId);
         if (mTarget == DesktopSelfTestTarget.SIMULATED) {
-            run();
+            run(null);
         } else if (mTarget == DesktopSelfTestTarget.PHONE) {
-            // Use the production start queue: service readiness and HOME
-            // acquisition must complete off the diagnostics UI thread.
-            DesktopOperations.showDesktop(
-                    DesktopDisplayTarget.phone(), DesktopSessionPolicy.ISOLATED_SELF_TEST);
-            waitForDesktop(null);
+            run(DesktopDisplayTarget.phone());
         } else {
             probeExternal();
         }
@@ -113,8 +108,7 @@ final class DesktopSelfTestLauncher {
                     return;
                 }
                 if (mDisplayKind != DesktopDisplayOutput.Kind.WIRELESS && wired > 0) {
-                    DesktopOperations.showWiredDesktop(DesktopSessionPolicy.ISOLATED_SELF_TEST);
-                    waitForDesktop(DesktopDisplayOutput.Kind.WIRED);
+                    run(DesktopDisplayTarget.wired(wired));
                 } else if (mDisplayKind == DesktopDisplayOutput.Kind.WIRED) {
                     finishPreparation(false, "connected wired display is unavailable");
                 } else if (wireless > 0) {
@@ -165,59 +159,9 @@ final class DesktopSelfTestLauncher {
 
     private void showWireless(final int displayId) {
         stopWirelessObservation();
-        DesktopOperations.showDesktop(DesktopDisplayTarget.wireless(displayId),
-                DesktopSessionPolicy.ISOLATED_SELF_TEST);
-        waitForDesktop(DesktopDisplayOutput.Kind.WIRELESS);
+        run(DesktopDisplayTarget.wireless(displayId));
     }
-
-    private void waitForDesktop(final DesktopDisplayOutput.Kind kind) {
-        new Thread(() -> {
-            final boolean prepared;
-            try {
-                prepared = awaitPreparedDesktop(kind);
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                MAIN.post(() -> finishPreparation(false, "desktop preparation wait interrupted"));
-                return;
-            }
-            MAIN.post(() -> {
-                if (preparing()) {
-                    if (prepared) {
-                        run();
-                    } else {
-                        finishPreparation(false, "desktop preparation timed out");
-                    }
-                }
-            });
-        }, "MagicDeskSelfTestDesktopWait").start();
-    }
-
-    private boolean awaitPreparedDesktop(final DesktopDisplayOutput.Kind kind)
-            throws InterruptedException {
-        final long deadline = SystemClock.uptimeMillis()
-                + ExternalDisplayController.START_TIMEOUT_MS * 2L;
-        long eventId = DesktopAutomationEventJournal.latestId();
-        while (DesktopSelfTestRunState.isStarting(mRunId)
-                && !DesktopSelfTestRunState.snapshot().cancellationRequested) {
-            final int id = DesktopSelfTestRunState.preparedDisplayId();
-            final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot(id);
-            final DesktopDisplayTarget display = session.target();
-            // Target selection precedes HOME creation. The harness must not
-            // inspect or close that workspace until the production Start finishes.
-            if (mTarget.matchesDisplay(id, display)
-                    && (kind == null || display.output.kind == kind)
-                    && session.hasHost()
-                    && !DesktopOperations.isSessionTransitionInProgress()) {
-                return true;
-            }
-            final long remaining = deadline - SystemClock.uptimeMillis();
-            if (remaining <= 0L) { return false; }
-            eventId = DesktopAutomationEventJournal.awaitChange(eventId, remaining);
-        }
-        return false;
-    }
-
-    private void run() {
+    private void run(final DesktopDisplayTarget displayTarget) {
         if (!preparing()) {
             return;
         }
@@ -225,7 +169,8 @@ final class DesktopSelfTestLauncher {
         DesktopSelfTestRunState.clearPreparationCancellationHandler(mRunId);
         new Thread(() -> {
             try {
-                DesktopSelfTestController.run(mContext, mTarget, mResultTaskId, mPolicy, mRunId);
+                DesktopSelfTestController.run(mContext, mTarget, mResultTaskId, mPolicy, mRunId,
+                        displayTarget);
             } finally {
                 MAIN.post(() -> {
                     if (sActive == this) {
@@ -248,16 +193,7 @@ final class DesktopSelfTestLauncher {
         }
         mFinishingPreparation = true;
         stopWirelessObservation();
-        final int id = DesktopSelfTestRunState.preparedDisplayId();
-        final DesktopDisplayTarget display = DesktopRuntimeBridge.getDesktopTarget(id);
-        if (mTarget.matchesDisplay(id, display)
-                && DesktopRuntimeBridge.getSessionSnapshot(DesktopSelfTestRunState.preparedDisplayId()).policy()
-                        == DesktopSessionPolicy.ISOLATED_SELF_TEST) {
-            DesktopOperations.closeDesktop(display, DesktopCloseMode.HOME,
-                    ignored -> MAIN.post(() -> completePreparation(cancelled, detail)));
-        } else {
-            completePreparation(cancelled, detail);
-        }
+        completePreparation(cancelled, detail);
     }
 
     private void completePreparation(final boolean cancelled, final String detail) {

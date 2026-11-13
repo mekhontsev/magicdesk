@@ -23,6 +23,11 @@ public final class DesktopSelfTestCapabilityAudit {
             final Context context,
             final DesktopSelfTestResult result,
             final DesktopSelfTestTarget target) {
+        return run(context, result, target, null);
+    }
+
+    static boolean run(final Context context, final DesktopSelfTestResult result,
+            final DesktopSelfTestTarget target, final DesktopDisplayTarget selectedDisplay) {
         final String output;
         try {
             output = ShellAccess.probeCapabilities();
@@ -97,16 +102,12 @@ public final class DesktopSelfTestCapabilityAudit {
                         ? NativeDesktopController.backendDescription()
                         : "unavailable; direct WindowContainerTransaction path required");
 
-        final int activeDisplayId =
-                DesktopSelfTestRunState.preparedDisplayId();
-        final DesktopDisplayTarget activeTarget =
-                DesktopRuntimeBridge.getDesktopTarget(activeDisplayId);
         final boolean wired = target == DesktopSelfTestTarget.EXTERNAL
-                && activeTarget != null
-                && activeTarget.output.kind == DesktopDisplayOutput.Kind.WIRED;
+                && selectedDisplay != null
+                && selectedDisplay.output.kind == DesktopDisplayOutput.Kind.WIRED;
         final boolean wireless = target == DesktopSelfTestTarget.EXTERNAL
-                && activeTarget != null
-                && activeTarget.output.kind == DesktopDisplayOutput.Kind.WIRELESS;
+                && selectedDisplay != null
+                && selectedDisplay.output.kind == DesktopDisplayOutput.Kind.WIRELESS;
         result.add(wired ? DesktopSelfTestResult.State.PASS
                         : DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-DP-001", "Physical DisplayPort and EDID",

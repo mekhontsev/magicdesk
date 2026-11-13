@@ -184,6 +184,31 @@ public final class DesktopSelfTestRunStateTest {
     }
 
     @Test
+    public void startupRollbackDoesNotCancelButLaterSessionLossDoes() {
+        final long runId = DesktopSelfTestRunState.startRun(
+                0L, "wired", DesktopSelfTestExecutionPolicy.FULL, 100L);
+        DesktopSelfTestRunState.expectSessionClose(runId, 7);
+        DesktopSelfTestRunState.noteDesktopSessionClosed(DesktopSessionPolicy.ISOLATED_SELF_TEST, 7);
+        assertFalse(DesktopSelfTestRunState.isCancellationRequested());
+        DesktopSelfTestRunState.resumeSessionCloseObservation(runId, 7);
+        DesktopSelfTestRunState.noteDesktopSessionClosed(DesktopSessionPolicy.ISOLATED_SELF_TEST, 7);
+        assertTrue(DesktopSelfTestRunState.isCancellationRequested());
+    }
+
+    @Test
+    public void expectedRollbackDoesNotSuppressExplicitStop() {
+        final long runId = DesktopSelfTestRunState.startRun(
+                0L, "phone", DesktopSelfTestExecutionPolicy.FULL, 100L);
+        DesktopSelfTestRunState.expectSessionClose(runId, 0);
+        DesktopSelfTestRunState.requestCancellation(runId);
+        DesktopSelfTestRunState.noteDesktopSessionClosed(DesktopSessionPolicy.ISOLATED_SELF_TEST, 0);
+        DesktopSelfTestRunState.resumeSessionCloseObservation(runId, 0);
+        assertTrue(DesktopSelfTestRunState.isCancellationRequested());
+        assertEquals("user", DesktopSelfTestRunState.snapshot().cancellationReason);
+        assertEquals("cancellation requested", DesktopSelfTestRunState.snapshot().detail);
+    }
+
+    @Test
     public void desktopSessionClosureDoesNotCancelCleanup() {
         final long runId = DesktopSelfTestRunState.startRun(
                 0L, "simulated", DesktopSelfTestExecutionPolicy.FULL, 100L);

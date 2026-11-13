@@ -246,13 +246,21 @@ final class DesktopSelfTestRunState {
                 cancelled || successful, resultModifiedAtMillis);
     }
 
-    // Only the display-removal fixture declares this immediately before removing
-    // its own display. An unrelated session loss must still cancel the test.
+    // Startup rollback and intentional display removal are not user cancellation.
+    // Other session loss must still cancel the test.
     static void expectSessionClose(final long runId, final int displayId) {
         synchronized (LOCK) {
             if (sSnapshot.runId == runId && sSnapshot.state == State.RUNNING
                     && !sSnapshot.cancellationRequested) {
                 sExpectedSessionCloseDisplayId = displayId;
+            }
+        }
+    }
+
+    static void resumeSessionCloseObservation(final long runId, final int displayId) {
+        synchronized (LOCK) {
+            if (sSnapshot.runId == runId && sExpectedSessionCloseDisplayId == displayId) {
+                sExpectedSessionCloseDisplayId = -1;
             }
         }
     }

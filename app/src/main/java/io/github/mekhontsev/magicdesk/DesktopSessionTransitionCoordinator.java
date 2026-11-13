@@ -91,6 +91,11 @@ final class DesktopSessionTransitionCoordinator {
     boolean showDesktop(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
+        return showDesktop(target, policy, null);
+    }
+
+    boolean showDesktop(final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy, final TaskRepository.ActionCallback callback) {
         if (target == null
                 || target.workspaceDisplayId < Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
@@ -101,7 +106,7 @@ final class DesktopSessionTransitionCoordinator {
                     "display target is unsupported by the current platform");
         }
         return enqueueDesktopStart(() -> DesktopDisplayDrivers.forTarget(target)
-                .showReady(null, target, policy), null);
+                .showReady(null, target, policy), callback);
     }
 
     void closeDesktop(

@@ -1985,10 +1985,21 @@ display. The reference excludes translucent pixels and waits for presentation
 effects to complete; it does not assume an opaque background or available blur.
 Missing, occluded and partially covered content remains a failure. These
 on-demand visual checks do not change the theme, window state or input assertions.
-Phone and external test preparation waits for the selected workspace's registered
-HOME host and completion of the production start operation. Target selection alone
-does not admit window checks or cleanup. The wait observes existing host and
-transition events; the normal window, render and input assertions still follow.
+Every target first opens and closes an independent freeform fixture on the selected
+display, before acquiring HOME or starting Desktop. `FREEFORM-INDEPENDENT` checks
+the application's first frame, actual windowing mode, visibility, bounds and cleanup;
+accepting a launch alone is not a pass. It uses the shared shell launch and WCT
+freeform transition, without enabling freeform settings or acquiring a Desktop
+session. These results describe independent window support separately from the
+managed workspace checks that follow.
+Desktop startup then runs through the production queue inside the recorded test.
+Its completion callback includes failures such as HOME-role refusal; these fail
+`DESKTOP-001` without discarding earlier probe results or waiting for a nonexistent
+host. Successful startup must still publish the selected workspace's HOME host
+before managed window checks run. Cancellation and failure retain unconditional
+fixture/display cleanup, without presenting HOME when Desktop was never attempted.
+Startup rollback is recorded as a failure, not user cancellation, so its report
+is saved. Explicit Stop and subsequent loss of an established session still cancel.
 `get_state.readiness` reports awake, lock, and privileged-service prerequisites and explicit
 required actions; unknown lock observations never mean ready. `get_state.app`
 includes a source build identity, process instance id, and installation time,

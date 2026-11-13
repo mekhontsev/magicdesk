@@ -80,6 +80,11 @@ public final class DesktopOperations {
         return TRANSITIONS.showDesktop(target, policy);
     }
 
+    static boolean showDesktop(final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy, final TaskRepository.ActionCallback callback) {
+        return TRANSITIONS.showDesktop(target, policy, callback);
+    }
+
     static boolean presentDesktopWorkspace(
             final DesktopDisplayTarget target,
             final ResultCallback callback) {
