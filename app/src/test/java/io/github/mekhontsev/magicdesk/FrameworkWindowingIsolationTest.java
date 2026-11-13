@@ -149,6 +149,15 @@ public final class FrameworkWindowingIsolationTest {
                 "\"syncInputTransactions\"");
     }
 
+    @Test public void windowServiceLookupDoesNotInitializeApplicationUi() throws IOException {
+        assertNoSourceTokensOutside("WindowManagerGlobal lookup requires application shared memory",
+                List.of(), "Class.forName(\"android.view.WindowManagerGlobal\")",
+                ".getWindowManagerService(");
+        assertNoSourceTokensOutside("Window service connection outside shared adapter",
+                List.of("io/github/mekhontsev/magicdesk/FrameworkWindowServiceApi.java"),
+                "android.view.IWindowManager$Stub");
+    }
+
     @Test public void shellSurfaceTrustHasOneFrameworkOwner() throws IOException {
         assertNoSourceTokensOutside("Surface input policy outside framework adapter",
                 List.of("io/github/mekhontsev/magicdesk/FrameworkSurfaceInputApi.java"),

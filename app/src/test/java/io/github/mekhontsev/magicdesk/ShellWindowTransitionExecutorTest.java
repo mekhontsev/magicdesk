@@ -111,7 +111,7 @@ public final class ShellWindowTransitionExecutorTest {
                 .getDeclaredField("sWindowOrganizer");
         cached.setAccessible(true);
         final Object previous = cached.get(null);
-        final Field windowManager = FrameworkWindowCommitBarrier.class
+        final Field windowManager = FrameworkWindowServiceApi.class
                 .getDeclaredField("sWindowManager");
         windowManager.setAccessible(true);
         final Object previousWindowManager = windowManager.get(null);

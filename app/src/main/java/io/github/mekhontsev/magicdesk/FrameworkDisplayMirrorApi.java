@@ -8,8 +8,7 @@ import java.lang.reflect.Method;
 /** Android 14+ logical-scene mirroring; no display resource or task mutation. */
 @SuppressLint({"PrivateApi", "BlockedPrivateApi"})
 final class FrameworkDisplayMirrorApi {
-    private final Object mWindows = Class.forName("android.view.WindowManagerGlobal")
-            .getMethod("getWindowManagerService").invoke(null);
+    private final Object mWindows = FrameworkWindowServiceApi.get();
     private final Method mMirror = Class.forName("android.view.IWindowManager")
             .getMethod("mirrorDisplay", int.class, SurfaceControl.class);
 

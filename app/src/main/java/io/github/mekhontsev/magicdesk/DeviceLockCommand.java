@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.os.Bundle;
-import android.os.IBinder;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -19,20 +18,9 @@ public final class DeviceLockCommand {
         }
 
         try {
-            final Class<?> serviceManagerClass = Class.forName("android.os.ServiceManager");
-            final IBinder binder = (IBinder) serviceManagerClass
-                    .getMethod("getService", String.class)
-                    .invoke(null, "window");
-            if (binder == null) {
-                throw new IllegalStateException("window service is unavailable");
-            }
-
             final Class<?> windowManagerInterface =
                     Class.forName("android.view.IWindowManager");
-            final Object windowManager = Class
-                    .forName("android.view.IWindowManager$Stub")
-                    .getMethod("asInterface", IBinder.class)
-                    .invoke(null, binder);
+            final Object windowManager = FrameworkWindowServiceApi.get();
             final Method lockNow =
                     windowManagerInterface.getMethod("lockNow", Bundle.class);
             lockNow.invoke(windowManager, new Object[] {null});

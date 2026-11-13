@@ -27,8 +27,7 @@ final class FrameworkDisplayCaptureApi {
                 .invoke(builder, captureScale(crop.width(), width), captureScale(crop.height(), height));
         final Object args = builderClass.getMethod("build").invoke(builder);
         final Object listener = captureClass.getMethod("createSyncCaptureListener").invoke(null);
-        final Object windows = Class.forName("android.view.WindowManagerGlobal")
-                .getMethod("getWindowManagerService").invoke(null);
+        final Object windows = FrameworkWindowServiceApi.get();
         // WM resolves the logical display to its current layer tree, including
         // virtual displays. A SurfaceFlinger physical-display token is not required.
         Class.forName("android.view.IWindowManager")

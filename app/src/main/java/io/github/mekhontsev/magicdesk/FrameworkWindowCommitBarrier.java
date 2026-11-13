@@ -9,7 +9,6 @@ final class FrameworkWindowCommitBarrier {
     private static final AtomicLong FAILURES = new AtomicLong();
     private static volatile long sLastDurationMillis;
     private static volatile String sLastError = "none";
-    private static Object sWindowManager;
 
     private FrameworkWindowCommitBarrier() {
     }
@@ -23,7 +22,7 @@ final class FrameworkWindowCommitBarrier {
             // WM waits on animation/transition completion, then on SF's
             // input-window acknowledgement. Its deadline is framework-owned
             // and global, not a guessed delay or a per-display token callback.
-            final Object windowManager = windowManager();
+            final Object windowManager = FrameworkWindowServiceApi.get();
             windowManager.getClass().getMethod("syncInputTransactions", Boolean.TYPE)
                     .invoke(windowManager, Boolean.TRUE);
             sLastError = "none";
@@ -44,15 +43,4 @@ final class FrameworkWindowCommitBarrier {
                 + ", lastError=" + sLastError;
     }
 
-    private static synchronized Object windowManager()
-            throws ReflectiveOperationException {
-        if (sWindowManager == null) {
-            sWindowManager = Class.forName("android.view.WindowManagerGlobal")
-                    .getMethod("getWindowManagerService").invoke(null);
-            if (sWindowManager == null) {
-                throw new IllegalStateException("WindowManager service is unavailable");
-            }
-        }
-        return sWindowManager;
-    }
 }

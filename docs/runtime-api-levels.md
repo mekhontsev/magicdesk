@@ -85,6 +85,16 @@ failed launch. Privileged placement alongside Desktop retains its ownership chec
 
 ## Release-Specific Behavior
 
+- Privileged WindowManager IPC uses the shared `FrameworkWindowServiceApi`
+  Binder connection, not `WindowManagerGlobal`'s application UI initialization.
+  Newer framework builds can read animation scale from `ApplicationSharedMemory`
+  there; standalone Shizuku UserServices and direct `su` processes do not receive
+  the normal `bindApplication` shared-memory descriptor. Windowing, capture,
+  mirroring, commit barriers, IME policy and device locking share this connection.
+  It does not synthesize shared memory, disable framework caches or change the
+  caller's permissions. Android 16 phone and virtual Desktop launch/cleanup and
+  virtual-display capture are verified. Exact Android 17/HONOR device verification
+  remains pending.
 - `FrameworkInputRoutingApi` uses Android 14's unique-ID association methods;
   API 35+ uses their port-specific names. Physical input stays in InputReader.
   On API 34, mouse associations must match Android's shared pointer target.
