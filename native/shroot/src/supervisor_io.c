@@ -501,7 +501,7 @@ void outgoing_start(struct thread *t) {
         error=md_fd_message_capture(t->resources.files,owner->input.keep+1,owner->input.count-1,&owner->message);
     if (!error) {
         struct md_received_fds *received=NULL;
-        error=md_fd_capture_native(t->pid,owner->input.keep,owner->input.count,&received);
+        error=md_fd_capture_native(t->pid,&t->descriptor_process,owner->input.keep,owner->input.count,&received);
         if (error>0) {
             CHECK(!md_fd_order_complete(&owner->files));
             owner->stage=OUTGOING_CAPTURE;
@@ -811,7 +811,7 @@ void receive_start(struct thread *t) {
         }
     }
     if (!error) {
-        error=md_fd_capture_native(t->pid,&owner->request.socket,1,&owner->received);
+        error=md_fd_capture_native(t->pid,&t->descriptor_process,&owner->request.socket,1,&owner->received);
         if (error>0) {
             owner->started=owner->brokered=1;
             CHECK(!md_fd_order_complete(&owner->files));
@@ -1108,7 +1108,7 @@ int receive_prepared(struct thread *t,const struct user_pt_regs *continuation,un
     int ready=md_fd_order_begin(t->resources.files,&owner->files,fd_wakeup);
     if (ready>0) {
         CHECK(!md_fd_order_start(&owner->files));
-        ready=md_fd_capture_native(t->pid,&owner->request.socket,1,&owner->received);
+        ready=md_fd_capture_native(t->pid,&t->descriptor_process,&owner->request.socket,1,&owner->received);
     }
     if (ready>0) ready=!md_ipc_io_prepare(&owner->io,&frame->io,owner->received->fds[0],owner->request.flags,0)
         && owner->io.nonblocking;

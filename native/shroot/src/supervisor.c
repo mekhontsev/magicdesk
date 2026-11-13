@@ -88,6 +88,7 @@
 #include "task_resources.h"
 #include "task_stop.h"
 #include "task_wait.h"
+#include "task_descriptor.h"
 #include "uts_namespace.h"
 #include <stdlib.h>
 #include <sys/eventfd.h>
@@ -246,6 +247,7 @@ void cleanup(void) {
         md_identity_release(&threads->identity);
         identity_discard(threads);
         md_signal_delivery_clear(&threads->signals.delivery);
+        md_task_descriptor_release(&threads->descriptor_process);
         free(threads); threads = next;
     }
     task_action_cleanup();
@@ -888,6 +890,7 @@ int main(int argc, char **argv) {
         md_fs_buffer_control_factory(buffer_service,md_proc_file_control_object);
         md_fs_buffer_control_query(buffer_service,control_file_query);
         md_fs_buffer_control_capture(buffer_service,control_file_capture);
+        md_fs_buffer_descriptor_capture(buffer_service,duplicate_fd);
         md_fs_buffer_exec_capture(buffer_service,executable_capture);
         md_fs_buffer_path_capture(buffer_service,proc_path_capture);
         CHECK(!md_mount_copy_service_create(filesystem,mount_copy_complete,&mount_copy_service));

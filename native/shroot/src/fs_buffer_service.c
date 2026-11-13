@@ -45,12 +45,16 @@ struct md_fs_buffer_service {
     md_control_capture control_capture;
     md_exec_capture exec_capture;
     md_proc_path_capture path_capture;
+    int (*descriptor_capture)(pid_t,int);
     void (*complete)(struct md_fs_buffer_request *, pid_t, int);
     int (*admit)(pid_t);
     int (*restricted)(pid_t);
 };
 void md_fs_buffer_admission(struct md_fs_buffer_service *s,int (*admit)(pid_t)) { s->admit=admit; }
 void md_fs_buffer_restricted(struct md_fs_buffer_service *s,int (*restricted)(pid_t)) { s->restricted=restricted; }
+void md_fs_buffer_descriptor_capture(struct md_fs_buffer_service *s,int (*capture)(pid_t,int)) {
+    s->descriptor_capture=capture;
+}
 struct md_fs_buffer_request {
     struct md_fs_work work;
     struct md_fs_buffer_service *service;
@@ -1332,7 +1336,8 @@ int md_fs_buffer_progress(struct md_fs_buffer_service *s) {
                     struct md_fd_object *object=!(data&(1U<<i))
                         ? md_fd_origins_object(r->files.table,base,NULL) : NULL;
                     int pin=md_fd_native_pin_descriptor(object);
-                    int fd=pin<0 ? md_task_descriptor_copy(r->actor,base,&process)
+                    int fd=pin<0 ? (s->descriptor_capture ? s->descriptor_capture(r->actor,base)
+                            : md_task_descriptor_copy(r->actor,base,&process))
                         : fcntl(pin,F_DUPFD_CLOEXEC,3);
                     if (pin>=0 && fd<0) fd=-errno;
                     md_fd_object_release(object);
@@ -1353,7 +1358,7 @@ int md_fs_buffer_progress(struct md_fs_buffer_service *s) {
                 }
             }
         }
-        if (process>=0) close(process);
+        md_task_descriptor_release(&process);
         r->context.actor=r->actor; r->context.authenticated=r->context.has_identity=1;
         if (!error && r->captured_only && (r->capture_mask || r->export_mask)) error=MD_FS_BUFFER_NEEDS_TASK;
         if (!error && r->capture_mask) {

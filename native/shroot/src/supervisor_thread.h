@@ -366,6 +366,7 @@ struct thread {
     struct task_action *action;
     struct readiness_owner *readiness;
     pid_t pid;
+    int descriptor_process;
     pid_t tgid;
     pid_t parent;
     int ready;

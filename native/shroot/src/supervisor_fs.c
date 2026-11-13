@@ -145,10 +145,8 @@ int duplicate_fd(pid_t pid, int descriptor) {
     /* Never substitute a group's leader for another thread's descriptor table.
      * Older kernels can duplicate a leader's descriptors; other threads use
      * their task-affine SCM_RIGHTS continuation instead. */
-    int process=-1;
-    int fd=md_task_descriptor_copy(pid,descriptor,&process);
-    if (process>=0) close(process);
-    return fd;
+    struct thread *t=find_thread(pid);
+    return t ? md_task_descriptor_copy(pid,descriptor,&t->descriptor_process) : -ESRCH;
 }
 
 int read_string(pid_t pid, uintptr_t address, char *text, size_t capacity) {

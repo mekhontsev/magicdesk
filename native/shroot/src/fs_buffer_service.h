@@ -13,6 +13,9 @@ void md_fs_buffer_admission(struct md_fs_buffer_service *, int (*)(pid_t));
 /* Capture on the supervisor thread before admission. Filter installation must
  * drain admitted operations before committing a new transport restriction. */
 void md_fs_buffer_restricted(struct md_fs_buffer_service *, int (*)(pid_t));
+/* Supervisor-thread acquisition under the request's file-table turn. The task
+ * owner retains its pidfd; standalone services use a request-scoped handle. */
+void md_fs_buffer_descriptor_capture(struct md_fs_buffer_service *, int (*)(pid_t,int));
 struct md_fs_buffer_request;
 /* A queued file-table turn has not dispatched worker or task-affine work.
  * The supervisor may borrow its stopped caller without advancing the request. */

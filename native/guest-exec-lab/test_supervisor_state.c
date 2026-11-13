@@ -1596,12 +1596,117 @@ static void receive_layouts(void) {
     close(sockets[0]); close(sockets[1]); free(io);
     puts("PASS receive batch layouts: bounded shared vector, one admission, late fault and invalid metadata");
 }
+static void native_capture_retained(void) {
+    int channels[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC,0,channels));
+    int file=memfd_create("retained-capture",MFD_CLOEXEC); assert(file>=0);
+    assert(write(file,"a",1)==1 && !lseek(file,0,SEEK_SET));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        close(channels[0]);
+        assert(!prctl(PR_SET_DUMPABLE,1));
+        char command='a';
+        do {
+            assert(write(channels[1],&command,1)==1);
+            /* EVENT_WAIT: exact parent command; the fixture alarm bounds a
+             * missing acknowledgement, not a guessed task settling delay. */
+            assert(read(channels[1],&command,1)==1);
+            if (command=='r') {
+                int next=memfd_create("replacement-capture",MFD_CLOEXEC); assert(next>=0);
+                assert(write(next,"b",1)==1 && !lseek(next,0,SEEK_SET));
+                assert(dup3(next,file,O_CLOEXEC)==file); close(next);
+            } else if (command=='d' || command=='u') {
+                assert(!prctl(PR_SET_DUMPABLE,command=='u'));
+            } else assert(command=='x');
+        } while (command!='x');
+        _exit(0);
+    }
+    close(channels[1]);
+    char byte; assert(read(channels[0],&byte,1)==1 && byte=='a');
+    int process=-1;
+    struct md_received_fds *received=NULL;
+    int result=md_fd_capture_native(child,&process,&file,1,&received);
+    assert(result==0 || result==1);
+    assert(process>=0 && (fcntl(process,F_GETFD)&FD_CLOEXEC));
+    int handle=process, native=result==1;
+    if (native) assert(read(received->fds[0],&byte,1)==1 && byte=='a');
+    md_received_fds_release(received); received=NULL;
+    /* A retained handle must continue working when new acquisition fails. */
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_pidfd_open,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EMFILE),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+    };
+    struct sock_fprog policy={sizeof(code)/sizeof(*code),code};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&policy));
+    const char commands[]={'r','d','u'};
+    for (unsigned i=0;i<sizeof(commands);++i) {
+        assert(write(channels[0],commands+i,1)==1);
+        assert(read(channels[0],&byte,1)==1 && byte==commands[i]);
+        int captured=md_fd_capture_native(child,&process,&file,1,&received);
+        assert(process==handle);
+        if (commands[i]=='d') assert(!captured && !received);
+        else {
+            assert(captured==result);
+            if (native) {
+                assert(pread(received->fds[0],&byte,1,0)==1 && byte=='b');
+                assert(pread(file,&byte,1,0)==1 && byte=='a');
+            }
+        }
+        md_received_fds_release(received); received=NULL;
+    }
+    if (native) {
+        struct rlimit previous; assert(!getrlimit(RLIMIT_NOFILE,&previous));
+        struct rlimit limited=previous; limited.rlim_cur=32;
+        assert(!setrlimit(RLIMIT_NOFILE,&limited));
+        int fillers[32]; unsigned count=0;
+        for (;;) {
+            int fd=fcntl(file,F_DUPFD_CLOEXEC,0);
+            if (fd<0) { assert(errno==EMFILE); break; }
+            assert(count<32); fillers[count++]=fd;
+        }
+        assert(md_fd_capture_native(child,&process,&file,1,&received)==-EMFILE && !received);
+        assert(process==handle && fcntl(handle,F_GETFD)>=0);
+        while (count) close(fillers[--count]);
+        assert(!setrlimit(RLIMIT_NOFILE,&previous));
+        assert(md_fd_capture_native(child,&process,&file,1,&received)==1);
+        md_received_fds_release(received); received=NULL;
+    }
+    assert(write(channels[0],"x",1)==1);
+    int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    int ended=md_task_descriptor_copy(child,file,&process);
+    assert(ended==-ESRCH || md_task_descriptor_needs_export(ended));
+    assert(process==handle);
+    md_task_descriptor_release(&process);
+    assert(process==-1 && fcntl(handle,F_GETFD)==-1 && errno==EBADF);
+    md_task_descriptor_release(&process);
+    close(channels[0]); close(file);
+    puts("PASS retained task descriptor: no reacquisition, slot replacement, live access, FD pressure and retirement");
+}
+static void native_capture_owner(void) {
+    assert(!threads && !task_wait.cursor);
+    for (unsigned i=0;i<2;++i) {
+        struct thread *t=thread(getpid());
+        assert(t->descriptor_process==-1);
+        t->descriptor_process=md_task_pidfd_open(getpid(),NULL);
+        assert(t->descriptor_process>=0);
+        int handle=t->descriptor_process;
+        release_thread(t);
+        assert(!t->pid && t->descriptor_process==-1 && !find_thread(getpid()));
+        assert(fcntl(handle,F_GETFD)==-1 && errno==EBADF);
+    }
+    assert(!task_wait.cursor);
+    puts("PASS descriptor task owner: lazy acquisition, terminal release and clean record reuse");
+}
 static void native_capture(void) {
+    int process=-1;
     int file=memfd_create("native-capture",MFD_CLOEXEC);
     assert(file>=0 && write(file,"ab",2)==2 && !lseek(file,0,SEEK_SET));
     int numbers[]={file,file};
     struct md_received_fds *received=NULL;
-    assert(md_fd_capture_native(getpid(),numbers,2,&received)==1 && received->count==2);
+    assert(md_fd_capture_native(getpid(),&process,numbers,2,&received)==1 && received->count==2);
+    assert(process==-1);
     char byte;
     assert(read(received->fds[0],&byte,1)==1 && byte=='a');
     assert(read(received->fds[1],&byte,1)==1 && byte=='b');
@@ -1610,7 +1715,7 @@ static void native_capture(void) {
     md_received_fds_release(received); received=NULL;
     numbers[1]=-1;
     for (unsigned i=0;i<64;++i)
-        assert(md_fd_capture_native(getpid(),numbers,2,&received)==-EBADF && !received);
+        assert(md_fd_capture_native(getpid(),&process,numbers,2,&received)==-EBADF && !received);
     int copy=fcntl(file,F_DUPFD_CLOEXEC,0);
     assert(copy==next); close(copy);
     pid_t parent=getpid(),child=fork(); assert(child>=0);
@@ -1624,13 +1729,18 @@ static void native_capture(void) {
         struct sock_fprog policy={sizeof(code)/sizeof(*code),code};
         assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
         assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&policy));
-        assert(!md_fd_capture_native(parent,numbers,1,&received) && !received);
+        assert(!md_fd_capture_native(parent,&process,numbers,1,&received) && !received);
+        md_task_descriptor_release(&process);
         _exit(0);
     }
     int status;
     assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
     close(file);
     puts("PASS native capture: exact OFD, duplicate slots, partial rollback and denied-copy fallback");
+    fflush(stdout);
+    child=fork(); assert(child>=0);
+    if (!child) { alarm(10); native_capture_owner(); native_capture_retained(); fflush(stdout); _exit(0); }
+    assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
 }
 int __wrap_md_debugger_active(struct md_debugger *d) {
     (void)d; return accounting_enabled;

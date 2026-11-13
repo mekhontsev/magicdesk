@@ -810,9 +810,14 @@ export cancellation. It adds no post-5.15 requirement or startup probe.
 Scalar receive capture optionally uses pidfd_open/pidfd_getfd (available before
 5.15) in `fd_capture.c`. The exact thread identity and file-table turn select the
 OFD; EPERM/EACCES/ENOSYS and unsupported forms retain task-affine export. Partial
-capture closes every duplicate. `supervisor-state` covers shared OFD offsets,
-duplicate slots, EBADF rollback and a denied pidfd_getfd fallback; the IPC-origin
-suite exercises both native capture and forced protected/export custody.
+capture closes every duplicate. The task owner retains the exact pidfd until
+exec or retirement; every pidfd_getfd still checks access and the current slot.
+`supervisor-state` covers shared OFD offsets, duplicate slots, EBADF rollback,
+denied-copy fallback, retained acquisition, slot replacement, changed access,
+FD pressure and terminal handle release. `test_anonymous_exec.py` covers
+nonleader exec and subsequent descriptor access. The IPC-origin suite exercises
+both native capture and forced protected/export custody. Retention adds no
+kernel dependency; the 5.15 profile retains the same exact-task fallback.
 Early nonblocking receive preparation uses the existing process_vm_readv and
 pidfd_getfd facilities opportunistically. Failed snapshots/capture retain the
 task-affine adapter without performing IO; this adds no kernel minimum or probe.

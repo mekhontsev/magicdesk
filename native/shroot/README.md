@@ -155,6 +155,15 @@ file data. Logical owners follow their own sharing rules: address space,
 Fork, unshare and exec prepare changes before native execution and publish only
 confirmed results. Native rejection preserves prior ownership.
 
+Native descriptor capture retains one lazily acquired exact-task pidfd per
+supervisor task, shared by IO, readiness, control and filesystem preparation.
+Exec and terminal retirement close it; nonleader exec never transfers a former
+task's handle. Each copy still checks native access and the current guest slot
+under its file-table turn. Only the task handle is retained, not FD numbers or
+OFD results. Unsupported or denied native capture uses task-affine export.
+Worker-side capture retains its own handle under the broker's borrow lifetime;
+it never shares the supervisor's mutable task record.
+
 [Robust mutex cleanup](process-lifetime.md#robust-mutex-ownership) uses the shared
 retained-memory, task-call and child-reaping owners under User and logical PID
 namespaces. Shell otherwise retains native cleanup. Ordinary futex IO remains

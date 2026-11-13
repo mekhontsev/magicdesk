@@ -930,7 +930,7 @@ static void control_capture_step(struct thread *t,unsigned command,long value) {
     if (!error && command==MD_BUFFER_CONTROL_CAPTURE) {
         memcpy(&t->control.input_number,(char *)span.data+spec.descriptor,sizeof(int));
         t->control.origin=md_fd_origins_object(t->resources.files,t->control.input_number,NULL);
-        error=md_fd_capture_native(t->pid,&t->control.input_number,1,&t->control.input);
+        error=md_fd_capture_native(t->pid,&t->descriptor_process,&t->control.input_number,1,&t->control.input);
         if (error>0) error=0;
     }
     if (!error && !t->control.input) {

@@ -63,6 +63,7 @@
 #include "sysv_shm.h"
 #include "task_birth.h"
 #include "task_call.h"
+#include "task_descriptor.h"
 #include "task_registry.h"
 #include "task_resources.h"
 #include "task_status.h"
@@ -156,7 +157,7 @@ struct thread *thread(pid_t pid) {
     for (t = threads; t && t->pid; t = t->next) { }
     if (!t) { t = calloc(1, sizeof(*t)); CHECK(t); t->next = threads; threads = t; }
     CHECK(!t->retries[0].node.list && !t->retries[1].node.list);
-    *t = (struct thread){.pid = pid, .tgid = pid, .next = t->next,
+    *t = (struct thread){.pid = pid, .descriptor_process=-1, .tgid = pid, .next = t->next,
         .metadata = {.channel = -1, .descriptor = -1},
         .identity = md_identity_copy(&launch_identity), .memory = md_memory_new(),
         .shm_space = md_shm_space_new(),
@@ -248,6 +249,7 @@ void release_thread(struct thread *t) {
     CHECK(*slot == t);
     *slot = t->indexed; t->indexed = NULL;
     md_task_wait_untrack(&task_wait,&t->wait_member);
+    md_task_descriptor_release(&t->descriptor_process);
     t->pid = 0; live--;
     if (buffered) adapter_progress();
 }
@@ -1155,6 +1157,7 @@ void task_vfork_done_event(struct thread *t,pid_t pid,unsigned event) {
 }
 
 void task_exec_event(struct thread *t,pid_t pid,unsigned event) {
+    md_task_descriptor_release(&t->descriptor_process);
     task_action_discard(t);
     md_svc_machine_forget(&t->machine);
     /* A non-leader exec replaces the task behind the leader's PID. */

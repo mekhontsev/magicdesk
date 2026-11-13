@@ -468,7 +468,7 @@ void readiness_start(struct thread *t) {
                     && (o->event.events&EPOLLEXCLUSIVE) && provider.ops->poll_subscribe) {
                 /* Capture under the existing table turn; only cold layered
                  * exclusive ADD needs a native source. Ordinary waits do not. */
-                int captured=md_fd_capture_native(t->pid,&o->number,1,&o->received);
+                int captured=md_fd_capture_native(t->pid,&t->descriptor_process,&o->number,1,&o->received);
                 if (captured<0) { readiness_reply(t,captured); return; }
                 if (!captured) { readiness_capture(t,MD_BUFFER_EPOLL_CAPTURE_READY,0); return; }
             }
