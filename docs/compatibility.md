@@ -325,6 +325,9 @@ error code such as `[SHELL-CONSOLE-002]`, and records technical context for the
 diagnostics report. A bounded set of recent error signatures suppresses
 repetitions, exact duplicates from earlier process runs are collapsed when the
 report is built, and the local event log is size-bounded.
+Exception summaries put the deepest cause before the truncated stack. Shell
+Binder failures retain bounded cause details in the exception message, including
+display/user context for display-windowing and secondary-HOME operations.
 
 Static environment states such as an unverified firmware profile, missing
 Shizuku permission, or a stopped Shizuku server remain visible in **Capability
@@ -384,6 +387,11 @@ The report includes:
 - failed secondary HOME launch evidence under `DESKTOP-LAUNCH-002`: launch
   stage, process/Binder caller UID, Android start result, requested display,
   returned task/type and a bounded pre-cleanup task sample across displays;
+- failed HOME role assignment/restoration under `HOME-ROLE-002`: operation,
+  user/package, original error and up to 128 lines/8,000 characters from selected
+  Android role-service log tags during that operation. Capture runs only on
+  failure, with a three-second command timeout; missing logs remain unavailable.
+  Entries are time-correlated, not proof that every line belongs to the request;
 - recent logcat entries from MagicDesk tags only;
 - a schema-versioned JSON summary with platform composition, per-component
   providers, typed capability observations, window-transition routing, and the
@@ -394,7 +402,9 @@ data, clipboard contents, or the installed-app list. Application exception
 messages and stacks can contain app-supplied paths, URLs or other sensitive
 values; review them before sharing. MagicDesk-only logs can still
 contain package names, task ids, display ids, and filenames involved in a
-failed operation. Review the text before publishing it.
+failed operation. The bounded HOME failure excerpt can also contain system
+role-service messages about other packages during the same operation. Review
+the text before publishing it.
 
 The shell capability probe does not read input events, inject a real event,
 change a keyboard layout, alter display state, or write a hardware node.

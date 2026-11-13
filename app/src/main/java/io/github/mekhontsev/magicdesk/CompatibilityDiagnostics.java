@@ -106,6 +106,11 @@ public final class CompatibilityDiagnostics {
                 failure.technicalDetail(version), null, MAX_PROCESS_FAILURE_CHARS);
     }
 
+    static void recordSystemOperationFailure(final String code, final String userMessage,
+            final String detail, final Throwable error) {
+        record(code, userMessage, detail, error, 12_000);
+    }
+
     private static void record(final String code, final String userMessage,
             final String technicalDetail, final Throwable error, final int detailLimit) {
         final Context context = sApplicationContext;
@@ -116,9 +121,11 @@ public final class CompatibilityDiagnostics {
         final String cleanedMessage = cleanSingleLine(userMessage, 400);
         final String cleanedDetail = cleanMultiline(
                 technicalDetail, detailLimit);
+        final String failure = error == null ? "" : formatFailure(error);
         final String signature = cleanedCode
                 + '\n' + cleanedMessage
-                + '\n' + cleanedDetail;
+                + '\n' + cleanedDetail
+                + '\n' + failure;
 
         synchronized (LOCK) {
             if (isDuplicate(signature)) {
@@ -134,8 +141,7 @@ public final class CompatibilityDiagnostics {
                 entry.append(" | ").append(cleanedDetail);
             }
             if (error != null) {
-                entry.append(" | ").append(cleanMultiline(
-                        stackTrace(error), MAX_EVENT_DETAIL_CHARS));
+                entry.append(" | ").append(failure);
             }
             entry.append('\n');
             final File file = new File(context.getFilesDir(), EVENT_FILE);
@@ -218,7 +224,8 @@ public final class CompatibilityDiagnostics {
         report.append("\n## Privacy note\n")
                 .append("This report does not collect notification contents, user files, ")
                 .append("or the installed-app list. It includes package names, versions, ")
-                .append("task/display identifiers and bounded application crash messages/stacks. ")
+                .append("task/display identifiers, bounded application crash messages/stacks, ")
+                .append("and time-bounded Android role-service logs after HOME failures. ")
                 .append("Messages supplied by applications may contain private data; ")
                 .append("review the report before sharing.\n");
         return new DiagnosticsReport(report.toString(), Build.BRAND, Build.MODEL,
@@ -972,10 +979,12 @@ public final class CompatibilityDiagnostics {
                 ? normalized : BoundedText.prefix(normalized, maxLength) + "...";
     }
 
-    private static String stackTrace(final Throwable error) {
+    static String formatFailure(final Throwable error) {
+        final String summary = "causes: " + FailureDiagnostics.describe(error, 800) + '\n';
         final StringWriter value = new StringWriter();
         error.printStackTrace(new PrintWriter(value));
-        return value.toString();
+        return summary + FailureDiagnostics.bounded(value.toString().replace("\u0000", ""),
+                MAX_EVENT_DETAIL_CHARS - summary.length());
     }
 
     private static String utcNow() {

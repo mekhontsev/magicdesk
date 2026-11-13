@@ -14,7 +14,6 @@ import java.util.List;
 final class DesktopHomeRoleLease {
     private static final String HOME_ROLE = "android.app.role.HOME";
     private static final String MAGICDESK_PACKAGE = BuildConfig.APPLICATION_ID;
-    private static final int DONT_KILL_APP = 1;
     private static final int HOME_ACTIVITY_FLAGS =
             Intent.FLAG_ACTIVITY_NEW_TASK
                     | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED;
@@ -672,28 +671,14 @@ final class DesktopHomeRoleLease {
         public void setHomePackage(
                 final int userId,
                 final String packageName) throws IOException {
-            if (!PackageNameValidator.isSafe(packageName)) {
-                throw new IOException("invalid HOME package " + packageName);
-            }
-            ShellAccess.run(
-                    "/system/bin/cmd role add-role-holder --user "
-                            + userId + " " + HOME_ROLE + " "
-                            + ShellCommandLine.quote(packageName) + " "
-                            + DONT_KILL_APP);
+            HomeRoleCommand.run(userId, packageName, true);
         }
 
         @Override
         public void clearHomePackage(
                 final int userId,
                 final String packageName) throws IOException {
-            if (!PackageNameValidator.isSafe(packageName)) {
-                throw new IOException("invalid HOME package " + packageName);
-            }
-            ShellAccess.run(
-                    "/system/bin/cmd role remove-role-holder --user "
-                            + userId + " " + HOME_ROLE + " "
-                            + ShellCommandLine.quote(packageName) + " "
-                            + DONT_KILL_APP);
+            HomeRoleCommand.run(userId, packageName, false);
         }
 
         @Override

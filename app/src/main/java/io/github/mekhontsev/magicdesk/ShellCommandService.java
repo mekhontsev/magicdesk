@@ -78,14 +78,14 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) {
         try { return new ShellUnixEndpoint(name, expectedUid, ioTimeoutMillis, receiver); }
-        catch (IOException error) { throw new IllegalStateException("Cannot create Unix endpoint", error); }
+        catch (IOException error) { throw FailureDiagnostics.binderFailure("Cannot create Unix endpoint", error); }
     }
 
     @Override public String getSystemNightMode(final int userId) {
         final long identity = Binder.clearCallingIdentity();
         try { return FrameworkRuntime.current().systemTheme().read(userId).name(); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Cannot read system theme", error);
+            throw FailureDiagnostics.binderFailure("Cannot read system theme", error);
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
@@ -93,7 +93,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().systemTheme().write(userId, SystemNightMode.valueOf(mode)); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Cannot change system theme", error);
+            throw FailureDiagnostics.binderFailure("Cannot change system theme", error);
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
@@ -101,13 +101,13 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().displayBrightness().preserveCurrentBrightness(displayId); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Cannot preserve display brightness", error);
+            throw FailureDiagnostics.binderFailure("Cannot preserve display brightness", error);
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
     @Override public void configureCommandEnvironment(String endpoint, String apk) {
         try { CommandShellEnvironment.configure(endpoint, apk, mContext.getApplicationInfo().nativeLibraryDir); }
-        catch (IOException error) { throw new IllegalStateException("Cannot prepare shell commands", error); }
+        catch (IOException error) { throw FailureDiagnostics.binderFailure("Cannot prepare shell commands", error); }
     }
 
     @Override public String executeUiAutomation(final IBinder ownerToken,
@@ -169,7 +169,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             return FrameworkRuntime.current().displayWindowing().read(displayId);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("cannot read display default mode", error);
+            throw FailureDiagnostics.binderFailure("cannot read display default mode display=" + displayId, error);
         }
     }
 
@@ -180,7 +180,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             FrameworkRuntime.current().displayWindowing().set(
                     displayId, uniqueId, mode);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("cannot set display default mode", error);
+            throw FailureDiagnostics.binderFailure(
+                    "cannot set display default mode display=" + displayId + " mode=" + mode, error);
         }
     }
 
@@ -257,7 +258,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             return new FrameworkSecondaryHomeApi(userId).capture(mContext);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("SECONDARY_HOME resolution failed", error);
+            throw FailureDiagnostics.binderFailure("SECONDARY_HOME resolution failed user=" + userId, error);
         }
     }
 
@@ -266,7 +267,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             new FrameworkSecondaryHomeApi(userId).claim();
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("SECONDARY_HOME selection failed", error);
+            throw FailureDiagnostics.binderFailure("SECONDARY_HOME selection failed user=" + userId, error);
         }
     }
 
@@ -275,7 +276,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             new FrameworkSecondaryHomeApi(userId).restore(mContext, componentName);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("SECONDARY_HOME restoration failed", error);
+            throw FailureDiagnostics.binderFailure("SECONDARY_HOME restoration failed user=" + userId, error);
         }
     }
 
@@ -285,7 +286,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             return ShellAndroidIntegrationGateway.resolveActivity(
                     mContext, intent);
         } catch (android.content.pm.PackageManager.NameNotFoundException error) {
-            throw new IllegalStateException(
+            throw FailureDiagnostics.binderFailure(
                     "shell package context is unavailable", error);
         }
     }
@@ -299,7 +300,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             FrameworkActivityLaunchApi.launch(
                     HiddenTaskApi.getService(), intent, displayId, fullscreen);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
+            throw FailureDiagnostics.binderFailure(
                     "shell Activity launch failed", error);
         }
     }
@@ -309,7 +310,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             FrameworkActivityLaunchApi.send(mContext, intent, displayId);
         } catch (ReflectiveOperationException | android.app.PendingIntent.CanceledException error) {
-            throw new IllegalStateException("shell pending Activity launch failed", error);
+            throw FailureDiagnostics.binderFailure("shell pending Activity launch failed", error);
         }
     }
 
@@ -320,7 +321,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     @Override public void resizeTaskBounds(int displayId, int[] taskIds, Rect[] bounds) {
         try { TaskWindowingCommand.resizeBounds(HiddenTaskApi.getService(), displayId, taskIds, bounds); }
         catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException("task bounds change failed", error);
+            throw FailureDiagnostics.binderFailure("task bounds change failed", error);
         }
     }
 
@@ -330,7 +331,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             FrameworkActivityLaunchApi.moveTask(HiddenTaskApi.getService(), taskId,
                     sourceDisplayId, targetDisplayId, userId);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException("ordinary task transfer failed", error);
+            throw FailureDiagnostics.binderFailure("ordinary task transfer failed", error);
         }
     }
 
@@ -647,7 +648,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().hostedSurface().order(surface, relative); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Hosted surface ordering is unavailable", error);
+            throw FailureDiagnostics.binderFailure("Hosted surface ordering is unavailable", error);
         } finally {
             if (surface != null) surface.release();
             if (relative != null) relative.release();
@@ -1176,7 +1177,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             try {
                 return DesktopInputRoutingOwnership.ports().toArray(new String[0]);
             } catch (IOException error) {
-                throw new IllegalStateException("cannot read input routing ownership", error);
+                throw FailureDiagnostics.binderFailure("cannot read input routing ownership", error);
             }
         }
     }
@@ -1186,7 +1187,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             return FrameworkRuntime.current().inputRouting().keyboardDeviceIds(displayId);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("cannot observe routed keyboard devices", error);
+            throw FailureDiagnostics.binderFailure("cannot observe routed keyboard devices", error);
         }
     }
 
@@ -1641,7 +1642,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             try {
                 session.close();
             } catch (IOException error) {
-                throw new IllegalStateException("cannot restore input routing", error);
+                throw FailureDiagnostics.binderFailure("cannot restore input routing", error);
             }
         }
         mInputRoutingSession = null;
