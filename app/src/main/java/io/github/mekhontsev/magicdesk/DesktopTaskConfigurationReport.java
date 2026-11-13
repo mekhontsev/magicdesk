@@ -12,13 +12,14 @@ final class DesktopTaskConfigurationReport {
     private DesktopTaskConfigurationReport() {
     }
 
-    static void append(final StringBuilder report) {
+    static void append(final StringBuilder report, final DesktopInputReportSnapshot input) {
         report.append("## Live task configuration\n");
         if (!ShellAccess.isReady()) {
             report.append("Unavailable: Privileged runtime unavailable\n\n");
             return;
         }
         final FrameworkTaskSnapshot[] tasks;
+        final long taskStartedAtMillis = System.currentTimeMillis();
         try {
             tasks = ShellAccess.readDiagnosticTaskSnapshots(-1, MAX_TASKS);
         } catch (IOException | RuntimeException error) {
@@ -27,6 +28,9 @@ final class DesktopTaskConfigurationReport {
                     .append("\n\n");
             return;
         }
+        final long taskCompletedAtMillis = System.currentTimeMillis();
+        report.append("startedAtMillis=").append(taskStartedAtMillis)
+                .append(" completedAtMillis=").append(taskCompletedAtMillis).append('\n');
         final java.util.Set<Integer> desktopDisplays = DesktopRuntimeBridge.workspaceDisplayIds();
         int reported = 0;
         for (final FrameworkTaskSnapshot task : tasks) {
@@ -41,6 +45,41 @@ final class DesktopTaskConfigurationReport {
             report.append("No application tasks observed\n");
         }
         report.append('\n');
+        appendGeometry(report, tasks, input);
+    }
+
+    private static void appendGeometry(StringBuilder report, FrameworkTaskSnapshot[] tasks,
+            DesktopInputReportSnapshot input) {
+        report.append("## Window surface geometry\n")
+                .append("Read-only sequential snapshots, not an atomic frame. Missing fields are unknown.\n")
+                .append("Numeric geometry uses each source's coordinate conventions; layerStack is not a logical display ID.\n")
+                .append("Surface/input name matches are candidates, not proof of task ownership. Window titles are omitted.\n");
+        var selected = new java.util.ArrayList<FrameworkTaskSnapshot>();
+        int eligible = 0;
+        // Preserve the windows under investigation before unrelated visible hosts.
+        for (boolean freeform : new boolean[]{true, false}) {
+            for (var task : tasks) {
+                if (task == null || task.packageName.isEmpty()) continue;
+                boolean isFreeform = task.windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM;
+                if (isFreeform != freeform || (!isFreeform && !task.visible)) continue;
+                eligible++;
+                if (selected.size() < FrameworkWindowGeometryDiagnostics.MAX_TASKS) selected.add(task);
+            }
+        }
+        report.append("selectedTasks=").append(selected.stream().map(task -> task.taskId).toList())
+                .append(" omittedTasks=").append(eligible - selected.size()).append("\n\n");
+        if (selected.isEmpty()) {
+            report.append("No visible or freeform application tasks observed\n\n");
+            return;
+        }
+        var selection = selected.toArray(new FrameworkTaskSnapshot[0]);
+        input.appendWindowGeometry(report, selection);
+        try {
+            report.append(ShellAccess.readWindowGeometryDiagnostics(selection));
+        } catch (IOException | RuntimeException error) {
+            report.append("Surface/window capture unavailable: ")
+                    .append(ShellAccess.usefulMessage(error)).append("\n\n");
+        }
     }
 
     private static void appendTask(

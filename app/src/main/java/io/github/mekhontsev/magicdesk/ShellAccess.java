@@ -1098,6 +1098,15 @@ public final class ShellAccess {
         }
     }
 
+    static String readWindowGeometryDiagnostics(final FrameworkTaskSnapshot[] tasks) throws IOException {
+        try {
+            return requireService().readWindowGeometryDiagnostics(tasks);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Window geometry diagnostics failed: " + usefulMessage(error), error);
+        }
+    }
+
     static String frameworkRuntimeDiagnostics() throws IOException {
         try {
             return requireService().getFrameworkRuntimeDiagnostics();

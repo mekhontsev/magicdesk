@@ -448,6 +448,16 @@ No diagnostic input polling runs during normal desktop use. The
 report also states whether the optional desktop-session wake policy is enabled
 and currently held.
 
+`DesktopTaskConfigurationReport` selects up to 32 visible/freeform tasks for
+on-demand geometry diagnostics, prioritizing freeform tasks. The shell-owned
+`FrameworkWindowGeometryDiagnostics` bounds each WindowManager/SurfaceFlinger
+dump by time and size. `WindowGeometryReportParser` emits numeric geometry and
+candidate task associations, not arbitrary window titles or complete dumps.
+Input geometry reuses `DesktopInputReportSnapshot`, without another input query.
+Capture timestamps distinguish sequential observations; truncation, unsupported
+formats and unavailable fields remain explicit. No geometry capture runs in the
+task observer or changes window state.
+
 Compatibility probes are non-destructive: they inspect permissions and reject
 invalid/null mutations after framework permission checks rather than changing
 real input, display, or hardware state.

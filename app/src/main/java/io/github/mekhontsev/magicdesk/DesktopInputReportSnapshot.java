@@ -26,6 +26,9 @@ final class DesktopInputReportSnapshot {
     final String inputStateError;
     final FrameworkInputRoutingSnapshot routing;
     final String keyboardPlacementError;
+    private final String inputDump;
+    private final long inputStartedAtMillis;
+    private final long inputCompletedAtMillis;
 
     private DesktopInputReportSnapshot(
             final InputSessionDiagnostics.Snapshot lifecycle,
@@ -42,7 +45,10 @@ final class DesktopInputReportSnapshot {
             final Set<String> unexpectedAssociations,
             final String inputStateError,
             final FrameworkInputRoutingSnapshot routing,
-            final String keyboardPlacementError) {
+            final String keyboardPlacementError,
+            final String inputDump,
+            final long inputStartedAtMillis,
+            final long inputCompletedAtMillis) {
         this.lifecycle = lifecycle;
         this.runtime = runtime;
         this.touchpadRequested = touchpadRequested;
@@ -58,6 +64,9 @@ final class DesktopInputReportSnapshot {
         this.inputStateError = inputStateError;
         this.routing = routing;
         this.keyboardPlacementError = keyboardPlacementError;
+        this.inputDump = inputDump;
+        this.inputStartedAtMillis = inputStartedAtMillis;
+        this.inputCompletedAtMillis = inputCompletedAtMillis;
     }
 
     static DesktopInputReportSnapshot capture() {
@@ -80,12 +89,16 @@ final class DesktopInputReportSnapshot {
         Set<String> unexpectedAssociations = new LinkedHashSet<>();
         String inputStateError = "";
         FrameworkInputRoutingSnapshot routing = null;
+        String inputDump = "";
+        long inputStartedAtMillis = System.currentTimeMillis();
+        long inputCompletedAtMillis = inputStartedAtMillis;
         if (!ShellAccess.isReady()) {
             inputStateError = "Privileged runtime unavailable";
         } else {
             try {
-                final String inputDump =
+                inputDump =
                         FrameworkInputSnapshotSource.readRemote();
+                inputCompletedAtMillis = System.currentTimeMillis();
                 final List<DesktopMouseDevice> mice =
                         DesktopInputDeviceDiscovery.findRoutableMice(
                                 inputDump);
@@ -123,7 +136,23 @@ final class DesktopInputReportSnapshot {
                 unexpectedAssociations,
                 inputStateError,
                 routing,
-                MagicDeskRuntime.inputKeyboardPlacementError());
+                MagicDeskRuntime.inputKeyboardPlacementError(),
+                inputDump, inputStartedAtMillis, inputCompletedAtMillis);
+    }
+
+    void appendWindowGeometry(StringBuilder report, FrameworkTaskSnapshot[] tasks) {
+        report.append("### InputDispatcher\n")
+                .append("Reused report input snapshot; startedAtMillis=").append(inputStartedAtMillis)
+                .append(" completedAtMillis=").append(inputCompletedAtMillis).append('\n');
+        if (inputDump.isEmpty()) {
+            report.append("Unavailable: input snapshot was not captured\n");
+        } else {
+            report.append("sourceTruncated=").append(inputDump.contains(
+                    "[MagicDesk: command output truncated]")).append('\n');
+            report.append(WindowGeometryReportParser.input(inputDump,
+                    FrameworkWindowGeometryDiagnostics.targets(tasks)));
+        }
+        report.append('\n');
     }
 
     void appendReport(final StringBuilder report) {

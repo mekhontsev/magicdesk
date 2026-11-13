@@ -502,4 +502,5 @@ interface IShellCommandService {
     io.github.mekhontsev.magicdesk.IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis,
         io.github.mekhontsev.magicdesk.IUnixConnectionReceiver receiver) = 155;
     boolean getChildProcessMonitoringDefault() = 156;
+    String readWindowGeometryDiagnostics(in FrameworkTaskSnapshot[] tasks) = 157;
 }

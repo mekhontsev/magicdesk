@@ -419,7 +419,7 @@ final class TaskInputWindowParser {
         return null;
     }
 
-    private static String currentDispatcherState(final String dump) {
+    static String currentDispatcherState(final String dump) {
         if (dump == null || dump.isEmpty()) {
             return "";
         }

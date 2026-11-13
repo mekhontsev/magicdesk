@@ -970,6 +970,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
+    public String readWindowGeometryDiagnostics(final FrameworkTaskSnapshot[] tasks) {
+        return FrameworkWindowGeometryDiagnostics.capture(tasks);
+    }
+
+    @Override
     public String getFrameworkRuntimeDiagnostics() {
         return FrameworkRuntime.current().diagnosticDetail()
                 + "; surfaceTransactionQueue="

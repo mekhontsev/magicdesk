@@ -210,7 +210,7 @@ public final class CompatibilityDiagnostics {
         CompatibilityOnboardingStore.appendReport(report, appContext);
         DesktopWindowTransitionDiagnostics.appendReport(report);
         WindowTransitionHealthDiagnostics.appendReport(report, appContext);
-        DesktopTaskConfigurationReport.append(report);
+        DesktopTaskConfigurationReport.append(report, inputSnapshot);
         appendDisplays(report, appContext);
         appendInputDevices(report);
         VendorDiscoveryReport.appendSaved(report, appContext);
@@ -224,7 +224,7 @@ public final class CompatibilityDiagnostics {
         report.append("\n## Privacy note\n")
                 .append("This report does not collect notification contents, user files, ")
                 .append("or the installed-app list. It includes package names, versions, ")
-                .append("task/display identifiers, bounded application crash messages/stacks, ")
+                .append("task/display identifiers, numeric window/surface/input geometry, bounded application crash messages/stacks, ")
                 .append("and time-bounded Android role-service logs after HOME failures. ")
                 .append("Messages supplied by applications may contain private data; ")
                 .append("review the report before sharing.\n");

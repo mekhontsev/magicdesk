@@ -403,6 +403,14 @@ The report includes:
   projection, input, hardware, launcher, and output-mode integrations;
 - notification-listener and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
+- one-shot window geometry for visible and freeform tasks: WindowManager frames
+  and scale fields, SurfaceFlinger composition bounds/transforms, and input
+  frames/matrices reused from the report's input snapshot. Each source has capture
+  timestamps and explicit availability/truncation; the snapshots are not atomic.
+  Task IDs are authoritative where supplied. Surface/input name matches are only
+  candidates, particularly when one package has several tasks or user profiles.
+  Missing transforms are unknown, not assumed to be identity. Raw window titles
+  and input-event history are excluded;
 - a one-shot input snapshot with aggregate virtual-pointer activity, MagicDesk
   virtual-device presence, current routing associations, and observed pointer
   position;
