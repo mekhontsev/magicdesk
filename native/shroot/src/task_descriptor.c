@@ -35,6 +35,10 @@ int md_task_descriptor_copy(pid_t actor, int number, int *process) {
     int fd=(int)syscall(SYS_pidfd_getfd,*process,number,0);
     return fd<0 ? -errno : fd;
 }
+void md_task_descriptor_release(int *process) {
+    if (*process>=0) close(*process);
+    *process=-1;
+}
 int md_task_descriptor_pin(pid_t actor,int number) {
     if (actor<=0 || number<0) return -EINVAL;
     char path[64]; snprintf(path,sizeof(path),"/proc/%d/fd/%d",actor,number);

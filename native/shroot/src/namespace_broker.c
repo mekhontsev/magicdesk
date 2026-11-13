@@ -205,7 +205,7 @@ void md_broker_describe(struct md_namespace_broker *b,int fd) {
  * a worker operation or by an exact kernel event awaiting main-loop delivery. */
 static void task_release(struct task *t) {
     if (--t->borrowed<0) abort();
-    if (!t->pid && !t->borrowed && t->process>=0) { close(t->process); t->process=-1; }
+    if (!t->pid && !t->borrowed) md_task_descriptor_release(&t->process);
 }
 static int event_complete(struct md_fs_work *work) {
     struct task *t=(void *)((char *)work - offsetof(struct task,event_work));
@@ -1173,7 +1173,7 @@ void md_broker_forget(struct md_namespace_broker *b, int pid) {
         *slot = t->indexed; t->indexed = NULL;
         t->pid = 0;
         t->recovering=0;
-        if (!t->borrowed && t->process >= 0) { close(t->process); t->process = -1; }
+        if (!t->borrowed) md_task_descriptor_release(&t->process);
     }
     pthread_mutex_unlock(&b->lock);
     md_fs_worker_wake(b->worker);
@@ -2102,7 +2102,7 @@ void md_broker_destroy(struct md_namespace_broker *b) {
     while (b->tasks) {
         struct task *t = b->tasks; b->tasks = t->next;
         if (result_clear(b,t)) abort();
-        if (t->process >= 0) close(t->process);
+        md_task_descriptor_release(&t->process);
         free(t->machine.starts);
         free(t);
     }
