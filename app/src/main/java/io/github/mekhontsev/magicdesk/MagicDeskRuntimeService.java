@@ -828,7 +828,7 @@ public final class MagicDeskRuntimeService extends Service
                         ? getString(R.string.notification_hw_connected)
                         : getString(R.string.notification_hw_disconnected));
 
-        final var content = new android.widget.RemoteViews(getPackageName(), R.layout.runtime_notification);
+        final var content = RuntimeNotificationContent.create(this);
         content.setTextViewText(R.id.notification_status, text);
         content.setOnClickPendingIntent(R.id.notification_panel, openControlPanelPendingIntent);
         content.setOnClickPendingIntent(R.id.notification_console, phoneActivityPendingIntent(

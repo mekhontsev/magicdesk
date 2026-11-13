@@ -264,6 +264,10 @@ package-scoped force stop retains its Android semantics and rejects MagicDesk.
   point to Phone Control Panel; its separate touchpad action opens the
   phone-side input panel. Both use direct, immutable Activity PendingIntents
   with display-0 launch options, never service or broadcast trampolines.
+  `RuntimeNotificationContent` resolves the custom panel's dimensions and text
+  sizes from the phone display before publishing `RemoteViews`. Its XML remains
+  the layout owner; weight, wrapping and system decorations remain dynamic.
+  Desktop density cannot become the scale of the phone's notification controls.
   A separate **Terminal** action is present while a local PTY session exists,
   with or without Desktop. Its Activity entry resolves the last focused terminal
   at click time and uses `TerminalSessions.open` to activate the existing window

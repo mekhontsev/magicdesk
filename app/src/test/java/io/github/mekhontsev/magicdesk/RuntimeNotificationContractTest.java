@@ -84,6 +84,106 @@ public final class RuntimeNotificationContractTest {
         assertTrue(notification.contains(".setContentIntent(openControlPanelPendingIntent)"));
     }
 
+    @Test public void customContentHasAddressableDimensionsAndUsesPhoneResources() throws Exception {
+        final var xml = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(Path.of("src/main/res/layout/runtime_notification.xml").toFile());
+        final var views = xml.getElementsByTagName("*");
+        for (int i = 0; i < views.getLength(); i++) {
+            final var view = (org.w3c.dom.Element) views.item(i);
+            assertTrue(view.getTagName(), view.getAttribute("android:id").startsWith("@+id/"));
+        }
+        assertTrue(RuntimeSourceFixture.methods("MagicDeskRuntimeService", "buildNotification")
+                .contains("RuntimeNotificationContent.create(this)"));
+        final String create = RuntimeSourceFixture.methods("RuntimeNotificationContent", "create");
+        assertTrue(create.contains("displays.getDisplay(Display.DEFAULT_DISPLAY)"));
+        assertTrue(create.contains("context.createDisplayContext(phone)"));
+        assertFalse(create.contains("Desktop"));
+        assertFalse(create.contains("ShellAccess"));
+    }
+
+    @Test public void remoteDimensionsPreservePhoneSizesAndRelativeLayout() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class TypedValue { static final int COMPLEX_UNIT_PX = 0; }
+                static class Configuration {
+                    int direction;
+                    int getLayoutDirection() { return direction; }
+                }
+                static class Resources {
+                    final Configuration config = new Configuration();
+                    Configuration getConfiguration() { return config; }
+                }
+                static class View {
+                    static final int NO_ID = -1, LAYOUT_DIRECTION_RTL = 1;
+                    final int id;
+                    final Resources resources = new Resources();
+                    ViewGroup.LayoutParams params;
+                    int start, end, top, bottom;
+                    View(int id, int width, int height) {
+                        this.id = id; params = new ViewGroup.LayoutParams(width, height);
+                    }
+                    int getId() { return id; }
+                    ViewGroup.LayoutParams getLayoutParams() { return params; }
+                    Resources getResources() { return resources; }
+                    int getPaddingStart() { return start; }
+                    int getPaddingEnd() { return end; }
+                    int getPaddingTop() { return top; }
+                    int getPaddingBottom() { return bottom; }
+                }
+                static class ViewGroup extends View {
+                    static class LayoutParams {
+                        int width, height;
+                        LayoutParams(int w, int h) { width=w; height=h; }
+                    }
+                    final java.util.List<View> children = new java.util.ArrayList<>();
+                    ViewGroup(int id, int w, int h) { super(id,w,h); }
+                    int getChildCount() { return children.size(); }
+                    View getChildAt(int i) { return children.get(i); }
+                }
+                static class TextView extends View {
+                    float size;
+                    TextView(int id, float size) { super(id,-1,-2); this.size=size; }
+                    float getTextSize() { return size; }
+                }
+                static class RemoteViews {
+                    final java.util.Map<String, Float> values = new java.util.HashMap<>();
+                    void setViewLayoutWidth(int id, float v, int u) { put(id,"width",v,u); }
+                    void setViewLayoutHeight(int id, float v, int u) { put(id,"height",v,u); }
+                    void setTextViewTextSize(int id, int u, float v) { put(id,"text",v,u); }
+                    void put(int id, String k, float v, int u) {
+                        check(u==TypedValue.COMPLEX_UNIT_PX,"unresolved dimension");
+                        values.put(id+":"+k,v);
+                    }
+                    void setViewPadding(int id, int l, int t, int r, int b) {
+                        put(id,"left",l,0); put(id,"top",t,0);
+                        put(id,"right",r,0); put(id,"bottom",b,0);
+                    }
+                }
+                public static void verify() {
+                    var root = new ViewGroup(1,-1,156);
+                    var weighted = new ViewGroup(2,0,-1); weighted.end=26;
+                    var title = new TextView(3,52.5f);
+                    weighted.children.add(title); root.children.add(weighted);
+                    var button = new View(4,156,156); button.start=button.end=39;
+                    button.top=button.bottom=39; root.children.add(button);
+                    for (int direction : new int[]{0,1}) {
+                        weighted.resources.config.direction=direction;
+                        var content = new RemoteViews(); copyDimensions(root,content);
+                        check(content.values.get("1:height")==156,"root size lost");
+                        check(!content.values.containsKey("1:width"),"match parent frozen");
+                        check(!content.values.containsKey("2:width"),"weight frozen");
+                        check(!content.values.containsKey("2:height"),"match height frozen");
+                        check(!content.values.containsKey("3:height"),"wrap content frozen");
+                        check(content.values.get("3:text")==52.5f,"font scale lost");
+                        check(content.values.get("4:width")==156,"button width lost");
+                        check(content.values.get("4:height")==156,"button height lost");
+                        check(content.values.get("4:left")==39,"icon padding lost");
+                        check(content.values.get("2:left")== (direction==1 ? 26 : 0),"RTL left");
+                        check(content.values.get("2:right")== (direction==1 ? 0 : 26),"RTL right");
+                    }
+                }
+                """ + RuntimeSourceFixture.methods("RuntimeNotificationContent", "copyDimensions"));
+    }
+
     @Test
     public void terminalMessagesShareSessionActivationAndRejectPreviousProcesses() throws Exception {
         final String source = Files.readString(Path.of(
