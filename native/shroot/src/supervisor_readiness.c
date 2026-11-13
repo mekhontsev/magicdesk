@@ -41,6 +41,7 @@
 #include "task_checkpoint.h"
 #include <fcntl.h>
 #include <stdlib.h>
+#include <sys/ioctl.h>
 #include <sys/timerfd.h>
 
 static int readiness_frame(struct thread *t,struct md_buffer_span *span);

@@ -60,6 +60,7 @@
 #include "user_sysctl.h"
 #include "watch_calls.h"
 #include <linux/nsfs.h>
+#include <sys/ioctl.h>
 static int proc_node_stat(struct proc_owner target, enum md_proc_file_kind kind,
         struct md_proc_file_node *node, struct stat *value);
 static void proc_metadata_value(struct md_proc_metadata_result *out,const struct stat *st,

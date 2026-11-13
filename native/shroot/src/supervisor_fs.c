@@ -65,6 +65,7 @@
 #include "task_registry.h"
 #include <linux/audit.h>
 #include <stdlib.h>
+#include <sys/ioctl.h>
 #include <sys/timerfd.h>
 
 struct buffer_completion { long value, released; };

@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <sys/ioctl.h>
 #include "control_file.h"
 #include "cooperative_native.h"
 #include "fd_filter.h"

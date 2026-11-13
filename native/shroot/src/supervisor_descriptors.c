@@ -65,6 +65,7 @@
 #include "task_resources.h"
 #include <linux/audit.h>
 #include <linux/close_range.h>
+#include <sys/ioctl.h>
 #include <sys/wait.h>
 static void fd_policy_release(struct thread *t);
 static int resources_unshare_prepare(struct thread *t,unsigned long flags);

@@ -66,6 +66,7 @@
 #include "task_registry.h"
 #include "task_send.h"
 #include <stdlib.h>
+#include <sys/ioctl.h>
 
 /* Cold, authenticated-origin delivery only. The receive owner retains this
  * storage until the shared kernel receipt completes origin publication. */

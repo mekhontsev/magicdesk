@@ -71,6 +71,7 @@
 #include <linux/futex.h>
 #include <linux/ioprio.h>
 #include <stdlib.h>
+#include <sys/ioctl.h>
 
 struct private_child_selection {
     struct thread *caller;

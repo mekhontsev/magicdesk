@@ -53,6 +53,7 @@
 #include "task_memory.h"
 #include "task_stop.h"
 #include <stdlib.h>
+#include <sys/ioctl.h>
 static struct seccomp_data notification_identity(struct thread *t,const struct seccomp_data *call);
 static int notification_same_call(struct thread *t,const struct seccomp_data *a,const struct seccomp_data *b);
 static void describe_notification_call(struct thread *t,const char *owner,uint64_t id,

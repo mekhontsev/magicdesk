@@ -53,6 +53,7 @@
 #include "task_quiesce.h"
 #include "task_registers.h"
 #include <stdlib.h>
+#include <sys/ioctl.h>
 
 static void mapping_discard(struct mapping_owner *owner);
 

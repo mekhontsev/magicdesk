@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "host_policy.h"
 #include <linux/netlink.h>
+#include <sys/ioctl.h>
 #include "adapter_buffer.h"
 #include "descriptor_calls.h"
 #include "cgroup.h"
