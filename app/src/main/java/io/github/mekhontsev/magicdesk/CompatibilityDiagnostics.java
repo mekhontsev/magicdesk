@@ -201,7 +201,7 @@ public final class CompatibilityDiagnostics {
 
         appendDevice(report);
         appendCompatibility(
-                report, appContext, audit, inputSnapshot);
+                report, appContext, audit, inputSnapshot, snapshot);
         snapshot.appendSelection(report);
         appendShellProbe(report, audit);
         CaptureDiagnostics.appendReport(report, appContext);
@@ -275,7 +275,8 @@ public final class CompatibilityDiagnostics {
     private static void appendCompatibility(final StringBuilder report,
             final Context context,
             final DeviceSetupManager.Audit audit,
-            final DesktopInputReportSnapshot inputSnapshot) {
+            final DesktopInputReportSnapshot inputSnapshot,
+            final CompatibilitySnapshot snapshot) {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
         report.append("## Runtime profile\n")
@@ -297,6 +298,7 @@ public final class CompatibilityDiagnostics {
                 .append(ShellAccess.statusLabel()).append('\n')
                 .append("Privilege startup: backend=").append(ShellBackend.active())
                 .append(", configuredBackend=").append(ShellBackend.configured(context))
+                .append(", ").append(shellLauncherDetail(ShellBackend.active(), IntegrationPackage.SHIZUKU.selected()))
                 .append('\n')
                 .append("Runtime limits: active=").append(RuntimeLimits.active())
                 .append(", configured=").append(RuntimeLimits.configured(context)).append('\n')
@@ -481,12 +483,7 @@ public final class CompatibilityDiagnostics {
                 .append('\n');
         appendApplicationPresentationProfiles(report);
         report.append("Desktop system theme: ").append(DesktopSystemTheme.diagnostics()).append('\n');
-        for (final IntegrationPackage integration : IntegrationPackage.values()) {
-            report.append("Integration ").append(integration.key)
-                    .append(": active=").append(integration.selected())
-                    .append(", configured=").append(integration.configured(context))
-                    .append('\n');
-        }
+        snapshot.appendIntegrations(report);
         report.append("Embedded Termux PTY: ")
                 .append(TermuxPtyTransport.diagnostics(context))
                 .append('\n');
@@ -967,7 +964,13 @@ public final class CompatibilityDiagnostics {
         }
     }
 
-    private static String cleanSingleLine(final String value, final int maxLength) {
+    static String shellLauncherDetail(final ShellBackend backend, final String selectedManager) {
+        return backend == ShellBackend.SHIZUKU
+                ? "selectedManager=" + selectedManager
+                : "launcher=su (no Shizuku manager)";
+    }
+
+    static String cleanSingleLine(final String value, final int maxLength) {
         if (value == null) {
             return "";
         }

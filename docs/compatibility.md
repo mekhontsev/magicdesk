@@ -370,6 +370,10 @@ The report includes:
 - manufacturer, model, API level, security patch, and supported ABIs;
 - selected privilege backend, active/configured runtime limits, actual service
   UID, and required desktop-windowing values;
+- selected Shizuku-compatible manager and Termux package names, application
+  labels, installed `versionName`/`versionCode`, or explicit metadata unavailability.
+  Installed package versions are separate from the running launcher's API version;
+  direct `su` startup is identified without assigning it a Shizuku manager;
 - for active shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, `/dev/uinput` open access, and task APIs;
@@ -394,8 +398,8 @@ The report includes:
   Entries are time-correlated, not proof that every line belongs to the request;
 - recent logcat entries from MagicDesk tags only;
 - a schema-versioned JSON summary with platform composition, per-component
-  providers, typed capability observations, window-transition routing, and the
-  manual compatibility checklist.
+  providers, selected integration package metadata, typed capability observations,
+  window-transition routing, and the manual compatibility checklist.
 
 The report does not collect notification title/body text, user files, account
 data, clipboard contents, or the installed-app list. Application exception
