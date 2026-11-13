@@ -103,6 +103,16 @@ def thread_snapshot(rows, pid):
     return result
 
 
+def instrumentation(args, state=None):
+    result = {name: getattr(args, name) if state is None else state.get(name)
+              for name in ('statistics', 'diagnostics')}
+    if state is not None:
+        for name, active in result.items():
+            if getattr(args, name) and active is not True:
+                raise ValueError('--' + name + ' requires that option in the retained desktop session')
+    return result
+
+
 @contextmanager
 def sample_profile(args, row, pid, ident):
     if not args.profile:
@@ -186,7 +196,8 @@ def run(args, server_url, mode, index):
     profile = ('/home/' + state['user'] + '/.var/app/' + args.flatpak + '/cache/' if state
                else '/tmp/') + 'md-video-' + suite.report['id']
     worker = protocol = None
-    row = dict(mode=mode, round=index, passed=False, profile=profile, browserArguments=args.browser_arg)
+    row = dict(mode=mode, round=index, passed=False, profile=profile, browserArguments=args.browser_arg,
+               **instrumentation(args, state))
     suite.report['browserVideo'] = row
     try:
         options = ['--no-first-run', '--user-data-dir=' + profile,
@@ -320,6 +331,7 @@ def main():
     parser.add_argument('--modes', nargs='+', choices=('base', 'lazy'), default=['base', 'lazy'])
     FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
+    state = None
     if args.desktop_session:
         if args.build or args.store:
             parser.error('A retained session supplies its own build and store')
@@ -328,6 +340,10 @@ def main():
         args.store = state['environment']['store']
     elif not args.build or not args.store:
         parser.error('Headless mode requires --build and --store')
+    try:
+        runtime = instrumentation(args, state)
+    except ValueError as error:
+        parser.error(str(error))
     assert 10 <= args.seconds <= 120 and 1 <= args.rounds <= 5
     video = args.video.read_bytes()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -345,7 +361,7 @@ def main():
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
     report = dict(videoSha256=hashlib.sha256(video).hexdigest(), executor=args.executor,
-                  statistics=args.statistics, diagnostics=args.diagnostics, profile=args.profile,
+                  **runtime, profile=args.profile,
                   samples=[], passed=False)
     try:
         for index in range(args.rounds):

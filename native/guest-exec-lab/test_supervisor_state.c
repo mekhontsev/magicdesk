@@ -2943,7 +2943,125 @@ static void memory_shared_detach(void) {
     debug_reply_outcome=MD_ENTRY_NEEDS_STOP; debug_reply_value=RESTART_SIGNAL;
     puts("PASS shared SysV detach: common memory turn, queued admission, exact retirement and no register access");
 }
+static void readiness_local_duplicate(void) {
+    int previous_fd_ready=fd_ready;
+    fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd_ready>=0);
+    checkpoints.trace=no_trace;
+    const long results[]={14,-EMFILE,-EBADF,-EINTR};
+    for (unsigned abandon=0;abandon<2;++abandon)
+    for (unsigned i=0;i<sizeof(results)/sizeof(*results);++i) {
+        struct md_fd_origins *files=md_fd_origins_new(); assert(files);
+        struct md_entry_channel channel={0};
+        struct readiness_owner *o=calloc(1,sizeof(*o)); assert(o);
+        for (unsigned n=0;n<READINESS_QUEUES;++n) o->loans[n].number=-1;
+        struct thread t={.pid=123,.tgid=123,.readiness=o,.resources.files=files,
+            .entry={.control=&channel,.execution=&channel}};
+        t.execution.request=(struct seccomp_data){.nr=SYS_epoll_pwait,.args={7,0,1,-1}};
+        thread_index[t.pid%THREAD_BUCKETS]=&t;
+        assert(md_fd_order_begin(files,&o->files,NULL)==1 && !md_fd_order_start(&o->files));
+        readiness_duplicate(&t);
+        assert(t.entry.effect==readiness_duplicate_done && !t.entry.waiting);
+        assert(channel.native.number==SYS_fcntl && channel.native.args[0]==7
+            && channel.native.args[1]==F_DUPFD_CLOEXEC && !channel.native.args[2]);
+        assert(o->loans[0].publication.table==files && o->loans[0].number==-1
+            && !o->capture.channel && !o->received && !o->loans[0].delivery.files.table);
+        channel.native.result=results[i];
+        atomic_store(&channel.native.state,i==3 ? MD_NATIVE_READY : MD_NATIVE_DONE);
+        if (!abandon) {
+            if (i==3) atomic_store(&channel.native.state,MD_NATIVE_CANCELLED);
+            channel.call.reserved=MD_ENTRY_EFFECT_DONE;
+            debug_stop_reply=&channel; debug_reply_outcome=MD_ENTRY_COMPLETED;
+            debug_reply_value=i==3 ? RESTART_SIGNAL : results[i]<0 ? results[i] : MD_EPOLL_CAPTURED;
+            entry_control(t.pid,&channel);
+            assert(!debug_stop_reply && !t.entry.effect && !t.entry.control);
+            assert(!o->files.table && !o->loans[0].publication.table);
+            assert(o->loans[0].number==(i ? -1 : 14) && o->native_caller==!i);
+        }
+        readiness_release(&t);
+        assert(!t.readiness && !t.entry.effect);
+        struct md_fd_order turn={0};
+        struct md_fd_order *retiring=i ? &turn : &loan_retirements->files;
+        if (i) assert(md_fd_order_begin(files,retiring,NULL)==1);
+        assert(!md_fd_order_start(retiring));
+        int number=-1;
+        assert(md_fd_origins_loan_next(retiring,&number)==!i);
+        if (!i) {
+            assert(number==14 && loan_retirements && task_action_calls==1);
+            assert(!md_fd_origins_close_range(files,14,14,0));
+            task_action_release(loan_retirements);
+        }
+        assert(!loan_retirements && !task_action_calls);
+        if (i) assert(!md_fd_order_complete(&turn));
+        md_fd_origins_release(files); thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    checkpoints.trace=checkpoint_native_trace;
+    debug_reply_outcome=MD_ENTRY_NEEDS_STOP; debug_reply_value=RESTART_SIGNAL;
+    close(fd_ready); fd_ready=previous_fd_ready;
+    puts("PASS readiness local duplicate: exact loan publication, allocation errors, cancelled plans and terminal cleanup without capture or ADDFD");
+}
+
 static void adapter_native_receipts(void) {
+    struct md_entry_channel local={0};
+    struct thread owner={.phase=DISPATCHING,.entry.execution=&local};
+    assert(!entry_native_journal(&owner) && !entry_fence_drained(&owner));
+    const unsigned states[]={MD_NATIVE_READY,MD_NATIVE_DONE,MD_NATIVE_CANCELLED};
+    for (unsigned i=0;i<sizeof(states)/sizeof(*states);++i) {
+        local.adapter_native.number=SYS_recvmsg;
+        local.adapter_native.result=states[i]==MD_NATIVE_READY ? 0 : -EINTR;
+        atomic_store(&local.adapter_native.state,states[i]);
+        assert(entry_native_journal(&owner)==&local.adapter_native && entry_fence_drained(&owner));
+        assert(!entry_effect_observe(&owner));
+        assert(atomic_load(&local.adapter_native.state)==(states[i]==MD_NATIVE_DONE ? MD_NATIVE_DONE : MD_NATIVE_CANCELLED));
+        assert(local.adapter_native.result==-EINTR && !owner.entry.control && !owner.entry.effect);
+        owner.descriptors.running=1;
+        assert(!entry_fence_drained(&owner)); owner.descriptors.running=0;
+    }
+    atomic_store(&local.adapter_native.state,MD_NATIVE_EMPTY);
+    assert(!entry_native_journal(&owner) && !entry_effect_observe(&owner) && !entry_fence_drained(&owner));
+    /* Native-result ownership is published on every receipt, not inferred
+     * from the guest syscall number or retained from the preceding request. */
+    for (unsigned managed=0;managed<2;++managed) {
+        owner.descriptors.job=managed ? MD_FD_DUPLICATE_BEGIN : 0;
+        owner.entry.control=&local;
+        local.adapter_native_managed=!managed;
+        debug_stop_reply=&local; debug_reply_outcome=MD_ENTRY_COMPLETED; debug_reply_value=0;
+        assert(entry_reply(&owner,0,0) && !debug_stop_reply);
+        assert(local.adapter_native_managed==managed && !owner.entry.control);
+    }
+    owner.descriptors.job=0;
+    const long native_calls[]={SYS_gettid,SYS_recvmsg};
+    for (unsigned retained=0;retained<2;++retained)
+    for (unsigned i=0;i<sizeof(native_calls)/sizeof(*native_calls);++i) {
+        local.call=(struct md_entry_request){.number=native_calls[i]};
+        owner=(struct thread){.pid=123,.entry={.control=&local,.admission=1}};
+        thread_index[owner.pid%THREAD_BUCKETS]=&owner;
+        debug_stop_reply=&local; debug_reply_outcome=MD_ENTRY_COMPLETED; debug_reply_value=0;
+        if (retained) {
+            owner.phase=DISPATCHING;
+            owner.entry.control=NULL; owner.entry.admission=0; owner.entry.execution=&local;
+            owner.execution.request.nr=native_calls[i];
+            entry_execution_finish(&owner,MD_CALL_NATIVE);
+        } else native_continue(&owner);
+        assert(!debug_stop_reply && !owner.entry.control && !owner.entry.effect);
+        assert(owner.phase==IDLE && !owner.entry.execution);
+        assert(local.execution_action==MD_EXECUTION_NATIVE && !local.adapter_native_managed);
+        thread_index[owner.pid%THREAD_BUCKETS]=NULL;
+    }
+    for (unsigned retained=0;retained<2;++retained) {
+        local.call=(struct md_entry_request){.number=SYS_gettid};
+        owner=(struct thread){.pid=123,.entry={.control=&local,.admission=1},
+            .seccomp.application_filter=1};
+        thread_index[owner.pid%THREAD_BUCKETS]=&owner;
+        if (retained) {
+            owner.phase=DISPATCHING;
+            owner.entry.control=NULL; owner.entry.admission=0; owner.entry.execution=&local;
+            owner.execution.request.nr=SYS_gettid;
+            entry_execution_finish(&owner,MD_CALL_NATIVE);
+        } else native_continue(&owner);
+        assert(owner.entry.control==&local && owner.entry.effect && !owner.entry.waiting);
+        assert(atomic_load(&local.native.state)==MD_NATIVE_READY && local.native.number==SYS_gettid);
+        thread_index[owner.pid%THREAD_BUCKETS]=NULL;
+    }
     const long results[]={0,-EACCES,-ENOTTY,-EINTR};
     const long calls[]={SYS_ioctl,SYS_connect,SYS_recvmsg,SYS_readv};
     for (unsigned call=0;call<sizeof(calls)/sizeof(*calls);++call)
@@ -2995,6 +3113,7 @@ static void duplicate_entry_receipts(void) {
         debug_stop_reply=&channel; debug_reply_outcome=MD_ENTRY_COMPLETED; debug_reply_value=view.selectors;
         entry_control(t.pid,&channel);
         assert(!debug_stop_reply && t.descriptors.job==MD_FD_DUPLICATE_BEGIN && !t.entry.control);
+        assert(channel.adapter_native_managed);
         assert(md_fd_order_state(&t.descriptors.order)==MD_RESOURCE_ORDER_RUNNING);
         channel.call.number=numbers[i]; channel.call.reserved=MD_ENTRY_NATIVE_REQUEST;
         memcpy(channel.call.args,t.execution.request.args,sizeof(channel.call.args));
@@ -3013,6 +3132,7 @@ static void duplicate_entry_receipts(void) {
         debug_stop_reply=&channel; debug_reply_value=0;
         entry_control(t.pid,&channel);
         assert(!debug_stop_reply && !t.descriptors.job && !t.descriptors.order.table);
+        assert(!channel.adapter_native_managed);
         assert(!memcmp(&original,&t.execution.registers,sizeof(original)));
         assert(!memcmp(&internal,&t.descriptors.registers,sizeof(internal)));
         assert(t.phase==DISPATCHING && t.entry.execution==&channel);
@@ -3187,14 +3307,21 @@ static void thread_exit_target(void) {
         struct seccomp_data call={.nr=SYS_set_tid_address,.instruction_pointer=0x1004,.args={address}};
         unsigned long cookie=MD_INTERCEPT_PROCESS;
         thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=no_trace;
+        if (!translated) {
+            debug_stop_reply=&channel; debug_reply_outcome=MD_ENTRY_COMPLETED; debug_reply_value=0;
+        }
         if (!process_call(&t,&call,NULL,&cookie)) native_continue(&t);
-        assert(t.entry.effect && !t.entry.waiting && !t.entry.stop.resume);
-        assert(channel.native.number==SYS_set_tid_address && channel.native.args[0]==address);
-        channel.call.reserved=MD_ENTRY_EFFECT_DONE;
-        channel.native.result=t.pid; atomic_store(&channel.native.state,MD_NATIVE_DONE);
-        debug_stop_reply=&channel; debug_reply_outcome=MD_ENTRY_COMPLETED;
-        debug_reply_value=translated ? 1 : t.pid;
-        entry_control(t.pid,&channel);
+        if (translated) {
+            assert(t.entry.effect && !t.entry.waiting && !t.entry.stop.resume);
+            assert(channel.native.number==SYS_set_tid_address && channel.native.args[0]==address);
+            channel.call.reserved=MD_ENTRY_EFFECT_DONE;
+            channel.native.result=t.pid; atomic_store(&channel.native.state,MD_NATIVE_DONE);
+            debug_stop_reply=&channel; debug_reply_outcome=MD_ENTRY_COMPLETED; debug_reply_value=1;
+            entry_control(t.pid,&channel);
+        } else {
+            assert(channel.execution_action==MD_EXECUTION_NATIVE && channel.call.number==SYS_set_tid_address);
+            assert(channel.call.args[0]==address);
+        }
         assert(!debug_stop_reply && !t.entry.effect && !t.entry.control && !t.entry.stop.resume);
         assert(!memcmp(&untouched,&t.execution.registers,sizeof(untouched)));
         thread_index[t.pid%THREAD_BUCKETS]=NULL;
@@ -3408,7 +3535,7 @@ static void entry_fence_ownership(void) {
     peer.execution.request.nr=SYS_process_vm_writev; assert(!entry_fence_drained(&peer));
     struct md_entry_channel channel={0};
     peer.phase=DISPATCHING; peer.entry.execution=&channel;
-    peer.entry.effect=entry_watch_ready; peer.entry.waiting=1;
+    peer.entry.control=&channel; peer.entry.effect=entry_watch_ready; peer.entry.waiting=1;
     assert(entry_fence_drained(&peer));
     peer.entry.waiting=0; assert(!entry_fence_drained(&peer)); peer.entry.waiting=1;
     peer.fs.direct=DIRECT_RESULT; assert(!entry_fence_drained(&peer)); peer.fs.direct=DIRECT_NONE;
@@ -5879,6 +6006,7 @@ int main(void) {
     queued_loan_retirement();
     resident_loan_retirement();
     resident_loan_abandonment();
+    readiness_local_duplicate();
     readiness_transport_pressure();
     signal_shield_ownership();
     typed_transfer_ownership();

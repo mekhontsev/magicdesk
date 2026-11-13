@@ -603,7 +603,7 @@ static int policy_sync_begin(struct thread *t) {
          * Hold their next event instead of cancelling the native request. */
         if ((p->seccomp.notification && !p->seccomp.notification->promoting)
                 || signal_control_parked(p) || p->phase==ADAPTER_NATIVE || p->phase==NATIVE_WAIT
-                || ((p->entry.waiting || p->entry.wait.complete || p->phase==SOCKET_WAITING)
+                || ((entry_native_journal(p) || p->entry.wait.complete || p->phase==SOCKET_WAITING)
                     && entry_fence_drained(p))) continue;
         CHECK(!quiesce_task_add(policy_barrier,p,0));
     }

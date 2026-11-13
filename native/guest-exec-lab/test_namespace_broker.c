@@ -5,6 +5,7 @@
 #include "fs_native.h"
 #include "inode_internal.h"
 #include "../shroot/src/cooperative_channel.h"
+#include "../shroot/src/cooperative_exchange.h"
 #include "test_syscall_sites.h"
 #include <assert.h>
 #include <dirent.h>
@@ -16,6 +17,7 @@
 #include <linux/seccomp.h>
 #include <signal.h>
 #include <poll.h>
+#include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <stddef.h>
@@ -32,6 +34,20 @@
 #include <unistd.h>
 
 static atomic_int cancel_pid;
+static atomic_int queued_admission;
+static struct md_fd_origins *queued_table;
+static pid_t queued_owner;
+int __real_md_fd_order_begin(struct md_fd_origins *,struct md_fd_order *,struct md_resource_wakeup *);
+int __wrap_md_fd_order_begin(struct md_fd_origins *table,struct md_fd_order *turn,struct md_resource_wakeup *wake) {
+    if (atomic_load_explicit(&queued_admission,memory_order_acquire)==1
+            && table==queued_table && syscall(SYS_gettid)!=queued_owner) {
+        atomic_store_explicit(&queued_admission,2,memory_order_release);
+        /* EVENT_WAIT: the supervisor first observes active preparation. The
+         * fixture alarm fails a lost wake after that changes to QUEUED. */
+        while (atomic_load_explicit(&queued_admission,memory_order_acquire)!=3) sched_yield();
+    }
+    return __real_md_fd_order_begin(table,turn,wake);
+}
 static int signal_pipe[2];
 static void interrupted(int signal) {
     (void)signal;
@@ -483,12 +499,31 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     struct md_fd_order owner={0};
     assert(md_fd_order_begin(resources.files,&owner,NULL)==1 && !md_fd_order_start(&owner));
     int fd=open("/dev/null",O_RDONLY|O_CLOEXEC); assert(fd>=0);
+    int queued_wake=status==((PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f);
+    if (queued_wake) {
+        queued_table=resources.files; queued_owner=syscall(SYS_gettid);
+        atomic_store_explicit(&queued_admission,1,memory_order_release);
+    }
     channel.sequence=1; channel.call.number=SYS_close; channel.call.args[0]=fd;
     atomic_store_explicit(&channel.state,MD_ENTRY_REQUEST,memory_order_release);
     md_broker_resumed(broker,pid);
     /* EVENT_WAIT: shared admission publication; the fixture alarm bounds loss. */
     while (atomic_load_explicit(&channel.state,memory_order_acquire)==MD_ENTRY_REQUEST) sched_yield();
     assert(atomic_load(&channel.state)==MD_ENTRY_RUNNING);
+    if (queued_wake) {
+        while (atomic_load_explicit(&queued_admission,memory_order_acquire)!=2) sched_yield();
+        struct pollfd ready={.fd=md_fs_worker_fd(worker),.events=POLLIN};
+        while (poll(&ready,1,0)==1) assert(!md_fs_worker_dispatch(worker));
+        int stopped=0;
+        assert(md_broker_native_borrow(broker,pid,&stopped)==-EBUSY);
+        atomic_store_explicit(&queued_admission,3,memory_order_release);
+        /* EVENT_WAIT: QUEUED itself wakes the borrower, before the retained
+         * table turn or any guest syscall can supply another event. */
+        assert(poll(&ready,1,5000)==1 && !md_fs_worker_dispatch(worker));
+        assert(md_broker_native_borrow(broker,pid,&stopped)==1 && !stopped);
+        md_broker_native_return(broker,pid);
+        atomic_store(&queued_admission,0); queued_table=NULL;
+    }
     assert(!md_broker_pending_events(broker));
     /* An undecoded syscall stop belongs to its barrier, not retirement.
      * Even an input register resembling a result cannot complete its journal. */
@@ -554,14 +589,21 @@ static struct {
     struct md_namespace_broker *broker;
     struct md_fs_worker *worker;
     struct md_entry_channel channel;
-    int listener,received,control;
+    int listener,received,control,native;
     pid_t owner;
 } registration;
 static void registration_control(pid_t pid,struct md_entry_channel *c) {
     assert(syscall(SYS_gettid)==registration.owner && pid==c->owner);
-    assert(c->call.reserved==MD_ENTRY_BUFFER_CONTROL && atomic_load(&c->state)==MD_ENTRY_RUNNING);
+    assert((c->call.reserved==MD_ENTRY_BUFFER_CONTROL || c->call.reserved==MD_ENTRY_EFFECT_DONE)
+        && atomic_load(&c->state)==MD_ENTRY_RUNNING);
     int stopped=0;
     assert(md_broker_native_borrow(registration.broker,pid,&stopped)==-EBUSY);
+    if (registration.native && c->call.reserved==MD_ENTRY_BUFFER_CONTROL) {
+        uint64_t args[6]={7,0,1,registration.native==2 ? (uint64_t)-1 : 0};
+        md_broker_entry_effect(registration.broker,c,SYS_epoll_pwait,args);
+        assert(atomic_load(&c->control_awake)==(registration.native==1));
+        return;
+    }
     md_broker_entry_reply(registration.broker,c,MD_ENTRY_COMPLETED,0);
 }
 static void registration_delegate(const struct seccomp_notif *request) {
@@ -579,13 +621,39 @@ static void registration_delegate(const struct seccomp_notif *request) {
     atomic_store(&c->state,MD_ENTRY_REQUEST);
     md_broker_resumed(registration.broker,request->pid);
     if (registration.control) {
-        assert(!md_broker_entry_progress(registration.broker));
+        struct md_entry_channel primer;
+        if (registration.control==2) {
+            assert(!md_broker_task(registration.broker,registration.owner,MD_BROKER_COOPERATIVE,0,0,NULL,1));
+            assert(!md_broker_cooperative_bind(registration.broker,registration.owner,&primer,1));
+            primer.sequence=1; primer.call.reserved=MD_ENTRY_BUFFER_CONTROL;
+            atomic_store_explicit(&primer.state,MD_ENTRY_REQUEST,memory_order_release);
+            md_broker_resumed(registration.broker,registration.owner);
+        }
+        assert(!!md_broker_entry_progress(registration.broker)==(registration.control==2));
         assert(!atomic_load(&c->control_awake));
+        if (registration.control==2) {
+            assert(atomic_load(&primer.state)==MD_ENTRY_RESPONSE && primer.receipt==1);
+            md_broker_forget(registration.broker,registration.owner);
+        }
     } else {
         /* EVENT_WAIT: worker acknowledges its park intent; alarm bounds failure. */
         while (atomic_load(&c->awake)) sched_yield();
     }
     assert(atomic_load(&c->state)==MD_ENTRY_REQUEST);
+}
+static void *registration_publish(void *unused) {
+    (void)unused;
+    struct md_entry_channel *c=&registration.channel;
+    for (uint64_t sequence=4;sequence<132;++sequence) {
+        c->sequence=sequence;
+        atomic_store_explicit(&c->state,MD_ENTRY_REQUEST,memory_order_release);
+        md_broker_resumed(registration.broker,c->owner);
+        /* EVENT_WAIT: the control owner publishes this exact receipt; the
+         * fixture alarm fails a lost wake across snapshot/park handoff. */
+        while (atomic_load_explicit(&c->state,memory_order_acquire)!=MD_ENTRY_RESPONSE) sched_yield();
+        assert(c->receipt==sequence && c->outcome==MD_ENTRY_COMPLETED);
+    }
+    return NULL;
 }
 static void registration_retirement(const char *store,int control) {
     unsigned before=descriptors();
@@ -655,6 +723,38 @@ static void registration_retirement(const char *store,int control) {
          * but an idle channel must not keep the supervisor spinning. */
         assert(!md_broker_entry_progress(registration.broker));
     }
+    if (control) {
+        pthread_t publisher;
+        assert(!pthread_create(&publisher,NULL,registration_publish,NULL));
+        for (;;) {
+            int progress=md_broker_entry_progress(registration.broker);
+            if (atomic_load_explicit(&c->state,memory_order_acquire)==MD_ENTRY_RESPONSE && c->receipt==131) break;
+            if (progress) continue;
+            /* EVENT_WAIT: either a cold enrollment or a retained hot request
+             * wakes this owner; no new notification rescues a missed request. */
+            struct pollfd ready={md_fs_worker_fd(registration.worker),POLLIN,0};
+            assert(poll(&ready,1,5000)==1 && !md_fs_worker_dispatch(registration.worker));
+        }
+        assert(!pthread_join(publisher,NULL));
+        for (unsigned blocking=0;blocking<2;++blocking) {
+            registration.native=blocking+1;
+            c->sequence=132+2*blocking; c->call.reserved=MD_ENTRY_BUFFER_CONTROL;
+            assert(md_entry_publish_request(c,MD_ENTRY_REQUEST));
+            md_broker_resumed(registration.broker,c->owner);
+            assert(md_broker_entry_progress(registration.broker));
+            assert(atomic_load(&c->state)==MD_ENTRY_NATIVE && !atomic_load(&c->control_awake));
+            assert(!md_broker_entry_progress(registration.broker));
+            /* Completion after park must enroll the exact control owner,
+             * whether the native operation blocked or returned immediately. */
+            c->native.result=0; atomic_store(&c->native.state,MD_NATIVE_DONE);
+            ++c->sequence; c->call.reserved=MD_ENTRY_EFFECT_DONE;
+            assert(md_entry_publish_request(c,MD_ENTRY_REQUEST));
+            md_broker_resumed(registration.broker,c->owner);
+            assert(md_broker_entry_progress(registration.broker));
+            assert(atomic_load(&c->state)==MD_ENTRY_RESPONSE && c->receipt==c->sequence);
+        }
+        registration.native=0;
+    }
     assert(write(sockets[0],"c",1)==1); int status;
     assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
     md_broker_forget(registration.broker,child);
@@ -705,6 +805,7 @@ void md_test_namespace_broker(const char *root) {
     stopped_queued_entry(store,(PTRACE_EVENT_EXEC<<16)|(SIGTRAP<<8)|0x7f,-ESRCH);
     stopped_queued_entry(store,(PTRACE_EVENT_EXIT<<16)|(SIGTRAP<<8)|0x7f,-ESRCH);
     stopped_queued_entry(store,SIGKILL,-ESRCH);
-    discovery(store); registration_retirement(store,0); registration_retirement(store,1); alarm(0);
+    discovery(store); registration_retirement(store,0); registration_retirement(store,1);
+    registration_retirement(store,2); alarm(0);
     puts("PASS broker directory notification ownership");
 }

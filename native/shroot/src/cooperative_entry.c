@@ -146,8 +146,7 @@ static void native_effect(void *context) {
     uintptr_t sp;
     __asm__ volatile("mov %0, sp" : "=r"(sp));
     uintptr_t frames=md_svc_runtime.frames;
-    if (frames && sp>frames && sp<=frames+MD_SVC_POOL_SIZE
-            && md_execution_native_context(native->number,native->args)==MD_CONTEXT_WAIT) {
+    if (frames && sp>frames && sp<=frames+MD_SVC_POOL_SIZE) {
         uintptr_t frame=(sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
         frame_native=(void *)(frame+MD_SVC_NATIVE_OFFSET);
         if (frame_native==native) frame_native=NULL;
@@ -155,7 +154,11 @@ static void native_effect(void *context) {
             /* The admitted operation may outlive a policy fence, but a signal
              * must finish its control owner before abandoning the private stack. */
             atomic_store_explicit(&frame_native->state,MD_NATIVE_OWNED,memory_order_release);
-            if (__atomic_load_n((uint64_t *)(frame+MD_SVC_DIRECT_PENDING),__ATOMIC_ACQUIRE)) {
+            /* A nonblocking probe must still produce its admitted result:
+             * cancelling it on an already deferred signal can make its owner
+             * repeat the same probe without ever reaching signal delivery. */
+            if (md_execution_native_context(native->number,native->args)==MD_CONTEXT_WAIT
+                    && __atomic_load_n((uint64_t *)(frame+MD_SVC_DIRECT_PENDING),__ATOMIC_ACQUIRE)) {
                 native->result=-EINTR;
                 atomic_store_explicit(&native->state,MD_NATIVE_CANCELLED,memory_order_release);
             }
@@ -685,9 +688,29 @@ extern long md_guest_native_call_kernel(long,long,long,long,long,long,long);
 long md_guest_native_call(long number,const unsigned long args[6]) {
     uintptr_t sp;
     __asm__ volatile("mov %0, sp" : "=r"(sp));
-    if (md_svc_frame_client(md_svc_runtime.frames,sp)) {
-        struct control_reply reply;
+    struct md_entry_client *client=md_svc_frame_client(md_svc_runtime.frames,sp);
+    if (client) {
+        struct md_entry_channel *c=(void *)client->opaque[MD_ENTRY_CLIENT_CHANNEL];
         uint64_t values[6]; memcpy(values,args,sizeof(values));
+        enum md_execution_context context=md_execution_native_context(number,values);
+        if (c && !c->adapter_native_managed
+                && (atomic_load_explicit(&c->routes.flags,memory_order_acquire)&MD_ROUTE_ADMITTED_KERNEL)
+                && (context==MD_CONTEXT_COUNT || context==MD_CONTEXT_WAIT)) {
+            struct md_entry_native *native=&c->adapter_native;
+            native->number=(int32_t)number;
+            memcpy(native->args,values,sizeof(values));
+            native->result=0;
+            atomic_store_explicit(&native->state,MD_NATIVE_READY,memory_order_release);
+            native_effect(native);
+            unsigned state=atomic_load_explicit(&native->state,memory_order_acquire);
+            if (state!=MD_NATIVE_DONE && state!=MD_NATIVE_CANCELLED)
+                md_die("adapter native completion",-EPROTO);
+            long result=state==MD_NATIVE_CANCELLED ? RESTART_SIGNAL : native->result;
+            atomic_store_explicit(&native->state,MD_NATIVE_EMPTY,memory_order_release);
+            if (c->route_statistics) atomic_fetch_add_explicit(&c->local_native,1,memory_order_relaxed);
+            return result;
+        }
+        struct control_reply reply;
         if (!control_request(MD_ENTRY_NATIVE_REQUEST,(unsigned)number,values,&reply))
             md_die("entry native completion",-EPROTO);
         return reply.value;

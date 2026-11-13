@@ -143,7 +143,15 @@ commands that may block. The descriptor owner still decides whether the command
 is native; classification does not itself require a stopped caller. C adapters
 that retain an original-stack requirement request it separately. Internal native
 effects of an admitted C adapter use that same journal, including the extended
-terminal setter's legacy ABI fallback. Cancellation returns a restart request
+terminal setter's legacy ABI fallback. When the service gate is admitted, native
+effects publish a caller-owned journal in the shared channel and execute locally,
+without request/receipt exchanges. The stopped-task observer reads that journal
+only for interruption; the same admission fence covers local and coordinator-owned
+effects. Every control receipt publishes whether its owner needs to account for
+the native result before C continues. Descriptor duplication retains that owner
+and receipt; ordinary native queries and nonblocking IO do not acquire one merely
+because they came from a C adapter. Restricted gates retain the coordinator path.
+Cancellation returns a restart request
 to the C owner; only after its cleanup can original-context signal delivery
 resume. Completed effects, including a completed `EINTR`, are never replayed.
 Socket adapters use this same internal-native entry, not a separate ptrace
@@ -398,6 +406,15 @@ watch-set implementation and remove membership before task identity reuse.
 Control bursts retain the existing 32-operation/100-microsecond fairness bound
 and round-robin channel selection. Idle spinning is adaptive and bounded; no
 additional service thread is created and native event handling keeps its turn.
+During an idle control burst the supervisor polls only atomic channel states
+from a snapshot, without the broker mutex. The supervisor owns mapping release;
+no snapshot crosses an entry callback. A worker enrolling another control
+channel publishes the existing pending hint. Admission still validates the live
+watch set under lock. Busy channels leave the snapshot through the same park
+handshake; their operation's retirement reenrolls a pending request. A request
+for the other owner does not trigger repeated control admission scans.
+The worker cannot borrow this lifetime rule: supervisor
+teardown can retire a mapping while the worker is executing.
 
 Control and terminal replies can offer a journaled native effect to the common
 caller-action driver. The effect's completion is acknowledged on the same channel
@@ -440,6 +457,22 @@ FD loans and output publication across service wakes and TSYNC. Ignored signals
 resample interrupted waits without exposing a synthetic EINTR. Base retains an
 interrupted owner until signal delivery distinguishes a handler from an ignored
 signal. None of these checks adds work to an uninterrupted native data syscall.
+
+A resident epoll wait in a shared file table duplicates its native queue in the
+caller under the existing table turn. The exact journal receipt publishes an
+ordinary temporary loan before that turn is released. No export to the
+supervisor and import back into the same process is needed. Cancellation and
+terminal cleanup reconcile the same receipt used by loan retirement; an unknown
+allocation never authorizes closing a guessed slot. Exclusive tables retain the
+no-duplicate path. Base and unavailable service gates retain descriptor capture;
+supervisor-owned virtual queues still use their existing loan transport.
+
+Blocking native effects and event-parked controls publish their park intent
+before releasing the caller. They do not consume the supervisor's idle-spin
+budget; an immediate completion still owns the ordinary wake handshake. Short
+native effects retain control batching. The filesystem worker likewise excludes
+supervisor-owned waits from its runnable set, while retaining its own native
+open/close effect batching.
 
 When an internal operation needs actual stopped registers, its owner retains
 the request rather than requiring a checkpoint for every control message.
@@ -946,6 +979,13 @@ operation wakes the next request's owner if the caller has already published its
 next request. Registration replies may resume the caller before supervisor-side
 retirement; that overlap must not require a later unrelated syscall to progress.
 The broker fixture forces this ordering and waits without any further guest IO.
+Queued file-table admission wakes a supervisor that previously attempted to
+borrow that caller: preparation may have rejected the selector/capture borrower
+before the worker published its queued turn. Ordinary file-table contention
+without a pending borrower adds no supervisor wake.
+That borrower can itself own the table, so neither side may await table
+retirement to discover the now-borrowable caller. Base notifications and resident
+requests publish this transition through the same owner.
 Supervisor dispatch also reports a completed burst as progress: resource owners
 must run once more before the event loop sleeps. A callback can enqueue a mapping
 behind an outstanding signal-frame acknowledgement without leaving another

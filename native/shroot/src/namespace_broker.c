@@ -18,6 +18,7 @@
 #include "cooperative_exchange.h"
 #include "control_epoll.h"
 #include "execution_window.h"
+#include "guest_execution.h"
 #include "spin_policy.h"
 #include "profile.h"
 #include "mount_policy.h"
@@ -68,6 +69,7 @@ struct operation {
     long native_result;
     int provisional_fd;
     int native_plan;
+    int borrow_pending;
     int64_t native_started;
     struct md_fs_anchor *input_origin, *output_origin;
     struct md_fs_request request;
@@ -105,6 +107,10 @@ struct md_namespace_broker {
     } watching[2];
     atomic_uint control_pending;
     struct md_spin_policy control_spin;
+    struct {
+        struct md_entry_channel **channels;
+        size_t capacity;
+    } control_snapshot;
     struct task *task_index[TASK_BUCKETS];
     struct task *result_waiting;
     atomic_uint results_pending;
@@ -302,6 +308,7 @@ void md_broker_entry_reply(struct md_namespace_broker *b,struct md_entry_channel
     channel_reply(b,c,c->sequence,outcome,result);
 }
 void md_broker_entry_wait(struct md_entry_channel *c) {
+    atomic_store_explicit(&c->control_awake,0,memory_order_seq_cst);
     if (md_entry_publish_response(c,MD_ENTRY_PARKED))
         syscall(SYS_futex,&c->state,FUTEX_WAKE,1,NULL,NULL,0);
 }
@@ -311,6 +318,11 @@ void md_broker_entry_effect(struct md_namespace_broker *b,struct md_entry_channe
     memcpy(c->native.args,args,sizeof(c->native.args));
     c->native.result=-EIO; c->native_commit=1;
     atomic_store_explicit(&c->native.state,MD_NATIVE_READY,memory_order_release);
+    /* Blocking effects produce a later event, not a promised hot control
+     * exchange. Publish park intent before letting the caller run, so even
+     * an immediate completion owns a wake. Short effects keep batching. */
+    if (md_execution_native_context(number,args)==MD_CONTEXT_WAIT)
+        atomic_store_explicit(&c->control_awake,0,memory_order_seq_cst);
     if (md_entry_publish_response(c,MD_ENTRY_NATIVE))
         syscall(SYS_futex,&c->state,FUTEX_WAKE,1,NULL,NULL,0);
 }
@@ -410,8 +422,10 @@ int md_broker_native_borrow(struct md_namespace_broker *b,pid_t pid,int *stopped
              * borrowing a later syscall or synthetic interrupt boundary. */
             result=-EBUSY;
         else if (op && op->native_plan!=3 && md_fd_order_state(&op->order)!=MD_RESOURCE_ORDER_QUEUED
-                && !md_notification_result_queued(&op->completion))
+                && !md_notification_result_queued(&op->completion)) {
+            op->borrow_pending=1;
             result=-EBUSY;
+        }
         else {
             if (t->channel) md_fd_view_revoke(&t->channel->descriptor);
             t->native_borrowed=1; *stopped|=t->held!=0; result=1;
@@ -618,6 +632,7 @@ static int recycle(struct md_namespace_broker *b, struct operation *op) {
     free(op->value); op->value=NULL;
     pthread_mutex_lock(&b->lock);
     unsigned pending=operation_retired(b,op);
+    int borrower=op->borrow_pending; op->borrow_pending=0;
     if (op->task) {
         task_release(op->task);
         op->task=NULL;
@@ -625,6 +640,7 @@ static int recycle(struct md_namespace_broker *b, struct operation *op) {
     op->free = b->free; b->free = op;
     pthread_mutex_unlock(&b->lock);
     wake_target(b,pending);
+    if (borrower) md_fs_worker_notify(b->worker);
     md_cost_end(b->counts ? &b->retirement : NULL,start);
     return error;
 }
@@ -1159,6 +1175,20 @@ void md_broker_forget(struct md_namespace_broker *b, int pid) {
     md_fs_worker_wake(b->worker);
 }
 static uint64_t cooperative_clock(void);
+static int wait_for_files(struct md_namespace_broker *b,struct operation *op,
+        struct md_execution_window *window) {
+    op->waiting=b->waiting; b->waiting=op;
+    int error=window ? md_execution_window_end(window) : 0;
+    /* A selector/capture owner may have found the caller busy during prepare
+     * and then retained the table this request now needs. QUEUED publishes a
+     * borrowable boundary; table retirement alone cannot break that cycle.
+     * Ordinary table contention has no such observer and needs no wake. */
+    pthread_mutex_lock(&b->lock);
+    int pending=op->borrow_pending; op->borrow_pending=0;
+    pthread_mutex_unlock(&b->lock);
+    if (pending) md_fs_worker_notify(b->worker);
+    return error;
+}
 static int perform(struct md_namespace_broker *b, struct operation *op, int prepared,
         struct md_execution_window *window) {
     struct counters *count=!op->channel && b->counts && (unsigned)op->notification.data.nr<512
@@ -1493,17 +1523,63 @@ static int control_request_pending(const struct task *t) {
     return atomic_load_explicit(&t->channel->state,memory_order_acquire)==MD_ENTRY_REQUEST
         && md_entry_control_request(t->channel->call.reserved);
 }
+/* Only the supervisor releases channel mappings. Between callbacks it can
+ * poll a snapshot without borrowing tasks or contending with worker progress.
+ * New watch membership publishes control_pending; admission always rescans
+ * the live list under lock, including readiness and sequence validation. */
+static size_t control_snapshot(struct md_namespace_broker *b) {
+    struct channel_watch *watch=&b->watching[MD_ENTRY_SUPERVISOR_OWNER];
+    size_t count=watch->count;
+    if (count>b->control_snapshot.capacity) {
+        size_t capacity=count+count/2;
+        if (capacity>SIZE_MAX/sizeof(*b->control_snapshot.channels)) return 0;
+        void *channels=realloc(b->control_snapshot.channels,capacity*sizeof(*b->control_snapshot.channels));
+        if (!channels) return 0;
+        b->control_snapshot.channels=channels; b->control_snapshot.capacity=capacity;
+    }
+    size_t used=0;
+    for (struct task *t=watch->first,*next;t;t=next) {
+        next=t->watch_next[MD_ENTRY_SUPERVISOR_OWNER];
+        if (!channel_available(t)
+                || !atomic_load_explicit(&t->channel->control_awake,memory_order_acquire)) {
+            /* A retained operation cannot advance through this owner. Use
+             * the ordinary park handshake now, so retirement publishes a
+             * wake instead of this snapshot repeatedly finding busy work. */
+            unsigned pending=md_entry_prepare_wait(t->channel,MD_ENTRY_SUPERVISOR_OWNER);
+            if (!channel_available(t) || !(pending&MD_ENTRY_PENDING_CALL)) {
+                channel_unwatch(t,MD_ENTRY_SUPERVISOR_OWNER);
+                continue;
+            }
+        }
+        b->control_snapshot.channels[used++]=t->channel;
+    }
+    return used;
+}
+static int control_snapshot_ready(const struct md_namespace_broker *b,size_t count) {
+    if (atomic_load_explicit(&b->control_pending,memory_order_acquire)) return 1;
+    for (size_t n=0;n<count;++n)
+        if (atomic_load_explicit(&b->control_snapshot.channels[n]->state,memory_order_acquire)==MD_ENTRY_REQUEST
+                && md_entry_control_request(b->control_snapshot.channels[n]->call.reserved))
+            return 1;
+    return 0;
+}
 int md_broker_entry_progress(struct md_namespace_broker *b) {
     if (!b || !b->entry || !atomic_exchange_explicit(&b->control_pending,0,memory_order_acq_rel)) return 0;
     pthread_mutex_lock(&b->lock);
     struct channel_watch *watch=&b->watching[MD_ENTRY_SUPERVISOR_OWNER];
-    for (struct task *t=watch->first;t;t=t->watch_next[MD_ENTRY_SUPERVISOR_OWNER])
-        atomic_store_explicit(&t->channel->control_awake,1,memory_order_seq_cst);
+    for (struct task *t=watch->first;t;t=t->watch_next[MD_ENTRY_SUPERVISOR_OWNER]) {
+        unsigned state=atomic_load_explicit(&t->channel->state,memory_order_acquire);
+        if (state!=MD_ENTRY_NATIVE && state!=MD_ENTRY_PARKED)
+            atomic_store_explicit(&t->channel->control_awake,1,memory_order_seq_cst);
+    }
     pthread_mutex_unlock(&b->lock);
     uint64_t start=cooperative_clock(),idle=start;
     unsigned completed=0,checks=0,spin=md_spin_budget(&b->control_spin,25000);
     int spinning=0;
     while (completed<EXECUTION_BURST_CALLS) {
+        /* This scan consumes earlier enrollment hints. A later enrollment
+         * either joins the locked scan or retains its wake for the next one. */
+        atomic_store_explicit(&b->control_pending,0,memory_order_release);
         pthread_mutex_lock(&b->lock);
         struct task *t=watch->cursor ? watch->cursor->watch_next[MD_ENTRY_SUPERVISOR_OWNER] : watch->first;
         if (!t) t=watch->first;
@@ -1512,16 +1588,23 @@ int md_broker_entry_progress(struct md_namespace_broker *b) {
             t=t->watch_next[MD_ENTRY_SUPERVISOR_OWNER] ? t->watch_next[MD_ENTRY_SUPERVISOR_OWNER] : watch->first; --left;
         }
         if (!left || !t) {
+            size_t count=completed && spin ? control_snapshot(b) : 0;
             pthread_mutex_unlock(&b->lock);
-            if (!completed || !spin) break;
+            if (!count) break;
             spinning=1;
-            if (!(checks++%8)) {
-                uint64_t now=cooperative_clock();
-                if (!now || now-idle>=spin || now-start>=EXECUTION_BURST_NS) {
-                    md_spin_result(&b->control_spin,0); break;
+            int expired=0;
+            for (;;) {
+                if (!(checks++%8)) {
+                    uint64_t now=cooperative_clock();
+                    if (!now || now-idle>=spin || now-start>=EXECUTION_BURST_NS) {
+                        md_spin_result(&b->control_spin,0); expired=1; break;
+                    }
                 }
+                if (control_snapshot_ready(b,count)) break;
+                __asm__ volatile("yield" ::: "memory");
             }
-            __asm__ volatile("yield" ::: "memory"); continue;
+            if (expired) break;
+            continue;
         }
         watch->cursor=t;
         struct md_entry_channel *c=t->channel;
@@ -1589,7 +1672,12 @@ static int cooperative_progress(struct md_namespace_broker *b,struct md_filesyst
                 || control_request_pending(t))) {
             native_pending|=atomic_load_explicit(&t->channel->state,memory_order_acquire)==MD_ENTRY_FD_REQUEST;
             effect_pending|=t->operation && t->operation->native_plan==2;
-            runnable|=channel_available(t) && !control_request_pending(t);
+            unsigned state=atomic_load_explicit(&t->channel->state,memory_order_acquire);
+            /* A supervisor-owned wait cannot continue filesystem work until
+             * its receipt/event. Worker-owned native plans retain their own
+             * effect_pending batching, including open/close fast paths. */
+            runnable|=channel_available(t) && state!=MD_ENTRY_NATIVE && state!=MD_ENTRY_PARKED
+                && !control_request_pending(t);
             t=t->watch_next[MD_ENTRY_WORKER_OWNER] ? t->watch_next[MD_ENTRY_WORKER_OWNER] : watch->first; --left;
         }
         if (!left) t=NULL;
@@ -1681,8 +1769,7 @@ static int cooperative_progress(struct md_namespace_broker *b,struct md_filesyst
             int ready=md_fd_order_begin(op->context.task.files,&op->order,b->wakeup);
             if (ready<0) prepared=ready;
             else if (!ready) {
-                error=md_execution_window_end(&window);
-                op->waiting=b->waiting; b->waiting=op; goto settled;
+                error=wait_for_files(b,op,&window); goto settled;
             }
         }
         error=perform(b,op,prepared,&window);
@@ -1889,8 +1976,7 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
         int ready=md_fd_order_begin(op->context.task.files,&op->order,b->wakeup);
         if (ready<0) prepared=ready;
         else if (!ready) {
-            op->waiting=b->waiting; b->waiting=op;
-            return md_execution_window_end(window);
+            return wait_for_files(b,op,window);
         }
     }
     return perform(b,op,prepared,window);
@@ -2007,5 +2093,6 @@ void md_broker_destroy(struct md_namespace_broker *b) {
         free(t);
     }
     md_resource_wakeup_release(b->wakeup);
+    free(b->control_snapshot.channels);
     pthread_mutex_destroy(&b->lock); free(b);
 }

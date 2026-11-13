@@ -1175,7 +1175,7 @@ int entry_fence_drained(const struct thread *t) {
     if (t->phase==SOCKET_WAITING && !t->readiness
             && ((t->io.outgoing && !t->io.outgoing->files.table && !t->io.outgoing->fs_order.fs)
                 || (t->io.receive && !t->io.receive->files.table))) return 1;
-    if (t->entry.execution && t->entry.effect && t->entry.waiting) {
+    if (t->entry.execution && entry_native_journal(t)) {
         /* A resident native wait retains its completion, not a preparation
          * turn. Watch reads and readiness providers use the same journal;
          * neither may require the installing thread to supply its event. */

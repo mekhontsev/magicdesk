@@ -11,6 +11,7 @@ enum { READINESS_NATIVE_QUEUE, READINESS_TASK_QUEUE, READINESS_QUEUES };
 
 struct readiness_loan {
     struct md_fd_install delivery;
+    struct md_fd_origin_update publication;
     struct task_action *retirement;
     int number;
 };

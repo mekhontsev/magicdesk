@@ -27,7 +27,9 @@ struct md_broker_completion {
 struct md_namespace_broker;
 enum { MD_BROKER_READ=1, MD_BROKER_OPEN=2, MD_BROKER_COOPERATIVE=4, MD_BROKER_DISCOVERY=8 };
 struct md_entry_channel;
-/* Mapping lifetime belongs to the stopped task. Forget precedes its release. */
+/* Mapping lifetime belongs to the supervisor's stopped task. Only that owner
+ * binds/forgets mappings; forget precedes release. Entry callbacks may forget
+ * other tasks, but must not reenter control dispatch. */
 int md_broker_cooperative_bind(struct md_namespace_broker *,pid_t,struct md_entry_channel *,uintptr_t wake_gate);
 void md_broker_cooperative_revoke(struct md_namespace_broker *,pid_t);
 /* Supervisor-side control admission; the existing operation owner publishes

@@ -2,6 +2,7 @@
 #include "adapter_buffer.h"
 #include "control_epoll.h"
 #include "control_file.h"
+#include "cooperative_channel.h"
 #include "cooperative_native.h"
 #include "epoll_calls.h"
 #include "epoll_wait.h"
@@ -38,6 +39,7 @@
 #include "syscall_result.h"
 #include "task_call.h"
 #include "task_checkpoint.h"
+#include <fcntl.h>
 #include <stdlib.h>
 #include <sys/timerfd.h>
 
@@ -61,6 +63,12 @@ static int readiness_shared(struct thread *t);
 static void readiness_activated(struct md_fd_object *queue);
 static void readiness_native_call(struct thread *t);
 static void readiness_delivery_start(struct thread *t);
+static void readiness_duplicate_done(struct thread *t,long result);
+
+static void readiness_loan_publish(struct readiness_loan *loan,long result) {
+    md_fd_origins_finish(&loan->publication,(int)result);
+    if (result>=0) loan->retirement->number=loan->number=(int)result;
+}
 
 int readiness_waiting(const struct thread *t) {
     return t->readiness && (t->phase==EPOLL_WAIT || (t->entry.execution && t->entry.waiting));
@@ -127,6 +135,21 @@ void readiness_release(struct thread *t) {
     readiness_delivery_release(o);
     for (unsigned n=0;n<READINESS_QUEUES;++n) {
         struct readiness_loan *loan=&o->loans[n];
+        if (loan->publication.table) {
+            CHECK(t->entry.effect==readiness_duplicate_done);
+            unsigned state=entry_effect_reconcile(t);
+            if (state==MD_NATIVE_DONE) readiness_loan_publish(loan,t->entry.control->native.result);
+            else {
+                readiness_loan_publish(loan,-ECANCELED);
+                /* An unknown allocating effect cannot be retired by guessing
+                 * its slot. Kernel table teardown is the remaining owner. */
+                if (state!=MD_NATIVE_CANCELLED && !cancelling) {
+                    fprintf(stderr,"Shroot: unobserved temporary FD allocation in task %d\n",t->pid);
+                    cancel_tree(125);
+                }
+            }
+            t->entry.effect=NULL; t->entry.waiting=0;
+        }
         CHECK(!md_fd_install_cancel(&loan->delivery));
         if (!loan->retirement) continue;
         if (loan->number>=0) loan_retire(loan->retirement,NULL,NULL,NULL);
@@ -234,21 +257,56 @@ void readiness_deliver(struct thread *t) {
     } else loan->retirement->number=loan->number=installed;
 }
 
-static void readiness_request_loan(struct thread *t) {
+static int readiness_prepare_loan(struct thread *t,unsigned index) {
     struct readiness_owner *o=t->readiness;
-    struct readiness_loan *loan=&o->loans[o->lending];
-    if (!readiness_restore(t,READINESS_RESTORE_LOAN,0)) return;
+    struct readiness_loan *loan=&o->loans[index];
     if (!loan->retirement) {
         struct task_action *s=calloc(1,sizeof(*s));
-        if (!s) { readiness_reply(t,-ENOMEM); return; }
+        if (!s) return -ENOMEM;
         s->loan=md_fd_loan_new(t->resources.files);
-        if (!s->loan) { free(s); readiness_reply(t,-ENOMEM); return; }
+        if (!s->loan) { free(s); return -ENOMEM; }
         s->loan_table=md_fd_origins_pin(t->resources.files);
         s->number=-1; loan->retirement=s;
     }
+    return 0;
+}
+
+static void readiness_request_loan(struct thread *t) {
+    struct readiness_owner *o=t->readiness;
+    if (!readiness_restore(t,READINESS_RESTORE_LOAN,0)) return;
+    int error=readiness_prepare_loan(t,o->lending);
+    if (error) { readiness_reply(t,error); return; }
     t->phase=DISPATCHING;
     if (!t->entry.control) buffer_capture(t,&o->continuation);
     buffer_reply(t,MD_EPOLL_LOAN);
+}
+
+static void readiness_duplicate_done(struct thread *t,long result) {
+    struct readiness_owner *o=t->readiness;
+    struct readiness_loan *loan=&o->loans[READINESS_NATIVE_QUEUE];
+    if (t->entry.effect_cancelled) result=RESTART_SIGNAL;
+    readiness_loan_publish(loan,result);
+    if (result<0) { readiness_reply(t,result); return; }
+    CHECK(!md_fd_order_complete(&o->files));
+    o->native_caller=1;
+    buffer_reply(t,MD_EPOLL_CAPTURED);
+}
+
+static void readiness_duplicate(struct thread *t) {
+    struct readiness_owner *o=t->readiness;
+    struct readiness_loan *loan=&o->loans[READINESS_NATIVE_QUEUE];
+    int error=readiness_prepare_loan(t,READINESS_NATIVE_QUEUE);
+    if (!error) error=md_fd_origins_prepare_object(o->files.table,o->queue,FD_CLOEXEC,&loan->publication);
+    if (!error) error=md_fd_origins_prepare_loan(&loan->publication,loan->retirement->loan);
+    if (error) {
+        md_fd_origins_finish(&loan->publication,-1);
+        readiness_reply(t,error); return;
+    }
+    /* Keep the exact OFD in its own caller. The table turn covers duplication
+     * and publication; the ordinary loan owner protects concurrent close,
+     * fork, signal cancellation and eventual retirement. No SCM/ADDFD trip. */
+    uint64_t args[6]={t->execution.request.args[0],F_DUPFD_CLOEXEC,0};
+    entry_effect(t,SYS_fcntl,args,readiness_duplicate_done);
 }
 
 void readiness_loan_closed(pid_t pid,long result) {
@@ -435,6 +493,9 @@ void readiness_start(struct thread *t) {
                 o->native_caller=1;
                 CHECK(!md_fd_order_complete(&o->files));
                 buffer_reply(t,MD_EPOLL_CAPTURED); return;
+            }
+            if (t->entry.control && !checkpoint_restricted(t->pid)) {
+                readiness_duplicate(t); return;
             }
             readiness_capture(t,MD_BUFFER_EPOLL_CAPTURE_READY,0); return;
         }
@@ -701,13 +762,15 @@ static void readiness_task_progress(struct thread *t,int completed,long value) {
         readiness_native_call(t); return;
     }
     int task_descriptor=o->loans[READINESS_TASK_QUEUE].number;
+    int native_descriptor=o->loans[READINESS_NATIVE_QUEUE].number;
+    if (native_descriptor<0) native_descriptor=(int)t->execution.request.args[0];
     int waiting=result ? 0 : (o->poll ? md_poll_wait_task(o->poll,&o->wait,span.data,address,
             completed,value,&actor,&o->native_call,&result)
         : task_descriptor>=0 ? md_epoll_wait_task_affine(&o->wait,md_control_epoll_from_object(o->queue),
-            &actor,span.data,address,o->received ? o->loans[READINESS_NATIVE_QUEUE].number : (int)t->execution.request.args[0],
+            &actor,span.data,address,native_descriptor,
             task_descriptor,completed,value,&o->native_call,&result)
         : md_epoll_wait_task(&o->wait,md_control_epoll_from_object(o->queue),span.data,address,
-            t->execution.request.nr,o->received ? o->loans[READINESS_NATIVE_QUEUE].number : (int)t->execution.request.args[0],
+            t->execution.request.nr,native_descriptor,
             completed,value,&o->native_call,&result));
     if (o->wait.task_copied) readiness_delivery_release(o);
     if (o->evicting && waiting!=2) {

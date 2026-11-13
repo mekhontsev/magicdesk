@@ -47,6 +47,8 @@ int entry_require_stop(struct thread *t,enum md_execution_context reason,long re
     void (*continuation)(struct thread *));
 void entry_effect(struct thread *t,long number,const uint64_t args[6],void (*complete)(struct thread *,long));
 int entry_effect_observe(struct thread *t);
+struct md_entry_native *entry_native_journal(const struct thread *t);
+unsigned entry_effect_reconcile(struct thread *t);
 int entry_wait_begin(struct thread *,int64_t,void (*complete)(struct thread *,long));
 void entry_wait_end(struct thread *);
 void entry_wait_complete(struct thread *,long);

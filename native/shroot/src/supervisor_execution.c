@@ -427,6 +427,7 @@ int entry_reply(struct thread *t,long value,uintptr_t extra) {
     CHECK(!t->entry.effect);
     t->entry.control=NULL; t->entry.admission=0;
     channel->result_extra=extra;
+    channel->adapter_native_managed=t->descriptors.job==MD_FD_DUPLICATE_BEGIN;
     md_broker_entry_reply(broker,channel,MD_ENTRY_COMPLETED,value);
     return 1;
 }
@@ -455,12 +456,16 @@ void entry_complete(struct thread *t,long result) {
     CHECK(entry_reply(t,result,0));
 }
 
+static int entry_native_return(const struct thread *t,enum md_execution_context reason) {
+    return (reason==MD_CONTEXT_WAIT || reason==MD_CONTEXT_COUNT) && !checkpoint_restricted(t->pid);
+}
+
 void native_continue(struct thread *t) {
     if (!entry_pending(t)) { resume(t->pid,0); return; }
     if (statistics) ++statistics->entry_native;
     struct md_entry_request *call=&t->entry.control->call;
     enum md_execution_context reason=md_execution_native_context(call->number,call->args);
-    if (reason==MD_CONTEXT_WAIT && !checkpoint_restricted(t->pid)) {
+    if (entry_native_return(t,reason)) {
         t->entry.control->execution_action=MD_EXECUTION_NATIVE;
         t->entry.control->return_checkpoint=entry_return_pending(t);
         if (statistics) ++statistics->entry_completions;
@@ -568,9 +573,30 @@ void entry_effect(struct thread *t,long number,const uint64_t args[6],void (*com
     md_broker_entry_effect(broker,t->entry.control,number,args);
 }
 
+struct md_entry_native *entry_native_journal(const struct thread *t) {
+    if (t->entry.effect && t->entry.waiting) return &t->entry.control->native;
+    struct md_entry_channel *channel=t->entry.execution;
+    return channel && atomic_load_explicit(&channel->adapter_native.state,memory_order_acquire)!=MD_NATIVE_EMPTY
+        ? &channel->adapter_native : NULL;
+}
+
 int entry_effect_observe(struct thread *t) {
-    if (!t->entry.effect || !t->entry.waiting) return 0;
-    return cooperative_native_observe(t->pid,&t->entry.control->native);
+    struct md_entry_native *native=entry_native_journal(t);
+    return native ? cooperative_native_observe(t->pid,native) : 0;
+}
+
+unsigned entry_effect_reconcile(struct thread *t) {
+    CHECK(t->entry.control && t->entry.effect);
+    struct md_entry_native *native=&t->entry.control->native;
+    unsigned state=atomic_load_explicit(&native->state,memory_order_acquire);
+    /* Terminal cleanup may race the caller's claim. Never treat unchanged
+     * syscall arguments as a result, or repeat an uncertain FD mutation. */
+    if (state==MD_NATIVE_READY && atomic_compare_exchange_strong_explicit(
+            &native->state,&state,MD_NATIVE_CANCELLED,memory_order_acq_rel,memory_order_acquire))
+        state=MD_NATIVE_CANCELLED;
+    if (state==MD_NATIVE_RUNNING && t->kernel_stopped && !cooperative_native_observe(t->pid,native))
+        state=atomic_load_explicit(&native->state,memory_order_acquire);
+    return state;
 }
 
 void entry_wait_end(struct thread *t) {
@@ -789,6 +815,7 @@ void entry_execution_begin(struct thread *t) {
     execution.prepared=dispatch_input(t,execution.policy);
     channel->execution=execution;
     channel->execution_action=MD_EXECUTION_GUEST;
+    channel->adapter_native_managed=t->descriptors.job==MD_FD_DUPLICATE_BEGIN;
     publish_execution(t,0);
     md_broker_entry_reply(broker,channel,MD_ENTRY_COMPLETED,0);
 }
@@ -925,12 +952,12 @@ static void entry_execution_finish(struct thread *t,long result) {
         return;
     }
     if (next==EXECUTION_NATIVE) {
-        /* Classification is complete. A native wait needs no retained C owner:
+        /* Classification is complete. A native effect needs no retained C owner:
          * release it before the resident driver enters the original syscall.
          * Its private journal preserves real signal/restart boundaries. */
         uint64_t args[6]; memcpy(args,t->execution.request.args,sizeof(args));
         enum md_execution_context reason=md_execution_native_context(t->execution.request.nr,args);
-        if (reason==MD_CONTEXT_WAIT && !checkpoint_restricted(t->pid)) {
+        if (entry_native_return(t,reason)) {
             t->entry.execution->execution_action=MD_EXECUTION_NATIVE;
             entry_execution_retire(t,0); return;
         }

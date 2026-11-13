@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -16,6 +17,21 @@ from browser import benchmark
 
 
 class BrowserBenchmark(unittest.TestCase):
+    def test_instrumentation_reports_the_execution_owner(self):
+        args = SimpleNamespace(statistics=False, diagnostics=False)
+        self.assertEqual(benchmark.instrumentation(args), dict(statistics=False, diagnostics=False))
+        self.assertEqual(benchmark.instrumentation(args, dict(statistics=True, diagnostics=True)),
+                         dict(statistics=True, diagnostics=True))
+        self.assertEqual(benchmark.instrumentation(args, {}), dict(statistics=None, diagnostics=None))
+        for name in ('statistics', 'diagnostics'):
+            selected = SimpleNamespace(statistics=False, diagnostics=False)
+            setattr(selected, name, True)
+            self.assertTrue(benchmark.instrumentation(selected)[name])
+            self.assertTrue(benchmark.instrumentation(selected, {name: True})[name])
+            for state in ({}, {name: False}):
+                with self.assertRaisesRegex(ValueError, 'retained desktop session'):
+                    benchmark.instrumentation(selected, state)
+
     def test_thread_counters_preserve_comm_spaces_and_parentheses(self):
         fields = ['0'] * 37
         fields[0], fields[11], fields[12], fields[19], fields[36] = 'S', '17', '23', '1000', '6'

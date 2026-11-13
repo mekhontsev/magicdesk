@@ -253,15 +253,7 @@ void task_action_discard(struct thread *t) {
     if (!owner) return;
     if (owner->resident) {
         struct md_entry_native *native=&t->entry.control->native;
-        unsigned state=atomic_load_explicit(&native->state,memory_order_acquire);
-        /* READY can race the resident's claim during fatal cleanup. Only an
-         * owned stop may inspect RUNNING; otherwise retain uncertainty rather
-         * than replaying a possibly completed close against a reused slot. */
-        if (state==MD_NATIVE_READY && atomic_compare_exchange_strong_explicit(
-                &native->state,&state,MD_NATIVE_CANCELLED,memory_order_acq_rel,memory_order_acquire))
-            state=MD_NATIVE_CANCELLED;
-        if (state==MD_NATIVE_RUNNING && t->kernel_stopped && !cooperative_native_observe(t->pid,native))
-            state=atomic_load_explicit(&native->state,memory_order_acquire);
+        unsigned state=entry_effect_reconcile(t);
         struct md_fd_mutation close={.nr=native->number,
             .args={native->args[0],native->args[1],native->args[2]}};
         if (state==MD_NATIVE_DONE) (void)loan_close_finish(owner,native->result);

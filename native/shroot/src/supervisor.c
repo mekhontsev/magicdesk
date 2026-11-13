@@ -1038,7 +1038,7 @@ int main(int argc, char **argv) {
             int observed=entry_effect_observe(t);
             if (observed==-ESRCH) { t->resume_lost=1; continue; }
             CHECK(!observed);
-            if (t->entry.waiting) signal_stop.has_regs=0;
+            if (entry_native_journal(t)) signal_stop.has_regs=0;
             int deliver=0;
             int owned=md_svc_machine_signal(md_memory_svc(t->memory),&t->machine,pid,
                 &t->signals.delivery,&signal_stop,&deliver);

@@ -436,7 +436,7 @@ static void native_memory_admission(void) {
     r->capacity=2; r->sites=calloc(r->capacity,sizeof(*r->sites)); assert(r->sites);
     r->native_begin=base+300*page; r->native_end=r->native_begin+page;
     r->frames=base+400*page;
-    r->pool_count=1; r->pools[0].address=base+10000*page;
+    assert(!md_svc_registry_pool(r,base+10000*page));
     r->count=1; r->sites[0].direct.svc=base+4*page+128;
     r->sites[0].direct.gate=r->pools[0].address;
     assert(!md_memory_svc_set(m,r));
@@ -458,7 +458,7 @@ static void native_memory_admission(void) {
         .svc=base+8*page,.gate=r->pools[0].address+2048};
     md_memory_admission_publish(m,&p,1);
     assert(!md_memory_admission_allows(&p,base+8*page,page,page));
-    r->pools[r->pool_count++].address=base+20000*page;
+    assert(!md_svc_registry_pool(r,base+20000*page));
     md_memory_admission_publish(m,&p,1);
     assert(!md_memory_admission_allows(&p,base+20000*page,page,page));
     r->disabled=1;

@@ -91,6 +91,12 @@ struct md_entry_channel {
     int64_t result;
     uintptr_t result_extra;
     _Alignas(64) struct md_entry_native native;
+    /* An admitted C adapter owns this journal without a request/receipt turn.
+     * Only a stopped-task observer may cancel it; normal retirement is local. */
+    struct md_entry_native adapter_native;
+    /* Published with the control receipt: this owner must account for the
+     * native result before C continues (for example, descriptor duplication). */
+    unsigned adapter_native_managed;
     /* The native FD is provisional until the worker publishes its name. */
     unsigned native_commit;
     char native_path[64];
