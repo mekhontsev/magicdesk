@@ -184,6 +184,15 @@ subject to the user's tmux configuration. Configuration recreation and transfer
 to a replacement window do not disconnect a client. Explicit termination of a
 tmux session in the picker warns that all its windows and clients are affected.
 
+The bounded runtime event journal records terminal readiness, transport errors
+and closure causes for every executor, with PTY process identity and any managed
+tmux binding. `transport-eof` means the client stream ended; it does not establish
+that a tmux server died or identify which process or signal ended the client.
+Window closure, explicit client detach, requested termination and runtime shutdown
+are recorded separately, without polling processes or collecting terminal text.
+Explicit tmux session termination records its request and command result separately
+from client EOF.
+
 ## Session Files
 
 The paperclip opens **Session files**. Add files, a folder through Android's

@@ -823,6 +823,9 @@
     <string name="settings_nubia_projection_guard_summary">Desativa temporariamente o software de transmissão Nubia, sua proteção de privacidade e a interface de conexão durante a área de trabalho HDMI ou Miracast. Restaura após fechar a última área de trabalho externa; as configurações de privacidade salvas não mudam.</string>
     <string name="settings_section_automation">Automação</string>
     <string name="settings_section_android">Sistema Android</string>
+    <string name="settings_child_process_restrictions">Desativar restrições de processos filhos</string>
+    <string name="settings_child_process_description">Desativa o monitoramento de processos fantasmas do Android para todos os aplicativos, incluindo Termux e sessões Linux. Esta configuração do sistema permanece após fechar o MagicDesk. Não impede encerramentos por falta de memória nem restrições de bateria do fabricante.</string>
+    <string name="settings_child_process_unavailable">A configuração de monitoramento de processos filhos do Android não está disponível.</string>
     <string name="settings_system_desktop_mode">Modo de área de trabalho do sistema em telas externas</string>
     <string name="settings_system_desktop_mode_apply_notice">Reconecte a tela externa para aplicar a alteração. Alguns dispositivos podem exigir reiniciar o Android.</string>
     <string name="settings_system_desktop_mode_confirm">Alterar o modo de área de trabalho do Android em telas externas? Ativá-lo pode adicionar barras de navegação do sistema. Reconecte a tela após a mudança; alguns dispositivos podem exigir reiniciar o Android.</string>

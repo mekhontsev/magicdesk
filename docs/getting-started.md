@@ -549,7 +549,14 @@ own external-display policy. It is not a MagicDesk session requirement and may
 add system decorations. Follow its reconnect/restart guidance; Close does not
 toggle it.
 
+To disable Android phantom-process monitoring for Termux and Linux programs,
+use **Settings > Android system > Disable child process restrictions**. Changing
+it requires Shizuku or the selected Root service, but not Desktop. This is a
+system-wide, persistent setting, not protection from low-memory kills or
+manufacturer battery restrictions. MagicDesk does not change it automatically.
+
 ## Automation
+
 
 Enable loopback MCP in Settings for a local client. Network access is a separate
 opt-in with its own interface, port, token and permission set. Copy connection

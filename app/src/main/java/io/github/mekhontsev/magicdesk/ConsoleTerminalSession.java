@@ -203,6 +203,16 @@ final class ConsoleTerminalSession {
         }
     }
 
+    String diagnosticIdentity() {
+        synchronized (mLock) {
+            // The endpoint retains birth identity after EOF clears the live PID.
+            return mOutputEndpoint == null ? "pid=" + mProcessId
+                    : "pid=" + mOutputEndpoint.processId()
+                            + " startTicks=" + mOutputEndpoint.startTicks()
+                            + " tty=" + mOutputEndpoint.tty();
+        }
+    }
+
     int columns() {
         synchronized (mLock) {
             return mColumns;

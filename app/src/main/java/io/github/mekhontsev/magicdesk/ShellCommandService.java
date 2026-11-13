@@ -97,6 +97,14 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
+    @Override public boolean getChildProcessMonitoringDefault() {
+        final long identity = Binder.clearCallingIdentity();
+        try { return FrameworkRuntime.current().childProcesses().readDefault(); }
+        catch (ReflectiveOperationException | IOException error) {
+            throw FailureDiagnostics.binderFailure("Cannot read child process monitoring", error);
+        } finally { Binder.restoreCallingIdentity(identity); }
+    }
+
     @Override public void preserveDisplayBrightness(final int displayId) {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().displayBrightness().preserveCurrentBrightness(displayId); }

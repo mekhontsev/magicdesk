@@ -8,6 +8,50 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class TmuxSessionProviderTest {
+    @Test public void explicitEndRecordsRequestBeforeExecutionAndDistinguishesFailure() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Context { }
+                static class Session { String id="$1"; long createdSeconds=12; }
+                record FilesKey(String packageName, int uid, String id, long created) { }
+                static class ConsoleSessionFiles { boolean closed; void close() { closed=true; } }
+                static class TermuxIntegration {
+                    static class Endpoint { String packageName="com.termux"; int uid=123; }
+                    static Endpoint inspect(Context context) { return new Endpoint(); }
+                }
+                static class TmuxSessionProvider { }
+                static class ShellCommandLine { static String quote(String text) { return "'"+text+"'"; } }
+                static class ShellAccess { static String usefulMessage(Throwable error) { return error.getMessage(); } }
+                static class DesktopAutomationEventJournal {
+                    static List<String> events=new ArrayList<>();
+                    static void record(String type,String op,boolean ok,String detail) { events.add(op+":"+ok+":"+detail); }
+                }
+                static Map<FilesKey,ConsoleSessionFiles> FILES=new HashMap<>();
+                static Throwable failure;
+                static String sessionCommand(Session session,String command) { return command; }
+                static void run(Context context,String command,java.util.function.Consumer<Throwable> callback) {
+                    check(DesktopAutomationEventJournal.events.get(0).equals(
+                            "end-requested:true:tmuxSessionId=$1 createdSeconds=12"), "request logged after execution");
+                    check(command.equals("tmux kill-session -t '$1'"), "wrong tmux session selected");
+                    callback.accept(failure);
+                }
+                """ + RuntimeSourceFixture.methods("TmuxSessionProvider", "end") + """
+                public static void verify() {
+                    var files=new ConsoleSessionFiles();
+                    FILES.put(new FilesKey("com.termux",123,"$1",12),files);
+                    failure=new IOException("test refusal");
+                    end(new Context(),new Session(),error -> check(error==failure,"failure swallowed"));
+                    check(!files.closed && FILES.size()==1,"failed end removed session files");
+                    check(DesktopAutomationEventJournal.events.get(1).equals(
+                            "end-result:false:tmuxSessionId=$1 createdSeconds=12 error=test refusal"), "failed result not recorded");
+                    DesktopAutomationEventJournal.events.clear();failure=null;
+                    end(new Context(),new Session(),error -> check(error==null,"successful end failed"));
+                    check(files.closed && FILES.isEmpty(),"successful end did not release files");
+                    check(DesktopAutomationEventJournal.events.get(1).equals(
+                            "end-result:true:tmuxSessionId=$1 createdSeconds=12"), "successful result not recorded");
+                }
+                """);
+    }
+
     @Test public void onlySuccessfulDiscoveryCanRetireSessionFiles() {
         assertFalse(TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n").complete);
         assertFalse(TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n$0\twork\t1\t0\t1\n").complete);

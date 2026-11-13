@@ -265,7 +265,12 @@ final class TmuxSessionProvider {
     }
 
     static void end(Context context, Session session, java.util.function.Consumer<Throwable> callback) {
-        run(context, sessionCommand(session, "tmux kill-session -t " + ShellCommandLine.quote(session.id)), failure -> {
+        final String command = sessionCommand(session, "tmux kill-session -t " + ShellCommandLine.quote(session.id));
+        final String identity = "tmuxSessionId=" + session.id + " createdSeconds=" + session.createdSeconds;
+        DesktopAutomationEventJournal.record("tmux", "end-requested", true, identity);
+        run(context, command, failure -> {
+            DesktopAutomationEventJournal.record("tmux", "end-result", failure == null,
+                    identity + (failure == null ? "" : " error=" + ShellAccess.usefulMessage(failure)));
             if (failure == null) {
                 var endpoint = TermuxIntegration.inspect(context);
                 ConsoleSessionFiles files;

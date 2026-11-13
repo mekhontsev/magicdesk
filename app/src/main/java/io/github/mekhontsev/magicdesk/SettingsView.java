@@ -36,6 +36,7 @@ final class SettingsView {
         void resetCompatibilityDefaults();
 
         void setSystemDesktopMode(boolean enabled);
+        void setChildProcessRestrictionsDisabled(boolean disabled);
 
         void setOpenFilesWithSingleClick(boolean enabled);
 
@@ -93,6 +94,8 @@ final class SettingsView {
             new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
     private Switch mOpenFilesWithSingleClick;
     private Switch mSystemDesktopMode;
+    private Switch mChildProcessRestrictions;
+    private TextView mChildProcessStatus;
     private Switch mProjectionDesktopOption;
     private final PlatformProjectionDriver.DesktopOption mProjectionOption =
             PlatformDrivers.current().projection().desktopOption();
@@ -243,6 +246,12 @@ final class SettingsView {
         }
 
         addSection(content, R.string.settings_section_android);
+        mChildProcessRestrictions = addSwitch(content, R.string.settings_child_process_restrictions);
+        mChildProcessRestrictions.setEnabled(false);
+        mChildProcessRestrictions.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setChildProcessRestrictionsDisabled(checked);
+        });
+        mChildProcessStatus = addSystemSettingStatus(content);
         mSystemDesktopMode = addSwitch(content, R.string.settings_system_desktop_mode);
         mSystemDesktopMode.setEnabled(false);
         mSystemDesktopMode.setOnCheckedChangeListener((button, checked) -> {
@@ -250,13 +259,7 @@ final class SettingsView {
                 mActions.setSystemDesktopMode(checked);
             }
         });
-        mSystemDesktopModeStatus = new TextView(mActivity);
-        UiAppearance.text(mSystemDesktopModeStatus, UiColor.MUTED);
-        mSystemDesktopModeStatus.setTextSize(12);
-        mSystemDesktopModeStatus.setPadding(dp(8), dp(7), dp(8), dp(7));
-        content.addView(mSystemDesktopModeStatus, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        mSystemDesktopModeStatus = addSystemSettingStatus(content);
 
         addSection(content, R.string.settings_section_automation);
         mRunCommandEnabled = addSwitch(content, R.string.run_command_title);
@@ -470,6 +473,25 @@ final class SettingsView {
         }
         mSystemDesktopModeStatus.setText(statusResId);
         mRendering = false;
+    }
+
+    void renderChildProcessSetting(final Boolean disabled, final boolean editable, final int statusResId) {
+        mRendering = true;
+        if (disabled != null) mChildProcessRestrictions.setChecked(disabled);
+        mChildProcessRestrictions.setEnabled(disabled != null && editable);
+        mChildProcessRestrictions.setAlpha(disabled != null && editable ? 1f : 0.5f);
+        mChildProcessStatus.setText(statusResId);
+        mRendering = false;
+    }
+
+    private TextView addSystemSettingStatus(final LinearLayout content) {
+        final TextView status = new TextView(mActivity);
+        UiAppearance.text(status, UiColor.MUTED);
+        status.setTextSize(12);
+        status.setPadding(dp(8), dp(7), dp(8), dp(7));
+        content.addView(status, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return status;
     }
 
     private View createHeader() {

@@ -29,7 +29,7 @@ public final class SettingsActivity extends Activity
     private AppearanceSettings mAppearance;
     private android.view.View mSettingsContent;
     private final android.window.OnBackInvokedCallback mAppearanceBack = this::closeAppearance;
-    private boolean mSystemDesktopModeBusy;
+    private boolean mSystemSettingBusy;
     private final ShellAccess.StateListener mShellStateListener = state ->
             runOnUiThread(this::render);
 
@@ -180,7 +180,7 @@ public final class SettingsActivity extends Activity
 
     @Override
     public void resetCompatibilityDefaults() {
-        if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
+        if (mSystemSettingBusy || !SystemDesktopModeSetting.canChange()) {
             return;
         }
         UiDialogs.builder(this)
@@ -197,7 +197,7 @@ public final class SettingsActivity extends Activity
     @Override
     public void setSystemDesktopMode(final boolean enabled) {
         renderSystemDesktopMode();
-        if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
+        if (mSystemSettingBusy || !SystemDesktopModeSetting.canChange()) {
             return;
         }
         UiDialogs.builder(this)
@@ -214,16 +214,36 @@ public final class SettingsActivity extends Activity
         applySystemSetting(() -> SystemDesktopModeSetting.setEnabled(context, enabled));
     }
 
+    @Override public void setChildProcessRestrictionsDisabled(final boolean disabled) {
+        renderChildProcessSetting();
+        if (mSystemSettingBusy || !ShellAccess.isReady()) return;
+        UiDialogs.builder(this)
+                .setTitle(R.string.settings_child_process_restrictions)
+                .setMessage(R.string.settings_child_process_description)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) ->
+                        applySystemSetting(() -> SystemChildProcessSetting.setDisabled(getApplicationContext(), disabled),
+                                "SYSTEM-CHILD-PROCESSES-001", 0))
+                .show();
+    }
+
     private interface SystemSettingChange {
         boolean apply() throws IOException;
     }
 
     private void applySystemSetting(final SystemSettingChange change) {
-        if (mSystemDesktopModeBusy) {
+        applySystemSetting(change, "SYSTEM-DESKTOP-MODE-001",
+                R.string.settings_system_desktop_mode_apply_notice);
+    }
+
+    private void applySystemSetting(final SystemSettingChange change,
+            final String diagnosticId, final int noticeResId) {
+        if (mSystemSettingBusy) {
             return;
         }
-        mSystemDesktopModeBusy = true;
+        mSystemSettingBusy = true;
         renderSystemDesktopMode();
+        renderChildProcessSetting();
         new Thread(() -> {
             String failure = null;
             boolean changed = false;
@@ -234,13 +254,13 @@ public final class SettingsActivity extends Activity
                 if (failure == null || failure.isEmpty()) {
                     failure = error.getClass().getSimpleName();
                 }
-                CompatibilityDiagnostics.record("SYSTEM-DESKTOP-MODE-001",
-                        "Could not apply desktop compatibility settings", failure, error);
+                CompatibilityDiagnostics.record(diagnosticId,
+                        "Could not apply Android system setting", failure, error);
             }
             final String resultError = failure;
             final boolean resultChanged = changed;
             runOnUiThread(() -> {
-                mSystemDesktopModeBusy = false;
+                mSystemSettingBusy = false;
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
@@ -251,12 +271,12 @@ public final class SettingsActivity extends Activity
                             .setMessage(resultError)
                             .setPositiveButton(android.R.string.ok, null)
                             .show();
-                } else if (resultChanged) {
-                    Toast.makeText(this, R.string.settings_system_desktop_mode_apply_notice,
+                } else if (resultChanged && noticeResId != 0) {
+                    Toast.makeText(this, noticeResId,
                             Toast.LENGTH_LONG).show();
                 }
             });
-        }, "MagicDeskSystemDesktopMode").start();
+        }, "MagicDeskSystemSetting").start();
     }
 
     @Override
@@ -595,6 +615,7 @@ public final class SettingsActivity extends Activity
                             : settings.systemTheme,
                     settings != null && RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT));
             renderSystemDesktopMode();
+            renderChildProcessSetting();
         }
     }
 
@@ -605,17 +626,32 @@ public final class SettingsActivity extends Activity
         try {
             final boolean enabled = SystemDesktopModeSetting.read(this);
             final boolean canChange = SystemDesktopModeSetting.canChange();
-            final int status = mSystemDesktopModeBusy
+            final int status = mSystemSettingBusy
                     ? R.string.settings_system_desktop_mode_saving
                     : !ShellAccess.isReady()
                             ? R.string.settings_system_desktop_mode_shell
                             : !canChange
                                     ? R.string.settings_system_desktop_mode_close
                                     : R.string.settings_system_desktop_mode_apply_notice;
-            mView.renderSystemDesktopMode(enabled, canChange, mSystemDesktopModeBusy, status);
+            mView.renderSystemDesktopMode(enabled, canChange, mSystemSettingBusy, status);
         } catch (IOException error) {
-            mView.renderSystemDesktopMode(null, false, mSystemDesktopModeBusy,
+            mView.renderSystemDesktopMode(null, false, mSystemSettingBusy,
                     R.string.settings_system_desktop_mode_unavailable);
+        }
+    }
+
+    private void renderChildProcessSetting() {
+        if (mView == null || isFinishing() || isDestroyed()) return;
+        if (!ShellAccess.isReady()) {
+            mView.renderChildProcessSetting(null, false, R.string.settings_system_desktop_mode_shell);
+            return;
+        }
+        try {
+            mView.renderChildProcessSetting(SystemChildProcessSetting.readDisabled(this), !mSystemSettingBusy,
+                    mSystemSettingBusy ? R.string.settings_system_desktop_mode_saving
+                            : R.string.settings_child_process_description);
+        } catch (IOException error) {
+            mView.renderChildProcessSetting(null, false, R.string.settings_child_process_unavailable);
         }
     }
 }

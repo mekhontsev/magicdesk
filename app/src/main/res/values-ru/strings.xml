@@ -835,6 +835,9 @@
     <string name="settings_nubia_projection_guard_summary">Временно отключает ПО трансляции Nubia, защиту приватности и интерфейс подключения на время рабочего стола HDMI или Miracast. Восстанавливает их после закрытия последнего внешнего рабочего стола; сохранённые настройки приватности не меняются.</string>
     <string name="settings_section_automation">Автоматизация</string>
     <string name="settings_section_android">Система Android</string>
+    <string name="settings_child_process_restrictions">Отключить ограничения дочерних процессов</string>
+    <string name="settings_child_process_description">Отключает контроль фантомных процессов Android для всех приложений, включая Termux и сессии Linux. Системная настройка сохраняется после закрытия MagicDesk. Не защищает от завершения при нехватке памяти или ограничений энергосбережения производителя.</string>
+    <string name="settings_child_process_unavailable">Настройка контроля дочерних процессов Android недоступна.</string>
     <string name="settings_system_desktop_mode">Системный рабочий стол на внешних экранах</string>
     <string name="settings_system_desktop_mode_apply_notice">Переподключите внешний экран для применения изменения. На некоторых устройствах требуется перезапуск Android.</string>
     <string name="settings_system_desktop_mode_confirm">Изменить системный режим рабочего стола на внешних экранах? Его включение может добавить системные панели навигации. Переподключите экран после изменения; на некоторых устройствах требуется перезапуск Android.</string>

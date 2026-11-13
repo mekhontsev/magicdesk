@@ -823,6 +823,9 @@
     <string name="settings_nubia_projection_guard_summary">Désactive temporairement le logiciel de diffusion Nubia, sa protection de confidentialité et son interface de connexion pendant le bureau HDMI ou Miracast. Les restaure à la fermeture du dernier bureau externe ; les paramètres de confidentialité enregistrés restent inchangés.</string>
     <string name="settings_section_automation">Automatisation</string>
     <string name="settings_section_android">Système Android</string>
+    <string name="settings_child_process_restrictions">Désactiver les restrictions des processus enfants</string>
+    <string name="settings_child_process_description">Désactive la surveillance des processus fantômes Android pour toutes les applications, y compris Termux et les sessions Linux. Ce réglage système persiste après la fermeture de MagicDesk. Il ne protège pas contre les arrêts dus au manque de mémoire ni contre les restrictions énergétiques du fabricant.</string>
+    <string name="settings_child_process_unavailable">Le réglage Android de surveillance des processus enfants est indisponible.</string>
     <string name="settings_system_desktop_mode">Mode bureau du système sur les écrans externes</string>
     <string name="settings_system_desktop_mode_apply_notice">Reconnectez l\'écran externe pour appliquer la modification. Certains appareils peuvent nécessiter un redémarrage d\'Android.</string>
     <string name="settings_system_desktop_mode_confirm">Changer le mode bureau Android sur les écrans externes ? Son activation peut ajouter des barres de navigation système. Reconnectez l\'écran après la modification ; certains appareils peuvent nécessiter un redémarrage d\'Android.</string>

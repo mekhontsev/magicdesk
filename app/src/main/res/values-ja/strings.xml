@@ -803,6 +803,9 @@
     <string name="settings_nubia_projection_guard_summary">HDMI または Miracast デスクトップの実行中、Nubia のキャスト機能、プライバシー保護、接続 UI を一時的に無効にします。最後の外部デスクトップを閉じると復元します。保存済みのプライバシー設定は変更されません。</string>
     <string name="settings_section_automation">自動操作</string>
     <string name="settings_section_android">Android システム</string>
+    <string name="settings_child_process_restrictions">子プロセスの制限を無効にする</string>
+    <string name="settings_child_process_description">Termux や Linux セッションを含むすべてのアプリで、Android のファントムプロセス監視を無効にします。このシステム設定は MagicDesk を閉じた後も維持されます。メモリ不足による終了やメーカーの省電力制限は防ぎません。</string>
+    <string name="settings_child_process_unavailable">Android の子プロセス監視設定を利用できません。</string>
     <string name="settings_system_desktop_mode">外部画面のシステムデスクトップモード</string>
     <string name="settings_system_desktop_mode_apply_notice">変更を適用するには外部画面を接続し直してください。一部の端末では Android の再起動が必要です。</string>
     <string name="settings_system_desktop_mode_confirm">外部画面の Android デスクトップモードを変更しますか？有効にするとシステムのナビゲーションバーが追加される場合があります。変更後は画面を接続し直してください。一部の端末では Android の再起動が必要です。</string>

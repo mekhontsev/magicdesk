@@ -1348,6 +1348,14 @@ public final class ShellAccess {
         }
     }
 
+    static boolean readChildProcessMonitoringDefault() throws IOException {
+        try { return requireService().getChildProcessMonitoringDefault(); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("could not read child process monitoring: " + usefulMessage(error), error);
+        }
+    }
+
     static boolean canCreateAlwaysUnlockedDisplay() throws IOException {
         try { return requireService().canCreateAlwaysUnlockedDisplay(); }
         catch (RemoteException | RuntimeException error) {

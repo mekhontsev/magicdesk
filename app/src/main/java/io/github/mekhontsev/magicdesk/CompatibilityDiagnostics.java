@@ -354,6 +354,13 @@ public final class CompatibilityDiagnostics {
             report.append("unavailable: ").append(error.getMessage());
         }
         report.append("; optional, reconnect display after changes; Android restart may be needed\n");
+        report.append("Android child process monitoring: ");
+        try {
+            report.append(SystemChildProcessSetting.readDisabled(context) ? "disabled" : "enabled");
+        } catch (IOException error) {
+            report.append("unavailable: ").append(cleanSingleLine(error.getMessage(), 240));
+        }
+        report.append("; system-wide, independent of Desktop and memory-pressure kills\n");
         if (audit.platform.windowing().restrictionsPropertyKey() != null
                 || audit.platform.windowing()
                         .roundedCornersPropertyKey() != null) {

@@ -814,6 +814,9 @@
     <string name="settings_nubia_projection_guard_summary">Temporarily disables Nubia casting software, its privacy shield and connection UI during HDMI or Miracast Desktop. Restores it after the last external Desktop closes; saved privacy settings stay unchanged.</string>
     <string name="settings_section_automation">Automation</string>
     <string name="settings_section_android">Android system</string>
+    <string name="settings_child_process_restrictions">Disable child process restrictions</string>
+    <string name="settings_child_process_description">Disables Android phantom process monitoring for all apps, including Termux and Linux sessions. This system-wide setting persists after closing MagicDesk. It does not prevent low-memory kills or manufacturer battery restrictions.</string>
+    <string name="settings_child_process_unavailable">Android child process monitoring setting is unavailable.</string>
     <string name="settings_system_desktop_mode">System desktop mode on external displays</string>
     <string name="settings_system_desktop_mode_apply_notice">Reconnect the external display to apply the change. Some devices may require an Android restart.</string>
     <string name="settings_system_desktop_mode_confirm">Change Android desktop mode on external displays? Enabling it may add system navigation bars. Reconnect the display after changing this setting; some devices may require an Android restart.</string>

@@ -803,6 +803,9 @@
     <string name="settings_nubia_projection_guard_summary">在 HDMI 或 Miracast 桌面运行期间，临时禁用努比亚投屏软件、隐私保护和连接界面。关闭最后一个外接桌面后恢复；已保存的隐私设置保持不变。</string>
     <string name="settings_section_automation">自动化</string>
     <string name="settings_section_android">Android 系统</string>
+    <string name="settings_child_process_restrictions">停用子进程限制</string>
+    <string name="settings_child_process_description">为所有应用（包括 Termux 和 Linux 会话）停用 Android 幻影进程监控。此系统设置在关闭 MagicDesk 后仍然保留，但无法防止因内存不足而终止进程，也无法绕过厂商的省电限制。</string>
+    <string name="settings_child_process_unavailable">Android 子进程监控设置不可用。</string>
     <string name="settings_system_desktop_mode">外接显示器的系统桌面模式</string>
     <string name="settings_system_desktop_mode_apply_notice">请重新连接外接显示器以应用更改。部分设备可能需要重启 Android。</string>
     <string name="settings_system_desktop_mode_confirm">更改外接显示器的 Android 桌面模式？启用后可能出现系统导航栏。更改后请重新连接显示器；部分设备可能需要重启 Android。</string>
