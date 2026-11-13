@@ -128,9 +128,15 @@ and waits for existing helper and exit owners before stopping the real parent
 group and its direct children; unrelated processes remain runnable. A resumed
 exit, including a zombie leader awaiting its other threads, cannot acknowledge
 a new ptrace interrupt. Retirement must not stop those remaining threads while
-waiting for that leader's final event. Creation and retirement
-share quiescence admission with mapping repair, policy changes and task-affine
-calls. Deferred memory events retain their exact stop and terminal-event owner.
+waiting for that leader's final event. Admitted broker operations also finish
+before this cross-process barrier: a filesystem continuation can require a FUSE
+server among the selected children. If admission races an interrupt and the
+broker retains its stop, retirement releases the pre-kill barrier and retries
+after that operation progresses. The broker retains the exact event and output
+ownership; an already committed private-child removal cannot take this abort.
+Creation and retirement share quiescence admission with mapping repair, policy
+changes and task-affine calls. Deferred memory events retain their exact stop and
+terminal-event owner.
 A parked signal wait lends its native continuation without transferring or
 resetting the outer checkpoint ownership. A parent exit/exec cancels the borrowed
 context and returns the terminal event to its owner, not to stale registers. Adoption
@@ -146,6 +152,10 @@ The `robust-futex` component suite additionally covers private-child birth,
 reaping, blocked wait/signalfd readers, coalesced/directed notifications,
 SA_NOCLDWAIT and cleanup faults. Current receipts are in
 [host execution](../guest-exec-lab/host-execution.md#robust-mutex-qualification).
+`supervisor-state` covers pre-commit barrier release for pending broker work,
+resumption of stopped providers, exact event replay and exclusion of an already
+committed retirement. `fs-dispatch` checks broker admission and stop custody
+while a competing descriptor-table owner remains held.
 
 ## Verification And Limits
 

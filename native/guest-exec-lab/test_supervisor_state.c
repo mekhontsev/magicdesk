@@ -4479,6 +4479,51 @@ static void retirement_preparation_terminal(void) {
     puts("PASS private-child retirement: pre-kill barrier yields parent/peer exit and exec, exact replay without waiting for de_thread");
 }
 static void unused_retirement(void *context,int error) { (void)context; (void)error; assert(0); }
+static unsigned retirement_provider_resumes;
+static long retirement_provider_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==458 && !address && !data);
+    assert(request==PTRACE_INTERRUPT || request==PTRACE_CONT);
+    if (request==PTRACE_CONT) ++retirement_provider_resumes;
+    return 0;
+}
+static void retirement_preparation_blocked(void) {
+    int previous=fd_ready;
+    fd_ready=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd_ready>=0);
+    for (unsigned stage=0;stage<3;++stage) {
+        struct thread actor={.pid=123};
+        struct retained_memory memory={.retiring=1};
+        struct retained_retirement *r=calloc(1,sizeof(*r)); assert(r);
+        *r=(struct retained_retirement){.actor=&actor,.memory=&memory,.stage=(int)stage};
+        retained_retirement=r;
+        retained_barrier=md_task_quiesce_new(retirement_provider_trace); assert(retained_barrier);
+        assert(!md_task_quiesce_add(retained_barrier,actor.pid,1,0));
+        assert(!md_task_quiesce_add(retained_barrier,456,0,0));
+        assert(!md_task_quiesce_add(retained_barrier,458,0,PTRACE_CONT));
+        assert(!md_task_quiesce_stop(retained_barrier));
+        assert(!md_task_quiesce_event(retained_barrier,458,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
+        const int signal=(SIGUSR1<<8)|0x7f;
+        struct rusage usage={.ru_stime.tv_usec=789};
+        assert(!md_task_quiesce_event(retained_barrier,457,signal,&usage));
+        retirement_provider_resumes=0;
+        retained_barrier_blocked(999);
+        assert(retained_retirement==r && !retirement_provider_resumes);
+        retained_barrier_blocked(456);
+        if (stage) {
+            /* Once the private child is killed, cancellation must not replay
+             * the partially committed retirement as if nothing happened. */
+            assert(retained_retirement==r && !retirement_provider_resumes);
+            r->stage=0; retained_barrier_blocked(456);
+        }
+        assert(!retained_retirement && !memory.killed && !memory.dead && retirement_provider_resumes==1);
+        assert(md_task_quiesce_ready(retained_barrier));
+        int status=0; struct rusage replay={0};
+        assert(retained_take(&status,&replay)==457);
+        assert(status==signal && replay.ru_stime.tv_usec==789);
+        assert(!retained_take(&status,&replay) && !retained_barrier);
+    }
+    close(fd_ready); fd_ready=previous;
+    puts("PASS private-child retirement: pending broker operation releases pre-commit barrier, never a committed effect");
+}
 static void repair_preparation_terminal(void) {
     int previous=fd_ready;
     fd_ready=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd_ready>=0);
@@ -6175,6 +6220,7 @@ int main(void) {
     puts("PASS notification bind: live lazy patch, private-stack interruption and single retained FD/error delivery");
     terminal_cleanup_custody();
     retirement_preparation_terminal();
+    retirement_preparation_blocked();
     admission_quiescence();
     checkpoint_admission();
     checkpoint_quiescence();

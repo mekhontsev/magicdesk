@@ -497,12 +497,24 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     struct md_entry_channel channel;
     assert(!md_broker_cooperative_bind(broker,pid,&channel,1));
     assert(atomic_load(&channel.enabled) && channel.owner==pid);
+    assert(!md_broker_task_active(broker,pid));
+    assert(!md_broker_task_active(broker,-1));
     /* Valid but unused notification source: this case exercises direct entry. */
     int notification=listener(SYS_reboot);
     md_broker_listen(broker,notification);
     struct md_fd_order owner={0};
     assert(md_fd_order_begin(resources.files,&owner,NULL)==1 && !md_fd_order_start(&owner));
     int fd=open("/dev/null",O_RDONLY|O_CLOEXEC); assert(fd>=0);
+    /* Park an undecoded boundary before publishing work. This must revoke
+     * leases without interpreting input registers as a completed effect. */
+    channel.native.number=SYS_close; channel.native.result=fd;
+    atomic_store(&channel.native.state,MD_NATIVE_RUNNING);
+    md_fd_view_publish(&channel.descriptor,fd,FD_CLOEXEC,S_IFCHR);
+    md_broker_park(broker,pid);
+    assert(!md_broker_pending_events(broker) && !atomic_load(&channel.descriptor.descriptor));
+    assert(atomic_load(&channel.native.state)==MD_NATIVE_RUNNING && channel.native.result==fd);
+    assert(fcntl(fd,F_GETFD)==FD_CLOEXEC);
+    atomic_store(&channel.native.state,MD_NATIVE_EMPTY);
     int queued_wake=status==((PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f);
     if (queued_wake) {
         queued_table=resources.files; queued_owner=syscall(SYS_gettid);
@@ -514,6 +526,7 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
     /* EVENT_WAIT: shared admission publication; the fixture alarm bounds loss. */
     while (atomic_load_explicit(&channel.state,memory_order_acquire)==MD_ENTRY_REQUEST) sched_yield();
     assert(atomic_load(&channel.state)==MD_ENTRY_RUNNING);
+    assert(md_broker_task_active(broker,pid));
     if (queued_wake) {
         while (atomic_load_explicit(&queued_admission,memory_order_acquire)!=2) sched_yield();
         struct pollfd ready={.fd=md_fs_worker_fd(worker),.events=POLLIN};
@@ -529,14 +542,8 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
         atomic_store(&queued_admission,0); queued_table=NULL;
     }
     assert(!md_broker_pending_events(broker));
-    /* An undecoded syscall stop belongs to its barrier, not retirement.
-     * Even an input register resembling a result cannot complete its journal. */
-    channel.native.number=SYS_close; channel.native.result=fd;
-    atomic_store(&channel.native.state,MD_NATIVE_RUNNING);
-    md_fd_view_publish(&channel.descriptor,fd,FD_CLOEXEC,S_IFCHR);
-    md_broker_park(broker,pid);
-    assert(!md_broker_pending_events(broker) && !atomic_load(&channel.descriptor.descriptor));
-    assert(atomic_load(&channel.native.state)==MD_NATIVE_RUNNING && channel.native.result==fd);
+    /* Event capture itself parks the admitted caller under the broker lock.
+     * A separate park first would allow the worker to retire before capture. */
     assert(atomic_load(&channel.state)==MD_ENTRY_RUNNING && fcntl(fd,F_GETFD)==FD_CLOEXEC);
     assert(md_broker_hold_event(broker,pid,status,NULL)==1);
     assert(md_broker_pending_events(broker));
@@ -563,6 +570,7 @@ static void stopped_queued_entry(const char *store,int status,int admission) {
         observed=md_broker_take_event(broker,&returned,NULL);
     }
     assert(observed==pid && returned==status && !md_broker_pending_events(broker));
+    assert(!md_broker_task_active(broker,pid));
     assert(atomic_load(&channel.state)==MD_ENTRY_RESPONSE && channel.receipt==1
         && channel.outcome==MD_ENTRY_DECLINED);
     /* The stopped task cannot publish another ordinary call, but an owned

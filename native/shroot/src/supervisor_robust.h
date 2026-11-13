@@ -50,6 +50,7 @@ void retained_creation_begin(struct retained_memory *m,struct thread *t,
         const struct user_pt_regs *regs,enum md_task_call_boundary call);
 void retained_progress(void);
 int retained_barrier_event(pid_t pid,int status,const struct rusage *usage);
+void retained_barrier_blocked(pid_t pid);
 int retained_runnable(void);
 pid_t retained_take(int *status,struct rusage *usage);
 int retained_event(pid_t pid,int status,const struct rusage *usage);

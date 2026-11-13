@@ -581,7 +581,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
                 return pid;
             }
             int held=md_broker_hold_event(broker,pid,*status,usage); CHECK(held>=0);
-            if (held) continue;
+            if (held) { retained_barrier_blocked(pid); continue; }
             return pid;
         }
         if (pid<0 && errno==ECHILD && md_broker_pending_events(broker)) pid=0;

@@ -82,6 +82,10 @@ void md_broker_retirement_handler(struct md_namespace_broker *,int (*)(const str
  * register restoration cannot recreate their kernel delivery context.
  * take_event retains the borrowed stop until native_return after restoration. */
 int md_broker_native_borrow(struct md_namespace_broker *,pid_t,int *stopped);
+/* An admitted operation may depend on another guest (for example a FUSE
+ * server). A cross-process barrier must not stop that provider while waiting
+ * for this caller. Snapshot only: acquisition must also handle a racing stop. */
+int md_broker_task_active(struct md_namespace_broker *,pid_t);
 void md_broker_native_return(struct md_namespace_broker *,pid_t);
 /* Retain a real kernel event while its admitted worker operation retires.
  * No synchronous worker wait or filesystem IO occurs on the supervisor. */

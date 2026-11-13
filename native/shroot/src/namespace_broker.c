@@ -407,6 +407,14 @@ void md_broker_native_observer(struct md_namespace_broker *b,int (*observe)(pid_
 void md_broker_retirement_handler(struct md_namespace_broker *b,int (*retire)(const struct md_broker_retirement *)) {
     b->retire=retire;
 }
+int md_broker_task_active(struct md_namespace_broker *b,pid_t pid) {
+    if (!b) return 0;
+    pthread_mutex_lock(&b->lock);
+    struct task *t=find_task(b,pid);
+    int active=t && (t->operation || t->control_active);
+    pthread_mutex_unlock(&b->lock);
+    return active;
+}
 int md_broker_native_borrow(struct md_namespace_broker *b,pid_t pid,int *stopped) {
     if (!b) return 0;
     pthread_mutex_lock(&b->lock);

@@ -306,9 +306,19 @@ static int retained_retirement_member(const struct thread *t,pid_t parent) {
 
 static int retained_retirement_group_ready(pid_t parent) {
     for (struct thread *t=threads;t;t=t->next) if (t->pid && t->born
-            && (t->terminal_stop || retained_task_held(t) || md_task_helpers_group_busy(helpers,t->tgid))
+            && (t->terminal_stop || retained_task_held(t) || md_task_helpers_group_busy(helpers,t->tgid)
+                || md_broker_task_active(broker,t->pid))
             && retained_retirement_member(t,parent)) return 0;
     return 1;
+}
+
+void retained_barrier_blocked(pid_t pid) {
+    struct retained_retirement *r=retained_retirement;
+    if (!r || r->stage || !md_task_quiesce_contains(retained_barrier,pid)) return;
+    /* The broker owns the actual stop until its operation retires. Before
+     * killing the private child, release its possible guest providers rather
+     * than waiting for a response from a task held by this same barrier. */
+    retained_retirement_finish(0);
 }
 
 static void retained_retirement_progress(void) {
