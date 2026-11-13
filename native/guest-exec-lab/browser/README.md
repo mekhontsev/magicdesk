@@ -118,7 +118,9 @@ python native/guest-exec-lab/browser/benchmark.py --build BUILD --store DEVICE_G
 store for the same workload. Reports retain the video hash, browser version,
 supervisor/thread CPU deltas, CPU-frequency samples, host display state/mode
 before and after playback, video frame/drop counters,
-input receipts and screenshots. Input latency is the DevTools insertion and
+input receipts and screenshots. A per-second timeline retains the existing
+input/frame observations for correlation with external CPU samples, without
+additional browser polling. Input latency is the DevTools insertion and
 next-animation-frame round trip, not a physical-keyboard-to-display measurement.
 CPU percentages use one core as 100%; they exclude the browser's own processes.
 Display snapshots are read outside the timing interval and do not change refresh

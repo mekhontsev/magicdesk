@@ -260,6 +260,7 @@ def run(args, server_url, mode, index):
             first = protocol.evaluate('snapshot()', session)
             start = time.monotonic()
             latencies = []
+            timeline = []
             for count in range(args.seconds):
                 # Measurement pacing only, never a readiness assertion.
                 threading.Event().wait(max(0, start+count-time.monotonic()))
@@ -268,6 +269,8 @@ def run(args, server_url, mode, index):
                 value = protocol.evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve(snapshot())))', session)
                 assert value['inputs'] == count+1, value
                 latencies.append((time.monotonic()-sent)*1000)
+                timeline.append(dict(seconds=sent-start, inputRoundTripMs=latencies[-1],
+                                     video={key:item for key,item in value.items() if key != 'inputTimes'}))
             threading.Event().wait(max(0, start+args.seconds-time.monotonic()))
             last = protocol.evaluate('snapshot()', session)
             elapsed = time.monotonic()-start
@@ -281,7 +284,7 @@ def run(args, server_url, mode, index):
                    supervisorPercent=100*delta[str(pid)]/elapsed,
                    processPercent=100*sum(delta.values())/elapsed,
                    frames=last['frames']-first['frames'], dropped=last['dropped']-first['dropped'],
-                   inputRoundTripMs=latencies, inputMedianMs=statistics.median(latencies))
+                   inputRoundTripMs=latencies, inputMedianMs=statistics.median(latencies), timeline=timeline)
         assert not last['paused'] and not last['error'] and last['ready'] >= 3, last
         assert last['presented']-first['presented'] > elapsed*10, (first,last,elapsed)
         screenshot = protocol.call('Page.captureScreenshot', dict(format='png'), session)
@@ -299,7 +302,7 @@ def run(args, server_url, mode, index):
             assert not any(value['completed'] for value in counters), counters
         row['passed'] = suite.report['passed'] = True
         print('VIDEO_RESULT', json.dumps({k:v for k,v in row.items() if k not in
-              ('cpu','before','after','entryCounters','inputRoundTripMs','graphics')}), flush=True)
+              ('cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}), flush=True)
         return row
     finally:
         if protocol:
