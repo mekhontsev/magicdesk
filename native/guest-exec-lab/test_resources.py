@@ -281,10 +281,14 @@ def main():
     def check_buffers():
         check("native path invocation", executable("resource_guest") + " path-invocation "
               + root + "/native", "PASS path invocation:")
-        check("guest path invocation", guest_run + " --statistics --store "
-              + root + "/store --deadline-seconds 90 -- /bin/test path-invocation /tmp", "PASS path invocation:",
-              patterns=(r"MD_DIRECT status=[1-9]\d* open=0 fallback=0 admit=0 retry=0",
-                        r"MD_BROKER nr=56 notifications=\d+ handled=[1-9]\d* delegated=\d+"))
+        for entry in (0, 1):
+            patterns = (r"MD_DIRECT status=[1-9]\d* open=0 fallback=0 admit=0 retry=0",
+                        r"MD_BROKER cooperativeCompleted=[1-9]\d*",
+                        r"MD_BROKER nativeOpen=[1-9]\d*") if entry else (
+                        r"MD_BROKER cooperativeCompleted=0\b",)
+            check(f"guest path invocation entry={entry}", guest_run + " --statistics --store "
+                  + root + f"/store --env SHROOT_MACHINE_ENTRY={entry} --deadline-seconds 90"
+                  + " -- /bin/test path-invocation /tmp", "PASS path invocation:", patterns=patterns)
         check_mutation_signals()
         check_captures()
         check("adapter stack ownership", executable("test_interception_memory"),

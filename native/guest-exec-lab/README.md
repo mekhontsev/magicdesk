@@ -501,6 +501,9 @@ nor host frequency limits, and pinned results do not certify unpinned performanc
 `--application-filter` measures the same workloads after guest seccomp admission.
 Focused `--workload` selections include `identity` (four UID/GID reads), `uname`,
 `ipc-nowait` (a SysV send/receive pair) and `socket-nowait` (a datagram pair).
+`socket-rights` sends an eventfd through SCM_RIGHTS, receives it with
+MSG_CMSG_CLOEXEC, checks the received flags and closes the copy on every iteration.
+Unlike the ordinary datagram pair, this exercises descriptor custody and publication.
 `fd-bytes` reads a regular file's current available bytes with `FIONREAD`;
 `fd-ioctl` instead changes an eventfd's nonblocking mode with `FIONBIO`.
 These retain their normal owners and guest filters; setup is outside the timed loop.

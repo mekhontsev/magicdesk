@@ -46,7 +46,8 @@ int main(int argc,char **argv) {
     int flags=!strcmp(argv[1],"fd-flags"),control=!strcmp(argv[1],"fd-ioctl");
     int bytes=!strcmp(argv[1],"fd-bytes");
     int identity=!strcmp(argv[1],"identity"),uts=!strcmp(argv[1],"uname");
-    int messages=!strcmp(argv[1],"ipc-nowait"),sockets=!strcmp(argv[1],"socket-nowait");
+    int rights=!strcmp(argv[1],"socket-rights");
+    int messages=!strcmp(argv[1],"ipc-nowait"),sockets=rights || !strcmp(argv[1],"socket-nowait");
     assert(files || memory || idle || epoll || duplicate || metadata || flags || control || bytes
         || identity || uts || messages || sockets || !strcmp(argv[1],"poll"));
     assert(files || blocks==1);
@@ -108,6 +109,25 @@ int main(int argc,char **argv) {
                 assert(!msgsnd(message_queue,&message,1,IPC_NOWAIT));
                 assert(msgrcv(message_queue,&received_message,1,1,IPC_NOWAIT)==1
                     && received_message.type==1 && received_message.data=='m');
+            } else if (rights) {
+                char value='r'; struct iovec vector={&value,1};
+                union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control={0},reply={0};
+                struct msghdr send_message={.msg_iov=&vector,.msg_iovlen=1,
+                    .msg_control=control.bytes,.msg_controllen=sizeof(control)};
+                struct cmsghdr *header=CMSG_FIRSTHDR(&send_message);
+                header->cmsg_level=SOL_SOCKET; header->cmsg_type=SCM_RIGHTS;
+                header->cmsg_len=CMSG_LEN(sizeof(int)); memcpy(CMSG_DATA(header),&fd,sizeof(fd));
+                assert(sendmsg(pair[0],&send_message,MSG_DONTWAIT|MSG_NOSIGNAL)==1);
+                struct msghdr receive_message={.msg_iov=&vector,.msg_iovlen=1,
+                    .msg_control=reply.bytes,.msg_controllen=sizeof(reply)};
+                value=0;
+                assert(recvmsg(pair[1],&receive_message,MSG_DONTWAIT|MSG_CMSG_CLOEXEC)==1 && value=='r');
+                header=CMSG_FIRSTHDR(&receive_message);
+                assert(!(receive_message.msg_flags&MSG_CTRUNC) && header
+                    && header->cmsg_level==SOL_SOCKET && header->cmsg_type==SCM_RIGHTS
+                    && header->cmsg_len==CMSG_LEN(sizeof(int)));
+                int copy=-1; memcpy(&copy,CMSG_DATA(header),sizeof(copy));
+                assert(copy>=0 && (fcntl(copy,F_GETFD)&FD_CLOEXEC) && !close(copy));
             } else if (sockets) {
                 char value=0;
                 assert(send(pair[0],"s",1,MSG_DONTWAIT|MSG_NOSIGNAL)==1);

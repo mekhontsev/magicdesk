@@ -10,7 +10,7 @@ from test_oci_services import Suite
 from benchmark_cpu import observe_suite_cpu
 
 CONTROL_WORKLOADS = ('fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl', 'fd-bytes',
-                     'identity', 'uname', 'ipc-nowait', 'socket-nowait')
+                     'identity', 'uname', 'ipc-nowait', 'socket-nowait', 'socket-rights')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
