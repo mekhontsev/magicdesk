@@ -52,6 +52,39 @@ final class BuiltInWindowLauncher {
             if (error == null) RecentApplications.recordBuiltIn(context, intent, target, RecentLaunchScope.of(placement));
             complete(context, callback, error);
         };
+        try {
+            if (!placement.desktop) {
+                OrdinaryActivityLaunch.requirePresentation(ordinary);
+                final BuiltInDesktopAppCatalog.Entry entry = BuiltInDesktopAppCatalog.find(target);
+                if (entry == null) { throw new IllegalArgumentException("unknown built-in application"); }
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (presentation == null && entry.multipleWindows) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+                } else if (presentation == null && (DesktopRuntimeBridge.hasWorkspaces()
+                        || BuiltInWindowRegistry.needsSeparateTask(target, displayId))) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+                }
+                if (InteractiveActivityLaunch.canLaunchLocally(context, intent, displayId, ordinary)) {
+                    // No shared task queue: a stalled Desktop must not block an
+                    // unrelated, fresh phone window. Revalidate on the UI thread.
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        final Activity activity = (Activity) context;
+                        if (activity.isFinishing() || activity.isDestroyed()) { return; }
+                        try {
+                            InteractiveActivityLaunch.requireDestination(context, displayId, uniqueId);
+                            InteractiveActivityLaunch.launchLocally(context, intent, displayId, ordinary);
+                            launched.onComplete(null);
+                        } catch (IOException | RuntimeException error) {
+                            launched.onComplete(error);
+                        }
+                    });
+                    return;
+                }
+            }
+        } catch (RuntimeException error) {
+            launched.onComplete(error);
+            return;
+        }
         TaskCommandQueue.execute(() -> {
             try {
                 // Check again on the command queue: a session or display may have
@@ -59,38 +92,9 @@ final class BuiltInWindowLauncher {
                 placement.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
                 InteractiveActivityLaunch.requireDestination(context, displayId, uniqueId);
                 if (!placement.desktop) {
-                    OrdinaryActivityLaunch.requirePresentation(ordinary);
-                    final BuiltInDesktopAppCatalog.Entry entry =
-                            BuiltInDesktopAppCatalog.find(target);
-                    if (entry == null) { throw new IllegalArgumentException("unknown built-in application"); }
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    if (presentation == null && entry.multipleWindows) {
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-                    } else if (presentation == null && BuiltInWindowRegistry.needsSeparateTask(target, displayId)) {
-                        // An ordinary tool launch must not steal an instance from
-                        // another display, especially one owned by Desktop.
-                        intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-                    }
-                    if (InteractiveActivityLaunch.canLaunchLocally(context, displayId, ordinary)) {
-                        // Android checks the actual Intent and display under the app UID.
-                        // A rejected public launch never retries with shell authority.
-                        new Handler(Looper.getMainLooper()).post(() -> {
-                            final Activity activity = (Activity) context;
-                            if (activity.isFinishing() || activity.isDestroyed()) { return; }
-                            try {
-                                InteractiveActivityLaunch.requireDestination(context, displayId, uniqueId);
-                                InteractiveActivityLaunch.launch(context, intent,
-                                        AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId, ordinary);
-                                launched.onComplete(null);
-                            } catch (IOException | RuntimeException error) {
-                                launched.onComplete(error);
-                            }
-                        });
-                    } else {
-                        OrdinaryActivityLaunch.launch(context, intent,
-                                AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId, ordinary);
-                        launched.onComplete(null);
-                    }
+                    OrdinaryActivityLaunch.launch(context, intent,
+                            AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId, ordinary);
+                    launched.onComplete(null);
                     return;
                 }
                 final DesktopLaunchPresentation policy = presentation != null ? presentation

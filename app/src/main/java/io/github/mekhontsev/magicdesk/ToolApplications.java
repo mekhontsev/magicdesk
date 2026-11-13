@@ -54,6 +54,11 @@ final class ToolApplications {
             final DesktopLaunchPresentation presentation, final BuiltInWindowLauncher.Callback callback) {
         final int display = source.getDisplay() == null ? 0 : source.getDisplay().getDisplayId();
         final int taskId = source.getTaskId();
+        if (display == 0 && !source.isInMultiWindowMode() && !DesktopRuntimeBridge.hasWorkspace(0)) {
+            open(source, intent, ToolLaunchTarget.resolve("phone", 0, java.util.Set.of()),
+                    null, null, callback);
+            return;
+        }
         TaskCommandQueue.execute(() -> {
             try {
                 final var placement = windowPlacement(display, taskId);

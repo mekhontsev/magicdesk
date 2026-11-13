@@ -89,6 +89,29 @@ public final class RuntimeWindowHandoffRegressionTest {
     }
 
     @Test
+    public void independentPhoneToolsDoNotWaitForDesktopCommands() throws Exception {
+        verifyLaunch(launchFixture() + """
+                public static void verify() {
+                    MagicDeskRuntime.active=7; Display.id=0;
+                    TaskCommandQueue.blocked=true;
+                    BuiltInDesktopAppCatalog.multiple=false;
+                    Activity activity=new Activity();
+                    launch(activity,new Intent(),new AppLaunchTarget(),
+                            ToolLaunchTarget.resolve("phone",0,Set.of(7)),null,error -> {
+                                check(error==null,"phone launch failed"); callbacks++;
+                            });
+                    activity.drainUi();
+                    check(callbacks==1 && activity.started==1 && activity.startedDisplay==0,
+                            "phone tool did not open with a stalled Desktop queue");
+                    check(activity.startedFlags==5, "phone launch may reuse a managed task");
+                    check(TaskCommandQueue.calls==0 && ShellAccess.calls==0 && DesktopRuntimeBridge.calls==0,
+                            "independent phone tool entered Desktop/shell control");
+                    check(RecentApplications.scopes.equals(List.of(RecentLaunchScope.INDEPENDENT)), "wrong launch scope");
+                }
+                """);
+    }
+
+    @Test
     public void ordinarySecondaryDisplayLaunchUsesShellWithoutDesktopPolicy() throws Exception {
         verifyLaunch(launchFixture() + """
                 public static void verify() {
@@ -226,6 +249,14 @@ public final class RuntimeWindowHandoffRegressionTest {
                         return c instanceof Activity a && !a.isFinishing() && !a.isDestroyed()
                                 && d == 0 && Display.id == 0 && MagicDeskRuntime.active < 0;
                     }
+                    static boolean canLaunchLocally(Context c, Intent i, int d, DesktopLaunchPresentation p) {
+                        return canLaunchLocally(c,d,p) || c instanceof Activity a && !a.isFinishing() && !a.isDestroyed()
+                                && d == 0 && Display.id == 0 && (i.flags & 5) == 5 && p.mode == DesktopLaunchMode.AUTO;
+                    }
+                    static void launchLocally(Context c, Intent i, int d, DesktopLaunchPresentation p) throws IOException {
+                        if (!canLaunchLocally(c,i,d,p)) throw new IOException("local placement changed");
+                        c.startActivity(i,Integer.valueOf(d));
+                    }
                     static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery delivery, int d,
                             DesktopLaunchPresentation p) throws IOException {
                         if (canLaunchLocally(c, d, p)) c.startActivity(i, Integer.valueOf(d));
@@ -240,14 +271,18 @@ public final class RuntimeWindowHandoffRegressionTest {
                     }
                 }
                 static class BuiltInDesktopAppCatalog {
+                    static boolean multiple=true;
                     static boolean supportsMultipleWindows(AppLaunchTarget target) { return true; }
-                    static class Entry { boolean multipleWindows=true; }
+                    static class Entry { boolean multipleWindows=multiple; }
                     static Entry find(AppLaunchTarget target) { return new Entry(); }
                     static Object defaultWindowBounds(AppLaunchTarget target) { return null; }
                 }
                 static class DesktopDisplayCatalog { static void require(int display,String unique) {} }
                 static class BuiltInWindowRegistry { static boolean needsSeparateTask(AppLaunchTarget t,int d) { return false; } }
-                static class TaskCommandQueue { static int calls; static void execute(Runnable r) { calls++; r.run(); } }
+                static class TaskCommandQueue {
+                    static int calls; static boolean blocked;
+                    static void execute(Runnable r) { calls++; if (!blocked) r.run(); }
+                }
                 static class TaskRepository {
                     static class TaskEntry { int taskId=41; }
                     interface ActionCallback { void onComplete(ActionResult result); }
@@ -277,6 +312,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                         ready.thenAccept(c::onComplete);
                     }
                     static Set<Integer> workspaceDisplayIds() { return MagicDeskRuntime.active < 0 ? Set.of() : Set.of(MagicDeskRuntime.active); }
+                    static boolean hasWorkspaces() { return MagicDeskRuntime.active >= 0; }
                     static boolean hasWorkspace(int id) { return MagicDeskRuntime.active == id; }
                 }
                 """ + RuntimeSourceFixture.methods("BuiltInWindowLauncher", "launch", "complete");

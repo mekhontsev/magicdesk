@@ -27,11 +27,29 @@ final class InteractiveActivityLaunch {
                 && canLaunchLocally(context, displayId);
     }
 
+    static boolean canLaunchLocally(Context context, Intent intent, int displayId,
+            DesktopLaunchPresentation presentation) {
+        if (canLaunchLocally(context, displayId, presentation)) return true;
+        // A fresh own task cannot steal a window from Desktop. The phone's
+        // recovery tools must not depend on another display's task topology.
+        final int freshTask = Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK;
+        return presentation.mode == DesktopLaunchMode.AUTO && presentation.preferredTaskId == -1
+                && isPhoneActivity(context, displayId)
+                && intent.getComponent() != null
+                && context.getPackageName().equals(intent.getComponent().getPackageName())
+                && BuiltInDesktopAppCatalog.findComponent(intent.getComponent().getClassName()) != null
+                && (intent.getFlags() & freshTask) == freshTask;
+    }
+
+    private static boolean isPhoneActivity(Context context, int displayId) {
+        return displayId == 0 && context instanceof Activity activity
+                && !activity.isFinishing() && !activity.isDestroyed()
+                && activity.getDisplay() != null && activity.getDisplay().getDisplayId() == 0;
+    }
+
     static void requireDestination(Context context, int displayId, String uniqueId) throws IOException {
         // Preserve the phone-only path even if the display catalog is unavailable.
-        if (uniqueId == null && displayId == 0 && context instanceof Activity activity
-                && activity.getDisplay() != null && activity.getDisplay().getDisplayId() == 0
-                && canLaunchLocally(context, displayId)) return;
+        if (uniqueId == null && isPhoneActivity(context, displayId)) return;
         DesktopDisplayCatalog.require(displayId, uniqueId);
     }
 
@@ -43,14 +61,22 @@ final class InteractiveActivityLaunch {
     static void launch(Context context, Intent intent, AndroidLaunchSpec.Delivery delivery,
             int displayId, DesktopLaunchPresentation presentation) throws IOException {
         OrdinaryActivityLaunch.requirePresentation(presentation);
-        if (canLaunchLocally(context, displayId, presentation)) {
-            requirePublicLaunch(context, intent, displayId);
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            options.setLaunchDisplayId(displayId);
-            context.startActivity(intent, options.toBundle());
+        if (canLaunchLocally(context, intent, displayId, presentation)) {
+            launchLocally(context, intent, displayId, presentation);
         } else {
             OrdinaryActivityLaunch.launch(context, intent, delivery, displayId, presentation);
         }
+    }
+
+    static void launchLocally(Context context, Intent intent, int displayId,
+            DesktopLaunchPresentation presentation) throws IOException {
+        if (!canLaunchLocally(context, intent, displayId, presentation)) {
+            throw new IOException("Local Activity placement is no longer available");
+        }
+        requirePublicLaunch(context, intent, displayId);
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        context.startActivity(intent, options.toBundle());
     }
 
     private static void requirePublicLaunch(Context context, Intent intent, int displayId) throws IOException {

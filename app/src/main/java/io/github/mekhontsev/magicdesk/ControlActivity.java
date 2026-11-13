@@ -604,8 +604,8 @@ public final class ControlActivity extends Activity
 
     @Override
     public void openSettings() {
-        BuiltInWindowLauncher.launch(this, SettingsActivity.createIntent(this),
-                BuiltInDesktopAppCatalog.settingsTarget(), error -> {
+        ToolApplications.open(this, SettingsActivity.createIntent(this),
+                ToolLaunchTarget.resolve("phone", 0, java.util.Set.of()), null, error -> {
                     if (error != null) { mStatus = ShellAccess.usefulMessage(error); refresh(); }
                 });
     }

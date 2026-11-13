@@ -251,7 +251,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             Log.w(TAG, "fullscreen ownership update failed task=" + taskId, error);
                             callCallback(() -> mCallback.onObserverError(
                                     "fullscreen ownership update failed task=" + taskId
-                                            + " display=" + displayId + ": " + error.getMessage()));
+                                            + " display=" + displayId + ": "
+                                            + TaskDisplayAreaLaunchCommand.causeChain(error)));
                         }
                         final boolean backgroundAppFullscreenReleased = released;
                         mSelfTestTaskStackGuard.sample("windowing-mode");

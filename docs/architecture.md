@@ -49,6 +49,10 @@ behavior, static verification and remaining device coverage.
   tools do not acquire HOME or require Desktop provisioning. Background launches
   and privileged cross-display placement use the shell service; ordinary phone
   launches and interactive app-only external launches use public Activity options.
+  Fresh built-in phone tasks use that local path even while Desktop is active,
+  without joining its command queue or reusing a managed task. Control Panel
+  selects ordinary phone placement for Settings; child tools follow their source
+  task's ownership, not merely the presence of a workspace on the same display.
   `InteractiveActivityLaunch` owns that UI choice. Without shell, a live Activity
   can request any accessible display, subject to Android's Intent-specific
   launch check and secondary-Activity feature. Pinned destinations retain identity

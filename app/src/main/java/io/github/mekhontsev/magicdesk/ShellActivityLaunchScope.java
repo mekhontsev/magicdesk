@@ -11,13 +11,16 @@ final class ShellActivityLaunchScope implements AutoCloseable {
             ConcurrentHashMap.newKeySet();
 
     private final LaunchActivityIdentity mIdentity;
+    private final int mDisplayId;
 
-    private ShellActivityLaunchScope(final LaunchActivityIdentity identity) {
+    private ShellActivityLaunchScope(final LaunchActivityIdentity identity, final int displayId) {
         mIdentity = java.util.Objects.requireNonNull(identity);
+        if (displayId < 0) { throw new IllegalArgumentException("launch display is required"); }
+        mDisplayId = displayId;
     }
 
-    static ShellActivityLaunchScope begin(final LaunchActivityIdentity identity) {
-        final ShellActivityLaunchScope scope = new ShellActivityLaunchScope(identity);
+    static ShellActivityLaunchScope begin(final LaunchActivityIdentity identity, final int displayId) {
+        final ShellActivityLaunchScope scope = new ShellActivityLaunchScope(identity, displayId);
         ACTIVE.add(scope);
         return scope;
     }
@@ -31,6 +34,19 @@ final class ShellActivityLaunchScope implements AutoCloseable {
             }
         }
         return false;
+    }
+
+    static boolean isActiveOnDisplay(final Intent intent, final String packageName, final int displayId) {
+        boolean matched = false;
+        for (final ShellActivityLaunchScope scope : ACTIVE) {
+            if (scope.mIdentity.matchesStart(intent, packageName)) {
+                // Simultaneous launches of the same Activity on different displays
+                // are ambiguous to IActivityController. Never turn that into a veto.
+                if (scope.mDisplayId != displayId) { return false; }
+                matched = true;
+            }
+        }
+        return matched;
     }
 
     @Override

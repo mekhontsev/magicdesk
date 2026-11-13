@@ -11,23 +11,36 @@ public final class ToolWindowPlacementTest {
             enum DesktopLaunchMode { WINDOWED, FULLSCREEN }
             static class DesktopLaunchPresentation { DesktopLaunchMode mode = DesktopLaunchMode.FULLSCREEN; }
             static class Activity {
+                boolean isInMultiWindowMode() { return false; }
                 Display getDisplay() { return new Display(); } int getTaskId() { return 12; }
                 boolean isDestroyed() { return false; } boolean isFinishing() { return false; }
                 void runOnUiThread(Runnable work) { work.run(); }
             }
-            static class Display { int getDisplayId() { return 7; } }
+            static class Display { static int id = 7; int getDisplayId() { return id; } }
             static class Target { boolean desktop=true; }
+            static class ToolLaunchTarget {
+                static Target resolve(String placement, int display, Set<Integer> desktops) {
+                    check(placement.equals("phone") && display == 0, "phone destination");
+                    Target result = new Target(); result.desktop = false; return result;
+                }
+            }
+            static class DesktopRuntimeBridge { static boolean hasWorkspace(int display) { return display == 7; } }
             record WindowPlacement(Target target,String uniqueId, DesktopLaunchPresentation presentation) { }
             static final Target target=new Target();
             static final DesktopLaunchPresentation sourcePresentation = new DesktopLaunchPresentation();
             static WindowPlacement windowPlacement(int display,int task) throws java.io.IOException {
                 check(display==7 && task==12,"source identity"); return new WindowPlacement(target,"stable",sourcePresentation);
             }
-            static class TaskCommandQueue { static void execute(Runnable work) { work.run(); } }
+            static class TaskCommandQueue {
+                static int calls; static boolean blocked;
+                static void execute(Runnable work) { calls++; if (!blocked) work.run(); }
+            }
             static class BuiltInWindowLauncher { interface Callback { void onComplete(Throwable error); } }
-            static DesktopLaunchPresentation actual;
+            static DesktopLaunchPresentation actual; static int opens;
             static void open(Activity source,Intent intent,Target target,String identity,
-                    DesktopLaunchPresentation bounds,BuiltInWindowLauncher.Callback callback) { actual=bounds; callback.onComplete(null); }
+                    DesktopLaunchPresentation bounds,BuiltInWindowLauncher.Callback callback) {
+                opens++; actual=bounds; callback.onComplete(null);
+            }
             public static void verify() {
                 var bounds=new DesktopLaunchPresentation();
                 var source=new Activity(); var intent=new Intent();
@@ -42,6 +55,11 @@ public final class ToolWindowPlacementTest {
                 check(actual==bounds,"independent freeform child lost explicit bounds");
                 openSibling(source,intent,null,done);
                 check(actual==sourcePresentation,"independent freeform child lost source presentation");
+                Display.id = 0; TaskCommandQueue.blocked = true;
+                int before = TaskCommandQueue.calls;
+                openSibling(source,intent,null,done);
+                check(opens==5 && actual==null && TaskCommandQueue.calls==before,
+                        "phone diagnostics depends on an external Desktop queue or task snapshot");
             }
             """ + method);
     }

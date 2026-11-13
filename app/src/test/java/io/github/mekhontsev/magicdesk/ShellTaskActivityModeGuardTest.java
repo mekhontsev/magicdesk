@@ -161,7 +161,7 @@ public final class ShellTaskActivityModeGuardTest {
         verify("""
                 identify(1);
                 observe(1, MAIN, ORIGINAL, 5, false);
-                try (var scope = ShellActivityLaunchScope.begin(new LaunchActivityIdentity(CHILD))) {
+                try (var scope = ShellActivityLaunchScope.begin(new LaunchActivityIdentity(CHILD), 7)) {
                     start(CHILD, 0);
                 }
                 observe(1, CHILD, SHIFTED, 5, false);

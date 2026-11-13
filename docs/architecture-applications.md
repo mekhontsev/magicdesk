@@ -935,13 +935,16 @@ Ordinary local reuse and Activities supporting multiple windows do not acquire
 a privileged-service prerequisite. Files supports multiple windows directly.
 
 During a managed Activity dispatch, `ShellTaskLauncher` owns a bounded
-`ShellActivityLaunchScope` carrying its resolved launch identity. All workspace
+`ShellActivityLaunchScope` carrying its resolved launch identity and destination
+display. All workspace
 phone-migration and Activity-handoff guards consult that shared provenance,
 including on Binder callback threads; caller Intent flags are not reliable
 evidence of an explicit MagicDesk launch. The scope ends on success or failure,
 without a timer, and does not bypass unrelated Activity admission policies.
 It recognizes the requested component and its alias target, not every Activity
 in the package (except explicitly package-scoped selection surfaces).
+Fullscreen-boundary repair failures veto only a matching, unambiguous scoped
+destination; they cannot reject unrelated launches across the whole device.
 
 ## Viewport And Desktop Chrome
 

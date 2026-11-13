@@ -94,8 +94,20 @@ owned by the workspace gateway, not this launch guard.
 The guard uses an immutable published boundary snapshot. It never acquires the
 plane owner's monitor, starts an animation, or waits for a frame/transition:
 Android can call it synchronously while the owner is awaiting its Binder launch.
-A missing separator or failed repair rejects the original launch with a
-diagnostic; it does not replay an Intent or watch for a framework exception.
+A missing separator or failed repair rejects an explicitly scoped launch into
+that display. `ShellActivityLaunchScope` retains the destination across the
+Binder callback, alongside the Activity identity. Unscoped or ambiguous launches
+still attempt repair, but a failure is diagnostic, not a system-wide veto: the
+callback cannot establish their destination. This preserves access to phone
+applications and recovery tools even if another Desktop's hierarchy is damaged.
+It does not guarantee that Android can launch into that damaged hierarchy.
+The guard never replays an Intent or watches for a framework exception; explicit
+plane preparation continues to require successful protection.
+The shared activity controller records explicit safety rejections, their display,
+target package and underlying cause in the compatibility journal, separately
+from optional observer failures. Native fullscreen-adoption failures retain
+their cause chain too. These records survive Desktop closure and do not depend
+on opening Diagnostics while the failure is active.
 This is a launch-time query, not a second periodic task observer. Teardown
 retains the controller until plane cleanup has finished.
 

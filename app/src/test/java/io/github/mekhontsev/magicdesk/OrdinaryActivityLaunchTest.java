@@ -8,8 +8,19 @@ import static org.junit.Assert.*;
 public final class OrdinaryActivityLaunchTest {
     @Test public void interactiveDisplayLaunchAndOwnTaskReuseNeedNoPrivilegedService() throws Exception {
         RuntimeSourceFixture.verify("""
-                static class Intent {}
+                static class Intent {
+                    static final int FLAG_ACTIVITY_NEW_TASK = 1, FLAG_ACTIVITY_MULTIPLE_TASK = 2;
+                    int flags; Component component;
+                    int getFlags() { return flags; } Component getComponent() { return component; }
+                }
+                record Component(String pkg, String name) {
+                    String getPackageName() { return pkg; } String getClassName() { return name; }
+                }
+                static class BuiltInDesktopAppCatalog {
+                    static Object findComponent(String name) { return name.equals("settings") ? name : null; }
+                }
                 static class Context {
+                    String getPackageName() { return "magicdesk"; }
                     ActivityManager manager = new ActivityManager();
                     <T> T getSystemService(Class<T> type) { return type.cast(manager); }
                     int starts;
@@ -71,6 +82,7 @@ public final class OrdinaryActivityLaunchTest {
                 enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
                 static class DesktopLaunchPresentation {
                     DesktopLaunchMode mode = DesktopLaunchMode.AUTO;
+                    int preferredTaskId = -1;
                     static DesktopLaunchPresentation automatic() { return new DesktopLaunchPresentation(); }
                 }
                 static int privilegedLaunches;
@@ -86,7 +98,7 @@ public final class OrdinaryActivityLaunchTest {
                 }
                 """ + RuntimeSourceFixture.nestedClass("InteractiveActivityLaunch", "OwnTaskResult")
                 + RuntimeSourceFixture.methods("InteractiveActivityLaunch", "canLaunchLocally",
-                        "requireDestination", "requirePublicLaunch", "launch", "showOwnTask")
+                        "isPhoneActivity", "requireDestination", "requirePublicLaunch", "launch", "launchLocally", "showOwnTask")
                         .replace("android.content.pm.PackageManager", "PackageManager") + """
                 public static void verify() throws Exception {
                     Activity activity = new Activity(); Intent intent = new Intent();
@@ -135,6 +147,29 @@ public final class OrdinaryActivityLaunchTest {
                     check(!canLaunchLocally(activity, 0), "desktop topology bypass");
                     launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 0);
                     check(privilegedLaunches == 1, "desktop boundary bypass");
+                    int queries = DesktopDisplayCatalog.queries;
+                    requireDestination(activity, 0, null);
+                    check(DesktopDisplayCatalog.queries == queries, "known phone depends on Desktop catalog");
+                    intent.flags = 3; intent.component = new Component("magicdesk", "settings");
+                    launchLocally(activity, intent, 0, automatic);
+                    check(activity.starts == 4 && privilegedLaunches == 1,
+                            "fresh own phone window blocked by an unrelated Desktop");
+                    intent.flags = 1;
+                    check(!canLaunchLocally(activity, intent, 0, automatic), "reusable task bypassed ownership");
+                    intent.flags = 3; intent.component = new Component("other", "settings");
+                    check(!canLaunchLocally(activity, intent, 0, automatic), "foreign app bypassed ownership");
+                    intent.component = new Component("magicdesk", "other");
+                    check(!canLaunchLocally(activity, intent, 0, automatic), "non-tool component admitted");
+                    intent.component = new Component("magicdesk", "settings");
+                    check(!canLaunchLocally(activity, intent, 3, automatic), "external task bypassed ownership");
+                    automatic.preferredTaskId = 42;
+                    check(!canLaunchLocally(activity, intent, 0, automatic), "explicit task identity ignored");
+                    automatic.preferredTaskId = -1;
+                    activity.destroyed = true;
+                    try { launchLocally(activity, intent, 0, automatic); throw new AssertionError("closed caller launched"); }
+                    catch (IOException expected) { }
+                    check(privilegedLaunches == 1, "late local failure escalated to shell");
+                    activity.destroyed = false; intent.flags = 0; intent.component = null;
                     DesktopRuntimeBridge.active = false;
                     for (var mode : new DesktopLaunchMode[] {DesktopLaunchMode.WINDOWED, DesktopLaunchMode.FULLSCREEN}) {
                         var explicit = new DesktopLaunchPresentation(); explicit.mode = mode;

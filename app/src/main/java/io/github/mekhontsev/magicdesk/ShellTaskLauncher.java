@@ -112,7 +112,7 @@ final class ShellTaskLauncher {
         final LaunchActivityIdentity identity = LaunchActivityIdentity.resolve(
                 FrameworkUserApi.userId(android.os.Process.myUserHandle()),
                 mPackageManager, intent.getComponent());
-        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity)) {
+        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity, displayId)) {
             TaskDisplayAreaLaunchCommand.launchTaskAction(mService, displayId, taskId, intent);
         }
     }
@@ -358,7 +358,7 @@ final class ShellTaskLauncher {
                     "pending Activity task is unavailable or belongs"
                             + " to another app");
         }
-        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity)) {
+        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity, displayId)) {
             if (creatorAuthorized) {
                 TaskDisplayAreaLaunchCommand
                         .launchCreatorAuthorizedPendingIntentTaskAction(
@@ -451,7 +451,7 @@ final class ShellTaskLauncher {
         int launchedTaskId = -1;
         try {
             final int taskId;
-            try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity)) {
+            try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity, displayId)) {
                 taskId = starter.start(pending);
             }
             launchedTaskId = taskId;

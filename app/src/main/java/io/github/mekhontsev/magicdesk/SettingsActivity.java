@@ -550,30 +550,22 @@ public final class SettingsActivity extends Activity
 
     @Override
     public void openApplicationSettings() {
-        final android.view.Display display = getDisplay();
-        final int displayId = display == null
-                ? android.view.Display.DEFAULT_DISPLAY
-                : display.getDisplayId();
-        if (DesktopRuntimeBridge.hasWorkspace(displayId)
-                && DesktopRuntimeBridge.openApplicationSettings(displayId, null)) {
-            return;
-        }
-        startActivityOnCurrentDisplay(
-                AppPresentationSettingsActivity.createIntent(this));
+        openTool(AppPresentationSettingsActivity.createIntent(this));
     }
 
     @Override
     public void openDiagnostics() {
-        final android.view.Display display = getDisplay();
-        final int displayId = display == null
-                ? android.view.Display.DEFAULT_DISPLAY
-                : display.getDisplayId();
-        if (DesktopRuntimeBridge.hasWorkspace(displayId)
-                && DesktopRuntimeBridge.openBuiltin(displayId, "diagnostics")) {
-            return;
-        }
-        startActivityOnCurrentDisplay(
-                DiagnosticsActivity.createIntent(this));
+        openTool(DiagnosticsActivity.createIntent(this));
+    }
+
+    private void openTool(final Intent intent) {
+        ToolApplications.openSibling(this, intent, error -> {
+            if (error != null) {
+                CompatibilityDiagnostics.record("SETTINGS-OPEN-001", "Could not open settings tool",
+                        intent.getComponent().flattenToShortString(), error);
+                Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     @Override

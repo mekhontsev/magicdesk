@@ -16,20 +16,20 @@ final class WindowGeometryReportParser {
     private static final Pattern COMPONENT = Pattern.compile(
             "(?<![\\w.])([A-Za-z][\\w]*(?:\\.[\\w]+)+)/[\\w.$]+");
     private static final Pattern WINDOW = Pattern.compile("^\\s*Window #\\d+ Window\\{.*");
-    private static final Pattern LAYER = Pattern.compile("^\\s*Layer \\[(\\d+)] (.*)");
+    private static final Pattern LAYER = Pattern.compile("^\\s*Layer \\[(\\d+)\\] (.*)");
     private static final Pattern INPUT = Pattern.compile("^\\s*\\d+: name=.*");
     private static final Pattern TASK_ID = Pattern.compile("\\btaskId=(\\d+)\\b");
     private static final Pattern DISPLAY = Pattern.compile("^\\s*Display: (\\d+)\\s*$");
     private static final Pattern STACK = Pattern.compile("^LayerStack=(\\d+)\\s*$");
     private static final Pattern FIELD = Pattern.compile(
             "\\b([A-Za-z][\\w]*(?:\\(\\))?)=("
-                    + "(?:\\[" + COORDINATES + "]){1,2}"
+                    + "(?:\\[" + COORDINATES + "\\]){1,2}"
                     + "|(?:Rect|Point)\\(" + COORDINATES + "\\)"
-                    + "|\\{" + COORDINATES + "}"
+                    + "|\\{" + COORDINATES + "\\}"
                     + "|<empty>|true|false|" + NUMBER + ")(?![\\w.])");
     private static final Pattern TRANSFORM = Pattern.compile(
             "\\btoDisplayTransform=\\{((?:(?:scale|translate|rotate|x|y|tx|ty|dsdx|dtdx|dsdy|dtdy)"
-                    + "|[\\d\\s=.,+eE-])*)}");
+                    + "|[\\d\\s=.,+eE-])*)\\}");
     private static final Pattern MATRIX_ROW = Pattern.compile(
             "^\\s*" + NUMBER + "\\s+" + NUMBER + "\\s+" + NUMBER + "\\s*$");
     private static final Pattern MATRIX_HEADER = Pattern.compile(

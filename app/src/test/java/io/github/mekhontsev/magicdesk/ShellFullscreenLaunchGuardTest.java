@@ -16,6 +16,71 @@ public final class ShellFullscreenLaunchGuardTest {
             new ShellFullscreenLaunchGuard.Boundary(101, "plane-b", 11, "separator-b"));
 
     @Test
+    public void failedWorkspaceCannotVetoOtherDisplaysOrUnscopedLaunches() throws Exception {
+        RuntimeSourceFixture.verify("""
+                record Intent() { }
+                record LaunchActivityIdentity(String pkg) {
+                    boolean matchesStart(Intent intent, String name) { return intent != null && pkg.equals(name); }
+                }
+                """ + RuntimeSourceFixture.nestedClass("ShellActivityLaunchScope", "ShellActivityLaunchScope")
+                        .replace("final class ShellActivityLaunchScope", "static final class ShellActivityLaunchScope")
+                + """
+                static class ShellActivityStartController {
+                    interface Listener { boolean onActivityStarting(Intent intent, String name); }
+                    boolean mEnabled = true;
+                    Listener[] mListeners;
+                    final List<String> errors = new ArrayList<>();
+                    void report(String error) { errors.add(error); }
+                    void notifyActivityStart(Intent intent, String name, boolean allowed) { }
+                """ + RuntimeSourceFixture.nestedClass("ShellActivityStartController", "StartRejectedException")
+                + RuntimeSourceFixture.methods("ShellActivityStartController", "allowActivityStart", "usefulMessage")
+                + """
+                }
+                static class Guard implements ShellActivityStartController.Listener {
+                    record State(int displayId) { }
+                    State mState = new State(5);
+                    Throwable failure;
+                    void protect(State state) throws ReflectiveOperationException {
+                        if (failure instanceof ReflectiveOperationException error) throw error;
+                        if (failure instanceof RuntimeException error) throw error;
+                    }
+                """ + RuntimeSourceFixture.methods("ShellFullscreenLaunchGuard", "onActivityStarting")
+                + """
+                }
+                public static void verify() {
+                    Guard guard = new Guard();
+                    ShellActivityStartController controller = new ShellActivityStartController();
+                    controller.mListeners = new ShellActivityStartController.Listener[] {guard};
+                    Intent intent = new Intent();
+                    LaunchActivityIdentity identity = new LaunchActivityIdentity("app");
+                    check(controller.allowActivityStart(intent, "app"), "healthy launch rejected");
+                    for (Throwable error : List.of(new IllegalStateException("separator missing"),
+                            new ReflectiveOperationException("snapshot unavailable"))) {
+                        guard.failure = error;
+                        check(controller.allowActivityStart(intent, "app"), "native phone launch blocked");
+                        try (var phone = ShellActivityLaunchScope.begin(identity, 0)) {
+                            check(controller.allowActivityStart(intent, "app"), "explicit phone launch blocked");
+                        }
+                        try (var other = ShellActivityLaunchScope.begin(identity, 7)) {
+                            check(controller.allowActivityStart(intent, "app"), "another Desktop launch blocked");
+                        }
+                        try (var desktop = ShellActivityLaunchScope.begin(identity, 5)) {
+                            check(!controller.allowActivityStart(intent, "app"), "unsafe explicit launch accepted");
+                            check(controller.allowActivityStart(intent, "settings"), "unrelated diagnostics blocked");
+                        }
+                        check(controller.allowActivityStart(intent, "app"), "closed scope still rejects native launch");
+                        check(controller.errors.stream().allMatch(message -> message.contains("display=5")
+                                && message.contains("package=") && message.contains(error.getMessage())),
+                                "repair failure lost its context or root cause");
+                        check(controller.errors.stream().filter(message -> message.startsWith("activity-start rejected:")).count() == 1,
+                                "veto must be limited to the affected explicit destination");
+                        controller.errors.clear();
+                    }
+                }
+                """);
+    }
+
+    @Test
     public void restoresBothBoundariesWithoutChangingApplicationOrder() {
         assertEquals(List.of(3, -101, 11, 2, -100, 10, 1), repair(3, -101, 2, -100, 1, 10, 11));
     }
