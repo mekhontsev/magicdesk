@@ -245,18 +245,16 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
-    public void failedClaimRestoresPreviousHomeAndClearsLease() {
+    public void failedClaimRestoresPreviousHomeAndRetainsIndependentSession() throws Exception {
         mBackend.failMagicDeskClaim = true;
-
-        try {
-            acquire(
-                    DesktopDisplayTarget.simulated(7));
-            fail("claim failure expected");
-        } catch (IOException expected) {
-            assertEquals(LAUNCHER, mBackend.homePackage);
-            assertNull(mBackend.homeSurface);
-            assertNull(mStorage.state);
-        }
+        final var result = acquire(DesktopDisplayTarget.simulated(7));
+        assertFalse(result.state.homeRole);
+        assertEquals(DesktopHomeRoleLease.Phase.ACTIVE, mStorage.state.phase);
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        assertEquals(SECONDARY, mBackend.secondaryHome);
+        assertNull(mBackend.homeSurface);
+        assertFalse(mBackend.primaryHomePresented);
+        assertFalse(DesktopHomeRoleLease.isPhoneOverviewRoutingActive());
     }
 
     @Test
@@ -678,22 +676,92 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
-    public void noSystemFallbackDoesNotChangeHomeOrEnableComponents() {
+    public void noSystemFallbackStartsIndependentWithoutChangingHomeOrComponents() throws Exception {
         mBackend.failSecondaryCapture = true;
-        assertThrows(IOException.class, () -> acquire(DesktopDisplayTarget.phone()));
+        assertFalse(acquire(DesktopDisplayTarget.phone()).state.homeRole);
         assertEquals(0, mBackend.surfaceSelections);
         assertEquals(0, mBackend.setCalls);
-        assertNull(mStorage.state);
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(0));
     }
 
     @Test
-    public void failedSecondaryVerificationRollsBackBothHomes() {
+    public void failedSecondaryVerificationRollsBackBothHomesBeforeFallback() throws Exception {
         mBackend.failSecondaryClaim = true;
-        assertThrows(IOException.class, () -> acquire(DesktopDisplayTarget.phone()));
+        assertFalse(acquire(DesktopDisplayTarget.phone()).state.homeRole);
         assertEquals(SECONDARY, mBackend.secondaryHome);
         assertEquals(LAUNCHER, mBackend.homePackage);
         assertNull(mBackend.homeSurface);
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(0));
+    }
+
+    @Test public void disabledHomeNeverReadsOrChangesRolesAcrossWorkspaceLifecycle() throws Exception {
+        final var external = DesktopDisplayTarget.wired(7);
+        final var phone = DesktopDisplayTarget.phone();
+        final var prepared = DesktopHomeRoleLease.prepare(external, DesktopSessionPolicy.USER,
+                DesktopCompatibilityPolicy.NONE, false);
+        assertFalse(DesktopHomeRoleLease.activate(prepared).state.homeRole);
+        assertFalse(acquire(phone).state.homeRole);
+        assertFalse(DesktopHomeRoleLease.reconcile(true));
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(0));
+        assertFalse(DesktopHomeRoleLease.usesHomeRole(0));
+        assertFalse(DesktopHomeRoleLease.isPhoneOverviewRoutingActive());
+        DesktopHomeRoleLease.releaseForSessionClose(phone);
+        assertNull(DesktopHomeRoleLease.finishSessionClose(phone));
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(7));
+        DesktopHomeRoleLease.releaseForSessionClose(external);
+        assertNull(DesktopHomeRoleLease.finishSessionClose(external));
         assertNull(mStorage.state);
+        assertEquals(0, mBackend.homeReads);
+        assertEquals(0, mBackend.setCalls);
+        assertEquals(0, mBackend.surfaceSelections);
+        assertTrue(mBackend.secondaryCalls.isEmpty());
+        assertTrue(mBackend.releaseCalls.isEmpty());
+    }
+
+    @Test public void fallbackCannotHideIncompleteRoleRestoration() {
+        mBackend.failSecondaryClaim = true;
+        mBackend.failSecondaryRestore = true;
+        assertThrows(IOException.class, () -> acquire(DesktopDisplayTarget.phone()));
+        assertTrue(mStorage.state.homeRole);
+        assertEquals(DesktopHomeRoleLease.Phase.RELEASING, mStorage.state.phase);
+        assertFalse(DesktopHomeRoleLease.isActiveForDisplay(0));
+    }
+
+    @Test public void unavailableSecondaryCannotHideOrphanedPrimaryRole() {
+        mBackend.homePackage = MAGICDESK;
+        mBackend.failSecondaryCapture = true;
+        assertThrows(IOException.class, () -> acquire(DesktopDisplayTarget.phone()));
+        assertNull(mStorage.state);
+        assertEquals(0, mBackend.surfaceSelections);
+    }
+
+    @Test public void homeSettingChangeDoesNotSwitchAnExistingSessionStrategy() throws Exception {
+        acquire(DesktopDisplayTarget.wired(7));
+        final var joined = DesktopHomeRoleLease.prepare(DesktopDisplayTarget.phone(),
+                DesktopSessionPolicy.USER, DesktopCompatibilityPolicy.NONE, false);
+        assertTrue(DesktopHomeRoleLease.activate(joined).state.homeRole);
+        assertEquals(1, mBackend.setCalls);
+    }
+
+    @Test public void lostIndependentSessionDoesNotPresentOrRestoreHome() throws Exception {
+        final var prepared = DesktopHomeRoleLease.prepare(DesktopDisplayTarget.phone(),
+                DesktopSessionPolicy.USER, DesktopCompatibilityPolicy.NONE, false);
+        DesktopHomeRoleLease.activate(prepared);
+        mBackend.homePackage = "com.example.changed";
+        assertTrue(DesktopHomeRoleLease.reconcile(false));
+        assertNull(mStorage.state);
+        assertEquals("com.example.changed", mBackend.homePackage);
+        assertEquals(0, mBackend.homeReads);
+        assertTrue(mBackend.releaseCalls.isEmpty());
+    }
+
+    @Test public void failedIndependentStartReleasesOnlyItsMembership() throws Exception {
+        final var prepared = DesktopHomeRoleLease.prepare(DesktopDisplayTarget.simulated(7),
+                DesktopSessionPolicy.USER, DesktopCompatibilityPolicy.NONE, false);
+        DesktopHomeRoleLease.releaseAfterFailedStart(prepared);
+        assertNull(mStorage.state);
+        assertTrue(mBackend.releaseCalls.isEmpty());
+        assertTrue(mBackend.secondaryCalls.isEmpty());
     }
 
     @Test
@@ -737,6 +805,7 @@ public final class DesktopHomeRoleLeaseTest {
         boolean failSecondaryCapture;
         final List<String> secondaryCalls = new ArrayList<>();
         int setCalls;
+        int homeReads;
         int surfaceSelections;
         boolean failMagicDeskClaim;
         boolean failHomeRestore;
@@ -763,6 +832,7 @@ public final class DesktopHomeRoleLeaseTest {
 
         @Override
         public String getHomePackage(final int userId) {
+            homeReads++;
             return homePackage;
         }
 

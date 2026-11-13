@@ -3,6 +3,24 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class DesktopHostLaunchDiagnosticsTest {
+    @Test public void independentHostUsesStandardTaskWithoutHome() throws Exception {
+        verify("""
+                selectedClass = DesktopHostComponents.INDEPENDENT_CLASS;
+                actualType = 1;
+                check(new Fixture().launch(4, "ignored") == 42, "independent host not launched");
+                check(reads == 0 && removals == 0 && registrations == 1, "unexpected fallback work");
+                """);
+    }
+
+    @Test public void independentHostRejectsUnexpectedHomeRoot() throws Exception {
+        verify("""
+                selectedClass = DesktopHostComponents.INDEPENDENT_CLASS;
+                String message = failedLaunch().getMessage();
+                check(message.contains("expected=1") && message.contains("requestedType=1"), message);
+                check(removals == 1 && registrations == 0, "wrong root admitted");
+                """);
+    }
+
     @Test public void timeoutRetainsStartResultAndWrongDisplayHost() throws Exception {
         verify("""
                 launchFailure = new IllegalStateException("task did not appear");
@@ -26,7 +44,7 @@ public final class DesktopHostLaunchDiagnosticsTest {
                 observed.add(task(42, 4, 1, "magicdesk/.DesktopActivity"));
                 IllegalStateException failure = failedLaunch();
                 String message = failure.getMessage();
-                check(message.contains("stage=verify-home-type") && message.contains("matchedTask=42 matchedType=1"), message);
+                check(message.contains("stage=verify-host-type") && message.contains("matchedTask=42 matchedType=1"), message);
                 check(message.contains("id=42 user=0 display=4 root=42 area=1 type=1 mode=1"), message);
                 check(reads == 1 && removals == 1 && registrations == 0, "rejected task cleanup changed");
                 """);
@@ -64,7 +82,7 @@ public final class DesktopHostLaunchDiagnosticsTest {
                 cleanupFailure = new IllegalStateException("cleanup denied");
                 IllegalStateException failure = failedLaunch();
                 check(failure.getMessage().contains("tasks=unavailable:ReflectiveOperationException"), failure.getMessage());
-                check(failure.getCause().getMessage().equals("desktop host did not become a HOME task"), "original failure replaced");
+                check(failure.getCause().getMessage().equals("desktop host has unexpected activity type: 1, expected=2"), "original failure replaced");
                 check(failure.getSuppressed().length == 1 && failure.getSuppressed()[0] == cleanupFailure,
                         "cleanup failure lost");
                 check(reads == 1 && removals == 1, "failure introduced retry or skipped cleanup");
@@ -91,7 +109,7 @@ public final class DesktopHostLaunchDiagnosticsTest {
                     throw new AssertionError("observer accepted failed launch");
                 } catch (IllegalStateException expected) {
                     String message = expected.getMessage();
-                    check(message.startsWith("cannot launch desktop host: HOME launch:"), message);
+                    check(message.startsWith("cannot launch desktop host: Desktop launch:"), message);
                     check(message.contains("stage=await-task") && message.contains("startResult=0"), message);
                     check(message.contains("tasks=[]"), message);
                     check(message.length() < 1800, "evidence will not fit compatibility event detail");
@@ -106,6 +124,13 @@ public final class DesktopHostLaunchDiagnosticsTest {
                 "launch", "findDesktopHostTaskIds", "removeStaleHostTasks", "isDesktopHostComponent");
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static final String HOST_PACKAGE = "magicdesk", HOST_CLASS = "magicdesk.DesktopActivity";
+                static String selectedClass = HOST_CLASS;
+                static class DesktopHostComponents {
+                    static final String EXTERNAL_HOME_CLASS = HOST_CLASS;
+                    static final String PHONE_HOME_CLASS = "magicdesk.PhoneHomeActivity";
+                    static final String INDEPENDENT_CLASS = "magicdesk.IndependentDesktopActivity";
+                """ + RuntimeSourceFixture.methods("DesktopHostComponents", "activityTypeForClass") + """
+                }
                 final Object mService = new Object();
                 final Ownership mOwnership = new Ownership();
                 final boolean mClosed = false;
@@ -132,7 +157,7 @@ public final class DesktopHostLaunchDiagnosticsTest {
                     String flattenToShortString() { return "magicdesk/.DesktopActivity"; }
                 }
                 static class Intent {
-                    ComponentName getComponent() { return new ComponentName(HOST_PACKAGE, HOST_CLASS); }
+                    ComponentName getComponent() { return new ComponentName(HOST_PACKAGE, selectedClass); }
                     public String toString() { return "SECRET_INTENT_DATA"; }
                 }
                 static class Ownership { void markDesktopHost(int id) { registrations++; } }
@@ -157,7 +182,9 @@ public final class DesktopHostLaunchDiagnosticsTest {
                     static int launchFullscreenTask(Object s, int d, Intent i, String p,
                             Object area, int type, java.util.function.IntConsumer result)
                             throws ReflectiveOperationException {
-                        check(d == 4 && area == null && type == 2, "HOME launch options changed");
+                        check(d == 4 && area == null
+                                && type == DesktopHostComponents.activityTypeForClass(selectedClass),
+                                "host launch options changed");
                         if (beforeResultFailure != null) throw beforeResultFailure;
                         result.accept(startResult);
                         if (startResult < 0) throw new IllegalStateException("startActivity returned " + startResult);
@@ -170,7 +197,7 @@ public final class DesktopHostLaunchDiagnosticsTest {
                 record FrameworkTaskSnapshot(int taskId, int userId, int displayId, int rootTaskId,
                         int displayAreaFeatureId, int activityType, int windowingMode, String packageName,
                         String topPackage, String componentName, String topActivityName, boolean visible, boolean focused) {
-                    static final int ACTIVITY_TYPE_HOME = 2;
+                    static final int ACTIVITY_TYPE_HOME = 2, ACTIVITY_TYPE_STANDARD = 1;
                     boolean isHome() { return activityType == 2; }
                 }
                 static FrameworkTaskSnapshot task(int id, int display, int type, String component) {
@@ -193,11 +220,12 @@ public final class DesktopHostLaunchDiagnosticsTest {
                     final long mStartedAt = 0;
                     final int mUid = 0, mCallerUid = 10123, mDisplayId;
                     final String mComponent;
+                    final int mActivityType;
                     String stage = "remove-stale-hosts";
                     Integer startResult, matchedActivityType;
                     int matchedTaskId = -1;
-                    DesktopHostLaunchDiagnostics(int display, String component) {
-                        mDisplayId = display; mComponent = component;
+                    DesktopHostLaunchDiagnostics(int display, String component, int activityType) {
+                        mDisplayId = display; mComponent = component; mActivityType = activityType;
                     }
                 """ + diagnosticMethods + "}\n" + launcherMethods
                 + RuntimeSourceFixture.methods("ShellTaskObserver", "launchDesktopHost") + """

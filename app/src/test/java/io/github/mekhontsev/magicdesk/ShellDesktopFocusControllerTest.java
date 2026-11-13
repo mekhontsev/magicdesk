@@ -70,6 +70,12 @@ public final class ShellDesktopFocusControllerTest {
     @Test
     public void homeTargetUsesImmediateFocusRepairPath() {
         assertTrue(ShellDesktopFocusController.isDesktopHostTarget(
+                1, BuildConfig.APPLICATION_ID, DesktopHostComponents.INDEPENDENT_CLASS));
+        assertFalse(ShellDesktopFocusController.isDesktopHostTarget(
+                2, BuildConfig.APPLICATION_ID, DesktopHostComponents.INDEPENDENT_CLASS));
+        assertFalse(ShellDesktopFocusController.isDesktopHostTarget(
+                0, BuildConfig.APPLICATION_ID, "unknown"));
+        assertTrue(ShellDesktopFocusController.isDesktopHostTarget(
                 2,
                 BuildConfig.APPLICATION_ID,
                 BuildConfig.APPLICATION_ID + ".DesktopActivity"));

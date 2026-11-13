@@ -22,6 +22,13 @@ owned virtual workspace on another display. Switching or detaching that viewer
 does not change task ownership or these workspace bindings; see
 [Display presentations](architecture-displays.md#display-presentations).
 
+HOME ownership is optional. With the HOME setting disabled or acquisition
+refused, the shared lease tracks workspace residency without changing launcher
+selection. `IndependentDesktopActivity` is a standard fullscreen host in the
+same root workspace; it is not an application fullscreen plane. Host identity,
+focus, ordering and teardown use the same owners. System HOME delegates and
+Home/Recents interception apply only to sessions that acquired HOME.
+
 ## System HOME Instances
 
 The shared HOME lease also selects MagicDesk's `SECONDARY_HOME` handler for its
@@ -582,7 +589,7 @@ avoids a MagicDesk-created removal trigger, not the underlying framework
 defect: abrupt physical disconnect can still precede cleanup. Keep the
 new-residue assertion and the abrupt-removal scenario intact.
 
-Closing the last workspace returns the HOME role before teardown and disables
+For a HOME-owning session, closing the last workspace returns the HOME role before teardown and disables
 HOME Activity components afterward. Non-final Close retains both. Component
 disable triggers Android's own asynchronous
 CLOSE transaction; doing this while parking applications can leave that

@@ -70,6 +70,7 @@ interface IShellCommandService {
         int workRight,
         int workBottom,
         int desktopHostTaskId,
+        boolean homeRole,
         in DesktopCompatibilityPolicy compatibility) = 12;
 
     void stopTaskObserver(ITaskObserverCallback callback) = 14;

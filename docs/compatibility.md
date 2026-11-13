@@ -43,6 +43,21 @@ managed Desktop because its task/Recents state needs session cleanup, so the
 independent Windowed choice is unavailable there. The diagnostic freeform probe
 remains available independently of this production policy.
 
+**Settings > Desktop > Try to become the Home app** defaults to on. Turning it
+off skips HOME and secondary-launcher selection. If acquisition is refused,
+startup rolls back any partial selection and continues with an ordinary
+fullscreen Desktop host. A failed rollback remains an explicit error, not a
+successful fallback. The shared session retains its chosen mode until its last
+workspace closes. Without HOME, system Home/Recents remain with the stock
+launcher; MagicDesk does not intercept secondary-HOME selection or redirect
+Recents. Window management still requires the firmware capabilities described
+above; avoiding HOME does not repair broken native captions.
+
+The no-HOME path is verified on NX809J/API 36 with a simulated display: Desktop
+rendering, Start, windowed launch, fullscreen/restore and cleanup retain the
+system HOME holder. Acquisition-refusal rollback has unit coverage; equivalent
+managed Desktop behavior on HONOR/API 37 remains unverified.
+
 Device Setup enables freeform support and forced activity resizing on every
 platform through shell UID 2000. Changing these required provisioning values
 requires a reboot through the setup flow. They survive Close Desktop;

@@ -8,7 +8,7 @@ import android.view.Display;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Per-attempt evidence captured before failed HOME startup releases its state. */
+/** Per-attempt evidence captured before failed Desktop startup releases its state. */
 final class DesktopHostLaunchDiagnostics {
     private static final int TASK_LIMIT = 32;
     private static final int REPORTED_TASK_LIMIT = 4;
@@ -19,14 +19,16 @@ final class DesktopHostLaunchDiagnostics {
     private final int mCallerUid = Binder.getCallingUid();
     private final int mDisplayId;
     private final String mComponent;
+    private final int mActivityType;
     String stage = "remove-stale-hosts";
     Integer startResult;
     int matchedTaskId = -1;
     Integer matchedActivityType;
 
-    DesktopHostLaunchDiagnostics(final int displayId, final String component) {
+    DesktopHostLaunchDiagnostics(final int displayId, final String component, final int activityType) {
         mDisplayId = displayId;
         mComponent = component;
+        mActivityType = activityType;
     }
 
     void recordStartResult(final int result) {
@@ -35,12 +37,13 @@ final class DesktopHostLaunchDiagnostics {
     }
 
     IllegalStateException failure(final Object service, final Throwable cause) {
-        final StringBuilder detail = new StringBuilder("HOME launch: stage=")
+        final StringBuilder detail = new StringBuilder("Desktop launch: stage=")
                 .append(stage).append(" uid=").append(mUid)
                 .append(" binderCallerUid=").append(mCallerUid)
                 .append(" targetDisplay=").append(mDisplayId)
                 .append(" component=").append(singleLine(mComponent, 140))
-                .append(" requestedType=2 requestedMode=1 startResult=")
+                .append(" requestedType=").append(mActivityType)
+                .append(" requestedMode=1 startResult=")
                 .append(startResult == null ? "not-returned" : startResult)
                 .append(" matchedTask=").append(matchedTaskId)
                 .append(" matchedType=").append(matchedActivityType == null

@@ -486,6 +486,8 @@ public final class TaskRepository {
             final String componentName,
             final String topActivityName) {
         return !DesktopInfrastructureTasks.isComponentName(componentName)
+                && !DesktopHostComponents.isHostComponentName(componentName)
+                && !DesktopHostComponents.isHostComponentName(topActivityName)
                 && !DesktopInfrastructureTasks.isComponentName(
                         topActivityName);
     }

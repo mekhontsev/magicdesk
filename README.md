@@ -77,9 +77,11 @@ Windowed launch without Desktop requires Shell access and supporting firmware;
 stock Nubia windowing requires managed Desktop. Opening an app does not
 redirect mouse or keyboard input.
 
-MagicDesk acquires HOME for managed Desktop and restores the previous role after
-the last Desktop closes. **Close desktop** releases surviving applications as
-independent fullscreen tasks on the same live display; it does not remove that
+**Settings > Desktop > Try to become the Home app** is on by default. If disabled,
+or Android refuses HOME, Desktop uses an ordinary fullscreen host and system
+Home/Recents stay with the phone's launcher. When HOME is acquired, MagicDesk
+restores the previous role after the last Desktop closes. **Close desktop** releases
+surviving applications as independent fullscreen tasks on the same live display; it does not remove that
 display or end retained terminals and graphics sessions. A disconnected direct
 display returns its tasks to the phone.
 

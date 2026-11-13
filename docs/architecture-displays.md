@@ -99,7 +99,7 @@ independent automation, file and terminal services available.
 
 Owned virtual displays retain trusted, touch-capable, own-content and independent
 power-group flags without requesting SystemUI decorations. Desktop starts its
-HOME root explicitly; system navigation is not a creation prerequisite. Native
+selected host explicitly; system navigation is not a creation prerequisite. Native
 window captions and display IME policy keep their existing owners. This applies
 when the display is created, not when its viewer is detached or attached to
 another output.
@@ -375,12 +375,25 @@ crossing between outputs are not implemented by this presentation path.
 
 ## HOME Lease
 
-Starting the first desktop acquires one
-persisted `DesktopHomeRoleLease`: MagicDesk temporarily becomes the package-wide
-Android HOME holder and remembers the previous role state plus the complete
-target membership. Further workspaces join that lease without acquiring HOME
-again. Android may have a working HOME surface while the role has no explicit
-holder; that empty state is valid and is restored by removing MagicDesk rather
+Starting the first desktop creates one persisted `DesktopHomeRoleLease`, owning
+workspace membership, policy and the optional HOME selection. The
+`requestHomeRole` setting defaults to true. Disabling it skips role queries,
+component selection and role changes. A refused acquisition falls back only
+after successful rollback. The persisted `homeRole` flag retains the selected
+mode across additional workspaces and recovery; edits affect the next shared
+session, after all current workspaces close.
+
+Without HOME, `IndependentDesktopActivity` supplies the same `DesktopShellActivity`
+UI in an explicit standard fullscreen task on either the phone or another display.
+The common launcher verifies its type and destination, and the same workspace,
+focus, input and close owners remain responsible. System Home/Recents and
+secondary-HOME selection are untouched. Recovery and release do not restore or
+present a launcher that the session never acquired.
+
+With HOME, MagicDesk temporarily becomes the package-wide Android HOME holder
+and remembers the previous role state plus complete target membership. Further
+workspaces join without acquiring HOME again. Android may have a working HOME
+surface while the role has no explicit holder; that empty state is valid and is restored by removing MagicDesk rather
 than selecting a launcher on the user's behalf.
 The same lease owns the `MAIN`/`SECONDARY_HOME` preferred Activity. Before enabling
 its components it captures the resolved handler, or resolves Android's
@@ -411,8 +424,8 @@ This keeps the selected display and root under the typed launch boundary for
 both shell and root callers. System HOME/SECONDARY_HOME Intents are separate
 entry points and delegate to the session's registered host on that display.
 The session registry owns the active host identity, independently of manifest
-launch-mode restrictions. Startup still verifies the actual display and HOME
-task type.
+launch-mode restrictions. Startup still verifies the actual display and selected
+host task type (HOME or standard).
 
 The lease is the only owner of HOME transitions and HOME-surface selection.
 Closing one workspace retains HOME for the others. Closing the last workspace
@@ -509,8 +522,9 @@ touchable region. Synthetic events target an explicit display; physical pointer
 dragging additionally exercises InputReader's device associations.
 
 - A normal launch on display 0 opens the phone control panel.
-- Starting Desktop on the phone uses a dedicated HOME task excluded from Recents.
-- An external desktop is a display-sized secondary HOME Activity. Its stack
+- Desktop hosts are excluded from Recents. With HOME, the phone uses a dedicated
+  primary HOME task; without HOME, either target uses a standard fullscreen task.
+- With HOME, an external desktop is a display-sized secondary HOME Activity. Its stack
   position separates exposed workspace tasks from tasks below HOME. The phone
   uses `PhoneHomeActivity`, showing its own Desktop if active or ordinary Start.
 - Phone control and external desktop are separate tasks and may coexist.
@@ -529,7 +543,7 @@ unconditionally assumes that view is present. Current AOSP Launcher3 permits
 the field to be absent; this is a vendor integration defect rather than
 malformed task metadata.
 
-While a desktop session is active, MagicDesk owns Android's HOME role.
+When the shared desktop session acquired HOME, MagicDesk owns Android's HOME role.
 `PhoneHomeActivity` remains the phone navigation surface throughout the shared
 HOME lease, showing ordinary Start or the local Desktop. The task layer enforces a
 separate invariant: no application task may remain freeform in the ordinary
@@ -543,7 +557,7 @@ checks all repository groups against the live display-0 task snapshot. It does
 not move tasks that remain on another display or revive unrelated external
 entries. External Close runs this reconciliation before presenting restored
 HOME, including when the physical monitor remains connected.
-External task observers attach `ShellSecondaryHomeStartPolicy` to the shared
+External task observers with HOME attach `ShellSecondaryHomeStartPolicy` to the shared
 activity-start controller while configured. It rejects unaddressed secondary
 HOME selection before any Activity or HOME root is brought forward, including
 selectors resolved to MagicDesk itself. Android's package-addressed per-area
@@ -553,7 +567,7 @@ display from focus or launch a replacement. Closing one workspace removes only
 its policy; closing the last external workspace restores ordinary selection.
 
 The optional `ShellPhoneOverviewRouter` starts independently of the main
-activity-start observer. When `RECENTS_TO_HOME` is enabled, routing becomes
+activity-start observer. With HOME acquired and `RECENTS_TO_HOME` enabled, routing becomes
 active only after resolving the system Recents component and preparing its
 existing tasks. Missing capabilities or preparation failures leave routing
 disabled and report the reason through `TASK-OBSERVER-RUNTIME-001`; they do not
@@ -631,7 +645,7 @@ When starting Desktop on a selected external display, MagicDesk:
 2. loads the profile keyed by that display's stable identity;
 3. optionally applies a platform-specific physical output timing;
 4. corrects geometry and applies the display profile DPI;
-5. acquires HOME and creates its display-sized secondary HOME host;
+5. optionally acquires HOME and creates its selected display-sized host;
 6. focuses the desktop and restores the last visible window layout.
 
 The target's workspace identifies the Android display that actually hosts the
@@ -654,7 +668,7 @@ Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the
 non-restoring, non-persisting `ISOLATED_SELF_TEST` policy without adding
 display-specific restore exceptions.
 
-Failed secondary HOME launches retain per-attempt evidence before cleanup:
+Failed Desktop host launches retain per-attempt evidence before cleanup:
 `DesktopHostLaunchDiagnostics` records the Android start result, stage, caller
 identity and returned task/type. Only a failure reads one bounded cross-display
 snapshot through `FrameworkTaskSnapshotSource`; it reports MagicDesk and HOME
@@ -785,8 +799,8 @@ the phone control panel is only a presentation choice. Exit uses the same task
 return path without retaining a workspace for restoration.
 
 Before normal teardown, `DesktopHomeRoleLease` marks the closing membership;
-only the last workspace restores and verifies the exact original HOME role
-state: either the previous holder or no explicit holder. When acquiring the
+only the last workspace in a HOME-owning session restores and verifies the exact
+original HOME role state: either the previous holder or no explicit holder. When acquiring the
 role, the lease also
 resolves that user-selected HOME package to a concrete `MAIN`/`HOME` Activity
 through the shell PackageManager and persists its component, package version,
@@ -817,7 +831,7 @@ errors; they never reopen input routing or migration protection.
 Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
 common cleanup path:
 
-- hand HOME back to the package saved by the lease only for the last workspace;
+- hand HOME back to the package saved by a HOME-owning lease only for the last workspace;
 - restore an active phone-display power guard before releasing input, even when
   the external display stays connected and the foreground runtime stays alive;
 - release shortcut filtering, display associations, and the virtual phone pointer

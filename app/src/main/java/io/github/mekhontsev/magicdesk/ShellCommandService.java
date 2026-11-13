@@ -614,13 +614,14 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             final int workRight,
             final int workBottom,
             final int desktopHostTaskId,
+            final boolean homeRole,
             final DesktopCompatibilityPolicy compatibility) {
         mTaskObserverManager.configure(
                 callback,
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
-                desktopHostTaskId, compatibility);
+                desktopHostTaskId, homeRole, compatibility);
     }
 
     @Override

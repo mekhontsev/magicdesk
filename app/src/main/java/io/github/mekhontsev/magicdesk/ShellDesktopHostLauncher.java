@@ -6,7 +6,7 @@ import android.content.Intent;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Launches the MagicDesk HOME host directly in a display root workspace. */
+/** Launches the selected Desktop host directly in a display root workspace. */
 final class ShellDesktopHostLauncher {
     private static final String HOST_PACKAGE = BuildConfig.APPLICATION_ID;
     private static final String HOST_CLASS =
@@ -36,8 +36,10 @@ final class ShellDesktopHostLauncher {
             throw new IllegalArgumentException(
                     "invalid desktop host component");
         }
+        final int expectedType = DesktopHostComponents.activityTypeForClass(
+                intent.getComponent().getClassName());
         final DesktopHostLaunchDiagnostics diagnostic = new DesktopHostLaunchDiagnostics(
-                displayId, intent.getComponent().flattenToShortString());
+                displayId, intent.getComponent().flattenToShortString(), expectedType);
         int rejectedTaskId = -1;
         try {
             removeStaleHostTasks(findDesktopHostTaskIds(displayId));
@@ -48,18 +50,19 @@ final class ShellDesktopHostLauncher {
                     intent,
                     HOST_PACKAGE,
                     null,
-                    FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME,
+                    expectedType,
                     diagnostic::recordStartResult);
             diagnostic.matchedTaskId = taskId;
-            diagnostic.stage = "verify-home-type";
+            diagnostic.stage = "verify-host-type";
             final Object task = HiddenTaskApi.requireTask(
                     mService, displayId, taskId);
             final int activityType = HiddenTaskApi.getTaskActivityType(task);
             diagnostic.matchedActivityType = activityType;
-            if (activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME) {
+            if (activityType != expectedType) {
                 rejectedTaskId = taskId;
                 throw new IllegalStateException(
-                        "desktop host did not become a HOME task");
+                        "desktop host has unexpected activity type: " + activityType
+                                + ", expected=" + expectedType);
             }
             diagnostic.stage = "register-host";
             mOwnership.markDesktopHost(taskId);
@@ -108,6 +111,7 @@ final class ShellDesktopHostLauncher {
             final ComponentName component) {
         return component != null
                 && HOST_PACKAGE.equals(component.getPackageName())
-                && HOST_CLASS.equals(component.getClassName());
+                && (HOST_CLASS.equals(component.getClassName())
+                        || DesktopHostComponents.INDEPENDENT_CLASS.equals(component.getClassName()));
     }
 }

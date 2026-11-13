@@ -1,5 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_request_home_role">Intentar ser la aplicación de inicio</string>
     <string name="console_app_title">User</string>
     <string name="executor_android_shell">Shell</string>
     <string name="black_screen">Pantalla negra (sin suspensión)</string>

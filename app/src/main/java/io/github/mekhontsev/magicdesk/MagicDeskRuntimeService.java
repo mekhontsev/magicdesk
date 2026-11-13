@@ -586,7 +586,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(target.workspaceDisplayId);
-        DesktopShellActivity.setLaunchWindowingMode(options, 5);
+        DesktopShellActivity.setLaunchWindowingMode(options, 1);
         startActivity(
                 DesktopShellActivity.createShowStartIntent(this, target),
                 options.toBundle());

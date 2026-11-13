@@ -332,6 +332,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final int desktopHostTaskId,
+            final boolean homeRole,
             final DesktopCompatibilityPolicy compatibility) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
@@ -363,7 +364,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         mCompatibility = java.util.Objects.requireNonNull(compatibility);
         mProcessFailureTracker.configure(displayId);
-        mSecondaryHomeStartPolicy.configure(displayId);
+        mSecondaryHomeStartPolicy.configure(homeRole ? displayId : Display.INVALID_DISPLAY);
         try {
             mActivityStartController.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -376,7 +377,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             + usefulMessage(error),
                     error);
         }
-        mPhoneOverviewRouter.start(mCompatibility.enabled(
+        mPhoneOverviewRouter.start(homeRole && mCompatibility.enabled(
                 DesktopCompatibilityPolicy.Option.RECENTS_TO_HOME));
         mDesktopOwnership.configure(displayId);
         if (mConfiguredDisplayId != displayId) {
@@ -428,7 +429,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 Display.INVALID_DISPLAY,
                 new Rect(),
                 new Rect(),
-                -1, mCompatibility);
+                -1, false, mCompatibility);
         return true;
     }
 

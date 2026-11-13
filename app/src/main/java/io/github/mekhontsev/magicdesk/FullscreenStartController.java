@@ -63,7 +63,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     static boolean canHost(final Activity activity) {
         final DesktopHomeRoleLease.State lease = activeLease();
-        return lease != null && activity.getDisplay() != null
+        return lease != null && lease.homeRole && activity.getDisplay() != null
                 && lease.targetForDisplay(activity.getDisplay().getDisplayId()) == null;
     }
 

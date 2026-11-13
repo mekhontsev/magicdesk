@@ -24,6 +24,7 @@ final class SettingsView {
         void setKeepDesktopAwake(boolean enabled);
         void setKeepScreenOn(boolean enabled);
         void setPhoneFullscreenByDefault(boolean enabled);
+        void setRequestHomeRole(boolean enabled);
 
         void setDisableAdaptiveBrightness(boolean enabled);
 
@@ -87,6 +88,7 @@ final class SettingsView {
     private Switch mKeepDesktopAwake;
     private Switch mKeepScreenOn;
     private Switch mPhoneFullscreenByDefault;
+    private Switch mRequestHomeRole;
     private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
     private Switch mKeyboardOnAppDisplay;
@@ -141,6 +143,10 @@ final class SettingsView {
         addSection(content, R.string.settings_section_desktop);
         mDesktopSettingsStatus = mUi.sectionTitle(R.string.capability_access_required);
         content.addView(mDesktopSettingsStatus);
+        mRequestHomeRole = addSwitch(content, R.string.settings_request_home_role);
+        mRequestHomeRole.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setRequestHomeRole(checked);
+        });
         mTaskbarAutoHide = addSwitch(
                 content, R.string.settings_taskbar_auto_hide);
         mTaskbarAutoHide.setOnCheckedChangeListener((button, checked) -> {
@@ -411,7 +417,7 @@ final class SettingsView {
                 ? R.string.limit_desktop_disabled : R.string.capability_access_required);
         for (final Switch control : new Switch[] {mTaskbarAutoHide,
                 mOpenTouchpadAutomatically, mKeepDesktopAwake, mKeepScreenOn,
-                mPhoneFullscreenByDefault, mDisableAdaptiveBrightness}) {
+                mPhoneFullscreenByDefault, mRequestHomeRole, mDisableAdaptiveBrightness}) {
             control.setEnabled(mDesktopSettingsAvailable);
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
@@ -433,6 +439,7 @@ final class SettingsView {
             mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
             mKeepScreenOn.setChecked(settings.keepScreenOn);
             mPhoneFullscreenByDefault.setChecked(settings.phoneFullscreenByDefault);
+            mRequestHomeRole.setChecked(settings.requestHomeRole);
             mDisableAdaptiveBrightness.setChecked(settings.disableAdaptiveBrightness);
         }
         mMcpEnabled.setChecked(mcp.enabled);

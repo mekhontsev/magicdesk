@@ -301,17 +301,12 @@ final class ShellDesktopFocusController implements AutoCloseable {
 
     private static boolean isDesktopHostSnapshot(
             final FrameworkTaskSnapshot task) {
-        return task.activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME
+        return task.activityType != 0
                 && (BuildConfig.APPLICATION_ID.equals(task.topPackage)
                         || BuildConfig.APPLICATION_ID.equals(
                                 task.packageName))
-                && (isDesktopHostComponentName(task.topActivityName)
-                        || isDesktopHostComponentName(task.componentName));
-    }
-
-    private static boolean isDesktopHostComponentName(
-            final String componentName) {
-        return DesktopHostComponents.isHostComponentName(componentName);
+                && (task.activityType == DesktopHostComponents.hostActivityType(task.topActivityName)
+                        || task.activityType == DesktopHostComponents.hostActivityType(task.componentName));
     }
 
     private void enqueueFocusReconciliation(
@@ -849,9 +844,9 @@ final class ShellDesktopFocusController implements AutoCloseable {
             final int activityType,
             final String packageName,
             final String className) {
-        return activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME
+        return activityType != 0
                 && BuildConfig.APPLICATION_ID.equals(packageName)
-                && DesktopHostComponents.isHostClassName(className);
+                && activityType == DesktopHostComponents.activityTypeForClass(className);
     }
 
     static boolean requiresInputFocusRefresh(

@@ -15,6 +15,57 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
 public final class DesktopHomeStartupGuardTest {
+    @Test public void independentHostHasNoHomeFilterAndIsAlwaysEnabled() throws Exception {
+        final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        final NodeList activities = factory.newDocumentBuilder()
+                .parse(Path.of("src/main/AndroidManifest.xml").toFile())
+                .getElementsByTagName("activity");
+        final String android = "http://schemas.android.com/apk/res/android";
+        int found = 0;
+        for (int i = 0; i < activities.getLength(); i++) {
+            final Element activity = (Element) activities.item(i);
+            if (!".IndependentDesktopActivity".equals(activity.getAttributeNS(android, "name"))) continue;
+            found++;
+            assertFalse("false".equals(activity.getAttributeNS(android, "enabled")));
+            assertEquals(0, activity.getElementsByTagName("intent-filter").getLength());
+            assertEquals("true", activity.getAttributeNS(android, "excludeFromRecents"));
+            assertEquals("android.permission.MANAGE_ACTIVITY_TASKS", activity.getAttributeNS(android, "permission"));
+        }
+        assertEquals(1, found);
+    }
+
+    @Test public void independentHostLaunchAndReopenHaveDistinctTaskSemantics() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Context {}
+                static class IndependentDesktopActivity {}
+                static class Intent {
+                    static final int FLAG_ACTIVITY_NEW_TASK=1, FLAG_ACTIVITY_CLEAR_TOP=2,
+                            FLAG_ACTIVITY_SINGLE_TOP=4, FLAG_ACTIVITY_MULTIPLE_TASK=8;
+                    final Class<?> component;
+                    int flags;
+                    Intent(Context context, Class<?> component) { this.component=component; }
+                    Intent addFlags(int value) { flags |= value; return this; }
+                }
+                """ + RuntimeSourceFixture.methods("IndependentDesktopActivity",
+                        "createLaunchIntent", "createDesktopHostIntent") + """
+                public static void verify() {
+                    Intent host = createDesktopHostIntent(new Context());
+                    check(host.component == IndependentDesktopActivity.class && host.flags == 15,
+                            "each display needs an explicit independent host");
+                    Intent reopen = createLaunchIntent(new Context());
+                    check(reopen.flags == 7, "Start must reuse its existing host");
+                }
+                """);
+    }
+
+    @Test public void setupResumesOnlyThroughTheSessionOwner() throws Exception {
+        final String method = RuntimeSourceFixture.methods("DeviceSetupActivity", "launchMagicDeskAfterPermission");
+        assertTrue(method.contains("DesktopDisplayDriverSupport.showPrepared(pendingTarget)"));
+        assertTrue(method.contains("new Intent(this, ControlActivity.class)"));
+        assertFalse(method.contains("DesktopActivity.class"));
+    }
+
     @Test
     public void sessionHostUsesAnExplicitComponentAndTypedHomeRoot() throws Exception {
         RuntimeSourceFixture.verify("""
@@ -40,8 +91,8 @@ public final class DesktopHomeStartupGuardTest {
                 """);
         final String source = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/ShellDesktopHostLauncher.java"));
-        assertTrue(source.contains("FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME,"));
-        assertTrue(source.contains("activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME"));
+        assertTrue(source.contains("DesktopHostComponents.activityTypeForClass("));
+        assertTrue(source.contains("activityType != expectedType"));
         assertTrue(source.contains("mService, displayId, taskId"));
     }
 
@@ -157,9 +208,9 @@ public final class DesktopHomeStartupGuardTest {
         final String source = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/DesktopHomeStartupGuard.java"));
         assertTrue(source.contains("resolveActivity("));
-        assertTrue(source.contains("!ownsRole && lease == null && !resolvesToUs"));
+        assertTrue(source.contains("!ownsRole && (lease == null || !lease.homeRole) && !resolvesToUs"));
         assertTrue(source.indexOf("disableHomeSurfaces()")
-                < source.indexOf("!ownsRole && lease == null && !resolvesToUs"));
+                < source.indexOf("!ownsRole && (lease == null || !lease.homeRole) && !resolvesToUs"));
     }
 
     @Test

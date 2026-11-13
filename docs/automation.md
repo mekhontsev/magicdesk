@@ -713,7 +713,8 @@ workspace uses a separate Viewer presentation edge to another output; that edge
 appears in `presentations`, not as a mutation of the workspace target.
 Output kinds are `built_in`, `wired`, `wireless`, and `simulated`; the `phone`
 launch/self-test target still means the system default display.
-`get_state.homeLease` reports shared phase, closing display and membership;
+`get_state.homeLease` reports shared phase, closing display, membership and
+`homeRole` (false for an ordinary host without launcher-role ownership);
 it is not a fresh Android role-holder query. `get_state.inputControl` independently reports
 `requestedDisplayId`, `readyDisplayId`, `transitioning` and `error`, including
 manual control without Desktop or on a different display. `keyboardPlacementError`
@@ -818,7 +819,7 @@ Viewer launch and attachment errors remain authoritative.
   setting. `desktop_active` alone does not establish Viewer readiness; inspect
   `list_displays.presentations` and the output UI after this navigation request.
 - `close_desktop(displayId)` closes only that workspace and leaves its display
-  connected and reusable. HOME is returned when the last workspace closes.
+  connected and reusable. An acquired HOME role is returned when the last workspace closes.
   Omitting a Desktop destination is permitted only when exactly one workspace
   exists. Multiple workspaces require an explicit display ID; the server does
   not silently choose the input display.
@@ -1997,9 +1998,10 @@ freeform transition, without enabling freeform settings or acquiring a Desktop
 session. These results describe independent window support separately from the
 managed workspace checks that follow.
 Desktop startup then runs through the production queue inside the recorded test.
-Its completion callback includes failures such as HOME-role refusal; these fail
+Its completion callback includes unrecoverable host or role-cleanup failures; these fail
 `DESKTOP-001` without discarding earlier probe results or waiting for a nonexistent
-host. Successful startup must still publish the selected workspace's HOME host
+host. HOME refusal alone can use the ordinary host through the production fallback.
+Successful startup must still publish the selected workspace's host
 before managed window checks run. Cancellation and failure retain unconditional
 fixture/display cleanup, without presenting HOME when Desktop was never attempted.
 Startup rollback is recorded as a failure, not user cancellation, so its report

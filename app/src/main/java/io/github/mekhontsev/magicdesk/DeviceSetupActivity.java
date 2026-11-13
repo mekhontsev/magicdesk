@@ -590,9 +590,9 @@ public final class DeviceSetupActivity extends Activity {
                     "MagicDeskSetupDesktopResume").start();
             return;
         }
-        final Class<?> activityClass = phoneControl
-                ? ControlActivity.class : DesktopActivity.class;
-        final Intent target = new Intent(this, activityClass)
+        // A Desktop host must be admitted by the session owner above, never
+        // launched directly just because setup happened on an external screen.
+        final Intent target = new Intent(this, ControlActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);

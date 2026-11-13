@@ -426,16 +426,16 @@ public final class CompatibilityDiagnostics {
         appendCheck(report, "HOME-ROLE-001",
                 homeRoleAvailable,
                 "Android Home role",
-                !homeRoleAvailable
-                        ? "unavailable"
-                        : homeLease == null
-                                ? "available; lease=inactive"
-                                : "available; lease=" + homeLease.phase
+                (homeRoleAvailable ? "available" : "unavailable (optional)")
+                        + (homeLease == null
+                                ? "; lease=inactive"
+                                : "; lease=" + homeLease.phase
+                                        + ", homeRole=" + homeLease.homeRole
                                         + ", workspaceDisplays=" + homeLease.targets.stream()
                                                 .map(target -> target.workspaceDisplayId).toList()
                                         + ", previous="
                                         + describeHomeSelection(
-                                                homeLease.previousHome));
+                                                homeLease.previousHome)));
         final PhoneTaskNormalizationDiagnostics.Snapshot phoneTasks =
                 PhoneTaskNormalizationDiagnostics.snapshot();
         report.append("Phone task normalization: ")
@@ -475,6 +475,7 @@ public final class CompatibilityDiagnostics {
                 .append(settings.keepDesktopAwake)
                 .append(", keepScreenOn=").append(settings.keepScreenOn)
                 .append(", phoneFullscreenByDefault=").append(settings.phoneFullscreenByDefault)
+                .append(", requestHomeRole=").append(settings.requestHomeRole)
                 .append(", disableAdaptiveBrightness=")
                 .append(settings.disableAdaptiveBrightness)
                 .append(", systemTheme=").append(settings.systemTheme)

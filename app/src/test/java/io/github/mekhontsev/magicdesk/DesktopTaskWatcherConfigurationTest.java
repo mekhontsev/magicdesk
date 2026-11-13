@@ -3,6 +3,15 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class DesktopTaskWatcherConfigurationTest {
+    @Test public void configurationCapturesIndependentHostPolicy() throws Exception {
+        verify("""
+                DesktopHomeRoleLease.homeRole = false;
+                watcher.configure(4, new Rect(100), new Rect(90), 7, true);
+                DesktopHomeRoleLease.homeRole = true;
+                watcher.mExecutor.drain();
+                check(!configuredHomeRole, "independent host acquired HOME policy from later state");
+                """);
+    }
     @Test public void configurationReturnsBeforeBinderAndCapturesInputs() throws Exception {
         verify("""
                 Rect display = new Rect(100), work = new Rect(90);
@@ -79,6 +88,7 @@ public final class DesktopTaskWatcherConfigurationTest {
                 static final String TAG = "fixture";
                 static final List<String> calls = new ArrayList<>();
                 static int failures;
+                static boolean configuredHomeRole;
                 static class Rect {
                     int value;
                     Rect(int value) { this.value = value; }
@@ -88,6 +98,10 @@ public final class DesktopTaskWatcherConfigurationTest {
                 static class DesktopCompatibilitySettings {
                     static DesktopCompatibilityPolicy current = new DesktopCompatibilityPolicy(1);
                     static DesktopCompatibilityPolicy current() { return current; }
+                }
+                static class DesktopHomeRoleLease {
+                    static boolean homeRole = true;
+                    static boolean usesHomeRole(int display) { return homeRole; }
                 }
                 static class Log { static void w(String tag, String message, Throwable error) { } }
                 static void recordFailure(String code, String title, String detail, Throwable error) {
@@ -106,7 +120,8 @@ public final class DesktopTaskWatcherConfigurationTest {
                 static class ShellTaskObserverHandle {
                     boolean fail;
                     void configure(int display, Rect bounds, Rect work, int host,
-                            DesktopCompatibilityPolicy policy) throws IOException {
+                            boolean homeRole, DesktopCompatibilityPolicy policy) throws IOException {
+                        configuredHomeRole = homeRole;
                         calls.add("configure:" + display + ":" + bounds.value + ":" + work.value
                                 + ":" + host + ":" + policy.bits());
                         if (fail) throw new IOException("fixture configuration failure");

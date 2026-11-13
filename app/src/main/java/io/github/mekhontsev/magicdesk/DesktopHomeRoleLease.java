@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** One HOME/SECONDARY_HOME lease shared by all workspaces of the current profile. */
+/** Shared workspace residency, with an optional HOME/SECONDARY_HOME lease. */
 final class DesktopHomeRoleLease {
     private static final String HOME_ROLE = "android.app.role.HOME";
     private static final String MAGICDESK_PACKAGE = BuildConfig.APPLICATION_ID;
@@ -46,6 +46,7 @@ final class DesktopHomeRoleLease {
         final DesktopSessionPolicy policy;
         final DesktopCompatibilityPolicy compatibility;
         final Phase phase;
+        final boolean homeRole;
 
         State(
                 final int userId,
@@ -63,10 +64,18 @@ final class DesktopHomeRoleLease {
                 final List<DesktopDisplayTarget> targets, final DesktopSessionPolicy policy,
                 final DesktopCompatibilityPolicy compatibility, final Phase phase,
                 final int closingDisplayId) {
+            this(userId, previousHome, previousSecondaryHome, targets, policy, compatibility,
+                    phase, closingDisplayId, true);
+        }
+
+        State(final int userId, final AndroidHomeSelection previousHome,
+                final String previousSecondaryHome, final List<DesktopDisplayTarget> targets,
+                final DesktopSessionPolicy policy, final DesktopCompatibilityPolicy compatibility,
+                final Phase phase, final int closingDisplayId, final boolean homeRole) {
             if (userId < 0
                     || targets == null || targets.isEmpty()
                     || previousHome == null
-                    || previousSecondaryHome == null || previousSecondaryHome.isEmpty()
+                    || previousSecondaryHome == null || homeRole && previousSecondaryHome.isEmpty()
                     || policy == null
                     || compatibility == null
                     || phase == null) {
@@ -84,6 +93,7 @@ final class DesktopHomeRoleLease {
             this.policy = policy;
             this.compatibility = compatibility;
             this.phase = phase;
+            this.homeRole = homeRole;
         }
 
         State withPhase(final Phase newPhase) {
@@ -94,7 +104,7 @@ final class DesktopHomeRoleLease {
                     targets,
                     policy,
                     compatibility,
-                    newPhase, closingDisplayId);
+                    newPhase, closingDisplayId, homeRole);
         }
 
         boolean matches(final DesktopDisplayTarget target) {
@@ -106,7 +116,8 @@ final class DesktopHomeRoleLease {
         }
 
         State withTargets(final List<DesktopDisplayTarget> values, final int closing) {
-            return new State(userId, previousHome, previousSecondaryHome, values, policy, compatibility, phase, closing);
+            return new State(userId, previousHome, previousSecondaryHome, values, policy,
+                    compatibility, phase, closing, homeRole);
         }
     }
 
@@ -171,6 +182,34 @@ final class DesktopHomeRoleLease {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy,
             final DesktopCompatibilityPolicy compatibility) throws IOException {
+        return prepare(target, policy, compatibility, true);
+    }
+
+    static AcquireResult prepare(final DesktopDisplayTarget target, final DesktopSessionPolicy policy,
+            final DesktopCompatibilityPolicy compatibility, final boolean requestHome) throws IOException {
+        synchronized (LOCK) {
+            // One strategy is retained until the last workspace closes, including recovery.
+            final State existing = sStorage.read();
+            if (existing == null && !requestHome) {
+                return prepareIndependent(target, policy, compatibility);
+            }
+            return prepareRole(target, policy, compatibility);
+        }
+    }
+
+    private static AcquireResult prepareIndependent(final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy, final DesktopCompatibilityPolicy compatibility) throws IOException {
+        if (target == null || target.workspaceDisplayId < 0) {
+            throw new IOException("desktop target is invalid");
+        }
+        final State state = new State(sBackend.currentUserId(), AndroidHomeSelection.none(), "",
+                List.of(target), policy, compatibility, Phase.PREPARED, -1, false);
+        sStorage.write(state);
+        return new AcquireResult(true, state, target);
+    }
+
+    private static AcquireResult prepareRole(final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy, final DesktopCompatibilityPolicy compatibility) throws IOException {
         if (target == null || target.workspaceDisplayId < 0) {
             throw new IOException("desktop HOME target is invalid");
         }
@@ -185,9 +224,9 @@ final class DesktopHomeRoleLease {
                         || existing.closingDisplayId >= 0) {
                     throw new IOException("HOME lease is releasing a workspace");
                 }
-                final String holder = sBackend.getHomePackage(existing.userId);
+                final String holder = existing.homeRole ? sBackend.getHomePackage(existing.userId) : "";
                 if (!existing.matches(target)) {
-                    if (existing.phase != Phase.ACTIVE || !MAGICDESK_PACKAGE.equals(holder)
+                    if (existing.phase != Phase.ACTIVE || existing.homeRole && !MAGICDESK_PACKAGE.equals(holder)
                             || policy == DesktopSessionPolicy.ISOLATED_SELF_TEST
                             || existing.targetForDisplay(target.workspaceDisplayId) != null) {
                         throw new IOException("cannot join the existing HOME lease");
@@ -197,13 +236,19 @@ final class DesktopHomeRoleLease {
                     final State joined = existing.withTargets(targets, -1);
                     sStorage.write(joined);
                     try {
-                        sBackend.selectHomeSurface(surfacesFor(joined));
+                        if (joined.homeRole) { sBackend.selectHomeSurface(surfacesFor(joined)); }
                         return new AcquireResult(true, joined, target);
                     } catch (IOException error) {
-                        try { sStorage.write(existing); sBackend.selectHomeSurface(surfacesFor(existing)); }
+                        try {
+                            sStorage.write(existing);
+                            if (existing.homeRole) { sBackend.selectHomeSurface(surfacesFor(existing)); }
+                        }
                         catch (IOException restoreError) { error.addSuppressed(restoreError); }
                         throw error;
                     }
+                }
+                if (!existing.homeRole) {
+                    return new AcquireResult(existing.phase == Phase.PREPARED, existing, target);
                 }
                 if (MAGICDESK_PACKAGE.equals(holder)) {
                     sBackend.selectHomeSurface(surfacesFor(existing));
@@ -224,7 +269,15 @@ final class DesktopHomeRoleLease {
             }
 
             final int userId = sBackend.currentUserId();
-            final String previousPackage = sBackend.getHomePackage(userId);
+            final String previousPackage;
+            final String previousSecondary;
+            try {
+                previousPackage = sBackend.getHomePackage(userId);
+            } catch (IOException unavailable) {
+                // No role or component has changed yet; unavailable role services
+                // must not prevent an ordinary Desktop host.
+                return prepareIndependent(target, policy, compatibility);
+            }
             if (MAGICDESK_PACKAGE.equals(previousPackage)) {
                 throw new IOException(
                         "MagicDesk already owns HOME without a recoverable lease");
@@ -234,12 +287,17 @@ final class DesktopHomeRoleLease {
                 throw new IOException(
                         "current HOME package is unavailable: " + previousPackage);
             }
+            try {
+                previousSecondary = sBackend.captureSecondaryHome(userId);
+            } catch (IOException unavailable) {
+                return prepareIndependent(target, policy, compatibility);
+            }
             final AndroidHomeSelection previousHome = resolvePreviousHome(
                     userId, previousPackage);
             final State prepared = new State(
                     userId,
                     previousHome,
-                    sBackend.captureSecondaryHome(userId),
+                    previousSecondary,
                     target,
                     policy,
                     compatibility,
@@ -250,6 +308,9 @@ final class DesktopHomeRoleLease {
                 return new AcquireResult(true, prepared, target);
             } catch (IOException error) {
                 restorePreparedLease(prepared, error);
+                if (sStorage.read() == null && error.getSuppressed().length == 0) {
+                    return prepareIndependent(target, policy, compatibility);
+                }
                 throw error;
             }
         }
@@ -359,12 +420,12 @@ final class DesktopHomeRoleLease {
                 sBackend.disableHomeSurfaces();
                 return false;
             }
-            final String holder = sBackend.getHomePackage(state.userId);
+            final String holder = state.homeRole ? sBackend.getHomePackage(state.userId) : "";
             if (state.phase == Phase.ACTIVE
                     && sessionAlive
-                    && MAGICDESK_PACKAGE.equals(holder)) {
-                sPhoneOverviewRoutingActive = true;
-                sBackend.selectHomeSurface(surfacesFor(state));
+                    && (!state.homeRole || MAGICDESK_PACKAGE.equals(holder))) {
+                sPhoneOverviewRoutingActive = state.homeRole;
+                if (state.homeRole) { sBackend.selectHomeSurface(surfacesFor(state)); }
                 return false;
             }
             restoreOrAbandon(state);
@@ -396,6 +457,11 @@ final class DesktopHomeRoleLease {
         final State state = snapshot();
         return state != null && state.phase == Phase.ACTIVE && state.closingDisplayId != displayId
                 && state.targetForDisplay(displayId) != null;
+    }
+
+    static boolean usesHomeRole(final int displayId) {
+        final State state = snapshot();
+        return state != null && state.homeRole && state.targetForDisplay(displayId) != null;
     }
 
     static boolean isReleasingForDisplay(final int displayId) {
@@ -437,25 +503,34 @@ final class DesktopHomeRoleLease {
                 throw new IOException("HOME preparation is no longer current");
             }
             try {
-                final String holder = sBackend.getHomePackage(prepared.userId);
-                if (!MAGICDESK_PACKAGE.equals(holder)) {
+                final String holder = prepared.homeRole ? sBackend.getHomePackage(prepared.userId) : "";
+                if (prepared.homeRole && !MAGICDESK_PACKAGE.equals(holder)) {
                     if (prepared.phase != Phase.PREPARED
                             || !prepared.previousHome.packageName.equals(holder)) {
                         throw new IOException("HOME changed during preparation");
                     }
                 }
-                if (prepared.phase == Phase.PREPARED) { claim(prepared); }
+                if (prepared.homeRole && prepared.phase == Phase.PREPARED) { claim(prepared); }
                 final State active = prepared.withPhase(Phase.ACTIVE);
                 sStorage.write(active);
-                sPhoneOverviewRoutingActive = true;
-                if (preparation.target.isDefaultWorkspace()) {
+                sPhoneOverviewRoutingActive = active.homeRole;
+                if (active.homeRole && preparation.target.isDefaultWorkspace()) {
                     sBackend.presentHome(active.userId, MAGICDESK_PACKAGE);
                 }
                 return new AcquireResult(preparation.created, active, preparation.target);
             } catch (IOException error) {
                 if (preparation.created) {
-                    try { release(preparation.target); }
+                    try {
+                        if (prepared.targets.size() == 1) {
+                            beginRelease(prepared);
+                            finishRelease(prepared);
+                        } else { release(preparation.target); }
+                    }
                     catch (IOException restoreError) { error.addSuppressed(restoreError); }
+                }
+                if (prepared.homeRole && preparation.created && sStorage.read() == null
+                        && error.getSuppressed().length == 0) {
+                    return activate(prepareIndependent(preparation.target, prepared.policy, prepared.compatibility));
                 }
                 throw error;
             }
@@ -474,7 +549,7 @@ final class DesktopHomeRoleLease {
         // Retain the closing membership until component selection succeeds.
         // Recovery can retry this boundary without resurrecting the workspace.
         sStorage.write(state.withTargets(state.targets, target.workspaceDisplayId));
-        sBackend.selectHomeSurface(surfacesFor(next));
+        if (next.homeRole) { sBackend.selectHomeSurface(surfacesFor(next)); }
         sStorage.write(next);
     }
 
@@ -493,6 +568,7 @@ final class DesktopHomeRoleLease {
     }
 
     private static void restoreRole(final State state) throws IOException {
+        if (!state.homeRole) { return; }
         IOException failure = null;
         try {
             sBackend.restoreSecondaryHome(state.userId, state.previousSecondaryHome);
@@ -528,7 +604,7 @@ final class DesktopHomeRoleLease {
             // Disabling a live HOME Activity starts Android CLOSE transitions.
             // Normal Close reaches here only after its workspace teardown.
             // Recovery still disables components when role restoration fails.
-            sBackend.disableHomeSurfaces();
+            if (state.homeRole) { sBackend.disableHomeSurfaces(); }
         } catch (IOException error) {
             if (restoreError == null) {
                 restoreError = error;
@@ -540,7 +616,7 @@ final class DesktopHomeRoleLease {
             throw restoreError;
         }
         sStorage.clear();
-        return new RestoredHomePresentation(state.userId);
+        return state.homeRole ? new RestoredHomePresentation(state.userId) : null;
     }
 
     private static void restorePreparedLease(
@@ -706,6 +782,7 @@ final class DesktopHomeRoleLease {
                 "magicdesk_desktop_home_lease";
         private static final String FORMAT = "format";
         private static final String USER_ID = "user_id";
+        private static final String HOME_ROLE = "home_role";
         private static final String PREVIOUS_PACKAGE = "previous_package";
         private static final String PREVIOUS_COMPONENT = "previous_component";
         private static final String PREVIOUS_VERSION_CODE =
@@ -753,7 +830,8 @@ final class DesktopHomeRoleLease {
                         DesktopCompatibilityPolicy.fromBits(
                                 preferences.getInt(COMPATIBILITY, 0)),
                         Phase.valueOf(requiredString(preferences, PHASE)),
-                        preferences.getInt(CLOSING_DISPLAY, -1));
+                        preferences.getInt(CLOSING_DISPLAY, -1),
+                        preferences.getBoolean(HOME_ROLE, true));
             } catch (ClassCastException | IllegalArgumentException | org.json.JSONException error) {
                 return null;
             }
@@ -776,6 +854,7 @@ final class DesktopHomeRoleLease {
             if (!preferences().edit()
                             .putInt(FORMAT, STORAGE_FORMAT)
                             .putInt(USER_ID, state.userId)
+                            .putBoolean(HOME_ROLE, state.homeRole)
                             .putString(PREVIOUS_SECONDARY_HOME, state.previousSecondaryHome)
                             .putString(
                                     PREVIOUS_PACKAGE,

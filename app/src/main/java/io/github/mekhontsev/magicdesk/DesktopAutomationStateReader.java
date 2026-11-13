@@ -457,6 +457,7 @@ final class DesktopAutomationStateReader {
         final DesktopHomeRoleLease.State lease = DesktopHomeRoleLease.snapshot();
         return lease == null ? JSONObject.NULL : new JSONObject()
                 .put("phase", lease.phase.name().toLowerCase(Locale.ROOT))
+                .put("homeRole", lease.homeRole)
                 .put("closingDisplayId", lease.closingDisplayId)
                 .put("workspaceDisplays", new JSONArray(lease.targets.stream()
                         .map(target -> target.workspaceDisplayId).toList()));

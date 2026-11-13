@@ -1,5 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_request_home_role">Als Startbildschirm-App verwenden, wenn möglich</string>
     <string name="console_app_title">User</string>
     <string name="executor_android_shell">Shell</string>
     <string name="black_screen">Schwarzer Bildschirm (wach bleiben)</string>

@@ -148,6 +148,10 @@ public final class SettingsActivity extends Activity
         saveSetting(MagicDeskSettings.setPhoneFullscreenByDefault(enabled));
     }
 
+    @Override public void setRequestHomeRole(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setRequestHomeRole(enabled));
+    }
+
     @Override
     public void setDisableAdaptiveBrightness(
             final boolean enabled) {
