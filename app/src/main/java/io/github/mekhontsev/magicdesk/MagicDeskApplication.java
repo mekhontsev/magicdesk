@@ -11,6 +11,7 @@ public final class MagicDeskApplication extends Application {
     public void onCreate() {
         super.onCreate();
         sApplicationContext = getApplicationContext();
+        FrameworkWindowGeometry.initialize(WindowGeometrySettings.enabled(this));
         AppearanceStore.initialize(this);
         // Auxiliary Activity processes own only their UI. Runtime startup and
         // recovery belong to the process hosting our service and Binder provider.

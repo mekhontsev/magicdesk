@@ -2,6 +2,18 @@ package io.github.mekhontsev.magicdesk;
 
 /** Platform access to optional Android desktop windowing configuration. */
 public interface PlatformWindowingDriver {
+    /** Read-only scale supplied with TaskInfo; NaN means unavailable, not identity. */
+    default float taskScale(Object task) { return 1f; }
+
+    /** Optional firmware geometry, independent of managed Desktop ownership. */
+    default boolean hasScaledWindows() { return false; }
+
+    /** Append firmware fields to the same transaction as logical bounds. */
+    default void preserveTaskScale(Object transaction, Class<?> tokenClass,
+            Object token, float scale) throws ReflectiveOperationException { }
+
+    default String geometryDiagnostic() { return "identity"; }
+
     /** Whether ordinary application windows may outlive any managed Desktop. */
     default boolean supportsIndependentFreeform() { return true; }
 

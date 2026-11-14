@@ -212,7 +212,8 @@ isolated behind these boundaries.
   of `redmagic.app.manager` keeps the vendor property writer out of Device
   Setup without suppressing unrelated APIs retained by a hybrid ROM.
   `PlatformDriver` exposes only existing variation points.
-  `PlatformWindowingDriver` owns optional provisioning properties;
+  `PlatformWindowingDriver` owns optional provisioning properties and firmware
+  task-scale observation/transaction fields;
   `PlatformProjectionDriver` owns output modes, wireless-launch integration,
   and caption transport; the Android `PlatformPhoneUiDriver` exposes shared
   phone-panel power capability through `PhoneDisplayGuard`;
@@ -234,11 +235,28 @@ isolated behind these boundaries.
   vendor or shell path may still host MagicDesk on display 0 when it is false.
   The actual phone-desktop behavior is verified by the same self-test used for
   other display targets.
-- Implementations live in `platform.android` and `platform.nubia`. Shared
-  runtime code does not import either implementation; `PlatformDrivers` is the
+- Implementations live in `platform.android`, `platform.nubia` and `platform.honor`. Shared
+  runtime code does not import these implementations; `PlatformDrivers` is the
   single composition point. ZTE-branded devices are not assumed to expose
   Nubia services and use the standard Android driver unless a dedicated,
   verified platform implementation is added.
+- `FrameworkWindowGeometry` is the coordinate boundary for explicit task
+  operations. `FrameworkTaskSnapshot.bounds` is display-space geometry;
+  `logicalBounds` and `windowScale` retain the framework representation for
+  diagnosis. Unknown scale publishes an empty footprint rather than inventing
+  physical dimensions. Persistence, parking, snap and observation consume the
+  same normalized snapshots. Rollback retains the captured logical size and
+  scale, not a size converted using the destination's scale.
+  The Honor extension passively reads `TaskInfo.hnTaskInfoEx.mFreeformScale`
+  and appends scale through the firmware WCT extension. It owns no task
+  organizer, input route, HOME role, surface observer or system property.
+  A fresh freeform transition may assign its scale only when it completes;
+  an explicit placement then finalizes its requested footprint once and verifies
+  the result. There is no continuous geometry-repair loop. Ordinary launches
+  without a confirmed task token remain dispatch-only and can use the firmware's
+  initial geometry; subsequent explicit placement uses the same adapter.
+  The startup preference is propagated to the privileged service and inherited
+  by command helpers. Standard Android's unscaled resize path is unchanged.
 - Exact tested fingerprints and their confirmed scope live in the declarative
   `assets/compatibility/firmware-profiles.json` catalog, not in driver code.
   Updating confidence therefore cannot change runtime selection or behavior.

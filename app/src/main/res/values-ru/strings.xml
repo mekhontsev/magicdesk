@@ -1232,4 +1232,5 @@
     <string name="graphics_output_height">Высота вывода</string>
     <string name="graphics_detach_output">Отключить внеэкранный вывод</string>
     <string name="graphics_force_stop_session">Остановить графический сеанс и отключить его приложения без сохранения?</string>
+    <string name="settings_window_geometry">Геометрия окон прошивки</string>
 </resources>

@@ -30,21 +30,23 @@ public final class TaskWindowingCommand {
         validateGeometry(displayId, taskIds, bounds);
         if (taskIds.length > 1) FrameworkWindowCommitBarrier.awaitSystemTransitions();
         Object[] tokens = new Object[taskIds.length];
+        FrameworkWindowGeometry.Plan[] geometry = new FrameworkWindowGeometry.Plan[taskIds.length];
         for (int i = 0; i < taskIds.length; i++) {
             Object task = HiddenTaskApi.requireTask(service, displayId, taskIds[i]);
             if (HiddenTaskApi.getTaskWindowingMode(task) != WINDOWING_MODE_FREEFORM) {
                 throw new IllegalStateException("geometry target is no longer freeform");
             }
             tokens[i] = HiddenTaskApi.getTaskToken(task);
+            geometry[i] = FrameworkWindowGeometry.plan(task, bounds[i]);
         }
-        if (taskIds.length == 1) {
+        if (taskIds.length == 1 && !FrameworkWindowGeometry.adapted()) {
             HiddenTaskApi.resizeTaskBounds(service, displayId, taskIds[0], bounds[0]);
             return;
         }
         FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
         Object transaction = windowing.newTransaction();
         for (int i = 0; i < taskIds.length; i++) {
-            windowing.setBounds(transaction, tokens[i], bounds[i]);
+            geometry[i].apply(windowing, transaction, tokens[i]);
         }
         ShellWindowTransitionExecutor.startForShellAdoption(displayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
@@ -315,7 +317,7 @@ public final class TaskWindowingCommand {
         if (originalMode == WINDOWING_MODE_FULLSCREEN) {
             return false;
         }
-        final Rect originalBounds = HiddenTaskApi.readBounds(task);
+        final FrameworkWindowGeometry.Plan originalGeometry = FrameworkWindowGeometry.capture(task);
         final int captionSourceId = refreshCaption
                 ? TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId)
                 : TaskLocalInsetsSourceParser.NO_SOURCE_ID;
@@ -347,7 +349,7 @@ public final class TaskWindowingCommand {
                             displayId,
                             taskId,
                             originalMode,
-                            originalBounds);
+                            originalGeometry);
                 } catch (ReflectiveOperationException
                         | RuntimeException restoreError) {
                     error.addSuppressed(restoreError);
@@ -407,12 +409,13 @@ public final class TaskWindowingCommand {
         final Class<?> transactionClass = windowing.transactionClass();
         final Object transaction = windowing.newTransaction();
         for (int index = 0; index < taskIds.length; index++) {
-            final Object taskToken = HiddenTaskApi.requireTaskToken(
+            final Object task = HiddenTaskApi.requireTask(
                     service, displayId, taskIds[index]);
+            final Object taskToken = HiddenTaskApi.getTaskToken(task);
             windowing.setWindowingMode(
                     transaction, taskToken, WINDOWING_MODE_FREEFORM);
             if (bounds != null) {
-                windowing.setBounds(transaction, taskToken, bounds[index]);
+                FrameworkWindowGeometry.plan(task, bounds[index]).apply(windowing, transaction, taskToken);
             }
             windowing.setForceTranslucent(transaction, taskToken, false);
             TaskCaptionInsetsCommand.addCaptionInsetOperation(
@@ -434,6 +437,7 @@ public final class TaskWindowingCommand {
                 "restore-desktop-tasks");
         if (bounds != null) {
             for (int index = 0; index < taskIds.length; index++) {
+                FrameworkWindowGeometry.finishPlacement(service, displayId, taskIds[index], bounds[index]);
                 TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                         service, displayId, taskIds[index], bounds[index]);
             }

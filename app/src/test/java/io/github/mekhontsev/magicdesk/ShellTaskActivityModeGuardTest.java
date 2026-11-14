@@ -8,7 +8,7 @@ import java.nio.file.Path;
 /** Runs the actual guard against deterministic task/launch events, without Android services. */
 public final class ShellTaskActivityModeGuardTest {
     @Test
-    public void restoresPreStartBoundsRatherThanFirstPostStartBounds() throws Exception {
+    public void restoresPreStartDisplayBoundsThroughSharedGeometryCommand() throws Exception {
         verify("""
                 identify(1);
                 observe(1, MAIN, ORIGINAL, 5, false);
@@ -281,12 +281,14 @@ public final class ShellTaskActivityModeGuardTest {
                 interface ShellActivityStartController {
                     interface Listener { boolean onActivityStarting(Intent intent, String pkg); }
                 }
-                static final class HiddenTaskApi {
-                    static void resizeTaskBounds(Object service, int display, int task, Rect bounds)
+                static final class TaskWindowingCommand {
+                    static void resizeBounds(Object service, int display, int[] tasks, Rect[] bounds)
                             throws ReflectiveOperationException {
+                        check(display == 0 && tasks.length == 1 && tasks[0] == 1
+                                && bounds.length == 1, "bounds repair changed target");
                         resizes++;
                         if (failResize) throw new ReflectiveOperationException("resize unavailable");
-                        restored = new Rect(bounds);
+                        restored = new Rect(bounds[0]);
                     }
                 }
                 static final class ShellPreparedTaskTransition {

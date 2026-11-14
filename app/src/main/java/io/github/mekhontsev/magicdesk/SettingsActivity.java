@@ -176,6 +176,13 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setWindowGeometry(final boolean enabled) {
+        saveSetting(WindowGeometrySettings.save(this, enabled));
+        android.widget.Toast.makeText(this, R.string.access_restart_required,
+                android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    @Override
     public void setProjectionDesktopOption(final boolean enabled) {
         final PlatformProjectionDriver.DesktopOption option =
                 PlatformDrivers.current().projection().desktopOption();

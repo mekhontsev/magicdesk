@@ -36,7 +36,7 @@ final class ShellServiceConnection {
             // Unknown Settings must not disable the rest of the privileged service.
             settingError = "desktop developer setting unavailable: " + ShellAccess.usefulMessage(error);
         }
-        service.initializeFramework(desktopToggle, settingError);
+        service.initializeFramework(desktopToggle, settingError, FrameworkWindowGeometry.enabled());
     }
 
     ShellAccess.Snapshot snapshot(ShellAccess.Snapshot source) {

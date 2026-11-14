@@ -33,6 +33,7 @@ final class SettingsView {
 
         void setCompatibilityOption(DesktopCompatibilityPolicy.Option option, boolean enabled);
         void setProjectionDesktopOption(boolean enabled);
+        void setWindowGeometry(boolean enabled);
 
         void resetCompatibilityDefaults();
 
@@ -100,6 +101,7 @@ final class SettingsView {
     private Switch mChildProcessRestrictions;
     private TextView mChildProcessStatus;
     private Switch mProjectionDesktopOption;
+    private Switch mWindowGeometry;
     private final PlatformProjectionDriver.DesktopOption mProjectionOption =
             PlatformDrivers.current().projection().desktopOption();
     private TextView mSystemDesktopModeStatus;
@@ -244,6 +246,13 @@ final class SettingsView {
             });
         }
 
+        if (PlatformDrivers.current().windowing().hasScaledWindows()) {
+            mWindowGeometry = addSwitch(content, R.string.settings_window_geometry);
+            mWindowGeometry.setChecked(WindowGeometrySettings.enabled(mActivity));
+            mWindowGeometry.setOnCheckedChangeListener((button, checked) -> {
+                if (!mRendering) mActions.setWindowGeometry(checked);
+            });
+        }
         if (mProjectionOption != null) {
             mProjectionDesktopOption = addSwitch(content, mProjectionOption.titleResource());
             mProjectionDesktopOption.setOnCheckedChangeListener((button, checked) -> {
@@ -429,6 +438,13 @@ final class SettingsView {
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
         mKeyboardOnAppDisplay.setEnabled(settings != null);
+        if (mWindowGeometry != null) {
+            boolean configured = WindowGeometrySettings.enabled(mActivity);
+            mWindowGeometry.setChecked(configured);
+            String label = mActivity.getString(R.string.settings_window_geometry);
+            mWindowGeometry.setText(configured == FrameworkWindowGeometry.enabled() ? label
+                    : mActivity.getString(R.string.settings_integration_restart_pending, label));
+        }
         if (mProjectionDesktopOption != null) {
             mProjectionDesktopOption.setChecked(mProjectionOption.isEnabled());
             mProjectionDesktopOption.setEnabled(mDesktopSettingsAvailable);

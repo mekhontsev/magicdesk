@@ -455,7 +455,7 @@ interface IShellCommandService {
     void configureDesktopHomeDelegate(ITaskObserverCallback callback,
         int displayId, int taskId, IBinder activityToken) = 124;
 
-    void initializeFramework(int desktopToggle, String settingError) = 125;
+    void initializeFramework(int desktopToggle, String settingError, boolean windowGeometry) = 125;
 
     ShellFileInfo publishVerifiedShellFile(String source, long deviceId, long inode,
         String target, boolean overwrite) = 126;

@@ -93,10 +93,11 @@ final class FrameworkActivityLaunchApi {
         if (HiddenTaskApi.getTaskActivityType(task) != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD) {
             throw new IllegalArgumentException("only application tasks can be transferred");
         }
-        final ActivityOptions options = options(targetDisplayId, bounds == null, bounds);
         final int requestedMode = bounds == null ? 1 : 5;
+        final FrameworkWindowGeometry.Plan currentGeometry = bounds == null
+                ? null : FrameworkWindowGeometry.capture(task);
         if (sourceDisplayId != targetDisplayId || HiddenTaskApi.getTaskWindowingMode(task) != requestedMode
-                || bounds != null && !bounds.equals(HiddenTaskApi.readBounds(task))) {
+                || bounds != null && !bounds.equals(currentGeometry.displayBounds())) {
             // Launch options alone do not change an existing task's mode on all
             // firmware. Reuse the atomic transfer, without claiming Desktop.
             if (bounds == null) {
@@ -109,6 +110,8 @@ final class FrameworkActivityLaunchApi {
             return;
         }
         // Steady-state activation changes only ordering, never mode or geometry.
+        final ActivityOptions options = options(targetDisplayId, bounds == null,
+                currentGeometry == null ? null : currentGeometry.logicalBounds);
         final int result = HiddenTaskApi.startActivityFromRecents(service, taskId, options.toBundle());
         if (result < 0) { throw new IllegalStateException("startActivityFromRecents returned " + result); }
     }

@@ -1208,4 +1208,5 @@
     <string name="graphics_force_stop_session">Diese Grafiksitzung stoppen und ihre Anwendungen ohne Speichern trennen?</string>
     <string name="phone_panel_power_off">Display physisch ausschalten</string>
     <string name="phone_panel_unavailable">Physische Displaysteuerung nicht verfügbar</string>
+    <string name="settings_window_geometry">Fenstergeometrie der Firmware</string>
 </resources>

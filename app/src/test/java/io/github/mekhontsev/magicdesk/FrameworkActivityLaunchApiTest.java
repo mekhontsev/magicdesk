@@ -13,6 +13,15 @@ public final class FrameworkActivityLaunchApiTest {
                 }
                 static class FrameworkTaskSnapshot { static final int ACTIVITY_TYPE_STANDARD = 1; }
                 static class DesktopTaskDensity { static final int UNCHANGED = -1; }
+                static class FrameworkWindowGeometry {
+                    static class Plan {
+                        final Rect logicalBounds;
+                        Plan(Rect r) { logicalBounds = r; }
+                        Rect displayBounds() { return logicalBounds; }
+                    }
+                    static Plan capture(Object task) { return new Plan(HiddenTaskApi.readBounds(task)); }
+                    static Plan plan(Object task, Rect bounds) { return new Plan(bounds); }
+                }
                 static class HiddenTaskApi {
                     static int mode = 1, user, type = 1, starts, result;
                     static Object requireTask(Object service, int display, int task) { return new Object(); }

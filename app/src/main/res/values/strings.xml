@@ -704,6 +704,7 @@
     <string name="control_app_settings">App settings</string>
     <string name="control_open_termux">Open Termux</string>
     <string name="access_restart_required">Exit MagicDesk and reopen it to apply startup settings.</string>
+    <string name="settings_window_geometry">Firmware window geometry</string>
     <string name="control_external_display_status">Output: %1$s</string>
     <string name="search_apps_hint">Search apps, files and actions</string>
     <string name="search_phone_apps_hint">Search apps</string>

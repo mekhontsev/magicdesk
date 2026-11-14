@@ -1220,4 +1220,5 @@
     <string name="graphics_force_stop_session">¿Detener esta sesión gráfica y desconectar sus aplicaciones sin guardar?</string>
     <string name="phone_panel_power_off">Apagar físicamente la pantalla</string>
     <string name="phone_panel_unavailable">El control físico de la pantalla no está disponible</string>
+    <string name="settings_window_geometry">Geometría de ventanas del firmware</string>
 </resources>

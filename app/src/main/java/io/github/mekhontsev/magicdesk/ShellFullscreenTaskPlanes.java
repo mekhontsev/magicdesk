@@ -848,7 +848,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         try {
             final Object task = HiddenTaskApi.requireTask(
                     mService, displayId, taskId);
-            final Rect bounds = HiddenTaskApi.readBounds(task);
+            final Rect bounds = FrameworkWindowGeometry.capture(task).displayBounds();
             if (!bounds.isEmpty()) {
                 restoreFreeform(
                         mService,

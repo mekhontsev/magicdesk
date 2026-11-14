@@ -130,8 +130,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
-    public void initializeFramework(final int desktopToggle, final String settingError) {
+    public void initializeFramework(final int desktopToggle, final String settingError,
+            final boolean windowGeometry) {
         FrameworkWindowingCompat.initialize(desktopToggle, settingError);
+        FrameworkWindowGeometry.initialize(windowGeometry);
     }
 
     @Override public DesktopDisplayInfo[] listDesktopDisplays() {

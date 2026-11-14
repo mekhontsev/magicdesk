@@ -1196,4 +1196,5 @@
     <string name="graphics_force_stop_session">このグラフィカルセッションを停止し、保存せずにアプリを切断しますか？</string>
     <string name="phone_panel_power_off">画面の電源を切る</string>
     <string name="phone_panel_unavailable">画面の電源制御を利用できません</string>
+    <string name="settings_window_geometry">ファームウェアのウィンドウ形状</string>
 </resources>

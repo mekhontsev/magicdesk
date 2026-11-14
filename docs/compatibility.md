@@ -13,7 +13,7 @@ device. Actual release/firmware coverage must be evaluated per subsystem.
 MagicDesk's managed Desktop targets capable Android 15+ firmware through one APK and one common
 desktop runtime. The standard Android driver supports phone, simulated, and
 already connected secondary-display sessions. A platform-driver boundary
-separates that baseline from optional Nubia/REDMAGIC integration. A device
+separates that baseline from optional firmware integration. A device
 branded ZTE is not automatically treated as Nubia-compatible; until its
 firmware interfaces are verified, it uses the standard Android driver.
 Likewise, Nubia hardware running an AOSP-derived custom ROM uses the standard
@@ -22,6 +22,19 @@ runtime probes may retain an independently available Nubia projection,
 pointer, background-work, internal-audio, diagnostics, or hardware-control
 component. Vendor branding alone is not a baseline requirement and never
 enables the complete Nubia integration.
+
+On Honor firmware that publishes freeform scale in `TaskInfo`, the windowing
+extension distinguishes logical content dimensions from the window's visible
+display-space bounds. MagicDesk placement, snapping, restore and transfer use
+the visible bounds; transaction-local scale and logical dimensions are applied
+together. Native corner dragging can still scale the content instead of
+resizing it. MagicDesk does not replace that firmware gesture or native caption.
+**Settings > Compatibility > Firmware window geometry** disables this adaptation
+after restarting MagicDesk, without changing system settings or requiring another
+APK. The option appears only when the firmware interface is detected.
+Reports include both coordinate spaces, scale availability and the adapter's
+read/write status. Detection and local fixture tests are not proof of working
+transitions on an untested Honor firmware; remote-device verification is required.
 
 The selected driver owns firmware-specific windowing properties, projection
 state and output modes, cursor observation, optional

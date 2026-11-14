@@ -434,6 +434,12 @@ shared `DisplayWindowingSession` lifecycle, not to a firmware focus policy.
 Focus repair is enabled by default in the Android baseline on every platform;
 an explicit user disable remains effective for subsequent sessions.
 
+An unsuccessful explicit input-focus commit retains one bounded diagnostic
+snapshot: target/display, InputDispatcher focus identities and the top task
+order with modes, areas, visibility and framework focus. This is collected only
+on failure and survives later focus changes caused by opening Diagnostics.
+It neither extends the timeout nor treats a visible surface as successful focus.
+
 ## Native Caption Maximize
 
 WMShell's native maximize/restore toggle compares task bounds with its own

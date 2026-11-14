@@ -179,6 +179,18 @@ public final class PlatformSourceIsolationTest {
                 + violations, violations.isEmpty());
     }
 
+    @Test public void scaledWindowFirmwareMembersStayInHonorAdapter() throws IOException {
+        for (Path source : productionSources()) {
+            String relative = relativePath(source);
+            if (relative.contains("/platform/honor/")) continue;
+            String contents = read(source);
+            for (String member : new String[] {"hnTaskInfoEx", "mFreeformScale",
+                    "getHnWindowContainerTransactionEx", "\"setFreeformScale\""}) {
+                assertTrue(relative + " leaks firmware member " + member, !contents.contains(member));
+            }
+        }
+    }
+
     private static List<Path> productionSources() throws IOException {
         final List<Path> sources = new ArrayList<>();
         try (Stream<Path> paths = Files.walk(MAIN_JAVA)) {

@@ -204,7 +204,8 @@ final class FrameworkTaskSnapshotSource {
                         ? compat.readRequestedVisibleTypes(task) : null,
                 includeTaskConfiguration
                         ? readTaskConfiguration(task) : null,
-                HiddenTaskApi.getTaskUserId(task));
+                HiddenTaskApi.getTaskUserId(task),
+                FrameworkWindowGeometry.scale(task, HiddenTaskApi.getTaskWindowingMode(task)));
     }
 
     private static FrameworkTaskSnapshot.TaskConfiguration

@@ -102,6 +102,8 @@ final class ShellExecutionEnvironment {
             environment.remove("ENV");
         }
         CommandShellEnvironment.apply(environment);
+        environment.put(FrameworkWindowGeometry.ENVIRONMENT_KEY,
+                FrameworkWindowGeometry.enabled() ? "1" : "0");
     }
 
     static String prepareToolsDirectory() throws IOException {

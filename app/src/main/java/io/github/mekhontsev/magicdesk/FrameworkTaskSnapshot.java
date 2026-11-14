@@ -44,7 +44,10 @@ public final class FrameworkTaskSnapshot implements Parcelable {
     public final String topPackage;
     public final int topUid;
     public final String topProcessName;
+    /** Display-space footprint; empty if firmware geometry could not be observed. */
     public final Rect bounds;
+    public final Rect logicalBounds;
+    public final float windowScale;
     public final boolean visible;
     public final boolean focused;
     public final boolean requestedVisibleTypesKnown;
@@ -137,6 +140,23 @@ public final class FrameworkTaskSnapshot implements Parcelable {
             final boolean visible, final boolean focused,
             final Integer requestedVisibleTypes,
             final TaskConfiguration taskConfiguration, final int userId) {
+        this(rawTask, rootTaskId, taskId, displayId, displayAreaFeatureId,
+                windowingMode, activityType, component, topActivity, componentName,
+                topActivityName, packageName, topPackage, topUid, topProcessName,
+                bounds, visible, focused, requestedVisibleTypes, taskConfiguration, userId, 1f);
+    }
+
+    FrameworkTaskSnapshot(
+            final Object rawTask, final int rootTaskId, final int taskId,
+            final int displayId, final int displayAreaFeatureId,
+            final int windowingMode, final int activityType,
+            final ComponentName component, final ComponentName topActivity,
+            final String componentName, final String topActivityName,
+            final String packageName, final String topPackage,
+            final int topUid, final String topProcessName, final Rect bounds,
+            final boolean visible, final boolean focused,
+            final Integer requestedVisibleTypes,
+            final TaskConfiguration taskConfiguration, final int userId, final float scale) {
         task = rawTask;
         rootComponent = component;
         topComponent = topActivity;
@@ -153,7 +173,10 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         this.topPackage = topPackage;
         this.topUid = topUid;
         this.topProcessName = topProcessName;
-        this.bounds = bounds == null ? new Rect() : new Rect(bounds);
+        logicalBounds = TaskWindowGeometry.displayBounds(bounds, 1f);
+        windowScale = scale;
+        this.bounds = TaskWindowGeometry.validScale(scale)
+                ? TaskWindowGeometry.displayBounds(bounds, scale) : new Rect();
         this.visible = visible;
         this.focused = focused;
         requestedVisibleTypesKnown = requestedVisibleTypes != null;
@@ -189,6 +212,8 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         topUid = source.readInt();
         topProcessName = source.readString();
         bounds = source.readTypedObject(Rect.CREATOR);
+        logicalBounds = source.readTypedObject(Rect.CREATOR);
+        windowScale = source.readFloat();
         visible = source.readBoolean();
         focused = source.readBoolean();
         requestedVisibleTypesKnown = source.readBoolean();
@@ -245,6 +270,8 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         destination.writeInt(topUid);
         destination.writeString(topProcessName);
         destination.writeTypedObject(bounds, flags);
+        destination.writeTypedObject(logicalBounds, flags);
+        destination.writeFloat(windowScale);
         destination.writeBoolean(visible);
         destination.writeBoolean(focused);
         destination.writeBoolean(requestedVisibleTypesKnown);

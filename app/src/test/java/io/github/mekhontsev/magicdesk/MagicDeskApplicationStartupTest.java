@@ -21,6 +21,12 @@ public final class MagicDeskApplicationStartupTest {
                 static class AppearanceStore {
                     static void initialize(Context c) { calls.add("appearance"); }
                 }
+                static class WindowGeometrySettings { static boolean enabled(Context c) { return true; } }
+                static class FrameworkWindowGeometry {
+                    static void initialize(boolean enabled) {
+                        check(enabled, "geometry startup setting"); calls.add("geometry");
+                    }
+                }
                 static class AndroidActivityResultStore {
                     static void releaseOrphanedPersistedUris(Context c) { calls.add("uri-recovery"); }
                 }
@@ -71,13 +77,13 @@ public final class MagicDeskApplicationStartupTest {
                     check(calls.equals(expected), "startup side effects in " + name + ": " + calls);
                 }
                 public static void verify() {
-                    List<String> primary = List.of("application", "appearance", "uri-recovery", "home-recovery",
+                    List<String> primary = List.of("application", "geometry", "appearance", "uri-recovery", "home-recovery",
                             "integrations", "backend", "identity-policy", "termux-ui-observer",
                             "service", "setup-status", "diagnostics", "theme-recovery", "platform-recovery", "event");
                     start("magicdesk", primary);
                     for (String name : new String[] {"magicdesk:selftest",
                             "magicdesk:task_area_backstop", "magicdesk:another", "", null}) {
-                        start(name, List.of("application", "appearance"));
+                        start(name, List.of("application", "geometry", "appearance"));
                     }
                     start("magicdesk", primary);
                     check(!App.isPrimaryProcess("magicdesk", null), "unknown owner accepted");

@@ -1220,4 +1220,5 @@
     <string name="graphics_force_stop_session">Arrêter cette session graphique et déconnecter ses applications sans enregistrer ?</string>
     <string name="phone_panel_power_off">Éteindre physiquement l’écran</string>
     <string name="phone_panel_unavailable">Le contrôle physique de l’écran est indisponible</string>
+    <string name="settings_window_geometry">Géométrie des fenêtres du micrologiciel</string>
 </resources>

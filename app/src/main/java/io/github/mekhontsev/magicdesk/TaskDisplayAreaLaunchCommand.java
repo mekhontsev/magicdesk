@@ -363,13 +363,15 @@ public final class TaskDisplayAreaLaunchCommand {
         // root behind the desktop and publish its final geometry after the
         // token is known; other callers can rely on these launch options alone.
         starter.start(options);
-        return waitForTask(
+        final int taskId = waitForTask(
                 service,
                 displayId,
                 -1,
                 expectedPackage,
                 baseline.targetDisplayTaskIds,
                 taskIdSource);
+        if (!launchBehind) FrameworkWindowGeometry.finishPlacement(service, displayId, taskId, bounds);
+        return taskId;
     }
 
     static int launchFullscreenTask(
@@ -981,7 +983,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 service, sourceDisplayId, taskId);
         final int originalWindowingMode =
                 HiddenTaskApi.getTaskWindowingMode(originalTask);
-        final Rect originalBounds = HiddenTaskApi.readBounds(originalTask);
+        final FrameworkWindowGeometry.Plan originalGeometry = FrameworkWindowGeometry.capture(originalTask);
         final DesktopTransitionSurfaceProbe.Observation observation =
                 reference == null
                         ? null : DesktopTransitionSurfaceProbe.begin(reference);
@@ -1030,7 +1032,7 @@ public final class TaskDisplayAreaLaunchCommand {
                             taskId,
                             sourceDisplayId,
                             originalWindowingMode,
-                            originalBounds);
+                            originalGeometry);
                 } catch (ReflectiveOperationException
                         | RuntimeException rollbackError) {
                     error.addSuppressed(rollbackError);
@@ -1048,7 +1050,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final Rect bounds,
             final int densityDpi) throws ReflectiveOperationException {
         moveExistingTaskToDisplay(service, taskId, sourceDisplayId,
-                targetDisplayId, WINDOWING_MODE_FREEFORM, bounds, densityDpi);
+                targetDisplayId, WINDOWING_MODE_FREEFORM, bounds, densityDpi, null);
     }
 
     private static void moveExistingTaskToDisplay(
@@ -1058,17 +1060,24 @@ public final class TaskDisplayAreaLaunchCommand {
             final int targetDisplayId,
             final int windowingMode,
             final Rect bounds,
-            final int densityDpi) throws ReflectiveOperationException {
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
+            final int densityDpi,
+            final FrameworkWindowGeometry.Plan capturedGeometry) throws ReflectiveOperationException {
+        final Object task = HiddenTaskApi.requireTask(
                 service, sourceDisplayId, taskId);
+        final Object taskToken = HiddenTaskApi.getTaskToken(task);
+        final FrameworkWindowGeometry.Plan geometry = windowingMode == WINDOWING_MODE_FREEFORM
+                ? capturedGeometry != null ? capturedGeometry : FrameworkWindowGeometry.plan(task, bounds)
+                : null;
+        final Rect logicalBounds = geometry == null ? bounds : geometry.logicalBounds;
         final ActivityOptions options = existingTaskOptions(
-                targetDisplayId, windowingMode, bounds, null);
+                targetDisplayId, windowingMode, logicalBounds, null);
         final FrameworkWindowingApi windowing =
                 FrameworkRuntime.current().windowing();
         final Class<?> transactionClass = windowing.transactionClass();
         final Object transaction = createTaskMoveTransaction(
                 windowing, taskToken, taskId, options.toBundle(),
-                windowingMode, bounds, densityDpi);
+                windowingMode, logicalBounds, densityDpi);
+        if (geometry != null) geometry.apply(windowing, transaction, taskToken);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transaction, taskToken, windowingMode == WINDOWING_MODE_FULLSCREEN);
         // WM owns both the destination hierarchy and the task leash. A raw
@@ -1080,6 +1089,9 @@ public final class TaskDisplayAreaLaunchCommand {
                 transactionClass,
                 transaction,
                 "move-running-task");
+        if (windowingMode == WINDOWING_MODE_FREEFORM) {
+            FrameworkWindowGeometry.finishPlacement(service, targetDisplayId, taskId, bounds);
+        }
     }
 
     static Object createTaskMoveTransaction(
@@ -1113,7 +1125,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final int taskId,
             final int sourceDisplayId,
             final int originalWindowingMode,
-            final Rect originalBounds) throws ReflectiveOperationException {
+            final FrameworkWindowGeometry.Plan originalGeometry) throws ReflectiveOperationException {
         final Object task = HiddenTaskApi.findTask(
                 service, Display.INVALID_DISPLAY, taskId);
         if (task == null) {
@@ -1126,19 +1138,21 @@ public final class TaskDisplayAreaLaunchCommand {
                     sourceDisplayId,
                     taskId,
                     originalWindowingMode,
-                    originalBounds);
+                    originalGeometry);
             return;
         }
         if (originalWindowingMode == WINDOWING_MODE_FREEFORM) {
-            moveExistingTaskAsFreeform(
+            moveExistingTaskToDisplay(
                     service,
                     taskId,
                     currentDisplayId,
                     sourceDisplayId,
-                    originalBounds,
-                    DesktopTaskDensity.INHERIT);
+                    WINDOWING_MODE_FREEFORM,
+                    originalGeometry.displayBounds(),
+                    DesktopTaskDensity.INHERIT,
+                    originalGeometry);
             waitForTaskFreeformBounds(
-                    service, sourceDisplayId, taskId, originalBounds);
+                    service, sourceDisplayId, taskId, originalGeometry.displayBounds());
         } else if (originalWindowingMode == WINDOWING_MODE_FULLSCREEN) {
             moveExistingTaskAsFullscreen(
                     service, taskId, currentDisplayId, sourceDisplayId,
@@ -1163,7 +1177,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final int targetDisplayId,
             final int densityDpi) throws ReflectiveOperationException {
         moveExistingTaskToDisplay(service, taskId, sourceDisplayId,
-                targetDisplayId, WINDOWING_MODE_FULLSCREEN, null, densityDpi);
+                targetDisplayId, WINDOWING_MODE_FULLSCREEN, null, densityDpi, null);
     }
 
     /** Moves a live task into an organizer area through Android task focus. */
