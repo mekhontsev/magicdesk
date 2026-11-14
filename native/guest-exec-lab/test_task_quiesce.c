@@ -43,7 +43,7 @@ int main(void) {
     assert(!md_task_quiesce_interrupting(q,1));
     assert(!md_task_quiesce_stop(q) && interrupts==1 && !md_task_quiesce_ready(q));
     assert(md_task_quiesce_interrupting(q,1) && !md_task_quiesce_interrupting(q,2));
-    assert(!md_task_quiesce_event(q,1,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
+    assert(!md_task_quiesce_event(q,0,1,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
     assert(!md_task_quiesce_waiting(q,1));
     assert(!md_task_quiesce_interrupting(q,1));
     assert(md_task_quiesce_ready(q));
@@ -51,10 +51,19 @@ int main(void) {
     int status; struct rusage usage;
     assert(!md_task_quiesce_take(q,&status,&usage));
 
+    assert(!md_task_quiesce_add(q,12,0,PTRACE_CONT));
+    assert(!md_task_quiesce_stop(q));
+    struct rusage service_usage={.ru_maxrss=42};
+    assert(!md_task_quiesce_event(q,1,12,stop(SIGTRAP,PTRACE_EVENT_STOP),&service_usage));
+    assert(md_task_quiesce_ready(q) && !md_task_quiesce_release(q) && resumes==1);
+    assert(md_task_quiesce_take(q,&status,&usage)==12);
+    assert(status==stop(SIGTRAP,PTRACE_EVENT_STOP) && usage.ru_maxrss==42);
+    assert(!md_task_quiesce_take(q,&status,&usage));
+
     assert(!md_task_quiesce_add(q,3,0,PTRACE_CONT));
     assert(!md_task_quiesce_stop(q));
     struct rusage saved={.ru_maxrss=123};
-    assert(!md_task_quiesce_event(q,3,stop(SIGUSR1,0),&saved));
+    assert(!md_task_quiesce_event(q,0,3,stop(SIGUSR1,0),&saved));
     assert(md_task_quiesce_ready(q) && !md_task_quiesce_release(q) && resumes==1);
     /* A second repair can begin before the first repair's events are replayed. */
     int previous=interrupts;
@@ -66,10 +75,10 @@ int main(void) {
     for (int child_first=0;child_first<2;++child_first) {
         assert(!md_task_quiesce_add(q,4,0,PTRACE_SYSCALL));
         assert(!md_task_quiesce_stop(q)); newborn=5;
-        if (child_first) assert(!md_task_quiesce_event(q,5,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
-        assert(md_task_quiesce_event(q,4,stop(SIGTRAP,PTRACE_EVENT_CLONE),NULL)==newborn);
+        if (child_first) assert(!md_task_quiesce_event(q,0,5,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
+        assert(md_task_quiesce_event(q,0,4,stop(SIGTRAP,PTRACE_EVENT_CLONE),NULL)==newborn);
         assert(md_task_quiesce_ready(q)==child_first);
-        if (!child_first) assert(!md_task_quiesce_event(q,5,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
+        if (!child_first) assert(!md_task_quiesce_event(q,0,5,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
         assert(md_task_quiesce_ready(q));
         assert(!md_task_quiesce_release(q));
         assert(md_task_quiesce_newborn(q,5)==1 && !md_task_quiesce_newborn(q,5));
@@ -85,13 +94,13 @@ int main(void) {
             int start=resumes;
             assert(!md_task_quiesce_add(q,34,0,PTRACE_CONT));
             assert(!md_task_quiesce_stop(q));
-            if (child_first) assert(!md_task_quiesce_event(q,newborn,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
-            assert(md_task_quiesce_event(q,34,stop(SIGTRAP,birth_event),&saved)==newborn);
+            if (child_first) assert(!md_task_quiesce_event(q,0,newborn,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
+            assert(md_task_quiesce_event(q,0,34,stop(SIGTRAP,birth_event),&saved)==newborn);
             assert(!md_task_quiesce_contains(q,SIGKILL) && md_task_quiesce_contains(q,newborn));
             assert(md_task_quiesce_ready(q)==child_first);
-            if (!child_first) assert(!md_task_quiesce_event(q,newborn,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
+            if (!child_first) assert(!md_task_quiesce_event(q,0,newborn,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
             assert(md_task_quiesce_ready(q));
-            assert(!md_task_quiesce_event(q,34,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
+            assert(!md_task_quiesce_event(q,0,34,stop(SIGTRAP,PTRACE_EVENT_EXIT),&saved));
             assert(!md_task_quiesce_release(q) && resumes==start);
             assert(md_task_quiesce_newborn(q,newborn)==MD_TASK_BIRTH_EXIT);
             assert(md_task_quiesce_take(q,&status,&usage)==34 && status==stop(SIGTRAP,birth_event));
@@ -103,12 +112,12 @@ int main(void) {
     assert(!md_task_quiesce_add(q,6,1,PTRACE_SYSCALL));
     assert(!md_task_quiesce_add(q,6,0,PTRACE_CONT));
     assert(!md_task_quiesce_stop(q));
-    assert(!md_task_quiesce_event(q,6,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
+    assert(!md_task_quiesce_event(q,0,6,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
     assert(!md_task_quiesce_release(q) && resumed==6 && request==PTRACE_CONT);
     assert(!md_task_quiesce_add(q,7,0,0));
     previous=interrupts;
     assert(!md_task_quiesce_stop(q) && interrupts==previous);
-    assert(!md_task_quiesce_event(q,7,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
+    assert(!md_task_quiesce_event(q,0,7,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
     assert(!md_task_quiesce_release(q));
     assert(md_task_quiesce_take(q,&status,NULL)==7);
     /* An existing syscall/debugger interrupt has the same kernel stop as
@@ -117,7 +126,7 @@ int main(void) {
     previous=interrupts;
     assert(!md_task_quiesce_add(q,8,0,0));
     assert(!md_task_quiesce_stop(q) && interrupts==previous);
-    assert(!md_task_quiesce_event(q,8,stop(SIGTRAP,PTRACE_EVENT_STOP),&saved));
+    assert(!md_task_quiesce_event(q,0,8,stop(SIGTRAP,PTRACE_EVENT_STOP),&saved));
     assert(md_task_quiesce_ready(q) && !md_task_quiesce_release(q));
     assert(resumes==old_resumes);
     assert(!md_task_quiesce_add(q,8,0,0));
@@ -127,28 +136,30 @@ int main(void) {
     assert(status==stop(SIGTRAP,PTRACE_EVENT_STOP) && usage.ru_maxrss==123);
     assert(!md_task_quiesce_take(q,&status,NULL));
     /* Cold task calls lend a continuation, not its event or resume ownership. */
-    for (unsigned kind=MD_TASK_QUIESCE_HELD;kind<=MD_TASK_QUIESCE_EVENT;++kind) {
-        int start=resumes, events=stop(SIGTRAP,PTRACE_EVENT_SECCOMP);
+    for (unsigned kind=MD_TASK_QUIESCE_HELD;kind<=MD_TASK_QUIESCE_INTERRUPT;++kind) {
+        int start=resumes, events=stop(SIGTRAP,kind==MD_TASK_QUIESCE_INTERRUPT
+            ? PTRACE_EVENT_STOP : PTRACE_EVENT_SECCOMP);
+        int deferred=kind==MD_TASK_QUIESCE_EVENT || kind==MD_TASK_QUIESCE_INTERRUPT;
         struct md_task_quiesce_stop boundary;
         assert(!md_task_quiesce_add(q,9,kind==MD_TASK_QUIESCE_HELD,PTRACE_CONT));
         assert(!md_task_quiesce_stop(q));
         if (kind!=MD_TASK_QUIESCE_HELD) {
             assert(md_task_quiesce_borrow(q,9,&boundary)==-EBUSY);
-            assert(!md_task_quiesce_event(q,9,kind==MD_TASK_QUIESCE_EVENT
+            assert(!md_task_quiesce_event(q,kind==MD_TASK_QUIESCE_INTERRUPT,9,deferred
                 ? events : stop(SIGTRAP,PTRACE_EVENT_STOP),&saved));
         }
         assert(md_task_quiesce_ready(q) && !md_task_quiesce_borrow(q,9,&boundary));
         assert(!md_task_quiesce_waiting(q,9) && !md_task_quiesce_interrupting(q,9));
-        assert(boundary.kind==kind && boundary.status==(kind==MD_TASK_QUIESCE_EVENT ? events : 0));
+        assert(boundary.kind==kind && boundary.status==(deferred ? events : 0));
         assert(!md_task_quiesce_ready(q) && md_task_quiesce_release(q)==-EBUSY);
         assert(md_task_quiesce_borrow(q,9,&boundary)==-EBUSY);
         assert(md_task_quiesce_add(q,9,1,0)==-EBUSY);
-        assert(md_task_quiesce_event(q,9,events,NULL)==-EBUSY);
+        assert(md_task_quiesce_event(q,0,9,events,NULL)==-EBUSY);
         assert(md_task_quiesce_newborn(q,9)==-EBUSY && !md_task_quiesce_take(q,&status,NULL));
         assert(!md_task_quiesce_return(q,9) && md_task_quiesce_return(q,9)==-EINVAL);
         assert(md_task_quiesce_ready(q) && !md_task_quiesce_release(q));
         assert(resumes==start+(kind==MD_TASK_QUIESCE_SYNTHETIC));
-        if (kind==MD_TASK_QUIESCE_EVENT)
+        if (deferred)
             assert(md_task_quiesce_take(q,&status,&usage)==9 && status==events && usage.ru_maxrss==123);
         assert(!md_task_quiesce_take(q,&status,NULL));
     }
@@ -156,8 +167,8 @@ int main(void) {
     for (unsigned i=0;i<sizeof(terminals)/sizeof(*terminals);++i) {
         int start=resumes;
         struct md_task_quiesce_stop boundary;
-        assert(!md_task_quiesce_event(q,19,stop(SIGTRAP,PTRACE_EVENT_SECCOMP),NULL));
-        assert(!md_task_quiesce_event(q,20,stop(SIGUSR1,0),NULL));
+        assert(!md_task_quiesce_event(q,0,19,stop(SIGTRAP,PTRACE_EVENT_SECCOMP),NULL));
+        assert(!md_task_quiesce_event(q,0,20,stop(SIGUSR1,0),NULL));
         assert(!md_task_quiesce_borrow(q,19,&boundary));
         assert(md_task_quiesce_terminal(q,19,stop(SIGUSR2,0),NULL)==-EINVAL);
         assert(!md_task_quiesce_terminal(q,19,terminals[i],&saved));
@@ -167,11 +178,11 @@ int main(void) {
         assert(!md_task_quiesce_take(q,&status,NULL));
     }
     assert(!md_task_quiesce_add(q,9,0,PTRACE_CONT) && !md_task_quiesce_stop(q));
-    assert(!md_task_quiesce_event(q,9,0,NULL));
+    assert(!md_task_quiesce_event(q,0,9,0,NULL));
     struct md_task_quiesce_stop boundary;
     assert(md_task_quiesce_borrow(q,9,&boundary)==-ESRCH);
     assert(!md_task_quiesce_release(q) && md_task_quiesce_take(q,&status,NULL)==9 && status==0);
-    assert(!md_task_quiesce_event(q,9,stop(SIGTRAP,PTRACE_EVENT_EXIT),NULL));
+    assert(!md_task_quiesce_event(q,0,9,stop(SIGTRAP,PTRACE_EVENT_EXIT),NULL));
     assert(md_task_quiesce_newborn(q,9)==MD_TASK_BIRTH_EXIT);
     assert(!md_task_quiesce_newborn(q,9) && !md_task_quiesce_take(q,&status,NULL));
     assert(!md_task_quiesce_release(q));
@@ -181,7 +192,7 @@ int main(void) {
         for (int i=0;i<COUNT;++i) assert(!md_task_quiesce_add(q,100+i,0,PTRACE_CONT));
         assert(!md_task_quiesce_stop(q) && !md_task_quiesce_ready(q));
         for (int i=0;i<COUNT;++i) {
-            assert(!md_task_quiesce_event(q,100+i,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
+            assert(!md_task_quiesce_event(q,0,100+i,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
             assert(md_task_quiesce_ready(q)==(i==COUNT-1));
         }
         assert(!md_task_quiesce_release(q) && resumes==start+COUNT);

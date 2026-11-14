@@ -453,6 +453,7 @@ int entry_pending(const struct thread *t) {
 int entry_context(struct thread *t,enum md_execution_context reason) {
     if (!entry_pending(t)) return 0;
     CHECK(t->phase==IDLE && !t->entry.execution && reason<MD_CONTEXT_COUNT);
+    SUPERVISOR_TRACE("PROBE entry-context pid=%d nr=%d reason=%u\n",t->pid,t->entry.control->call.number,reason);
     t->entry.control->execution_action=MD_EXECUTION_CONTEXT;
     if (statistics) ++statistics->entry_contexts[reason];
     return entry_reply(t,reason,0);
@@ -464,6 +465,7 @@ static int entry_return_pending(const struct thread *t) {
 
 void entry_complete(struct thread *t,long result) {
     CHECK(t->entry.control && !t->entry.execution && t->phase==IDLE);
+    signal_query_publish(t);
     t->entry.control->execution_action=MD_EXECUTION_RESULT;
     t->entry.control->return_checkpoint=entry_return_pending(t);
     if (statistics) ++statistics->entry_completions;
@@ -658,16 +660,35 @@ struct thread *entry_wait_deadline_owner(void) {
     return entry_waiters;
 }
 
-void wait_cancel_entry(struct thread *t,enum phase next) {
+static void wait_cancel(struct thread *t,enum phase next,int admitted) {
     CHECK(next==FILE_WAITING || next==CONTROL_WAITING || next==CLOSE_WAITING || next==EPOLL_CALL
         || next==SOCKET_WAITING || next==IPC_WAITING || next==DEBUG_PARK_EXIT);
-    if (t->signals.host) {
+    if (t->signals.host && !admitted) {
         int error=md_task_call_cancel_entry(native_trace,t->pid,abi.task_return);
         if (error) { CHECK(error==-ESRCH); t->resume_lost=1; return; }
     } else if (!skip(t->pid)) return;
     /* EVENT_WAIT: drain the skipped syscall's exit before restoring adapter
      * registers. At entry, seccomp/kernel return can still overwrite x0. */
     t->execution.wait_resume=next; t->phase=WAIT_CANCEL_EXIT; resume(t->pid,0);
+}
+
+void wait_cancel_entry(struct thread *t,enum phase next) { wait_cancel(t,next,0); }
+void wait_cancel_admitted(struct thread *t,enum phase next) {
+    /* The effect has not run, so shielding cleanup cannot consume a kernel
+     * wait's saved mask. Post-filter cancellation must not re-enter seccomp. */
+    if (shield(t)) wait_cancel(t,next,1);
+}
+
+static int wait_service_ready(const struct thread *t) {
+    switch (t->phase) {
+    case IPC_WAITING: return t->io.waking;
+    case SOCKET_WAITING: return t->io.socket_waking;
+    case FILE_WAITING: return md_fs_buffer_open_ready(t->fs.call);
+    case CONTROL_WAITING: return t->control.done;
+    case CLOSE_WAITING: return t->close.done;
+    case DEBUG_PARK_EXIT: return t->debug.wait_waking;
+    default: return 0;
+    }
 }
 
 /* Retire operation ownership and choose the next action without touching the
@@ -825,6 +846,7 @@ void entry_execution_begin(struct thread *t) {
     struct md_guest_execution execution=execution_description(t);
     struct md_entry_channel *channel=t->entry.control;
     t->entry.control=NULL; t->entry.admission=0; t->entry.execution=channel;
+    t->execution.restart=0;
     t->phase=DISPATCHING; ++calls; ++t->calls;
     execution.prepared=dispatch_input(t,execution.policy);
     long received;
@@ -896,6 +918,47 @@ static void entry_execution_retire(struct thread *t,long result) {
     md_broker_entry_reply(broker,channel,MD_ENTRY_COMPLETED,result);
 }
 
+int entry_execution_interrupt(struct thread *t,struct md_task_signal_stop *stop) {
+    CHECK(t->entry.execution && t->entry.control==t->entry.execution && t->entry.effect && t->entry.waiting);
+    int error=md_task_signal_registers(t->pid,stop);
+    if (error==-ESRCH) { t->resume_lost=1; return 1; }
+    CHECK(!error);
+    struct user_pt_regs original=stop->regs;
+    struct md_entry_channel *channel=t->entry.execution;
+    unsigned state=atomic_load_explicit(&channel->native.state,memory_order_acquire);
+    SUPERVISOR_TRACE("PROBE entry-wait-interrupt pid=%d state=%u pc=%#llx gate=%#lx result=%lld\n",
+        t->pid,state,original.pc,(unsigned long)abi.native_call,(long long)original.regs[0]);
+    if (state!=MD_NATIVE_RUNNING || original.pc<abi.native_call || original.pc>abi.native_call+4) return 0;
+    long result=channel->native.result;
+    /* ARM64 may already rewind PC and restore x0 before the delivery stop.
+     * Use the journal's exact-boundary decoder, not only errno in x0. */
+    int completed=md_native_stopped(state,original.pc,(long)original.regs[0],
+        abi.native_begin,abi.native_call,abi.native_end,&result);
+    if (completed<0 || result!=-EINTR) return 0;
+    /* No target syscall may run between this delivery stop and do_signal:
+     * the kernel still owns the atomic wait's saved and temporary masks. */
+    t->signals.return_pending=1;
+    t->entry.effect=NULL; t->entry.waiting=0; t->io.socket_waking=0;
+    socket_unwatch(t);
+    CHECK(buffer_result_finish(t,0,-EINTR)==-EINTR);
+    t->phase=DISPATCHING;
+    CHECK(execution_complete(t,-EINTR)==EXECUTION_RETURN);
+    uintptr_t address=md_memory_buffer_address(t->memory,&t->entry.buffer);
+    error=md_svc_machine_abandon(md_memory_svc(t->memory),&t->machine,t->pid,address,&original);
+    if (error==-ESRCH) { t->resume_lost=1; return 1; }
+    CHECK(!error);
+    t->entry.control=NULL;
+    (void)entry_execution_release(t);
+    channel->input.sequence=0;
+    atomic_store_explicit(&channel->native.state,MD_NATIVE_EMPTY,memory_order_relaxed);
+    atomic_store_explicit(&channel->caller,0,memory_order_release);
+    atomic_store_explicit(&channel->state,MD_ENTRY_IDLE,memory_order_release);
+    if (!t->signals.host) signal_wait_restore(t);
+    original.regs[0]=(uint64_t)-EINTR;
+    if (set_registers(t->pid,&original)) { stop->regs=original; stop->has_regs=1; }
+    return 1;
+}
+
 static void entry_execution_native_done(struct thread *t,long result) {
     CHECK(t->entry.control==t->entry.execution);
     t->entry.control=NULL;
@@ -935,18 +998,22 @@ void entry_restart(struct thread *t,enum call_restart policy) {
 static void entry_finish_stopped(struct thread *t) {
     struct user_pt_regs original;
     if (!entry_unwind(t,&original)) return;
-    CHECK(t->entry.kernel_context);
+    CHECK(t->entry.kernel_context || t->signals.wait_view.active);
     enum call_restart policy=t->execution.restart;
     uint64_t mask=t->execution.mask;
     long result=(long)t->fs.request.args[1];
     (void)entry_execution_release(t);
     if (policy) { restart_call(t,&original,mask,policy); return; }
+    if (t->signals.wait_view.active
+            && !signal_mask(t,t->signals.wait_view.temporary&~(t->signals.host ? MD_SIGNAL_SYS_BIT : 0),
+                "entry-wait-delivery-mask")) return;
     original.regs[0]=(uint64_t)result;
     execution_sigpipe(t);
     if (set_registers(t->pid,&original)) resume(t->pid,0);
 }
 
 static void entry_execution_finish(struct thread *t,long result) {
+    if (result==-EINTR && t->execution.restart) result=t->execution.restart;
     t->entry.execution->execution_action=MD_EXECUTION_RESULT;
     enum execution_continuation next=execution_complete(t,result);
     if (next==EXECUTION_IPC_WAIT) {
@@ -964,7 +1031,8 @@ static void entry_execution_finish(struct thread *t,long result) {
         t->entry.control=t->entry.execution;
         entry_effect(t,SYS_recvfrom,args,entry_watch_ready); return;
     }
-    if (next==EXECUTION_RESTART || (next==EXECUTION_RETURN && t->io.socket_sigpipe)) {
+    if (next==EXECUTION_RESTART || (next==EXECUTION_RETURN
+            && (t->io.socket_sigpipe || t->signals.wait_view.active))) {
         /* C execution is finished. Only a real interruption needs the original
          * frame and kernel SA_RESTART decision; never replay committed effects. */
         t->execution.restart=next==EXECUTION_RESTART ? (enum call_restart)result : 0;
@@ -1009,6 +1077,7 @@ static void entry_adapter_native_done(struct thread *t,long result) {
 
 void entry_control(pid_t pid,struct md_entry_channel *channel) {
     struct thread *t=find_thread(pid);
+    if (t) signal_execution_checkpoint(t);
     unsigned command=(unsigned)channel->call.number;
     if (t && channel->call.reserved==MD_ENTRY_EXECUTION_BEGIN) {
         if (t->phase!=IDLE || t->entry.execution || t->entry.control || !t->ready
@@ -1033,6 +1102,10 @@ void entry_control(pid_t pid,struct md_entry_channel *channel) {
         return;
     }
     unsigned kind=channel->call.reserved;
+    if (kind==MD_ENTRY_TRANSFER_DONE) {
+        CHECK(t && t->entry.control==channel);
+        transfer_response(t,(long)channel->call.args[0]); return;
+    }
     if (kind==MD_ENTRY_NATIVE_REQUEST) {
         CHECK(t && t->entry.execution==channel && !t->entry.control && t->phase==DISPATCHING);
         enum md_execution_context reason=md_execution_native_context(command,channel->call.args);
@@ -1321,6 +1394,7 @@ static int svc_clients_prepare(struct thread *t) {
 
 static void publish_execution(struct thread *t,int resuming) {
     if (!broker) return;
+    signal_query_publish(t);
     int eligible=t->ready && t->phase==IDLE && t->endpoint[0];
     int paths=!md_domain_restricted(t->resources.fs);
     int raw=eligible && paths && !md_seccomp_policy_may_trace(t->seccomp.policy) && !md_seccomp_policy_may_notify(t->seccomp.policy);
@@ -1481,7 +1555,6 @@ void resume(pid_t pid, int sig) {
         if (error==-ESRCH) { t->resume_lost=1; return; }
         CHECK(!error);
     }
-    signal_query_publish(t);
     /* A borrowed/preparation stop may consume the debugger's interrupt before
      * the operation reaches an interruptible wait. Preserve that stop demand:
      * the wait's existing cancellation owner restores guest context first. */
@@ -1660,7 +1733,7 @@ void dispatch_with_stack(struct thread *t) {
 
 void signal_wait_restore(struct thread *t) {
     if (!t->signals.wait_view.active) return;
-    t->signals.host_blocked=!!(t->signals.wait_view.saved&MD_SIGNAL_SYS_BIT);
+    if (t->signals.host) t->signals.host_blocked=!!(t->signals.wait_view.saved&MD_SIGNAL_SYS_BIT);
     t->signals.wait_view.active=0;
 }
 
@@ -1692,12 +1765,15 @@ int interrupted_operation(struct thread *t) {
     int stopping=(task_parked(t) || t->phase==DEBUG_PARK_EXIT) && md_debugger_stop_pending(debugger,t->pid);
     /* A debugger wake is an interruption, never provider readiness. Reuse the
      * wait owner's cancellation/restart semantics before exposing registers. */
-    if (t->phase==IPC_WAITING && (t->io.waking || stopping)) { ipc_wait_complete(t); return 1; }
-    if (t->phase==SOCKET_WAITING && (t->io.socket_waking || stopping)) { socket_wait_complete(t); return 1; }
-    if (t->phase==FILE_WAITING && (md_fs_buffer_open_ready(t->fs.call) || stopping)) { file_wait_complete(t); return 1; }
-    if (t->phase==CONTROL_WAITING && (t->control.done || stopping)) { control_wait_complete(t); return 1; }
-    if (t->phase==CLOSE_WAITING && (t->close.done || stopping)) { close_wait_complete(t); return 1; }
-    if (t->phase==DEBUG_PARK_EXIT && (t->debug.wait_waking || stopping)) { debugger_park_complete(t,0); return 1; }
+    if (stopping || wait_service_ready(t)) switch (t->phase) {
+    case IPC_WAITING: ipc_wait_complete(t); return 1;
+    case SOCKET_WAITING: socket_wait_complete(t); return 1;
+    case FILE_WAITING: file_wait_complete(t); return 1;
+    case CONTROL_WAITING: control_wait_complete(t); return 1;
+    case CLOSE_WAITING: close_wait_complete(t); return 1;
+    case DEBUG_PARK_EXIT: debugger_park_complete(t,0); return 1;
+    default: break;
+    }
     if (t->phase!=DELEGATE_CANCEL) return 0;
     const struct seccomp_notif *q=&t->metadata.request;
     CHECK(ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&q->id)==-1 && errno==ENOENT);
@@ -1897,7 +1973,11 @@ void execution_seccomp_event(struct thread *t,pid_t pid,int status,const struct 
         if (request.instruction_pointer==abi.task_return && request.nr==SYS_ppoll
                 && !request.args[0] && !request.args[1]
                 && (task_parked(t) || t->phase==DEBUG_PARK_EXIT)) {
-            resume(pid,0); return;
+            /* INTERRUPT can coalesce with this pre-effect seccomp stop.
+             * Consume ready work here rather than enter a now-unwoken wait. */
+            if (wait_service_ready(t)) wait_cancel_admitted(t,t->phase);
+            else resume(pid,0);
+            return;
         }
         /* All admitted C-native effects share this Base boundary. Restore the
          * application mask only for the kernel operation, then shield cleanup.
@@ -2013,7 +2093,7 @@ void execution_syscall_event(struct thread *t,pid_t pid,int status,const struct 
     if (t->phase==WAIT_CANCEL_EXIT) {
         t->phase=t->execution.wait_resume; t->execution.wait_resume=IDLE;
         if (t->phase==SOCKET_WAITING) { socket_wait_cancelled(t); return; }
-        if (t->phase==IPC_WAITING) { dispatch_with_stack(t); return; }
+        if (t->phase==IPC_WAITING) { t->io.waking=0; dispatch_with_stack(t); return; }
         if (t->phase==DEBUG_PARK_EXIT) { debugger_park_complete(t,1); return; }
     }
     if (((t->phase==RESULT_REPLAY_ENTRY) || (t->phase==RESULT_REPLAY_EXIT)) && fs_result_exit(t,pid)) return;

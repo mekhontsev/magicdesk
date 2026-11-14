@@ -245,18 +245,50 @@ owner's final result, not the value that originally started the wait.
 | Owner | Shared execution / remaining stopped boundary |
 | --- | --- |
 | Execution and proc lookup | Typed FD lookup, ordinary native reads and watch reads share admission. Provider IO and asynchronous completion retain their owner. No stop is needed merely because a syscall can block or a broad FD selector matched it. |
-| Readiness, sockets and SysV IPC | Unmasked waits retain event/deadline callbacks or journaled native effects. Watch readiness uses a non-consuming wake before resuming the original read. Temporary signal-mask waits still use the original-frame adapter. |
-| Descriptors and filesystem | Ordered slot mutations use the native-effect journal and shared completion. Provider close waits and typed device ioctls retain event-driven owners without registers. Cold selector installation, task-affine capture, table unsharing and real descriptor publication retain stopped continuations where required. |
+| Readiness, sockets and SysV IPC | Waits retain event/deadline callbacks or journaled native effects. Temporary masks carry explicit saved/active views; only actual signal delivery retires the interrupted machine entry at the kernel boundary. Watch readiness uses a non-consuming wake before resuming the original read. |
+| Descriptors and filesystem | Ordered slot mutations use the native-effect journal and shared completion. FIFO-open rendezvous, provider close waits and typed device ioctls retain event-driven owners without registers. Cold selector installation, task-affine capture, table unsharing and real descriptor publication retain stopped continuations where required. |
 | Identity and process | Scalar values and updates share the channel. Capabilities, groups, real/effective/saved IDs, virtualized limits, subreaper queries and managed robust-list queries use the common C executor and adapter buffer in Base and resident entry. Ordinary PID translation/inspection, PIDFD creation and native child waits use the native-effect journal and common result owners. Wait-result translation uses a typed C buffer after the exact receipt, without replay. Debugger waits and private-child selection share journaled probes and event waits; restricted inherited policy retains original-site admission. Managed robust registration needs a stop to prepare terminal observation and its retained executor. |
-| Namespaces | Validation and pure state results need no register frame. Root changes use the common C filesystem executor; restricted proc-root/cwd changes use direct path copying and the domain owner. Unreadable memory retains the stopped transfer helper. Namespace joins use the common C executor and retain their resource candidate; a required PID-filter installation alone requests a stopped continuation before committing it. |
+| Namespaces | Validation and pure state results need no register frame. Root changes use the common C filesystem executor; restricted proc-root/cwd changes use the domain owner. Denied remote inspection uses the common transfer action in the resident caller, not a context handoff. Namespace joins retain their resource candidate; a required PID-filter installation alone requests a stopped continuation before committing it. |
 | Memory and lifecycle | Private untracked native mappings use the exclusion view. Tracked mmap/munmap/mprotect/mremap use ordered native effects and publish metadata on the exact receipt. SysV attach/detach and provider mapping preparation use the common C executor. The mapping owner checks access, retains backing and acquires its memory turn through the shared channel; only actual private-table mapping or guarded FD publication requests a stopped continuation. SVC/snapshot mutation, mapping repair, task-affine backing capture, clone/vfork birth and exec retain stopped continuations where required. |
-| Signals and debugger | Ordinary signal-mask queries use a native effect when the kernel mask already matches the guest view. Translated mask and pending queries share protected C copying and a typed buffer in Base and resident entry; they do not borrow a stopped task for each copy/native query. Mask mutations, disposition exchange, actual delivery/restart, sigreturn and debugger events retain their context owner. A pending C wait is completed or cancelled before that context is exposed. |
+| Signals and debugger | Mask mutations, disposition exchange, timed signal waits and existing signalfd operations share a register-independent operation model. Resident execution services its typed copy/native actions; Base supplies the stopped transport. Native queues remain native. Actual handler delivery, sigreturn, private-queue priority inspection and debugger events retain their kernel context. A pending operation is completed or cancelled before that context is exposed. |
 | Policy | Guest cBPF admission runs before effects. Filter installation/TSYNC retains its commit barrier. An inherited policy without admitted helper gates requests context before entering a potentially native blocking adapter. |
 
-The C dispatcher's remaining context list is explicit and separate from native
-effect classification. Its contract test checks the whole syscall-number table:
-new C handlers enter the common protocol by default. This is not a claim that
-every existing handler has already eliminated register-based continuations.
+The C dispatcher requires original context only for image replacement. Its
+contract test checks the whole syscall-number table: new C handlers enter the
+common protocol by default. Resource owners request the explicit boundaries
+above; a native `WAIT` classification selects the journal, not ptrace transport.
+
+`signal_operation` owns logical ordering, consumption, deadlines and
+error/commit semantics independently of transport. `task_signal_control` is the
+Base driver of that same model. Protected transfer actions use the existing
+channel payload in bounded chunks, without enlarging the channel or retaining
+machine registers. Direct process-memory copies remain the fast path when
+permitted. Handler acknowledgements and consumed sigreturn snapshots retire at
+the next admitted execution checkpoint, whether it arrives through ptrace,
+user notification or the shared channel.
+Every result publication also refreshes native signal-query admission from that
+same logical mask, including short operations which never enter the C adapter.
+
+Cold task barriers retain an interrupted service wait's stop for its normal
+continuation. They do not transparently resume a wait while its wake marker or
+native journal remains unconsumed. That retained interrupt remains a borrowable
+service boundary, not an application signal; cold helpers restore it before its
+wait owner consumes the queued event. Ordinary synthetic stops retain the direct
+barrier-release path. Signal waits recheck pending virtual state after parking
+storage, before publishing their native wait, so preparation cannot lose a wake.
+Stopped service waits also check readiness at the post-filter admission boundary:
+an interrupt can coalesce with that seccomp stop. An already-ready wait is skipped
+there and its exit drained before resampling, without re-entering guest policy or
+adding a stop to ordinary resident waits.
+
+An interrupted atomic-mask wait must reach kernel signal-frame construction
+without another target syscall in between: helper calls would consume its
+saved-mask state. The machine owner validates the exact native journal and
+channel/client identity, restores the original register frame and releases the
+private slot at that existing signal-delivery stop. The common completion owner
+retires resources once; the interrupted syscall is not replayed. Journal decoding
+accepts both a negative interrupted result and ARM64's already-rewound SVC with
+the original argument in x0; the latter is not evidence of a completed effect.
 
 Guest debugger control and wait events consume a typed call without a caller
 register frame. Inferior register access and execution remain owned by the
@@ -325,12 +357,13 @@ The query adapter preserves the application's pending mask even when Base has
 temporarily shielded execution. Native data and logical SIGSYS state are combined
 by the signal owner before the common protected output copy.
 
-`supervisor_transfer` owns bounded maintenance copies at an already stopped
-boundary: newborn TID publication, metadata/path transfer and interrupted-SVC
-inspection. Permission-respecting direct access is allocation-free. When that
-access is denied, one reserved buffer and an existing private stack run the
-shared protected C accessors in the exact task. The owner restores the full
-continuation before returning the result; cancellation releases both loans.
+`supervisor_transfer` owns bounded maintenance copies: newborn TID publication,
+metadata/path transfer and interrupted-SVC inspection. Permission-respecting
+direct access is allocation-free. When access is denied, resident requests use
+the channel's transfer action; Base uses one reserved buffer and its existing
+private stack. Both execute the same protected C accessors in the exact task.
+Only Base retains and restores a machine continuation; cancellation releases
+the selected transport's resources.
 Paths are read through their terminator without a stop per byte. These copies
 do not change the logical syscall or use argument registers as payload storage.
 
@@ -463,12 +496,14 @@ executor operation or an explicit context requirement, never an ambiguous
 Existing worker/FD/value fast paths do not acquire an extra supervisor
 round trip.
 
-Unmasked epoll/poll/select adapters retain their readiness owner and use this
+Epoll/poll/select adapters, including temporary signal masks, retain their readiness owner and use this
 same native-effect journal, without syscall-entry/exit stops for each wait.
 The resident frame marks an owned effect separately from a terminal native call:
 an actual signal first retires the operation, then restores the original
 application boundary. The common owner retains deadlines, virtual readiness,
-FD loans and output publication across service wakes and TSYNC. Ignored signals
+FD loans and output publication across service wakes and TSYNC. Resampling first
+releases the previous delivery claim and memory turn. Wait cancellation removes
+the watcher before closing its helper event descriptor. Ignored signals
 resample interrupted waits without exposing a synthetic EINTR. Base retains an
 interrupted owner until signal delivery distinguishes a handler from an ignored
 signal. None of these checks adds work to an uninterrupted native data syscall.
@@ -1255,13 +1290,17 @@ path without provider effects. The same IO queue, asynchronous completion,
 signal/restart and cancellation owners retire both paths. Application seccomp
 still admits the original call; ordinary native files do not use this capture.
 
-Deferred file, close and control operations use one syscall-stop-aware poll
-entry. A seccomp-admitted call can still owe its original exit stop before the
+Resident deferred file, close and control operations use the shared channel's
+event/deadline wait. Base uses one syscall-stop-aware poll entry. A
+seccomp-admitted Base call can still owe its original exit stop before the
 synthetic poll reaches entry. The wait owner drains that exit and re-arms all
 poll registers before admitting readiness, cancellation or signal delivery.
 This check belongs only to deferred waits; immediate completion adds no stop
-query. The supervisor-state fixture exercises both entry origins against real
-ptrace stops, in addition to provider/FUSE and signal-restart coverage.
+query. Readiness cancellation unregisters its helper event before joining the
+helper and closing that descriptor, including completion and failed admission.
+The supervisor-state fixture exercises both Base entry origins against real
+ptrace stops and verifies helper-event retirement, in addition to provider/FUSE
+and signal-restart coverage.
 
 ## Machine-Code Frontend
 

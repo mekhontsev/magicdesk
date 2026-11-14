@@ -12,7 +12,7 @@
 enum md_dispatch_policy { MD_DISPATCH_PATHS=1, MD_DISPATCH_NETWORK_SCOPED=2, MD_DISPATCH_OFFLINE_SOCKET=4,
     MD_DISPATCH_NETWORK_CONTROL=8, MD_DISPATCH_NETWORK_DATA=16, MD_DISPATCH_DEVICE_EVENTS=32 };
 enum md_execution_action { MD_EXECUTION_RESULT, MD_EXECUTION_GUEST,
-    MD_EXECUTION_CONTEXT, MD_EXECUTION_NATIVE };
+    MD_EXECUTION_CONTEXT, MD_EXECUTION_NATIVE, MD_EXECUTION_TRANSFER };
 /* A context request precedes effects. The resident frame restores the original
  * call, then its existing owner performs the operation at the kernel boundary.
  * Internal continuations instead retain their operation through NEEDS_STOP. */

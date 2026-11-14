@@ -77,6 +77,12 @@ def main():
                             [*guest, '--statistics', '--diagnostics', '--', '/bin/mapping']):
                 patched = 'patched' if '--statistics' in command else 'original'
                 for policy in ([], ['filtered']):
+                    output = suite.command([*command, 'protection-readmission', patched, *policy], quiet=True)
+                    assert 'PASS SVC protection readmission:' in output, output
+                    if patched == 'patched':
+                        # Retiring a published instruction genuinely needs its
+                        # memory boundary; ordinary mappings below must not.
+                        assert re.search(r'MD_EXECUTION_CONTEXT reason=memory calls=1\b', output), output
                     output = suite.command([*command, 'first-encounter', patched, *policy], quiet=True)
                     assert 'PASS SVC first encounter:' in output
                     if patched == 'patched':

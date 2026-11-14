@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "svc_machine.h"
+#include "cooperative_channel.h"
 #include "signal_protocol.h"
 #include "mapping_reader.h"
 #include <elf.h>
@@ -74,6 +75,24 @@ int md_svc_machine_unwind(struct md_svc_registry *r,struct md_svc_machine_thread
     if (!site) return -EPROTO;
     int error=md_svc_direct_unwind(&site->direct,registers,memory,(void *)(intptr_t)pid);
     if (!error) s->draining=0;
+    return error;
+}
+int md_svc_machine_abandon(struct md_svc_registry *r,struct md_svc_machine_thread *s,
+        pid_t pid,uintptr_t channel,struct user_pt_regs *registers) {
+    if (!r || registers->sp<=r->frames || registers->sp>r->frames+MD_SVC_POOL_SIZE) return -EINVAL;
+    uintptr_t frame=(registers->sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1),address=0;
+    int error=md_svc_registry_read(pid,frame+MD_SVC_CLIENT_OFFSET,&address,sizeof(address));
+    struct md_entry_client client;
+    if (!error) error=address ? md_svc_registry_read(pid,address,&client,sizeof(client)) : -EPROTO;
+    if (error) return error;
+    if (client.opaque[MD_ENTRY_CLIENT_CHANNEL]!=channel || client.opaque[MD_ENTRY_CLIENT_OWNER]!=(uintptr_t)pid
+            || !(client.opaque[MD_ENTRY_CLIENT_CONTROL]&MD_ENTRY_CLIENT_BUSY)) return -EPROTO;
+    error=md_svc_machine_unwind(r,s,pid,registers);
+    if (!error) {
+        client.opaque[MD_ENTRY_CLIENT_CONTROL]&=~(uintptr_t)MD_ENTRY_CLIENT_BUSY;
+        error=md_svc_registry_write(pid,address+offsetof(struct md_entry_client,opaque)
+            +MD_ENTRY_CLIENT_CONTROL*sizeof(uintptr_t),&client.opaque[MD_ENTRY_CLIENT_CONTROL],sizeof(uintptr_t));
+    }
     return error;
 }
 int md_svc_machine_retire(md_svc_trace_fn trace,struct md_svc_registry *r,pid_t pid,const struct user_pt_regs *adapter) {

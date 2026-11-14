@@ -17,6 +17,7 @@ struct deferred {
     struct deferred *next;
     pid_t pid;
     int status;
+    int interrupt;
     struct rusage usage;
 };
 enum { PARTICIPANT_BUCKETS=257 };
@@ -101,17 +102,18 @@ void md_task_quiesce_describe(const struct md_task_quiesce *q,int fd) {
     for (const struct deferred *d=q->first;d && count<16;d=d->next,++count)
         dprintf(fd,"Shroot: deferred writer event pid=%d status=%#x\n",d->pid,d->status);
 }
-int md_task_quiesce_event(struct md_task_quiesce *q,pid_t pid,int status,const struct rusage *usage) {
+int md_task_quiesce_event(struct md_task_quiesce *q,int retain_interrupt,pid_t pid,int status,const struct rusage *usage) {
     struct participant *p=find(q,pid);
     if (p && p->borrowed) return -EBUSY;
     if (!p) { int e=md_task_quiesce_add(q,pid,0,0); if (e) return e; p=find(q,pid); }
     unsigned event=(unsigned)status>>16;
-    if (!p->stopped && p->interrupted && event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP) {
+    int interrupt=!p->stopped && p->interrupted && event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP;
+    if (!retain_interrupt && interrupt) {
         stopped(q,p,1); p->synthetic=1; return 0;
     }
     stopped(q,p,1); p->synthetic=0;
     struct deferred *d=calloc(1,sizeof(*d)); if (!d) return -ENOMEM;
-    *d=(struct deferred){.pid=pid,.status=status}; if (usage) d->usage=*usage;
+    *d=(struct deferred){.pid=pid,.status=status,.interrupt=interrupt}; if (usage) d->usage=*usage;
     if (q->last) q->last->next=d; else q->first=d; q->last=d;
     if (event==PTRACE_EVENT_CLONE || event==PTRACE_EVENT_FORK || event==PTRACE_EVENT_VFORK) {
         int terminal;
@@ -133,7 +135,8 @@ int md_task_quiesce_borrow(struct md_task_quiesce *q,pid_t pid,struct md_task_qu
     struct md_task_quiesce_stop boundary={.kind=p->synthetic
         ? MD_TASK_QUIESCE_SYNTHETIC : MD_TASK_QUIESCE_HELD};
     for (struct deferred *d=q->first;d;d=d->next) if (d->pid==pid) {
-        boundary.kind=MD_TASK_QUIESCE_EVENT; boundary.status=d->status;
+        boundary.kind=d->interrupt ? MD_TASK_QUIESCE_INTERRUPT : MD_TASK_QUIESCE_EVENT;
+        boundary.status=d->status;
         if (!WIFSTOPPED(d->status)) return -ESRCH;
         break;
     }
@@ -159,7 +162,7 @@ int md_task_quiesce_terminal(struct md_task_quiesce *q,pid_t pid,int status,cons
             *at=d->next; if (q->last==d) q->last=previous; free(d);
         } else { previous=d; at=&d->next; }
     }
-    return md_task_quiesce_event(q,pid,status,usage);
+    return md_task_quiesce_event(q,0,pid,status,usage);
 }
 int md_task_quiesce_release(struct md_task_quiesce *q) {
     if (q->borrowed) return -EBUSY;

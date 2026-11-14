@@ -31,6 +31,10 @@ int md_svc_machine_retire(md_svc_trace_fn,struct md_svc_registry *,pid_t,const s
 /* Stopped, completed resident C execution, before restarting an interrupted
  * syscall. No pending provider or native effect may retain the private stack. */
 int md_svc_machine_unwind(struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,struct user_pt_regs *);
+/* Interrupted terminal effect: its owner has retired every resource without
+ * running tracee code. Release the exact client before abandoning its C stack. */
+int md_svc_machine_abandon(struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,
+    uintptr_t channel,struct user_pt_regs *);
 /* The supervisor retains resume ownership. A handled checkpoint requests one
  * syscall-exit stop; the common signal queue owns subsequent delivery. */
 int md_svc_machine_syscall(md_svc_trace_fn,struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,

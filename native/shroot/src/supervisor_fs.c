@@ -585,6 +585,19 @@ static void buffer_complete_stopped(struct thread *t) {
     buffer_complete(t->fs.call,t->pid,t->entry.error);
 }
 
+static void file_wait_shared(struct thread *t,long result) {
+    if (!md_fs_buffer_open_ready(t->fs.call)) {
+        CHECK(result<0);
+        /* EVENT_WAIT: the helper must acknowledge cancellation before its
+         * output or owned endpoint can be retired. A completed open wins. */
+        CHECK(!md_fs_buffer_open_interrupt(t->fs.call));
+        return;
+    }
+    entry_wait_end(t);
+    if (md_fs_buffer_open_interrupted(t->fs.call)) t->execution.restart=RESTART_SIGNAL;
+    CHECK(!md_fs_buffer_open_resume(t->fs.call));
+}
+
 void buffer_complete(struct md_fs_buffer_request *request, pid_t pid, int error) {
     struct thread *t=find_thread(pid);
     if (t && t->proc.snapshot==request) {
@@ -596,6 +609,11 @@ void buffer_complete(struct md_fs_buffer_request *request, pid_t pid, int error)
         export_stat_complete(t,result,error); return;
     }
     CHECK(t && t->fs.call==request);
+    if (md_fs_buffer_open_waiting(request) && t->entry.execution && t->entry.control) {
+        if (md_fs_buffer_open_ready(request)) file_wait_shared(t,0);
+        else CHECK(entry_wait_begin(t,INT64_MAX,file_wait_shared));
+        return;
+    }
     if (md_fs_buffer_open_waiting(request) || md_fs_buffer_capture_pending(request)) {
         t->entry.error=error;
         if (entry_require_stop(t,md_fs_buffer_open_waiting(request) ? MD_CONTEXT_WAIT : MD_CONTEXT_DESCRIPTOR,

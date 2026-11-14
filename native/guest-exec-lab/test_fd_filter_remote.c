@@ -147,7 +147,7 @@ static int run(int denied,int reading,int protected) {
     struct md_task_quiesce *barrier=md_task_quiesce_new(trace); assert(barrier);
     assert(!md_task_quiesce_add(barrier,pid,0,PTRACE_CONT) && !md_task_quiesce_stop(barrier));
     int status=stop(pid); assert(WIFSTOPPED(status));
-    assert(!md_task_quiesce_event(barrier,pid,status,NULL) && md_task_quiesce_ready(barrier));
+    assert(!md_task_quiesce_event(barrier,0,pid,status,NULL) && md_task_quiesce_ready(barrier));
     struct md_task_quiesce_stop boundary;
     assert(!md_task_quiesce_borrow(barrier,pid,&boundary) && boundary.kind==MD_TASK_QUIESCE_SYNTHETIC);
     struct user_pt_regs saved=get(pid);
@@ -328,7 +328,7 @@ static void pending_call(int boundary,int denied,int protected,int cancelled) {
     struct md_task_quiesce *barrier=md_task_quiesce_new(trace); assert(barrier);
     assert(!md_task_quiesce_add(barrier,pid,1,0));
     struct rusage usage={.ru_maxrss=123};
-    assert(!md_task_quiesce_event(barrier,pid,original_status,&usage));
+    assert(!md_task_quiesce_event(barrier,0,pid,original_status,&usage));
     struct md_task_quiesce_stop borrowed;
     assert(!md_task_quiesce_borrow(barrier,pid,&borrowed)
         && borrowed.kind==MD_TASK_QUIESCE_EVENT && borrowed.status==original_status);

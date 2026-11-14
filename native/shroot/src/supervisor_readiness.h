@@ -32,6 +32,7 @@ struct readiness_owner {
     struct epoll_event event;
     struct md_task_call_arguments native_call;
     int native_caller;
+    uint64_t original_mask;
     struct readiness_loan loans[READINESS_QUEUES];
     unsigned lending;
     struct md_epoll_task_control *task_control;
@@ -50,6 +51,7 @@ extern struct readiness_owner *readiness_activation;
 
 unsigned readiness_admission_purpose(const struct thread *t,const struct seccomp_data *call);
 void readiness_unwatch(struct thread *t);
+void readiness_wait_cancel(struct thread *t);
 void readiness_evict_park(struct thread *t,int finished,long result);
 void readiness_release(struct thread *t);
 

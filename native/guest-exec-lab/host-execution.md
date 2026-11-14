@@ -107,21 +107,24 @@ a BPF walk on every ordinary selector stop.
 
 `signal_actions` owns dispositions: CLONE_SIGHAND shares them, fork copies
 them, and exec retains ignored dispositions. `signal_view` translates logical
-state. `task_signal_control` performs fault-aware exchanges in the exact task.
+state. `signal_operation` owns fault-aware exchanges, queue consumption and
+deadlines without registers. The resident entry executes its typed copy/native
+actions; `task_signal_control` supplies the Base transport for the same model.
 Installed handler veneers restore original siginfo and the logical mask in the
 kernel-built frame, then acknowledge their retained packet before entering the
 application handler. This needs no additional ptrace stop unless a competing
 memory mutation requires acknowledgement. Admission of that task's next
-notification rechecks the packet acknowledgement, so a commit after the shared
+execution checkpoint rechecks the packet acknowledgement, whether it is a
+kernel stop, notification or shared-channel request. A commit after the shared
 event-loop scan cannot leave the handler's syscall behind stale entry ownership.
 Failed frame construction releases
 the packet and preserves the kernel's SIGSEGV and disposition behavior. An
 unchanged exclusive native handler also needs no extra entry stop; untranslated
 handler frames use the bounded PTRACE_INTERRUPT commit when required.
-Nonlocal exits do not depend on a return hook. Mask queries and
-updates lend the kernel the logical mask through their already-admitted syscall
-and restore the native view at syscall exit, retaining native pointer validation
-and error/commit ordering. Protected copying uses
+Nonlocal exits do not depend on a return hook. Resident mask updates commit the
+native effect and logical SIGSYS view before copying the previous mask out;
+Base retains its admitted syscall and exit owner. Both preserve pointer
+validation and error/commit ordering. Protected copying uses
 process_vm self-copy through the existing task owner when native inspection is
 unavailable. Guest dumpability belongs to the common process-access owner;
 runtime copying does not change that logical policy.

@@ -21,25 +21,36 @@ struct md_interception_program {
     unsigned short count;
     struct sock_filter code[MD_INTERCEPTION_PROGRAM_INSTRUCTIONS];
 };
+enum { MD_SIGNAL_SERVICE_INSTRUCTIONS=4*5+1, MD_SIGNAL_QUERY_INSTRUCTIONS=6+MD_SIGNAL_SERVICE_INSTRUCTIONS };
+static inline unsigned md_signal_service_program(const struct md_interception_abi *abi,
+        uint32_t fallback,struct sock_filter *out) {
+    const uintptr_t sites[]={abi->raw_gate,abi->task_return,abi->native_return,abi->adapter_native_return};
+    unsigned count=0;
+    for (unsigned i=0;i<sizeof(sites)/sizeof(*sites);++i) {
+        const struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(sites[i]>>32),0,3),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)sites[i],0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        for (unsigned n=0;n<sizeof(code)/sizeof(*code);++n) out[count++]=code[n];
+    }
+    out[count++]=(struct sock_filter)BPF_STMT(BPF_RET|BPF_K,fallback);
+    return count;
+}
 static inline unsigned md_signal_query_program(const struct md_interception_abi *abi,
         uint32_t result,struct sock_filter *out) {
     if (!abi->host_policy) return 0;
     struct sock_filter code[]={
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_rt_sigprocmask,0,10),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_rt_sigprocmask,0,MD_SIGNAL_QUERY_INSTRUCTIONS-2),
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[1])),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,8),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,MD_SIGNAL_QUERY_INSTRUCTIONS-4),
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[1])+4),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,6),
-        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(abi->raw_gate>>32),0,3),
-        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abi->raw_gate,2,0),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)abi->task_return,1,0),
-        BPF_STMT(BPF_RET|BPF_K,result)};
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,MD_SIGNAL_QUERY_INSTRUCTIONS-6)};
     unsigned count=sizeof(code)/sizeof(*code);
     for (unsigned i=0;i<count;++i) out[i]=code[i];
-    return count;
+    return count+md_signal_service_program(abi,result,out+count);
 }
 /* One definition for native installation and original-call continuation.
  * Reconstruct only on a cold USER_NOTIF CONTINUE, never on ordinary syscalls. */
@@ -314,7 +325,7 @@ static inline void md_interception_program_build(const struct md_interception_ab
 #undef NATIVE
 #undef DESCRIPTOR
 
-    _Static_assert(sizeof(filter)/sizeof(*filter)+12<=MD_INTERCEPTION_PROGRAM_INSTRUCTIONS,"interception filter capacity");
+    _Static_assert(sizeof(filter)/sizeof(*filter)+MD_SIGNAL_QUERY_INSTRUCTIONS<=MD_INTERCEPTION_PROGRAM_INSTRUCTIONS,"interception filter capacity");
     for (unsigned i=0;i<3;++i) out->code[i]=filter[i];
     unsigned query=md_signal_query_program(abi,SECCOMP_RET_USER_NOTIF,out->code+3);
     out->count=sizeof(filter)/sizeof(*filter)+query;
@@ -322,7 +333,6 @@ static inline void md_interception_program_build(const struct md_interception_ab
 }
 static inline void md_signal_program_build(const struct md_interception_abi *abi,
         struct md_interception_program *out) {
-    uintptr_t gate=abi->raw_gate,task=abi->task_return;
     struct sock_filter code[]={
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_signalfd4,39,0),
@@ -346,17 +356,11 @@ static inline void md_signal_program_build(const struct md_interception_abi *abi
         MASKED_WAIT(epoll_pwait,4,9)
         MASKED_WAIT(epoll_pwait2,4,1)
 #undef MASKED_WAIT
-        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
-        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(gate>>32),0,3),
-        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)gate,2,0),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)task,1,0),
-        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_SIGNAL),
         BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
 
     unsigned query=md_signal_query_program(abi,SECCOMP_RET_ALLOW,out->code);
     out->count=sizeof(code)/sizeof(*code)+query;
     for (unsigned i=0;i<sizeof(code)/sizeof(*code);++i) out->code[i+query]=code[i];
+    out->count+=md_signal_service_program(abi,SECCOMP_RET_TRACE|MD_INTERCEPT_SIGNAL,out->code+out->count);
 }
 #endif

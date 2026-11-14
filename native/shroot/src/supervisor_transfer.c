@@ -5,6 +5,7 @@
 #include "interception_memory.h"
 #include "task_copy.h"
 #include "raw.h"
+#include "cooperative_channel.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,10 +15,10 @@ struct supervisor_transfer {
     struct md_interception_buffer buffer;
     uintptr_t stack,address;
     void *data;
-    size_t size;
+    size_t size,offset,length;
     enum md_guest_transfer_kind kind;
     void (*complete)(struct thread *,int);
-    int allocating;
+    int allocating,resident;
 };
 
 void transfer_discard(struct thread *t) {
@@ -33,7 +34,7 @@ static void transfer_finish(struct thread *t,int error) {
     struct supervisor_transfer *copy=t->transfer;
     void (*complete)(struct thread *,int)=copy->complete;
     enum phase previous=copy->previous;
-    if (!set_registers(t->pid,&copy->saved)) return;
+    if (!copy->resident && !set_registers(t->pid,&copy->saved)) return;
     transfer_discard(t); t->phase=previous;
     complete(t,error);
 }
@@ -42,6 +43,20 @@ void transfer_progress(struct thread *t) {
     retry_clear(t,RETRY_TRANSFER);
     struct supervisor_transfer *copy=t->transfer;
     CHECK(copy && t->phase==TRANSFERRING && !copy->allocating);
+    copy->length=copy->size-copy->offset;
+    if (copy->length>sizeof(((struct md_guest_transfer *)0)->data))
+        copy->length=sizeof(((struct md_guest_transfer *)0)->data);
+    if (copy->resident) {
+        struct md_entry_channel *channel=t->entry.control;
+        CHECK(channel && !t->entry.effect);
+        channel->transfer.address=copy->address+copy->offset;
+        channel->transfer.size=copy->length; channel->transfer.kind=copy->kind;
+        if (copy->kind==MD_TRANSFER_WRITE)
+            memcpy(channel->transfer.data,(unsigned char *)copy->data+copy->offset,copy->length);
+        channel->execution_action=MD_EXECUTION_TRANSFER;
+        md_broker_entry_reply(broker,channel,MD_ENTRY_COMPLETED,0);
+        return;
+    }
     int error=copy->buffer.pool ? 0 : md_buffers_take_reserved(md_memory_buffers(t->memory),&copy->buffer);
     if (error==-EAGAIN) { retry_wait(t,RETRY_TRANSFER); return; }
     if (error) { transfer_finish(t,error); return; }
@@ -53,8 +68,9 @@ void transfer_progress(struct thread *t) {
         struct md_buffer_span span;
         CHECK(!md_buffer_span(&copy->buffer,&span) && span.size>=sizeof(struct md_guest_transfer));
         struct md_guest_transfer *request=span.data;
-        request->address=copy->address; request->size=copy->size; request->kind=copy->kind;
-        if (copy->kind==MD_TRANSFER_WRITE) memcpy(request->data,copy->data,copy->size);
+        request->address=copy->address+copy->offset; request->size=copy->length; request->kind=copy->kind;
+        if (copy->kind==MD_TRANSFER_WRITE)
+            memcpy(request->data,(unsigned char *)copy->data+copy->offset,copy->length);
         regs.pc=abi.transfer; regs.sp=copy->stack; regs.regs[30]=abi.done_entry;
         regs.regs[0]=md_memory_buffer_address(t->memory,&copy->buffer);
         CHECK(regs.regs[0]);
@@ -64,7 +80,11 @@ void transfer_progress(struct thread *t) {
 
 void transfer_begin(struct thread *t,const struct user_pt_regs *regs,uintptr_t address,void *data,size_t size,
         enum md_guest_transfer_kind kind,void (*complete)(struct thread *,int)) {
-    CHECK(!t->transfer && complete && regs && size<=sizeof(((struct md_guest_transfer *)0)->data));
+    CHECK(!t->transfer && complete && (regs || t->entry.control));
+    if (address>UINTPTR_MAX-size) { complete(t,-EFAULT); return; }
+    if (kind==MD_TRANSFER_STRING && size>sizeof(((struct md_guest_transfer *)0)->data)) {
+        complete(t,-ENAMETOOLONG); return;
+    }
     ssize_t copied=kind==MD_TRANSFER_STRING ? read_string(t->pid,address,data,size)
         : md_task_copy_direct(t->pid,address,data,size,kind==MD_TRANSFER_WRITE);
     if (copied!=-EPERM && copied!=-EACCES) {
@@ -73,15 +93,39 @@ void transfer_begin(struct thread *t,const struct user_pt_regs *regs,uintptr_t a
     }
     struct supervisor_transfer *copy=calloc(1,sizeof(*copy));
     if (!copy) { complete(t,-ENOMEM); return; }
-    *copy=(struct supervisor_transfer){.saved=*regs,.previous=t->phase,.address=address,
-        .data=data,.size=size,.kind=kind,.complete=complete};
+    *copy=(struct supervisor_transfer){.previous=t->phase,.address=address,
+        .data=data,.size=size,.kind=kind,.complete=complete,.resident=!regs};
+    if (regs) copy->saved=*regs;
     t->transfer=copy; t->phase=TRANSFERRING;
     transfer_progress(t);
 }
 
+static void transfer_completed(struct thread *t,long result,struct md_guest_transfer *request) {
+    struct supervisor_transfer *copy=t->transfer;
+    int error=(int)result;
+    if (!error && copy->kind!=MD_TRANSFER_WRITE) {
+        size_t size=copy->length;
+        if (copy->kind==MD_TRANSFER_STRING) {
+            size=strnlen((char *)request->data,size);
+            if (size==copy->length) error=-ENAMETOOLONG;
+            else ++size;
+        }
+        if (!error) memcpy((unsigned char *)copy->data+copy->offset,request->data,size);
+    }
+    if (!error && (copy->offset+=copy->length)<copy->size) { transfer_progress(t); return; }
+    transfer_finish(t,error);
+}
+
+void transfer_response(struct thread *t,long result) {
+    CHECK(t->transfer && t->transfer->resident && t->entry.control && t->phase==TRANSFERRING);
+    /* Only the data payload survives completion; input has no sequence lease. */
+    t->entry.control->input.sequence=0;
+    transfer_completed(t,result,&t->entry.control->transfer);
+}
+
 int transfer_checkpoint(struct thread *t,uintptr_t checkpoint,const struct user_pt_regs *regs) {
     struct supervisor_transfer *copy=t->transfer;
-    if (!copy || t->phase!=TRANSFERRING) return 0;
+    if (!copy || copy->resident || t->phase!=TRANSFERRING) return 0;
     if (copy->allocating && checkpoint==ALLOCATED) {
         long value=(long)regs->regs[0];
         if (value<=0) { transfer_finish(t,value<0 ? (int)value : -ENOMEM); return 1; }
@@ -90,17 +134,6 @@ int transfer_checkpoint(struct thread *t,uintptr_t checkpoint,const struct user_
         copy->allocating=0; transfer_progress(t); return 1;
     }
     if (copy->allocating || checkpoint!=DONE) return 0;
-    int error=(int)regs->regs[0];
-    if (!error && copy->kind!=MD_TRANSFER_WRITE) {
-        struct md_buffer_span span; CHECK(!md_buffer_span(&copy->buffer,&span));
-        struct md_guest_transfer *request=span.data;
-        size_t size=copy->size;
-        if (copy->kind==MD_TRANSFER_STRING) {
-            size=strnlen((char *)request->data,size);
-            if (size==copy->size) error=-ENAMETOOLONG;
-            else ++size;
-        }
-        if (!error) memcpy(copy->data,request->data,size);
-    }
-    transfer_finish(t,error); return 1;
+    struct md_buffer_span span; CHECK(!md_buffer_span(&copy->buffer,&span));
+    transfer_completed(t,(long)regs->regs[0],span.data); return 1;
 }

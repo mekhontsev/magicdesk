@@ -6,7 +6,8 @@
 
 struct md_task_quiesce;
 /* A cold explicitly selected task barrier. Real wait events retain their exact order and
- * rusage for the normal dispatcher; only our synthetic interrupt is consumed.
+ * rusage for the normal dispatcher. A synthetic interrupt is consumed only
+ * when no operation owner needs to retire its interrupted wait.
  * Already stopped/listening tasks stay stopped. A kernel-blocked vfork parent
  * also qualifies: mandatory TRACEVFORKDONE stops it before userspace resumes.
  * No policy callbacks run here. */
@@ -27,17 +28,19 @@ int md_task_quiesce_interrupting(struct md_task_quiesce *, pid_t);
 void md_task_quiesce_describe(const struct md_task_quiesce *, int fd);
 /* Returns a validated newborn PID for birth events, zero otherwise, or
  * negative errno. The outer owner can transfer an already collected stop
- * without querying a potentially displaced kernel event a second time. */
-int md_task_quiesce_event(struct md_task_quiesce *, pid_t, int, const struct rusage *);
+ * without querying a potentially displaced kernel event a second time.
+ * retain_interrupt queues a service wait's stop for its ordinary owner. */
+int md_task_quiesce_event(struct md_task_quiesce *, int retain_interrupt, pid_t, int, const struct rusage *);
 /* Temporarily lend a stopped participant to a task-affine operation. HELD
  * belongs to an outer continuation; SYNTHETIC resumes only on barrier release;
- * EVENT keeps its exact status/rusage queued for the normal dispatcher.
+ * INTERRUPT is equally borrowable but retains its service wake for dispatch;
+ * EVENT keeps its exact application status/rusage queued for the dispatcher.
  * The borrower routes its own events and restores this boundary before return.
  * No participant may be lent until the whole barrier is ready. While lent,
  * release, event replay and modifications of this participant are rejected.
  * Terminal failure requires outer cancellation, not replay of the old stop. */
 enum md_task_quiesce_boundary { MD_TASK_QUIESCE_HELD=1, MD_TASK_QUIESCE_SYNTHETIC,
-    MD_TASK_QUIESCE_EVENT };
+    MD_TASK_QUIESCE_EVENT, MD_TASK_QUIESCE_INTERRUPT };
 struct md_task_quiesce_stop { enum md_task_quiesce_boundary kind; int status; };
 int md_task_quiesce_borrow(struct md_task_quiesce *,pid_t,struct md_task_quiesce_stop *);
 int md_task_quiesce_return(struct md_task_quiesce *,pid_t);

@@ -286,7 +286,7 @@ static void quiesce_newborn(struct md_task_helpers *helpers,pid_t owner) {
         pid_t pid=waitpid(-1,&status,__WALL); assert(pid>0);
         int checkpoint=md_task_checkpoint_event(&checkpoints,pid,&status); assert(checkpoint>=0);
         if (checkpoint) continue;
-        assert(!md_task_quiesce_event(q,pid,status,NULL));
+        assert(!md_task_quiesce_event(q,0,pid,status,NULL));
     }
     assert(!md_task_quiesce_release(q));
     int initial=0; pid_t pid;

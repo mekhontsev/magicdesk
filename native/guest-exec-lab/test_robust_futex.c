@@ -483,7 +483,7 @@ static void native(const char *mode,const char *executable) {
         assert(!md_task_quiesce_add(barrier,parent,1,PTRACE_CONT));
         for (unsigned i=0;i<2;++i) assert(!md_task_quiesce_add(barrier,reader_ids[i],0,PTRACE_CONT));
         assert(!md_task_quiesce_stop(barrier));
-        for (unsigned i=0;i<2;++i) assert(!md_task_quiesce_event(barrier,reader_ids[i],waiter_status(reader_ids[i]),NULL));
+        for (unsigned i=0;i<2;++i) assert(!md_task_quiesce_event(barrier,0,reader_ids[i],waiter_status(reader_ids[i]),NULL));
         assert(md_task_quiesce_ready(barrier));
     }
     if (racing && !strcmp(mode,"exec-real-first")) {

@@ -135,6 +135,30 @@ static void native_ioctls(int patched,int filtered) {
     }
     assert(!close(alias) && !close(pipefd[0]) && !close(pipefd[1]));
 }
+static void protection_readmission(int patched,int filtered) {
+    if (filtered) {
+        struct sock_filter allow=BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
+        struct sock_fprog program={1,&allow};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+    }
+    size_t page=(size_t)sysconf(_SC_PAGESIZE);
+    assert(live_unmap(NULL,0)==-EINVAL);
+    publication_check((uintptr_t)live_unmap,patched);
+    /* A failed cold admission is not retirement of a published gate. Changing
+     * one byte's protection changes the whole page, including this tail site. */
+    void *writable=mmap(NULL,page,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(writable!=MAP_FAILED);
+    uint32_t *deferred=(uint32_t *)((char *)writable+page-16);
+    deferred[0]=0xd2800008|(SYS_getuid<<5); deferred[1]=0xd4000001; deferred[2]=0xd65f03c0;
+    __builtin___clear_cache((char *)deferred,(char *)(deferred+3));
+    long (*invoke)(void)=(void *)deferred;
+    for (unsigned i=0;i<32;++i) { assert(invoke()==getuid()); publication_check((uintptr_t)invoke,0); }
+    assert(!live_protect(writable,1,PROT_READ|PROT_EXEC));
+    assert(invoke()==getuid()); publication_check((uintptr_t)invoke,patched);
+    assert(!live_unmap(writable,page));
+    puts("PASS SVC protection readmission: partial-page protection, first eligible call and patched unmap");
+}
 static void first_encounter(int patched,int filtered) {
     if (filtered) {
         struct sock_filter code[]={
@@ -189,18 +213,6 @@ static void first_encounter(int patched,int filtered) {
         assert(live_protect((void *)1,page,PROT_READ)==-EINVAL);
     }
     native_ioctls(patched,0);
-    /* A failed cold admission is not retirement of a published gate. Changing
-     * one byte's protection changes the whole page, including this tail site. */
-    void *writable=mmap(NULL,page,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
-    assert(writable!=MAP_FAILED);
-    uint32_t *deferred=(uint32_t *)((char *)writable+page-16);
-    deferred[0]=0xd2800008|(SYS_getuid<<5); deferred[1]=0xd4000001; deferred[2]=0xd65f03c0;
-    __builtin___clear_cache((char *)deferred,(char *)(deferred+3));
-    long (*invoke)(void)=(void *)deferred;
-    for (unsigned i=0;i<32;++i) { assert(invoke()==getuid()); publication_check((uintptr_t)invoke,0); }
-    assert(!live_protect(writable,1,PROT_READ|PROT_EXEC));
-    assert(invoke()==getuid()); publication_check((uintptr_t)invoke,patched);
-    assert(!munmap(writable,page));
     assert(live_wait4(-1,NULL,WNOHANG,NULL)==-ECHILD);
     publication_check((uintptr_t)live_wait4,patched);
     assert(live_waitid(P_ALL,0,NULL,WEXITED|WNOHANG,NULL)==-ECHILD);
@@ -1263,6 +1275,9 @@ int main(int argc,char **argv) {
     }
     if (argc>1 && !strcmp(argv[1],"task-signals")) { task_signal_completion(); return 0; }
     if (argc>1 && !strcmp(argv[1],"task-signals-exec")) { task_signal_exec(argv[0]); return 0; }
+    if (argc>1 && !strcmp(argv[1],"protection-readmission")) {
+        protection_readmission(argc>2 && !strcmp(argv[2],"patched"),argc>3); return 0;
+    }
     if (argc>1 && !strcmp(argv[1],"first-encounter")) {
         first_encounter(argc>2 && !strcmp(argv[2],"patched"),argc>3); return 0;
     }

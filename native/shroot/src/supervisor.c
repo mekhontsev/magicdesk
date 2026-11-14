@@ -567,8 +567,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             struct thread *returning=find_thread(pid);
             child_signals_observe(returning,*status);
             if (returning) md_signal_delivery_checkpoint(&returning->signals.delivery,*status);
-            if (returning && returning->signals.control && returning->signals.control->returning)
-                signal_control_discard(returning);
+            if (returning) signal_execution_checkpoint(returning);
             int checkpoint=checkpoint_event(pid,status);
             if (checkpoint==-ESRCH) continue;
             if (checkpoint<0) fprintf(stderr,"Shroot: checkpoint pid=%d status=%x error=%d\n",pid,*status,checkpoint);

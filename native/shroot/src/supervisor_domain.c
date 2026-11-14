@@ -60,9 +60,10 @@ static int domain_path_apply(struct thread *t, long nr, const char *path) {
 }
 
 void domain_path_finish(struct thread *t, int error) {
-    struct user_pt_regs r = t->execution.registers;
     long nr=t->execution.request.nr;
     if (!error) error = domain_path_apply(t,nr,t->metadata.path);
+    if (entry_pending(t)) { entry_complete(t,error); return; }
+    struct user_pt_regs r = t->execution.registers;
     r.regs[0] = (uint64_t)error;
     if (!set_registers(t->pid, &r) || !restore_mask(t)) return;
     t->phase = IDLE; resume(t->pid, 0);
@@ -78,9 +79,13 @@ static void domain_path_call(struct thread *t,const struct seccomp_data *call,st
         if (!error) error = domain_path_apply(t,call->nr,path);
         return_value(t, r, error); return;
     }
-    if (entry_context(t,MD_CONTEXT_MEMORY)) return;
     CHECK(t->ready && t->phase == IDLE);
     execution_retain(t,call,r);
+    if (entry_pending(t)) {
+        transfer_begin(t,NULL,call->args[0],t->metadata.path,sizeof(t->metadata.path),
+            MD_TRANSFER_STRING,domain_path_finish);
+        return;
+    }
     if (!save_signal_mask(t,&t->execution.mask,"get-mask")
             || !shield(t) || !skip(t->pid)) return;
     transfer_begin(t,&t->execution.registers,t->execution.request.args[0],t->metadata.path,

@@ -475,7 +475,7 @@ static void borrowed_continuations(void) {
         struct thread t={.pid=123,.kernel_stopped=1,.signals.shielded=1};
         if (owner<2) {
             t.phase=SIGNAL_CONTROL; t.signals.control=&signal;
-            signal.control.invoking=owner==0; signal.control.copying=owner==1;
+            signal.control.operation.invoking=owner==0; signal.control.operation.copying=owner==1;
         } else if (owner==2) {
             t.phase=GUEST_NOTIFICATION; t.seccomp.notification=&notification;
         } else {
@@ -683,6 +683,9 @@ static uint64_t shield_test_mask;
 static struct user_pt_regs transfer_restored;
 static unsigned transfer_completions;
 static int transfer_result;
+static struct md_entry_channel *debug_stop_reply;
+static enum md_entry_outcome debug_reply_outcome=MD_ENTRY_NEEDS_STOP;
+static long debug_reply_value=RESTART_SIGNAL;
 static long transfer_test_trace(int request,pid_t pid,void *address,void *data) {
     assert(request==PTRACE_SETREGSET && pid==123 && (uintptr_t)address==NT_PRSTATUS);
     struct iovec *iov=data; assert(iov->iov_len==sizeof(transfer_restored));
@@ -703,7 +706,7 @@ static void typed_transfer_ownership(void) {
         unsigned char output[32]; memset(output,0xa5,sizeof(output));
         struct supervisor_transfer *copy=calloc(1,sizeof(*copy)); assert(copy);
         *copy=(struct supervisor_transfer){.saved=saved,.previous=DISPATCHING,.data=output,
-            .size=sizeof(output),.kind=mode==2 || mode==3 ? MD_TRANSFER_STRING : MD_TRANSFER_READ,
+            .size=sizeof(output),.length=sizeof(output),.kind=mode==2 || mode==3 ? MD_TRANSFER_STRING : MD_TRANSFER_READ,
             .complete=transfer_test_complete};
         assert(!md_buffers_take_reserved(md_memory_buffers(t.memory),&copy->buffer));
         struct md_buffer_span span; assert(!md_buffer_span(&copy->buffer,&span));
@@ -729,6 +732,30 @@ static void typed_transfer_ownership(void) {
         assert(!md_buffers_take_reserved(md_memory_buffers(t.memory),&reused));
         assert(!md_buffer_release(&reused));
     }
+    struct md_entry_channel channel={0};
+    unsigned char output[5000]; memset(output,0xa5,sizeof(output));
+    struct supervisor_transfer *copy=calloc(1,sizeof(*copy)); assert(copy);
+    *copy=(struct supervisor_transfer){.previous=DISPATCHING,.address=0x8000,
+        .data=output,.size=sizeof(output),.resident=1,.kind=MD_TRANSFER_READ,.complete=transfer_test_complete};
+    t.transfer=copy; t.phase=TRANSFERRING; t.entry.control=&channel;
+    memset(&transfer_restored,0,sizeof(transfer_restored));
+    debug_stop_reply=&channel; debug_reply_outcome=MD_ENTRY_COMPLETED; debug_reply_value=0;
+    transfer_progress(&t);
+    assert(!debug_stop_reply);
+    assert(channel.execution_action==MD_EXECUTION_TRANSFER && channel.transfer.size==4096);
+    memset(channel.transfer.data,0x44,channel.transfer.size);
+    debug_stop_reply=&channel;
+    transfer_response(&t,0);
+    assert(!debug_stop_reply);
+    assert(t.transfer==copy && copy->offset==4096 && transfer_completions==4);
+    assert(channel.transfer.address==0x9000 && channel.transfer.size==904);
+    memset(channel.transfer.data,0x55,channel.transfer.size);
+    transfer_response(&t,0);
+    assert(!t.transfer && transfer_completions==5 && !transfer_result);
+    assert(output[0]==0x44 && output[4095]==0x44 && output[4096]==0x55 && output[4999]==0x55);
+    assert(!channel.input.sequence && !transfer_restored.pc);
+    t.entry.control=NULL;
+    debug_reply_outcome=MD_ENTRY_NEEDS_STOP; debug_reply_value=RESTART_SIGNAL;
     md_memory_release(t.memory); thread_index[t.pid%THREAD_BUCKETS]=NULL;
     checkpoints.trace=checkpoint_native_trace;
     puts("PASS typed maintenance transfer: nested continuation, bounded strings, fault, cancellation and buffer reuse");
@@ -1548,7 +1575,8 @@ static void execution_context_contract(void) {
     assert(md_execution_native_context(SYS_rt_sigreturn,args)==MD_CONTEXT_SIGNAL);
     assert(md_execution_native_context(SYS_rt_sigprocmask,args)==MD_CONTEXT_COUNT);
     args[1]=1;
-    assert(md_execution_native_context(SYS_rt_sigprocmask,args)==MD_CONTEXT_SIGNAL);
+    assert(md_execution_native_context(SYS_rt_sigprocmask,args)==MD_CONTEXT_COUNT);
+    assert(md_execution_native_context(SYS_rt_sigaction,args)==MD_CONTEXT_COUNT);
     args[1]=0;
     assert(md_execution_native_context(SYS_set_robust_list,args)==MD_CONTEXT_PROCESS);
     assert(md_execution_native_context(SYS_set_tid_address,args)==MD_CONTEXT_COUNT);
@@ -1582,14 +1610,13 @@ static void execution_context_contract(void) {
         unsigned mask=shared_waits[i]==SYS_ppoll ? 3 : shared_waits[i]==SYS_pselect6 ? 5 : 4;
         assert(dispatch_context(shared_waits[i],args,-1)==MD_CONTEXT_COUNT);
         args[mask]=1;
-        assert(dispatch_context(shared_waits[i],args,-1)==MD_CONTEXT_SIGNAL);
+        assert(dispatch_context(shared_waits[i],args,-1)==MD_CONTEXT_COUNT);
         args[mask]=0;
     }
     /* The C owner has selected the adapter. Adding another syscall must not
      * require adding it to a transport allow-list as well. */
     for (long nr=0;nr<512;++nr) {
-        enum md_execution_context expected=nr==SYS_execve || nr==SYS_execveat ? MD_CONTEXT_EXEC
-            : nr==SYS_rt_sigsuspend ? MD_CONTEXT_SIGNAL : MD_CONTEXT_COUNT;
+        enum md_execution_context expected=nr==SYS_execve || nr==SYS_execveat ? MD_CONTEXT_EXEC : MD_CONTEXT_COUNT;
         assert(dispatch_context(nr,args,-1)==expected);
     }
     const unsigned queries[]={FIONREAD,TIOCGWINSZ,TCGETS,TCGETS2};
@@ -2033,7 +2060,88 @@ static void readiness_entry_interrupt(void) {
     abi.task_call=call; abi.task_return=returned;
     puts("PASS readiness entry interrupt: resume exact call, retain eviction and mask, consume only service wake");
 }
+static void readiness_wait_retirement(void) {
+    int previous=socket_events;
+    socket_events=epoll_create1(EPOLL_CLOEXEC); assert(socket_events>=0);
+    for (unsigned completed=0;completed<2;++completed) {
+        struct readiness_owner owner={0};
+        struct thread t={.pid=123,.readiness=&owner};
+        long args[5]={0};
+        assert(!md_ipc_io_job_start(&owner.wait.job,completed ? SYS_gettid : SYS_ppoll,args));
+        int event=md_ipc_io_job_event(&owner.wait.job); assert(event>=0);
+        assert(!socket_watch(&t) && owner.io_waiting);
+        if (completed) {
+            struct pollfd ready={.fd=event,.events=POLLIN};
+            /* EVENT_WAIT: the real helper acknowledges completion; timeout fails the test. */
+            assert(poll(&ready,1,1000)==1);
+        }
+        readiness_wait_cancel(&t);
+        assert(!owner.io_waiting && !owner.wait.job.started);
+        assert(fcntl(event,F_GETFD)==-1 && errno==EBADF);
+        struct epoll_event ready;
+        assert(!epoll_wait(socket_events,&ready,1,0));
+        readiness_wait_cancel(&t);
+    }
+    close(socket_events); socket_events=previous;
+    puts("PASS readiness retirement: unwatch precedes helper event closure after completion or cancellation");
+}
 static unsigned readiness_ignored_reads,readiness_ignored_writes,readiness_ignored_resumes;
+static struct md_task_call_arguments wait_admitted_call;
+static unsigned wait_admitted_skips,wait_admitted_resumes;
+static long wait_admitted_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123);
+    if (request==PTRACE_GET_SYSCALL_INFO) {
+        struct ptrace_syscall_info *info=data;
+        *info=(struct ptrace_syscall_info){.op=PTRACE_SYSCALL_INFO_SECCOMP,
+            .instruction_pointer=abi.task_return,.seccomp={.nr=wait_admitted_call.number}};
+        memcpy(info->seccomp.args,wait_admitted_call.value,sizeof(info->seccomp.args));
+    } else if (request==PTRACE_SETSIGMASK) {
+        assert((uintptr_t)address==sizeof(uint64_t));
+    } else if (request==PTRACE_SETREGSET) {
+        assert((uintptr_t)address==NT_ARM_SYSTEM_CALL && *(int *)((struct iovec *)data)->iov_base==-1);
+        ++wait_admitted_skips;
+    } else {
+        assert(request==PTRACE_SYSCALL && !address && !data);
+        ++wait_admitted_resumes;
+    }
+    return 0;
+}
+static void wait_admission_wakeup(void) {
+    const long calls[]={SYS_ppoll,SYS_epoll_pwait,SYS_epoll_pwait2};
+    const enum phase phases[]={IPC_WAITING,SOCKET_WAITING,FILE_WAITING,CONTROL_WAITING,CLOSE_WAITING,DEBUG_PARK_EXIT};
+    for (unsigned host=0;host<2;++host) {
+        for (unsigned i=0;i<sizeof(calls)/sizeof(*calls);++i) for (unsigned blocking=0;blocking<2;++blocking) {
+            struct readiness_owner owner={.wait.blocking=blocking,
+                .native_call={.number=calls[i],.value={35,0x4000,2,1000,0,8}}};
+            struct thread t={.pid=123,.phase=EPOLL_WAIT,.kernel_stopped=1,.io.socket_waking=1,
+                .readiness=&owner,.signals={.host=host,.wait_view={.active=1,.saved=MD_SIGNAL_SYS_BIT}}};
+            thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=wait_admitted_trace;
+            wait_admitted_call=owner.native_call; wait_admitted_skips=wait_admitted_resumes=0;
+            assert(readiness_native_event(&t,(PTRACE_EVENT_SECCOMP<<16)|(SIGTRAP<<8)|0x7f));
+            if (!blocking) {
+                assert(t.phase==EPOLL_WAIT && !owner.resample && t.io.socket_waking);
+                assert(t.signals.wait_view.active && !wait_admitted_skips && wait_admitted_resumes==1);
+                continue;
+            }
+            assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==EPOLL_CALL);
+            assert(owner.resample && !t.io.socket_waking && !t.signals.wait_view.active && t.signals.shielded);
+            assert(wait_admitted_skips==1 && wait_admitted_resumes==1);
+        }
+        for (unsigned i=0;i<sizeof(phases)/sizeof(*phases);++i) {
+            struct thread t={.pid=123,.phase=phases[i],.kernel_stopped=1,.signals.host=host};
+            assert(!wait_service_ready(&t));
+            t.io.waking=t.io.socket_waking=t.control.done=t.close.done=t.debug.wait_waking=1;
+            assert(wait_service_ready(&t)==(phases[i]!=FILE_WAITING));
+            thread_index[t.pid%THREAD_BUCKETS]=&t;
+            wait_admitted_skips=wait_admitted_resumes=0;
+            wait_cancel_admitted(&t,phases[i]);
+            assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==phases[i] && t.signals.shielded);
+            assert(wait_admitted_skips==1 && wait_admitted_resumes==1);
+        }
+    }
+    thread_index[123%THREAD_BUCKETS]=NULL; checkpoints.trace=checkpoint_native_trace;
+    puts("PASS service wait admission: seccomp-coalesced wakes cancel before effect for readiness, IPC, sockets, FIFO, providers and debugger");
+}
 static long readiness_ignored_trace(int request,pid_t pid,void *address,void *data) {
     assert(pid==123);
     if (request==PTRACE_GETREGSET || request==PTRACE_SETREGSET) {
@@ -2825,7 +2933,34 @@ static void pending_signal_wakeup(void) {
     checkpoints.trace=checkpoint_native_trace;
     puts("PASS pending signal wake: native execution, entry/return packets, borrowed owner and duplicate suppression");
 }
-static void notification_signal_entry(void) {
+static void signal_wait_preparation(void) {
+    for (unsigned before_copy=0;before_copy<2;++before_copy) {
+        struct md_signal_pending *pending=md_signal_pending_new(); assert(pending);
+        uint64_t scratch[128]={0}; int blocked=1;
+        struct seccomp_data request={.nr=SYS_rt_sigtimedwait,.args={0x2000,0,0,8}};
+        struct md_signal_operation op;
+        assert(!md_signal_operation_begin(&op,&request,NULL,pending,&blocked,NULL,NULL,
+            scratch,0x1000,sizeof(scratch)));
+        assert(op.copying && op.transfer.size==8);
+        *(uint64_t *)op.transfer.data=MD_SIGNAL_SYS_BIT;
+        assert(md_signal_operation_copy_done(&op,8)==MD_SIGNAL_WAIT_RELEASE);
+        assert(!md_signal_operation_park(&op,0x3000));
+        siginfo_t info={.si_signo=SIGSYS,.si_code=SI_TKILL};
+        if (before_copy) assert(md_signal_pending_put(pending,MD_SIGNAL_PRIVATE,&info)==1);
+        assert(md_signal_operation_copy_done(&op,op.transfer.size)==MD_SIGNAL_WAIT_PARKED);
+        op.scratch=NULL; op.peer=0; op.capacity=0;
+        if (!before_copy) assert(md_signal_pending_put(pending,MD_SIGNAL_PRIVATE,&info)==1);
+        assert(md_signal_operation_continue(&op)==MD_SIGNAL_WAIT_ACQUIRE);
+        assert(!op.invoking && !op.wait_native);
+        op.scratch=scratch; op.peer=0x1000; op.capacity=sizeof(scratch);
+        assert(md_signal_operation_continue(&op)==MD_SIGNAL_PENDING && !op.pending_wanted);
+        assert(md_signal_operation_pending_done(&op,0,0)==1 && op.result==SIGSYS);
+        assert(!md_signal_pending_has(pending,MD_SIGNAL_PRIVATE));
+        md_signal_operation_dispose(&op); md_signal_pending_release(pending);
+    }
+    puts("PASS signal wait preparation: pending arrival before/after park copy cannot lose its wake");
+}
+static void signal_execution_admission(void) {
     for (unsigned reset=0;reset<2;++reset) {
         struct thread t={.pid=123,.phase=SIGNAL_ENTRY,.kernel_stopped=1,
             .signals.actions=md_signal_actions_new()};
@@ -2843,13 +2978,28 @@ static void notification_signal_entry(void) {
          * syscall is admitted. No ptrace stop is needed to retire the packet. */
         atomic_store_explicit(&packet.pending,0,memory_order_release);
         owner->returning=1; assert(!signal_entry_committed(&t)); owner->returning=0;
-        assert(signal_entry_committed(&t) && !t.signals.control && t.phase==IDLE && !signal_entries);
-        assert(!signal_entry_committed(&t));
+        signal_execution_checkpoint(&t);
+        assert(!t.signals.control && t.phase==IDLE && !signal_entries);
+        signal_execution_checkpoint(&t);
         assert(!md_signal_actions_read(t.signals.actions,SIGALRM,&action));
         assert(action.handler==(reset ? (uintptr_t)SIG_DFL : 0x1234));
         md_signal_actions_release(t.signals.actions);
     }
-    puts("PASS signal-entry acknowledgement at notification admission after the earlier global scan");
+    struct thread t={.pid=123,.phase=IDLE,.memory=md_memory_new()};
+    struct signal_control *owner=calloc(1,sizeof(*owner));
+    assert(t.memory && owner);
+    t.signals.control=owner; owner->returning=1; owner->entry_thread=&t;
+    owner->entry_previous=&signal_entries; signal_entries=owner;
+    assert(md_memory_order_begin(t.memory,&owner->memory,NULL)==1);
+    assert(!md_resource_order_start(&owner->memory));
+    struct md_resource_order next={0};
+    assert(!md_memory_order_begin(t.memory,&next,NULL));
+    signal_execution_checkpoint(&t);
+    assert(!t.signals.control && !signal_entries && t.phase==IDLE);
+    assert(!md_resource_order_start(&next) && !md_resource_order_complete(&next));
+    signal_execution_checkpoint(&t);
+    md_memory_release(t.memory);
+    puts("PASS signal execution checkpoint: handler acknowledgement and sigreturn retirement without kernel stops");
 }
 static void fd_native_retirement(void) {
     struct md_filesystem fs={0};
@@ -3039,9 +3189,6 @@ static void pidfd_shared_birth(void) {
     }
     puts("PASS shared pidfd birth: translated identity, native effect and exact success/failure publication without registers");
 }
-static struct md_entry_channel *debug_stop_reply;
-static enum md_entry_outcome debug_reply_outcome=MD_ENTRY_NEEDS_STOP;
-static long debug_reply_value=RESTART_SIGNAL;
 static void process_remote_repair(void) {
     for (unsigned reading=0;reading<2;++reading) for (unsigned global=0;global<2;++global) {
         struct md_entry_channel channel={.state=MD_ENTRY_RUNNING,.call={.reserved=MD_ENTRY_EXECUTION_BEGIN}};
@@ -4527,7 +4674,9 @@ static void readiness_transport_pressure(void) {
 }
 static void readiness_publication_eviction(void) {
     fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd_ready>=0);
-    for (int completed=0;completed<2;++completed) for (int queued=0;queued<2;++queued) {
+    for (int completed=0;completed<2;++completed) for (int queued=0;queued<2;++queued)
+            for (int resample=0;resample<2;++resample) {
+        if (resample && completed) continue;
         struct md_control_epoll *q=md_control_epoll_new(); assert(q);
         struct readiness_owner owner={.queue=md_control_epoll_object(q),.evicting=1,
             .delivery_claimed=1,.delivery_waiting=queued,.loans={{.number=-1},{.number=9}},
@@ -4542,9 +4691,10 @@ static void readiness_publication_eviction(void) {
         assert(md_memory_order_begin(t.memory,&owner.publication_memory,NULL)>=0);
         if (!queued) assert(!md_resource_order_start(&owner.publication_memory));
         assert(md_memory_order_begin(t.memory,&next,NULL)==0);
-        readiness_evict_park(&t,0,0);
-        assert(owner.parked && !owner.delivery_claimed && !owner.delivery_waiting);
-        assert(!owner.publication_memory.queue && t.phase==DISPATCHING);
+        if (resample) readiness_resample(&owner);
+        else readiness_evict_park(&t,0,0);
+        assert(owner.parked==!resample && !owner.delivery_claimed && !owner.delivery_waiting);
+        assert(!owner.publication_memory.queue && t.phase==(resample ? IDLE : DISPATCHING));
         assert(owner.finishing==completed);
         if (completed) assert(owner.finish_result==1);
         else assert(!owner.wait.task_sampled && !owner.wait.task_count);
@@ -4555,7 +4705,7 @@ static void readiness_publication_eviction(void) {
         md_control_epoll_release(q); md_memory_release(t.memory);
     }
     close(fd_ready); fd_ready=-1;
-    puts("PASS readiness publication: eviction releases queued/running memory turns and preserves committed output");
+    puts("PASS readiness publication: eviction/resampling release queued/running memory turns and preserve committed output");
 }
 static void image_entry_identity(void) {
     tasks=md_task_registry_create(); assert(tasks);
@@ -4782,10 +4932,10 @@ static void retirement_preparation_blocked(void) {
         assert(!md_task_quiesce_add(retained_barrier,456,0,0));
         assert(!md_task_quiesce_add(retained_barrier,458,0,PTRACE_CONT));
         assert(!md_task_quiesce_stop(retained_barrier));
-        assert(!md_task_quiesce_event(retained_barrier,458,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
+        assert(!md_task_quiesce_event(retained_barrier,0,458,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
         const int signal=(SIGUSR1<<8)|0x7f;
         struct rusage usage={.ru_stime.tv_usec=789};
-        assert(!md_task_quiesce_event(retained_barrier,457,signal,&usage));
+        assert(!md_task_quiesce_event(retained_barrier,0,457,signal,&usage));
         retirement_provider_resumes=0;
         retained_barrier_blocked(999);
         assert(retained_retirement==r && !retirement_provider_resumes);
@@ -4994,7 +5144,7 @@ static void borrowed_action_terminal(void) {
         debugger_interrupts=debugger_continuations=0;
         assert(!quiesce_task_add(*slot,&actor,0) && !md_task_quiesce_stop(*slot));
         assert(debugger_interrupts==1);
-        assert(!md_task_quiesce_event(*slot,actor.pid,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
+        assert(!md_task_quiesce_event(*slot,0,actor.pid,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
         struct md_task_quiesce_stop stop;
         assert(!md_task_quiesce_borrow(*slot,actor.pid,&stop) && stop.kind==MD_TASK_QUIESCE_SYNTHETIC);
         struct task_action loan_owner={.actor=&actor,.remote=1,.borrowed=1,.synthetic=1,
@@ -5059,7 +5209,7 @@ static void quiescent_task_ownership(void) {
             assert(md_task_quiesce_ready(barrier)==(mode>=1 && mode<=4));
             int status=(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f;
             if (!md_task_quiesce_ready(barrier))
-                assert(!md_task_quiesce_event(barrier,t.pid,status,NULL));
+                assert(!md_task_quiesce_event(barrier,0,t.pid,status,NULL));
             assert(md_task_quiesce_ready(barrier) && !md_task_quiesce_release(barrier));
             assert(debugger_continuations==(mode==0));
             assert(t.kernel_resume==continuations[request]);
@@ -5110,6 +5260,36 @@ static void quiescent_event_custody(void) {
     checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
     close(fd_ready); fd_ready=saved_fd;
     puts("PASS released barrier events: no borrowing or stale resume before exact lifecycle/signal replay across every owner");
+}
+static void quiescent_service_waits(void) {
+    const enum phase phases[]={IPC_WAIT_ENTRY,IPC_WAITING,SOCKET_WAIT_ENTRY,SOCKET_WAITING,
+        EPOLL_CALL,EPOLL_WAIT,DEBUG_PARK_ENTRY,DEBUG_PARK_EXIT,DISPATCHING};
+    for (unsigned i=0;i<sizeof(phases)/sizeof(*phases);++i) {
+        struct md_entry_channel channel={0};
+        struct readiness_owner readiness={0};
+        struct thread t={.pid=123,.phase=phases[i],.kernel_resume=PTRACE_CONT};
+        if (phases[i]==EPOLL_WAIT) t.readiness=&readiness;
+        if (phases[i]==DISPATCHING) {
+            t.entry.execution=t.entry.control=&channel; t.entry.waiting=1;
+            t.entry.effect=readiness_effect_done;
+        }
+        assert(!thread_index[t.pid%THREAD_BUCKETS]); thread_index[t.pid%THREAD_BUCKETS]=&t;
+        checkpoints.trace=debugger_quiesce_trace; debugger_interrupts=debugger_continuations=0;
+        struct md_task_quiesce *q=md_task_quiesce_new(quiesce_trace); assert(q);
+        assert(!quiesce_task_add(q,&t,0) && !md_task_quiesce_stop(q) && debugger_interrupts==1);
+        int status=(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,observed=0;
+        assert(!quiesce_event(q,t.pid,status,NULL));
+        struct md_task_quiesce_stop boundary;
+        assert(!md_task_quiesce_borrow(q,t.pid,&boundary));
+        assert(boundary.kind==MD_TASK_QUIESCE_INTERRUPT && boundary.status==status);
+        assert(!md_task_quiesce_return(q,t.pid));
+        assert(md_task_quiesce_ready(q) && !md_task_quiesce_release(q) && !debugger_continuations);
+        assert(md_task_quiesce_take(q,&observed,NULL)==t.pid && observed==status);
+        assert(!md_task_quiesce_take(q,&observed,NULL));
+        md_task_quiesce_destroy(q); thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    checkpoints.trace=checkpoint_native_trace;
+    puts("PASS barrier service waits: IPC, sockets, epoll, debugger and resident journals retain their exact wake stop");
 }
 static void debugger_quiescence(void) {
     const long calls[]={SYS_ptrace,SYS_wait4,SYS_waitid,SYS_read};
@@ -5284,7 +5464,7 @@ static void event_accounting(void) {
         if (accounting_enabled) assert(usage.ru_utime.tv_usec==123 && usage.ru_maxrss==456);
         else assert(!memcmp(&usage,&zero,sizeof(usage)));
         struct md_task_quiesce *queue=md_task_quiesce_new(no_trace); assert(queue);
-        assert(!md_task_quiesce_event(queue,wait_result,status,&usage));
+        assert(!md_task_quiesce_event(queue,0,wait_result,status,&usage));
         accounting_enabled=!accounting_enabled;
         struct rusage replay;
         assert(md_task_quiesce_take(queue,&status,&replay)==wait_result);
@@ -5588,7 +5768,7 @@ static void checkpoint_quiescence(void) {
             assert(checkpoint_event(t.pid,&status)==CHECKPOINT_PARKED && checkpoint_trace_calls==before);
             assert(checkpoint_broker_resumes==resumes);
             assert(t.kernel_stopped);
-            assert(!md_task_quiesce_event(*barrier,t.pid,status,NULL));
+            assert(!md_task_quiesce_event(*barrier,0,t.pid,status,NULL));
         }
         assert(md_task_quiesce_ready(*barrier) && !md_task_quiesce_release(*barrier));
         entry_fence_stage=0; memory_execution=NULL; mapping_execution=NULL; task_action_execution=NULL;
@@ -5615,7 +5795,7 @@ static void checkpoint_quiescence(void) {
         struct md_task_quiesce *barrier=md_task_quiesce_new(quiesce_trace); assert(barrier);
         assert(!quiesce_task_add(barrier,&t,0) && !md_task_quiesce_stop(barrier));
         status=(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f;
-        assert(!md_task_quiesce_event(barrier,t.pid,status,NULL));
+        assert(!md_task_quiesce_event(barrier,0,t.pid,status,NULL));
         t.kernel_stopped=1;
         if (borrowed) {
             struct md_task_quiesce_stop boundary;
@@ -5955,7 +6135,7 @@ static void admission_quiescence(void) {
         /* EVENT_WAIT: the real kernel interrupt; the suite alarm bounds failure. */
         assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status));
         assert((unsigned)status>>16==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP);
-        assert(!md_task_quiesce_event(mapping_barrier,pid,status,NULL));
+        assert(!md_task_quiesce_event(mapping_barrier,0,pid,status,NULL));
         assert(md_task_quiesce_ready(mapping_barrier));
         assert(!md_task_quiesce_release(mapping_barrier));
         q=admission_request();
@@ -6070,14 +6250,43 @@ static void descriptor_service_queries(void) {
     }
     puts("PASS descriptor service queries: exact native gate, command width, guest interception and mutation ownership");
 }
+static void signal_operation_masks(void) {
+    for (unsigned how=SIG_BLOCK;how<=SIG_SETMASK;++how) for (unsigned blocked=0;blocked<2;++blocked) {
+        struct md_signal_operation op;
+        uint64_t scratch[32]={0},input=MD_SIGNAL_SYS_BIT|(UINT64_C(1)<<(SIGUSR2-1)),output=0;
+        uint64_t native=UINT64_C(1)<<(SIGUSR1-1),before=native|(blocked ? MD_SIGNAL_SYS_BIT : 0),expected;
+        int logical=(int)blocked;
+        struct seccomp_data call={.nr=SYS_rt_sigprocmask,
+            .args={how,(uintptr_t)&input,(uintptr_t)&output,8}};
+        assert(!md_signal_view_update(before,how,input,&expected));
+        assert(!md_signal_operation_begin(&op,&call,NULL,NULL,&logical,NULL,NULL,
+            scratch,(uintptr_t)scratch,sizeof(scratch)));
+        assert(op.copying && !op.invoking && op.transfer.address==(uintptr_t)&input);
+        memcpy(op.transfer.data,&input,8);
+        assert(!md_signal_operation_copy_done(&op,8));
+        assert(op.invoking && !op.copying && op.effect.number==SYS_rt_sigprocmask);
+        assert(*(uint64_t *)op.effect.value[1]==(input&~MD_SIGNAL_SYS_BIT));
+        *(uint64_t *)op.effect.value[2]=native;
+        assert(!md_signal_operation_effect_done(&op,0));
+        assert(logical==!!(expected&MD_SIGNAL_SYS_BIT) && op.copying && op.transfer.writing);
+        memcpy(&output,op.transfer.data,8);
+        assert(output==before && md_signal_operation_copy_done(&op,8)==1 && !op.result);
+        assert(!md_signal_operation_begin(&op,&call,NULL,NULL,&logical,NULL,NULL,
+            scratch,(uintptr_t)scratch,sizeof(scratch)));
+        assert(md_signal_operation_copy_done(&op,-EFAULT)==1 && op.result==-EFAULT && !op.invoking);
+    }
+    puts("PASS signal operation: transport-independent mask effects, logical state, output and failed input");
+}
 static void signal_wait_selection(void) {
-    struct md_interception_abi abi={.raw_gate=0x2000000040,.task_return=0x2000000080};
+    struct md_interception_abi abi={.raw_gate=0x2000000040,.task_return=0x2000000080,
+        .native_return=0x20000000c0,.adapter_native_return=0x2000000100};
+    const uintptr_t sites[]={0x1000,abi.raw_gate,abi.task_return,abi.native_return,abi.adapter_native_return};
     struct md_interception_program program;
     for (unsigned host=0;host<2;++host) {
         abi.host_policy=host;
-        for (unsigned input=0;input<3;++input) for (unsigned site=0;site<3;++site) {
+        for (unsigned input=0;input<3;++input) for (unsigned site=0;site<5;++site) {
             struct seccomp_data query={.nr=SYS_rt_sigprocmask,.arch=AUDIT_ARCH_AARCH64,
-                .instruction_pointer=site==0 ? 0x1000 : site==1 ? abi.raw_gate : abi.task_return};
+                .instruction_pointer=sites[site]};
             query.args[1]=input==2 ? UINT64_C(1)<<32 : input;
             uint32_t result;
             md_interception_program_build(&abi,&program);
@@ -6160,9 +6369,9 @@ static void signal_wait_selection(void) {
         assert(md_task_signal_wait_entry_begin(&control,no_trace,getpid(),&regs,0x1000,0x2000,
             actions,&blocked,&action,&view,scratch,(uintptr_t)scratch,sizeof(scratch))==1);
         memcpy(&saved,&frame.uc_sigmask,sizeof(saved));
-        assert(!control.result && !control.copying && !control.invoking
-            && saved==view.saved && control.previous_mask==view.saved
-            && control.next_mask==expected && blocked==!!(expected&MD_SIGNAL_SYS_BIT));
+        assert(!control.operation.result && !control.operation.copying && !control.operation.invoking
+            && saved==view.saved && control.operation.previous_mask==view.saved
+            && control.operation.next_mask==expected && blocked==!!(expected&MD_SIGNAL_SYS_BIT));
     }
     md_signal_actions_release(actions);
     puts("PASS signal wait selection: null/high pointers, service gates and distinct saved/active masks");
@@ -6530,8 +6739,8 @@ int main(void) {
     private_wait_buffer_cancel();
     parked_checkpoint_ownership();
     native_signal_entry();
-    notification_signal_entry();
-    pending_signal_wakeup();
+    signal_execution_admission();
+    pending_signal_wakeup(); signal_wait_preparation();
     exclusive_signal_entry();
     native_signal_query();
     logical_signal_frame();
@@ -6543,6 +6752,7 @@ int main(void) {
     descriptor_command_selection();
     descriptor_service_queries();
     retained_child_selection();
+    signal_operation_masks();
     signal_wait_selection();
     pending_queue_scan(); pending_signal_ownership(); signalfd_information();
     debug_host_exit();
@@ -6595,7 +6805,7 @@ int main(void) {
     for (unsigned mode=0;mode<4;++mode) {
         completed_open(mode,SIGUSR1); completed_open(mode,SIGRTMAX);
     }
-    provider_wait_restarts(); provider_wait_boundaries(); debugger_wait_cancellation(); debugger_shared_waits();
+    provider_wait_restarts(); provider_wait_boundaries(); wait_admission_wakeup(); readiness_wait_retirement(); debugger_wait_cancellation(); debugger_shared_waits();
     process_wait_signal_receipts();
     memory_shared_detach();
     adapter_native_receipts();
@@ -6622,7 +6832,7 @@ int main(void) {
     admission_quiescence();
     checkpoint_admission();
     checkpoint_quiescence();
-    quiescent_task_ownership(); quiescent_event_custody();
+    quiescent_task_ownership(); quiescent_event_custody(); quiescent_service_waits();
     debugger_quiescence();
     debugger_provider_wait();
     md_task_checkpoints_clear(&checkpoints);

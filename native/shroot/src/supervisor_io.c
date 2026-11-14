@@ -1203,7 +1203,7 @@ void socket_wait_complete(struct thread *t) {
 static void socket_wait_result(struct thread *t,long value,int restart,int waking) {
     if (waking && (restart || value==0)) { socket_io_progress(t); return; }
     if (t->readiness) {
-        md_epoll_wait_cancel(&t->readiness->wait);
+        readiness_wait_cancel(t);
         if (!value) readiness_progress(t);
         else readiness_reply(t,restart ? -EINTR : value);
         return;
@@ -1228,7 +1228,7 @@ void socket_wait_cancelled(struct thread *t) {
     if (!error) { socket_io_progress(t); return; }
     socket_unwatch(t);
     if (t->readiness) {
-        md_epoll_wait_cancel(&t->readiness->wait); readiness_reply(t,error); return;
+        readiness_wait_cancel(t); readiness_reply(t,error); return;
     }
     struct md_ipc_io *op=socket_operation(t);
     if (op->job.started) {

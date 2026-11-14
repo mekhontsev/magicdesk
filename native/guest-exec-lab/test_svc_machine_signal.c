@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "svc_machine.h"
+#include "cooperative_channel.h"
 #include <assert.h>
 #include <elf.h>
 #include <errno.h>
@@ -259,6 +260,32 @@ static void interrupted_native_frame(void) {
         assert(machine.retry_svc==(cases[i].done ? 0 : site.direct.svc));
         uint64_t busy=1;
         assert(!md_svc_registry_read(pid,frame,&busy,8) && !busy);
+        uintptr_t client_address=frame+MD_SVC_SLOT_SIZE,channel=0x5000;
+        struct md_entry_client client={.opaque={channel,(uintptr_t)pid,MD_ENTRY_CLIENT_BUSY|8}};
+        assert(!md_svc_registry_write(pid,frame,&frame,8));
+        assert(!md_svc_registry_write(pid,frame+MD_SVC_DIRECT_PENDING,&pending,8));
+        assert(!md_svc_registry_write(pid,frame+MD_SVC_CLIENT_OFFSET,&client_address,sizeof(client_address)));
+        struct user_pt_regs interrupted={.sp=frame+MD_SVC_SLOT_SIZE-16,.pc=registry.native.call};
+        for (unsigned variant=0;variant<3;++variant) {
+            struct md_entry_client invalid=client;
+            if (!variant) ++invalid.opaque[MD_ENTRY_CLIENT_CHANNEL];
+            else if (variant==1) ++invalid.opaque[MD_ENTRY_CLIENT_OWNER];
+            else invalid.opaque[MD_ENTRY_CLIENT_CONTROL]&=~(uintptr_t)MD_ENTRY_CLIENT_BUSY;
+            assert(!md_svc_registry_write(pid,client_address,&invalid,sizeof(invalid)));
+            r=interrupted;
+            assert(md_svc_machine_abandon(&registry,&machine,pid,channel,&r)==-EPROTO);
+            assert(!memcmp(&r,&interrupted,sizeof(r)));
+            assert(!md_svc_registry_read(pid,frame,&busy,8) && busy==frame);
+        }
+        assert(!md_svc_registry_write(pid,client_address,&client,sizeof(client)));
+        machine.draining=1; r=interrupted;
+        assert(!md_svc_machine_abandon(&registry,&machine,pid,channel,&r) && !machine.draining);
+        assert(r.sp==saved[32] && r.pc==site.direct.svc+4 && r.pstate==saved[31]);
+        assert(!memcmp(r.regs,saved,31*8));
+        assert(!md_svc_registry_read(pid,client_address,&client,sizeof(client)));
+        assert(client.opaque[MD_ENTRY_CLIENT_CONTROL]==8);
+        assert(!md_svc_registry_read(pid,frame,&busy,8) && !busy);
+        assert(!md_svc_registry_read(pid,frame+MD_SVC_DIRECT_PENDING,&busy,8) && !busy);
     }
     assert(!kill(pid,SIGKILL));
     int status; assert(waitpid(pid,&status,0)==pid && WIFSIGNALED(status));

@@ -183,8 +183,7 @@ void handle_notification(const struct seccomp_notif *request) {
     CHECK(t && t->born);
     /* Notification validation precedes the per-task entry acknowledgement.
      * The handler may commit after the event loop's earlier global scan. */
-    signal_entry_committed(t);
-    if (t->signals.control && t->signals.control->returning) signal_control_discard(t);
+    signal_execution_checkpoint(t);
     int replay=t->ready && q.data.instruction_pointer==abi.buffer_admit
         && (q.data.nr==SYS_epoll_pwait || q.data.nr==SYS_epoll_pwait2 || q.data.nr==SYS_epoll_ctl);
     CHECK(md_broker_filesystem_call(q.data.nr) || q.data.nr==SYS_prctl || q.data.nr==SYS_gettid

@@ -1,7 +1,7 @@
 #ifndef MD_EPOLL_CALLS_H
 #define MD_EPOLL_CALLS_H
 #include "fd_capture.h"
-#include "task_call.h"
+#include "task_call_arguments.h"
 #include <sys/epoll.h>
 #include <time.h>
 #include <poll.h>
@@ -15,7 +15,7 @@ struct md_epoll_frame {
     struct md_task_call_arguments admission;
     struct epoll_event event;
     struct timespec timeout;
-    uint64_t mask;
+    uint64_t mask,saved_mask;
     uintptr_t output;
     long result;
     int capacity, timed, masked, native_output;

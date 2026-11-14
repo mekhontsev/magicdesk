@@ -37,4 +37,17 @@ static inline int md_task_pending_scan(long (*trace)(int,pid_t,void *,void *),pi
         int (*visit)(void *,const siginfo_t *),void *context) {
     return md_task_pending_scan_scope(trace,pid,0,visit,context);
 }
+struct md_task_pending_mask { uint64_t wanted,found; };
+static inline int md_task_pending_mask_visit(void *context,const siginfo_t *info) {
+    struct md_task_pending_mask *p=context;
+    if (info->si_signo>0 && info->si_signo<NSIG)
+        p->found|=p->wanted&(UINT64_C(1)<<(info->si_signo-1));
+    return p->found==p->wanted;
+}
+static inline int md_task_pending_mask(long (*trace)(int,pid_t,void *,void *),pid_t pid,uint64_t wanted,uint64_t *found) {
+    struct md_task_pending_mask p={.wanted=wanted};
+    int result=wanted ? md_task_pending_scan(trace,pid,md_task_pending_mask_visit,&p) : 0;
+    *found=p.found;
+    return result<0 ? result : 0;
+}
 #endif

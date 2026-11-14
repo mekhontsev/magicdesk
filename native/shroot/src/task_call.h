@@ -1,13 +1,12 @@
 #ifndef MD_TASK_CALL_H
 #define MD_TASK_CALL_H
+#include "task_call_arguments.h"
 #include <asm/ptrace.h>
 #include <stdint.h>
 #include <sys/types.h>
 
 enum md_task_call_boundary { MD_TASK_CALL_USER, MD_TASK_CALL_ENTRY,
     MD_TASK_CALL_EXIT, MD_TASK_CALL_SECCOMP, MD_TASK_CALL_EMULATED_ENTRY };
-enum { MD_TASK_CALL_INTERRUPTIBLE=1 };
-struct md_task_call_arguments { long number; unsigned long value[6]; unsigned flags; };
 /* One task-affine syscall, driven by the supervisor event loop. The owner
  * retains the actor, argument storage and original event until completion.
  * No guest FD, helper thread or application-memory write is allocated.

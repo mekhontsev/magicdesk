@@ -5,10 +5,10 @@
 #include <stdint.h>
 
 /* Translation only. Kernel action exchange, delivery ordering and fault-aware
- * user copies belong to the stopped-task owner. No process-global state. */
+ * user copies belong to the signal operation owner. No process-global state. */
 #define MD_SIGNAL_SYS_BIT (UINT64_C(1) << (SIGSYS - 1))
 /* Sparse projection over a native proc snapshot; unrelated signal bits retain
- * their kernel value. Only the stopped-task coordinator supplies this view. */
+ * their kernel value. Only the task's signal owner supplies this view. */
 struct md_signal_status { uint64_t known, blocked_known, blocked, pending, shared_pending, caught, ignored; };
 /* An atomic wait saves the old mask but enters handlers under the temporary
  * one. Keep both until kernel restoration or handler-frame admission. */

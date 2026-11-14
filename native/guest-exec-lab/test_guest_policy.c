@@ -304,13 +304,15 @@ static int relative_path_filter(void) {
 }
 static int socket_signal_fd;
 static uintptr_t socket_signal_stack;
+struct socket_signal_notice { uint64_t pc,number,result; int signal; };
 static void socket_signal_handler(int number,siginfo_t *info,void *context) {
     (void)info;
     ucontext_t *frame=context;
     assert(frame->uc_mcontext.sp>socket_signal_stack-65536
         && frame->uc_mcontext.sp<socket_signal_stack+65536);
-    char value=(char)number;
-    assert(write(socket_signal_fd,&value,1)==1);
+    struct socket_signal_notice value={frame->uc_mcontext.pc,frame->uc_mcontext.regs[8],
+        frame->uc_mcontext.regs[0],number};
+    assert(write(socket_signal_fd,&value,sizeof(value))==sizeof(value));
 }
 static int socket_signals(void) {
     alarm(45);
@@ -350,6 +352,9 @@ static int socket_signals(void) {
             if (action==3) {
                 struct timeval timeout={.tv_sec=5};
                 assert(!setsockopt(server,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)));
+                struct timeval actual={0}; socklen_t size=sizeof(actual);
+                assert(!getsockopt(server,SOL_SOCKET,SO_RCVTIMEO,&actual,&size));
+                assert(actual.tv_sec==timeout.tv_sec && !actual.tv_usec);
             }
             assert(write(channel[1],"r",1)==1);
             struct sockaddr_storage peer; socklen_t size=sizeof(peer);
@@ -371,11 +376,21 @@ static int socket_signals(void) {
         /* Repeated delivery also covers a signal arriving before accept enters.
          * The pipe observes a handler or terminal close, never a settling delay. */
         int status=0, exited=0, notified=0;
+        struct socket_signal_notice notice={0};
         for (unsigned attempt=0;attempt<100 && !exited;++attempt) {
             assert(!kill(child,SIGTERM));
             struct pollfd event={channel[0],POLLIN|POLLHUP,0};
             assert(poll(&event,1,20)>=0);
-            if (event.revents&POLLIN) { assert(read(channel[0],&value,1)==1 && value==SIGTERM); notified=1; }
+            if (event.revents&POLLIN) {
+                assert(read(channel[0],&notice,sizeof(notice))==sizeof(notice) && notice.signal==SIGTERM);
+                notified=1;
+                /* EVENT_WAIT: handler acknowledgement precedes sigreturn.
+                 * Let terminal pipe closure report completion before sending
+                 * another signal; an immediate resend can starve the caller
+                 * forever at the same interrupted PC. Timeout retries the
+                 * case where delivery preceded the blocking operation. */
+                if (action!=2) assert(poll(&event,1,20)>=0);
+            }
             pid_t waited=waitpid(child,&status,WNOHANG); assert(waited==0 || waited==child);
             exited=waited==child;
             if (action==2 && notified) break;
@@ -386,7 +401,12 @@ static int socket_signals(void) {
             if (operation==2) assert(write(client,"p",1)==1);
             assert(waitpid(child,&status,0)==child); exited=1; close(client);
         }
-        if (!exited) { kill(child,SIGKILL); waitpid(child,&status,0); }
+        if (!exited) {
+            fprintf(stderr,"socket signal timeout: filtered=%u inet=%u operation=%u output=%u action=%u notified=%d pc=%#llx nr=%llu result=%lld\n",
+                filtered,inet,operation,output,action,notified,(unsigned long long)notice.pc,
+                (unsigned long long)notice.number,(long long)notice.result);
+            kill(child,SIGKILL); waitpid(child,&status,0);
+        }
         close(channel[0]); close(server);
         assert(exited);
         if (!action) assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGTERM);
@@ -843,7 +863,10 @@ static void signal_status(int disposition,int pending) {
         char text[16384]; size_t n=fread(text,1,sizeof(text)-1,f);
         assert(n && !ferror(f) && feof(f) && !fclose(f)); text[n]=0;
         assert(status_signal(text,"SigBlk:"));
-        assert(status_mask(text,"SigBlk:")==mask);
+        uint64_t reported=status_mask(text,"SigBlk:");
+        if (reported!=mask) fprintf(stderr,"signal status %s: query=%#llx proc=%#llx\n",
+            paths[i],(unsigned long long)mask,(unsigned long long)reported);
+        assert(reported==mask);
         assert(!!status_signal(text,"SigCgt:")==!disposition);
         assert(!!status_signal(text,"SigIgn:")==(disposition==1));
         assert(!!status_signal(text,"SigPnd:")==pending);
@@ -1491,9 +1514,21 @@ static int signal_epoll_domains(int after_exec) {
     execl("/proc/self/exe","guest_policy","signal-epoll-exec",(char *)NULL);
     assert(0); return 1;
 }
-struct waiting_signal { int descriptor,ready,filtered,synchronized; };
+enum { SIGNAL_WAITERS=48 };
+static _Atomic int pressure_stage,pressure_workers[SIGNAL_WAITERS];
+static void signal_pressure_timeout(int signal) {
+    (void)signal;
+    char state[18+SIGNAL_WAITERS]="signal timeout: ";
+    state[16]=(char)atomic_load(&pressure_stage); state[17]=' ';
+    for (unsigned i=0;i<SIGNAL_WAITERS;++i)
+        state[18+i]=(char)atomic_load(&pressure_workers[i]);
+    write(STDERR_FILENO,state,sizeof(state)); write(STDERR_FILENO,"\n",1);
+    _exit(124);
+}
+struct waiting_signal { int descriptor,ready,filtered,synchronized,index; };
 static void *signal_waiter(void *context) {
     struct waiting_signal *w=context;
+    atomic_store(&pressure_workers[w->index],'c');
     sigset_t set; sigemptyset(&set); sigaddset(&set,SIGSYS);
     int fd=w->descriptor ? signalfd(-1,&set,SFD_CLOEXEC) : -1;
     if (w->descriptor) assert(fd>=0);
@@ -1514,13 +1549,16 @@ static void *signal_waiter(void *context) {
         assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
         assert(mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0)==MAP_FAILED && errno==EACCES);
     }
+    atomic_store(&pressure_workers[w->index],'w');
     assert(write(w->ready,"r",1)==1);
     if (w->descriptor) {
         if (q>=0) {
+            atomic_store(&pressure_workers[w->index],'e');
             struct epoll_event event;
             assert(syscall(SYS_epoll_pwait2,q,&event,1,NULL,&set,8)==1 && event.data.u64==91);
         }
         struct signalfd_siginfo info;
+        atomic_store(&pressure_workers[w->index],'r');
         assert(read(fd,&info,sizeof(info))==sizeof(info) && info.ssi_signo==SIGSYS);
         /* Exercise the kernel boundary after denying mmap, not Bionic's lazy
          * fdsan table allocation for the pressure test's high descriptors. */
@@ -1531,22 +1569,28 @@ static void *signal_waiter(void *context) {
         assert(sigwaitinfo(&set,&info)==SIGSYS && info.si_signo==SIGSYS);
     }
     if (w->synchronized) assert(syscall(SYS_getppid)==-1 && errno==EACCES);
+    atomic_store(&pressure_workers[w->index],'d');
     return NULL;
 }
 static int signal_wait_pressure(int filtered,int epoll,int synchronized) {
+    struct sigaction timeout={.sa_handler=signal_pressure_timeout};
+    assert(!sigaction(SIGALRM,&timeout,NULL));
+    atomic_store(&pressure_stage,'c');
+    for (unsigned i=0;i<SIGNAL_WAITERS;++i) atomic_store(&pressure_workers[i],'-');
     alarm(30);
     sigset_t set; sigemptyset(&set); sigaddset(&set,SIGSYS);
     assert(!sigprocmask(SIG_BLOCK,&set,NULL));
-    enum { COUNT=48 };
+    enum { COUNT=SIGNAL_WAITERS };
     pthread_t workers[COUNT]; struct waiting_signal waiters[COUNT];
     int ready[2]; assert(!pipe(ready));
     for (unsigned i=0;i<COUNT;++i) {
         waiters[i]=(struct waiting_signal){.descriptor=epoll ? 2 : i%2,.ready=ready[1],
-            .filtered=filtered,.synchronized=synchronized};
+            .filtered=filtered,.synchronized=synchronized,.index=(int)i};
         assert(!pthread_create(workers+i,NULL,signal_waiter,waiters+i));
         char byte; assert(read(ready[0],&byte,1)==1);
     }
     if (synchronized) {
+        atomic_store(&pressure_stage,'f');
         struct sock_filter rules[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getppid,0,1),
@@ -1558,7 +1602,9 @@ static int signal_wait_pressure(int filtered,int epoll,int synchronized) {
         assert(syscall(SYS_getppid)==-1 && errno==EACCES);
     }
     struct stat st; assert(!stat("/",&st));
+    atomic_store(&pressure_stage,'s');
     for (unsigned i=0;i<COUNT;++i) assert(!pthread_kill(workers[i],SIGSYS));
+    atomic_store(&pressure_stage,'j');
     for (unsigned i=0;i<COUNT;++i) assert(!pthread_join(workers[i],NULL));
     close(ready[0]); close(ready[1]); alarm(0);
     puts("PASS concurrent signal waits: 48 readers, unrelated file progress and targeted wakeups");

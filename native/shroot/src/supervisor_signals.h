@@ -15,7 +15,7 @@ struct signal_control {
     struct md_kernel_action action;
     uint64_t entry_mask;
     siginfo_t forced;
-    int signal, started, checkpoint_suspended, reacquiring, descriptor_admission;
+    int signal, started, checkpoint_suspended, reacquiring, descriptor_admission, resident;
     unsigned selector;
     long descriptor_result;
     struct md_memory_page *wait_page;
@@ -26,7 +26,7 @@ struct signal_control {
     struct md_signal_entry *entry_packet;
     struct md_signal_wait_view entry_wait_view;
     int entry_blocked;
-    int returning;
+    int returning,pending_scan;
     siginfo_t entry_info;
 };
 
@@ -40,6 +40,7 @@ void process_reap(struct thread *t,pid_t child);
 int signal_observe(struct thread *t,struct md_task_signal_stop *stop,int with_registers);
 int signal_replace_info(struct thread *t,struct md_task_signal_stop *stop,const siginfo_t *info);
 int signal_control_parked(const struct thread *t);
+void signal_control_quiesced(struct thread *t);
 int signal_ignored(struct thread *t,int signal,struct md_task_signal_stop *stop);
 int signal_identity_allowed(const struct thread *from,const struct md_identity *identity,pid_t group,int signal);
 int signal_allowed(const struct thread *from,const struct thread *to,int signal);
@@ -53,6 +54,7 @@ long signal_logical_send(struct thread *from,const struct seccomp_data *call,con
 long signal_process_next(struct thread *from,pid_t selector,int signal,pid_t after);
 void signal_control_discard(struct thread *t);
 int signal_entry_committed(struct thread *t);
+void signal_execution_checkpoint(struct thread *t);
 void signal_entries_progress(void);
 void signal_query_publish(struct thread *t);
 int signal_entry_call(struct thread *t,const struct seccomp_data *call,unsigned long cookie);

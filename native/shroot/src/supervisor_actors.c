@@ -156,7 +156,7 @@ long quiesce_trace(int request,pid_t pid,void *address,void *data) {
         if (t && (t->phase==SOCKET_WAIT_ENTRY || t->phase==SOCKET_WAITING
                 || t->phase==EPOLL_CALL || readiness_waiting(t))) t->io.socket_waking=1;
         if (t && (t->phase==DEBUG_PARK_ENTRY || t->phase==DEBUG_PARK_EXIT)) t->debug.wait_waking=1;
-        if (t && t->signals.control) md_task_signal_control_quiesced(&t->signals.control->control);
+        if (t && t->signals.control) signal_control_quiesced(t);
     }
     /* Only barrier release restores this unchanged guest continuation.
      * Injected helper execution must retain the broker's stopped state. */
@@ -166,7 +166,14 @@ long quiesce_trace(int request,pid_t pid,void *address,void *data) {
 }
 
 int quiesce_event(struct md_task_quiesce *barrier,pid_t pid,int status,const struct rusage *usage) {
-    int child=md_task_quiesce_event(barrier,pid,status,usage);
+    struct thread *interrupted=find_thread(pid);
+    /* A service wake belongs to its wait continuation even when a barrier
+     * collected it. Transparent resume can restart the kernel wait while its
+     * owner still believes a wake is outstanding. Replay the existing stop. */
+    int retain=interrupted && (interrupted->io.waking || interrupted->io.socket_waking
+        || interrupted->debug.wait_waking || signal_control_parked(interrupted)
+        || entry_native_journal(interrupted));
+    int child=md_task_quiesce_event(barrier,retain,pid,status,usage);
     if (child<=0) return child;
     struct thread *t=find_thread((pid_t)child);
     /* The dispatcher can own the child's initial stop before this barrier
@@ -924,7 +931,7 @@ void task_call_resume(struct thread *t,struct md_task_call *call,int signal) {
 
 struct md_task_call *task_call_continuation(struct thread *t) {
     if (t->memory_op.svc_pool) return &t->memory_op.svc_pool->call;
-    if (t->signals.control && t->signals.control->started && !t->signals.control->retiring)
+    if (t->signals.control && !t->signals.control->resident && t->signals.control->started && !t->signals.control->retiring)
         return md_task_signal_control_call(&t->signals.control->control);
     if (t->seccomp.notification && !t->seccomp.notification->promoting) return &t->seccomp.notification->call;
     struct filter_install *install=t->seccomp.install;

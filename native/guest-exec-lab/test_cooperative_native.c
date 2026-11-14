@@ -329,6 +329,10 @@ int main(void) {
             boundary(pc,kind); ++count;
         }
     long result=0;
+    /* ARM64 signal admission can expose the rewound SVC with its original
+     * pointer argument in x0, not a negative restart code. */
+    assert(md_native_stopped(MD_NATIVE_RUNNING,104,0x12340000,100,104,120,&result)==MD_NATIVE_CANCELLED);
+    assert(result==-EINTR);
     for (long restart=-516;restart<=-512;++restart) {
         assert(md_native_stopped(MD_NATIVE_RUNNING,108,restart,100,104,120,&result)
             ==(restart==-515 ? MD_NATIVE_DONE : MD_NATIVE_CANCELLED));

@@ -77,8 +77,7 @@ static void capture_paths(struct md_entry_channel *c,const struct md_entry_call 
 }
 enum { CONT_CONTROL, CONT_CHANNEL, CONT_SEQUENCE, CONT_FLAGS };
 enum { CALL_NATIVE=1, CALL_DESCRIPTOR=2, CALL_NATIVE_SENT=4, CALL_KIND_SHIFT=3,
-    CALL_BEGIN=MD_ENTRY_EXECUTION_BEGIN<<CALL_KIND_SHIFT,
-    CALL_END=MD_ENTRY_EXECUTION_END<<CALL_KIND_SHIFT };
+    CALL_BEGIN=MD_ENTRY_EXECUTION_BEGIN<<CALL_KIND_SHIFT };
 static enum md_entry_outcome progress(struct md_entry_client *,struct md_entry_call *);
 static enum md_entry_outcome publish(struct md_entry_client *,struct md_entry_call *);
 static enum md_entry_outcome task_execute(struct md_entry_client *,struct md_entry_call *);
@@ -615,15 +614,24 @@ static enum md_entry_outcome task_execute(struct md_entry_client *client,struct 
             return MD_ENTRY_NATIVE_CALL;
         case MD_EXECUTION_CONTEXT:
             return started ? MD_ENTRY_UNKNOWN : kernel_call(call);
-        case MD_EXECUTION_GUEST: break;
+        case MD_EXECUTION_GUEST: case MD_EXECUTION_TRANSFER: break;
         default: return MD_ENTRY_UNKNOWN;
         }
         /* Initial execution and retained continuations use the same action
          * contract. A resumed owner has not admitted a second syscall. */
         started=1;
-        struct md_guest_execution execution=c->execution;
         c->completion.buffer=0;
-        long result=md_guest_execute(&execution);
+        unsigned completed=MD_ENTRY_EXECUTION_END;
+        long result;
+        if (c->execution_action==MD_EXECUTION_TRANSFER) {
+            completed=MD_ENTRY_TRANSFER_DONE;
+            atomic_store_explicit(&c->copying,1,memory_order_release);
+            result=md_guest_transfer(&c->transfer);
+            atomic_store_explicit(&c->copying,0,memory_order_release);
+        } else {
+            struct md_guest_execution execution=c->execution;
+            result=md_guest_execute(&execution);
+        }
         uintptr_t control=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
         unsigned idle=0;
         if ((control&MD_ENTRY_CLIENT_BUSY) || !atomic_compare_exchange_strong_explicit(
@@ -632,7 +640,7 @@ static enum md_entry_outcome task_execute(struct md_entry_client *client,struct 
         request.continuation[CONT_CONTROL]=control;
         request.continuation[CONT_CHANNEL]=(uintptr_t)c;
         request.continuation[CONT_SEQUENCE]=c->sequence;
-        request.continuation[CONT_FLAGS]=CALL_END;
+        request.continuation[CONT_FLAGS]=(uintptr_t)completed<<CALL_KIND_SHIFT;
         request.args[0]=(uint64_t)result;
         request.args[1]=c->completion.buffer;
         request.args[2]=(uint64_t)c->completion.copied;

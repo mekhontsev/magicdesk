@@ -92,6 +92,7 @@ Android kernel: actual task lifetime, descriptors, data IO and native checks
 | `supervisor_descriptors.c`, `supervisor_io.c`, `supervisor_domain.c` | Descriptor operations, captured IPC/control IO and namespace transitions | Interception of ordinary native read/write |
 | `supervisor_identity.c` | Credential calls, capabilities and resource-limit copies | Native Android identity changes |
 | `supervisor_signals.c` | Guest signal delivery, pending signals, masks, frames and signalfd publication | Independent task scheduling |
+| `signal_operation.c`, `task_signal_control.c` | Transport-independent signal operations and their stopped-task adapter | A second signal model for resident entry |
 | `supervisor_seccomp.c` | Guest policy admission, listeners, TSYNC and inherited host-policy delivery | A second syscall implementation |
 | `supervisor_readiness.c` | Poll/epoll admission, descriptor loans, waits and interruption | Ordinary native data IO |
 | `fs_worker.c`, `namespace_broker.c`, `fs_engine.c` | Captured filesystem requests and provider dispatch | Application IO through ordinary open data descriptions |
@@ -310,11 +311,14 @@ are connected to this owner. Typed ioctl input capture and `fd_install` retain
 source OFDs, fixed-slot metadata and atomic SEND semantics, including protected
 callers. Native read/write/poll paths do not consult this queue.
 
-The engine's `signal_actions`, `signal_view` and `task_signal_control`
+The engine's `signal_actions`, `signal_view` and `signal_operation`
 owners preserve logical SIGSYS actions, masks, pending state and handler-entry
 frames, including nonlocal handler exits. Proc status and debugger mask views
 reuse those owners; proc status does not expose an adapter's temporary mask.
-Protected copying borrows the existing `task_call` owner;
+Signal operations yield typed copies, native effects and pending-queue requests.
+Resident execution serves them over the common channel; `task_signal_control`
+adapts the same model to a stopped Base caller. Protected resident copies use
+the common transfer action, including vectors larger than one packet;
 ordinary native IO acquires no additional turn or observation. `signal_pending`
 separates thread-private and process-shared SIGSYS queues and the shared-sighand
 wait domain. Other signals retain native kernel queues. `signal_fd` integrates
@@ -326,6 +330,9 @@ publication, never a blocking wait. Parked waits release shared transport slots.
 
 Temporary masks for ppoll, pselect6, epoll_pwait/pwait2 and sigsuspend retain
 kernel handler-entry and sigreturn semantics, including nonlocal handler exits.
+Resident waits request no initial register context. At an actual interrupted
+atomic wait, the owner retires its resources and private client at the delivery
+stop, before any further tracee syscall can discard the kernel's saved mask.
 TSYNC retains immutable admission snapshots for already admitted calls and
 pending Android denials. A group barrier is limited to filter installation;
 ordinary syscalls do not acquire global entry tracing. Owned completion gates

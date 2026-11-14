@@ -95,6 +95,12 @@ void readiness_unwatch(struct thread *t) {
     }
 }
 
+void readiness_wait_cancel(struct thread *t) {
+    /* Remove the registration while the job still owns its event descriptor. */
+    readiness_unwatch(t);
+    md_epoll_wait_cancel(&t->readiness->wait);
+}
+
 static void readiness_admission_release(struct readiness_owner *o,int commit) {
     if (o->reserved) {
         CHECK(!md_control_epoll_admit_finish(md_control_epoll_from_object(o->queue),commit));
@@ -118,15 +124,20 @@ static void readiness_delivery_release(struct readiness_owner *o) {
     o->delivery_waiting=0;
 }
 
+static void readiness_resample(struct readiness_owner *o) {
+    readiness_delivery_release(o);
+    md_epoll_wait_resample(&o->wait);
+}
+
 void readiness_evict_park(struct thread *t,int finished,long result) {
     struct readiness_owner *o=t->readiness;
     readiness_delivery_release(o);
-    md_epoll_wait_cancel(&o->wait);
+    readiness_wait_cancel(t);
     retry_clear(t,RETRY_READINESS);
     o->parked=1; t->phase=DISPATCHING;
     if (finished) { o->finishing=1; o->finish_result=result; }
     else if (o->wait.task_count) { o->finishing=1; o->finish_result=o->wait.task_count; }
-    else if (o->loans[READINESS_TASK_QUEUE].number>=0) md_epoll_wait_resample(&o->wait);
+    else if (o->loans[READINESS_TASK_QUEUE].number>=0) readiness_resample(o);
     CHECK(!md_event_signal(fd_ready));
 }
 
@@ -165,8 +176,7 @@ void readiness_release(struct thread *t) {
     if (o->task_started) md_control_epoll_task_abandon(o->task_control);
     else md_control_epoll_task_finish(o->task_control,-ECANCELED);
     if (o->task_control) CHECK(!md_event_signal(fd_ready));
-    readiness_unwatch(t);
-    md_epoll_wait_cancel(&o->wait);
+    readiness_wait_cancel(t);
     md_poll_wait_free(o->poll);
     md_fd_capture_cancel(&o->capture);
     md_received_fds_release(o->received);
@@ -372,7 +382,7 @@ static int readiness_shared(struct thread *t) {
     CHECK(!md_buffer_span(&t->fs.buffer,&span));
     struct md_epoll_frame *frame=span.data;
     struct md_control_file provider=md_fd_object_readiness(o->target);
-    if (!o->operation && t->entry.execution && !frame->masked) return 0;
+    if (!o->operation && t->entry.execution) return 0;
     /* An admitted virtual subscription is supervisor-owned state. Reuse its
      * normal ctl path without manufacturing a stopped caller. Cold selector
      * admission, task-affine targets and exclusive native capture retain
@@ -607,6 +617,15 @@ static void readiness_capture(struct thread *t,unsigned command,long value) {
     buffer_reply(t,MD_EPOLL_CAPTURED);
 }
 
+static void readiness_mask_saved(struct thread *t,long result) {
+    if (result) { readiness_reply(t,result); return; }
+    struct md_buffer_span span; CHECK(!md_buffer_span(&t->fs.buffer,&span));
+    struct md_epoll_frame *frame=span.data;
+    t->readiness->original_mask=t->signals.host
+        ? md_signal_view_mask(frame->saved_mask,t->signals.host_blocked) : frame->saved_mask;
+    readiness_start(t);
+}
+
 static void readiness_begin(struct thread *t,const struct user_pt_regs *r) {
     struct md_buffer_span span;
     int error=md_buffer_span(&t->fs.buffer,&span);
@@ -646,7 +665,13 @@ static void readiness_begin(struct thread *t,const struct user_pt_regs *r) {
         if (o->operation!=EPOLL_CTL_ADD && o->operation!=EPOLL_CTL_MOD && o->operation!=EPOLL_CTL_DEL) error=-EINVAL;
     }
     t->readiness=o;
-    if (error) readiness_reply(t,error); else readiness_start(t);
+    if (error) { readiness_reply(t,error); return; }
+    if (t->entry.execution && !o->operation && ((struct md_epoll_frame *)span.data)->masked) {
+        uintptr_t address=md_memory_buffer_address(t->memory,&t->fs.buffer);
+        uint64_t args[6]={0,0,address+offsetof(struct md_epoll_frame,saved_mask),8};
+        entry_effect(t,SYS_rt_sigprocmask,args,readiness_mask_saved); return;
+    }
+    readiness_start(t);
 }
 
 static void readiness_poll_load(struct thread *t) {
@@ -671,10 +696,15 @@ static void readiness_poll_load(struct thread *t) {
 }
 
 static void readiness_effect_done(struct thread *t,long result) {
-    socket_unwatch(t);
-    md_epoll_wait_cancel(&t->readiness->wait);
+    readiness_wait_cancel(t);
     int waking=t->io.socket_waking;
     t->io.socket_waking=0;
+    if (t->signals.wait_view.active && !waking && result==-EINTR) {
+        /* Preserve the temporary logical mask until actual handler admission.
+         * Atomic waits return EINTR even when the action requests SA_RESTART. */
+        readiness_reply(t,-EINTR); return;
+    }
+    signal_wait_restore(t);
     if (waking && result==-EINTR) result=0;
     readiness_task_progress(t,1,result);
 }
@@ -682,9 +712,20 @@ static void readiness_effect_done(struct thread *t,long result) {
 static void readiness_native_call(struct thread *t) {
     struct readiness_owner *o=t->readiness;
     if (t->entry.control) {
+        struct md_buffer_span span; CHECK(!readiness_frame(t,&span));
+        struct md_epoll_frame *frame=span.data;
+        if (frame->masked) {
+            t->signals.wait_view=(struct md_signal_wait_view){.active=1,
+                .saved=o->original_mask,.temporary=frame->mask&md_signal_blockable_mask()};
+            if (t->signals.host) t->signals.host_blocked=!!(frame->mask&MD_SIGNAL_SYS_BIT);
+            if (t->signals.host && !t->signals.host_blocked && (md_signal_pending_has(t->signals.pending,MD_SIGNAL_PRIVATE)
+                    || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED))) {
+                readiness_reply(t,-EINTR); return;
+            }
+        }
         int error=md_epoll_wait_observe(&o->wait,md_control_epoll_from_object(o->queue));
         if (!error && o->wait.job.started) error=socket_watch(t);
-        if (error) { readiness_reply(t,error); return; }
+        if (error) { signal_wait_restore(t); readiness_reply(t,error); return; }
         uint64_t args[6]; memcpy(args,o->native_call.value,sizeof(args));
         entry_effect(t,o->native_call.number,args,readiness_effect_done);
         return;
@@ -746,6 +787,7 @@ static void readiness_park(struct thread *t,uintptr_t address) {
 
 static void readiness_task_progress(struct thread *t,int completed,long value) {
     struct readiness_owner *o=t->readiness;
+    if (completed) readiness_wait_cancel(t);
     if (o->detached && o->loans[READINESS_TASK_QUEUE].number>=0) {
         o->restore_completed=completed;
         if (!readiness_restore(t,READINESS_RESTORE_WAIT,value)) return;
@@ -888,6 +930,11 @@ int readiness_signal_event(struct thread *t,int signal,struct md_task_signal_sto
         CHECK(!error);
         resume(t->pid,0); return 1;
     }
+    if (t->entry.execution && t->entry.effect==readiness_effect_done && t->signals.wait_view.active
+            && signal!=SIGSTOP && signal!=SIGKILL && entry_execution_interrupt(t,stop)) {
+        if (!t->resume_lost) deliver_signal(t->pid,signal,restored,stop);
+        return 1;
+    }
     if (!t->readiness->signal_pending) return 0;
     if (readiness_interrupt_prepare(t)) {
         stop->has_regs=0;
@@ -921,7 +968,7 @@ int readiness_native_event(struct thread *t,int status) {
                 readiness_interrupted(t);
         } else if (o->evicting) readiness_evict_park(t,0,0);
         else if (o->resample) {
-            o->resample=0; md_epoll_wait_resample(&o->wait); readiness_task_progress(t,1,0);
+            o->resample=0; readiness_resample(o); readiness_task_progress(t,1,0);
         }
         else readiness_reply(t,o->finish_result);
         return 1;
@@ -936,6 +983,15 @@ int readiness_native_event(struct thread *t,int status) {
                 || info.instruction_pointer!=abi.task_return
                 || info.seccomp.nr!=(unsigned long)call->number
                 || memcmp(info.seccomp.args,call->value,sizeof(call->value))) return 0;
+        if (t->io.socket_waking && t->readiness->wait.blocking) {
+            /* Entry admission preceded this wake. The interrupt may have
+             * coalesced with seccomp; the blocking effect has not run. */
+            t->io.socket_waking=0;
+            t->readiness->resample=1;
+            signal_wait_restore(t);
+            readiness_wait_cancel(t);
+            wait_cancel_admitted(t,EPOLL_CALL); return 1;
+        }
         resume(t->pid,0); return 1;
     }
     if (!event && signal==(SIGTRAP|0x80) && t->phase==EPOLL_CALL) {
@@ -957,25 +1013,25 @@ int readiness_native_event(struct thread *t,int status) {
         }
         CHECK(entry);
         if (o->evicting) {
-            md_epoll_wait_cancel(&o->wait);
+            readiness_wait_cancel(t);
             wait_cancel_entry(t,EPOLL_CALL);
             return 1;
         }
         struct md_control_actor actor={.pid=t->pid,.signals=t->signals.pending};
         if (md_poll_wait_task_ready(o->poll,&actor)>0) {
             o->finishing=1; o->finish_result=md_poll_wait_interrupted(o->poll,&actor);
-            md_epoll_wait_cancel(&o->wait);
+            readiness_wait_cancel(t);
             wait_cancel_entry(t,EPOLL_CALL); return 1;
         }
         if (o->wait.blocking && md_control_epoll_task_ready(md_control_epoll_from_object(o->queue),&actor)>0) {
             o->resample=1;
-            md_epoll_wait_cancel(&o->wait); wait_cancel_entry(t,EPOLL_CALL); return 1;
+            readiness_wait_cancel(t); wait_cancel_entry(t,EPOLL_CALL); return 1;
         }
         int error=o->poll ? 0 : md_epoll_wait_observe(&o->wait,md_control_epoll_from_object(o->queue));
         if (!error && o->wait.job.started) error=socket_watch(t);
         if (error) {
             o->finishing=1; o->finish_result=error;
-            md_epoll_wait_cancel(&o->wait);
+            readiness_wait_cancel(t);
             wait_cancel_entry(t,EPOLL_CALL);
             return 1;
         }
@@ -1024,8 +1080,7 @@ int readiness_native_event(struct thread *t,int status) {
     int waking=t->io.socket_waking; t->io.socket_waking=0;
     SUPERVISOR_TRACE("PROBE readiness-return pid=%d value=%ld waking=%d virtual=%d blocking=%d\n",
         t->pid,value,waking,t->readiness->wait.virtual_count,t->readiness->wait.blocking);
-    socket_unwatch(t);
-    md_epoll_wait_cancel(&t->readiness->wait);
+    readiness_wait_cancel(t);
     if (!event && signal==(SIGTRAP|0x80) && (restart || value==-EINTR) && !waking) {
         /* EVENT_WAIT: the delivery stop precedes the adapter checkpoint. Do
          * not retire the owner before learning whether the signal is ignored.
@@ -1052,9 +1107,8 @@ int readiness_native_event(struct thread *t,int status) {
                 else {
                     struct md_control_epoll *q=md_control_epoll_from_object(o->queue);
                     if (md_control_epoll_task_ready(q,&actor)>0 && o->loans[READINESS_TASK_QUEUE].number>=0) {
-                        readiness_delivery_release(o);
                         signal_wait_restore(t);
-                        md_epoll_wait_resample(&o->wait);
+                        readiness_resample(o);
                         if (shield(t)) readiness_task_progress(t,1,0);
                         return 1;
                     }

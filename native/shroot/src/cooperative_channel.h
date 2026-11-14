@@ -11,6 +11,7 @@
 #include "file_open.h"
 #include "memory_admission.h"
 #include "guest_execution.h"
+#include "guest_transfer.h"
 #include "interception_route.h"
 #include "identity_view.h"
 #include "uts_view.h"
@@ -53,9 +54,9 @@ enum md_entry_state { MD_ENTRY_IDLE, MD_ENTRY_REQUEST, MD_ENTRY_FD_REQUEST, MD_E
 enum { MD_ENTRY_WAKE = 0x434f4f50, MD_ENTRY_BIND };
 enum md_entry_request_kind { MD_ENTRY_SYSCALL, MD_ENTRY_BUFFER_CONTROL, MD_ENTRY_FD_CONTROL,
     MD_ENTRY_RESOURCE_CONTROL, MD_ENTRY_EFFECT_DONE, MD_ENTRY_EXECUTION_BEGIN, MD_ENTRY_EXECUTION_END,
-    MD_ENTRY_NATIVE_REQUEST };
+    MD_ENTRY_NATIVE_REQUEST, MD_ENTRY_TRANSFER_DONE };
 static inline int md_entry_control_request(unsigned kind) {
-    return kind>=MD_ENTRY_BUFFER_CONTROL && kind<=MD_ENTRY_NATIVE_REQUEST;
+    return kind>=MD_ENTRY_BUFFER_CONTROL && kind<=MD_ENTRY_TRANSFER_DONE;
 }
 /* The open effect chooses its FD. Resolve only a completed, non-birth effect;
  * explicit descriptors are encoded as fd+1, never this sentinel. */
@@ -111,11 +112,16 @@ struct md_entry_channel {
         size_t size;
         unsigned char bytes[512];
     } output;
-    struct {
-        uint64_t sequence;
-        uintptr_t address[2];
-        char paths[2][4096];
-    } input;
+    /* Worker input and supervisor-owned copying are mutually exclusive turns.
+     * Transfer completion invalidates the input sequence before returning it. */
+    union {
+        struct {
+            uint64_t sequence;
+            uintptr_t address[2];
+            char paths[2][4096];
+        } input;
+        struct md_guest_transfer transfer;
+    };
     struct md_memory_admission memory;
     struct md_identity_view identity;
     struct md_uts_view uts;

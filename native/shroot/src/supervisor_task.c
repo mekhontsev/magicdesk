@@ -624,7 +624,6 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
         return 1;
     }
     if (nr==SYS_rt_sigtimedwait) {
-        if (entry_context(t,MD_CONTEXT_SIGNAL)) return 1;
         /* Observed waits need PID translation and must survive service
          * quiescence without publishing its EINTR. Unselected host waits
          * remain native; both translated paths share one deadline owner. */
