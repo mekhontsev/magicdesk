@@ -1710,8 +1710,16 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 focusTaskId,
                 windowing,
                 transaction);
-        ShellWindowTransitionExecutor.applyAtomic(
-                service, transactionClass, transaction);
+        if (focusTaskId >= 0) {
+            final Object target = HiddenTaskApi.requireTask(
+                    service, displayId, focusTaskId);
+            ShellWindowTransitionExecutor.applySelection(
+                    service, displayId, transactionClass, transaction,
+                    HiddenTaskApi.getTaskWindowingMode(target));
+        } else {
+            ShellWindowTransitionExecutor.applyAtomic(
+                    service, transactionClass, transaction);
+        }
         if (mPlanes.containsKey(Integer.valueOf(focusTaskId))) {
             mPlaneOrder.remove(Integer.valueOf(focusTaskId));
             mPlaneOrder.add(Integer.valueOf(focusTaskId));

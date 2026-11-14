@@ -1126,6 +1126,9 @@ public final class TaskDisplayAreaLaunchCommand {
             final int sourceDisplayId,
             final int originalWindowingMode,
             final FrameworkWindowGeometry.Plan originalGeometry) throws ReflectiveOperationException {
+        // A failed acknowledgement does not cancel the submitted display move.
+        // EVENT_WAIT: WM transition/input commit; failure leaves recovery unsubmitted.
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
         final Object task = HiddenTaskApi.findTask(
                 service, Display.INVALID_DISPLAY, taskId);
         if (task == null) {

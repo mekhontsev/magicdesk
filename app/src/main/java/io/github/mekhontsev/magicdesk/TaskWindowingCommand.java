@@ -159,27 +159,6 @@ public final class TaskWindowingCommand {
         focusTasks(service, displayId, taskIds, transactionClass, transaction);
     }
 
-    static void focusTasksWithSurfaceCommit(
-            final Object service,
-            final int displayId,
-            final int[] taskIds) throws ReflectiveOperationException {
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        addFocusTasks(
-                service,
-                displayId,
-                taskIds,
-                transactionClass,
-                transaction);
-        final Object target = HiddenTaskApi.requireTask(
-                service, displayId, taskIds[taskIds.length - 1]);
-        ShellWindowTransitionExecutor.applySelection(
-                service, displayId, transactionClass, transaction,
-                HiddenTaskApi.getTaskWindowingMode(target));
-    }
-
     static void focusTasks(
             final Object service,
             final int displayId,
@@ -192,7 +171,11 @@ public final class TaskWindowingCommand {
                 taskIds,
                 transactionClass,
                 transaction);
-        applyFocusTransaction(service, transactionClass, transaction);
+        final Object target = HiddenTaskApi.requireTask(
+                service, displayId, taskIds[taskIds.length - 1]);
+        ShellWindowTransitionExecutor.applySelection(
+                service, displayId, transactionClass, transaction,
+                HiddenTaskApi.getTaskWindowingMode(target));
     }
 
     static void addFocusTasks(
@@ -256,9 +239,9 @@ public final class TaskWindowingCommand {
             final Object service,
             final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
-        // Focus is a steady-state z-order change. Submitting the complete WCT
-        // atomically avoids creating a raw transition token that can outlive an
-        // external display when a queued focus request races desktop teardown.
+        // Child-only repair stays inside an already selected fullscreen plane.
+        // Its owner retains parent and surface ordering; no native freeform
+        // layer assignment is needed here.
         ShellWindowTransitionExecutor.applyAtomic(
                 service, transactionClass, transaction);
     }

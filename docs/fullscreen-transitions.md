@@ -527,7 +527,11 @@ or remove the display. Phone return is reserved for display loss.
 
 Shell-side WCT submission has one owner. Ordinary freeform focus submits one
 system `TO_FRONT` through `startForShellAdoption`; fullscreen-plane selection
-uses an atomic WCT. Neither path appends another task-focus submission. A cold
+uses an atomic WCT. The same selection policy applies to missing-input recovery,
+raw focus commands, and the successor of a closing fullscreen task. Callers do
+not choose a separate surface-commit variant. Child-only repair inside an
+already selected fullscreen plane remains atomic and does not reorder its parent.
+Neither path appends another task-focus submission. A cold
 freeform launch starts behind the desktop host so its framework default state
 is never exposed. Once the task ID is known, one complete WMShell `OPEN`
 establishes mode, bounds, and front order. No raw opening token crosses that

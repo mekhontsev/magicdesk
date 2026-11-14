@@ -144,7 +144,7 @@ final class ShellDesktopWorkspaceCoordinator {
                     mService, command.displayId, targetTaskId);
             if (HiddenTaskApi.getTaskWindowingMode(targetTask)
                     == WINDOWING_MODE_FREEFORM) {
-                TaskWindowingCommand.focusTasksWithSurfaceCommit(
+                TaskWindowingCommand.focusTasks(
                         mService, command.displayId, physicalOrder);
             } else {
                 TaskWindowingCommand.focusTasks(

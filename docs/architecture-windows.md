@@ -346,6 +346,8 @@ mode, final bounds, density, caption policy, and reveal. Fullscreen clears the
 source bounds and inherits phone density when returning to ordinary phone use.
 Both modes share this transaction builder and failure restoration path; neither
 uses a raw root-task display move followed by a separate reveal/focus operation.
+Failure recovery passes the framework transition/input barrier before resolving
+the task's current display; an expired acknowledgement does not cancel a move.
 WM owns the cross-display task leash as well as the task configuration, which
 alone can report correct fullscreen bounds while an old surface crop remains.
 Fullscreen return also uses the existing framework transition/input barrier
