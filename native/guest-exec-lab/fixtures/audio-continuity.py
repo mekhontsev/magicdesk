@@ -6,6 +6,7 @@ Exact silence is evidence, not by itself an underrun diagnosis: use a known
 continuous source and correlate the timestamps with client scheduling.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,56 @@ import selectors
 import signal
 import subprocess
 import time
+import uuid
+
+
+def graph_snapshot(env):
+    return json.loads(subprocess.check_output(['pw-dump'], env=env, timeout=5))
+
+
+def resolve_target(graph, name):
+    nodes = [item for item in graph if item.get('type', '').endswith(':Node')]
+    matches = [item for item in nodes if
+               str(item.get('info', {}).get('props', {}).get('object.serial')) == name
+               or item.get('info', {}).get('props', {}).get('node.name') == name]
+    if len(matches) != 1:
+        raise ValueError('Audio target must identify exactly one live node: ' + name)
+    node = matches[0]
+    props = node['info']['props']
+    if props.get('media.class') not in ('Audio/Sink', 'Audio/Source', 'Stream/Output/Audio'):
+        raise ValueError('Target is not an audio output: ' + name)
+    return dict(id=node['id'], serial=int(props['object.serial']),
+                name=props['node.name'], mediaClass=props['media.class'])
+
+
+def recorder_command(target, name):
+    # Numeric object.serial avoids name-based direction filtering for output
+    # streams. Never let session policy silently substitute the default sink.
+    properties = {'node.name': name, 'stream.capture.sink': True,
+                  'node.dont-fallback': True, 'node.dont-move': True,
+                  'node.dont-reconnect': True}
+    return ['pw-record', '--target', str(target['serial']), '--properties',
+            json.dumps(properties), '--raw', '--format', 's16', '--rate', '48000',
+            '--channels', '2', '-']
+
+
+def verify_capture(graph, target, name):
+    if resolve_target(graph, str(target['serial'])) != target:
+        raise RuntimeError('Audio target identity changed during capture')
+    recorder = [item for item in graph if item.get('type', '').endswith(':Node')
+                and item.get('info', {}).get('props', {}).get('node.name') == name]
+    if len(recorder) != 1:
+        raise RuntimeError('Owned audio recorder is missing or ambiguous')
+    links = [item['info'] for item in graph if item.get('type', '').endswith(':Link')
+             and item.get('info', {}).get('input-node-id') == recorder[0]['id']]
+    if not links or any(link.get('output-node-id') != target['id']
+                        or link.get('state') != 'active' for link in links):
+        raise RuntimeError('Audio recorder is not linked exclusively to the requested target')
+    return dict(target=target, recorderId=recorder[0]['id'], links=len(links))
+
+
+def inspect_capture(env, target, name):
+    return verify_capture(graph_snapshot(env), target, name)
 
 
 class PhaseTimeline:
@@ -93,19 +144,32 @@ def main():
         parser.error('seconds must be in 3..600')
     env = dict(entry.split('=', 1) for entry in
                Path(f'/proc/{args.env_pid}/environ').read_bytes().decode().split('\0') if '=' in entry)
-    process = subprocess.Popen(['pw-record', '--target', args.target, '--properties',
-        '{ stream.capture.sink = true }', '--raw', '--format', 's16', '--rate', '48000',
-        '--channels', '2', '-'], env=env, stdout=subprocess.PIPE,
+    target = resolve_target(graph_snapshot(env), args.target)
+    recorder_name = 'md-audio-capture-' + uuid.uuid4().hex
+    process = subprocess.Popen(recorder_command(target, recorder_name), env=env, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, bufsize=0)
     sel = selectors.DefaultSelector()
     sel.register(process.stdout, selectors.EVENT_READ)
     pcm = PCMWindow()
     start = last = time.monotonic()
     gaps = []
+    capture = None
+    inspection = ThreadPoolExecutor(max_workers=1)
+    check = None
+    final_check = False
     timeline = PhaseTimeline(phases, pcm.rate)
     print(json.dumps(dict(event='recording', start=start, target=args.target)), flush=True)
     try:
-        while pcm.frames < args.seconds * pcm.rate:
+        while True:
+            if check is not None and check.done():
+                capture = check.result()
+                if final_check:
+                    break
+                print(json.dumps(dict(event='connected', **capture)), flush=True)
+                check = None
+            if pcm.frames >= args.seconds * pcm.rate and capture is not None and not final_check:
+                check = inspection.submit(inspect_capture, env, target, recorder_name)
+                final_check = True
             # EVENT_WAIT: PCM/EOF; missing frames at the deadline fail the capture.
             remaining = start + args.seconds + 20 - time.monotonic()
             if remaining <= 0 or not sel.select(remaining):
@@ -118,6 +182,10 @@ def main():
                 gaps.append(dict(start=last, end=stamp))
             last = stamp
             pcm.feed(data, stamp)
+            if capture is None and check is None:
+                # Keep draining PCM during the bounded graph query; blocking
+                # here can fill pw-record's stdout and disturb the measurement.
+                check = inspection.submit(inspect_capture, env, target, recorder_name)
             for marker in timeline.advance(pcm.frames, stamp):
                 print(json.dumps(marker), flush=True)
         pcm.finish_span(last)
@@ -129,6 +197,7 @@ def main():
         report = dict(target=args.target, start=start, end=last, frames=pcm.frames,
                       rate=pcm.rate, zeroSpans=pcm.spans, deliveryGaps80ms=gaps,
                       recorderExit=process.returncode, stoppedByClient=True,
+                      capture=capture,
                       phases=timeline.markers,
                       stderr=stderr.decode(errors='replace'))
         print(json.dumps(report), flush=True)
@@ -140,6 +209,7 @@ def main():
         if process.poll() is None:
             process.kill()
             process.wait()
+        inspection.shutdown(wait=True, cancel_futures=True)
         sel.close()
 
 

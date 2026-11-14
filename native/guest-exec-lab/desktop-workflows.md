@@ -297,6 +297,14 @@ PipeWire's server-only configuration. The fixture records stereo 48 kHz PCM,
 reports all-zero 10 ms blocks after warmup and delivery gaps over 80 ms, and
 retains monotonic observation times. `test_audio_continuity.py` checks fragmented
 input, warmup, trailing bytes and quiet but nonzero samples.
+`NODE` is a unique live node name or `object.serial`, not its reusable numeric
+node ID. The recorder resolves that identity before connecting, forbids fallback
+or policy retargeting, and verifies its actual links at first PCM and completion.
+Sink monitors and individual output streams share this check; a recording of the
+default mix cannot qualify an explicitly selected application stream. Source
+removal, ambiguous names or unexpected links fail the measurement.
+PCM remains drained during the bounded graph queries. The reported frame count
+includes any frames received while the final identity check completes.
 For one continuous idle/motion/idle recording, replace `--seconds` with
 `--phase idle-before:30 --phase motion:30 --phase idle-after:30`. Phase events
 report both the intended PCM-frame boundary and its actual observation time;
