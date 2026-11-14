@@ -56,7 +56,7 @@ final class FrameworkWindowGeometry {
         void apply(FrameworkWindowingApi windowing, Object transaction, Object token)
                 throws ReflectiveOperationException {
             if (adapted()) {
-                PlatformDrivers.current().windowing().preserveTaskScale(
+                PlatformDrivers.current().windowing().prepareTaskGeometry(
                         transaction, windowing.tokenClass(), token, scale);
             }
             windowing.setBounds(transaction, token, logicalBounds);

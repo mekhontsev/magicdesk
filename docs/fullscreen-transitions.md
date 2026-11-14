@@ -223,7 +223,13 @@ operation, without retrying or rebuilding the Activity, which can discard
 transient state such as the browser's HTML Fullscreen API session.
 
 Explicit snap and resize commands retain the user's windowed preference in the
-task's runtime state. A replacement application process does not cancel that
+task's runtime state. Insets changes observed during a bounds command or
+fullscreen restore cannot override that placement. Bounds observation and
+command completion are distinct: seeing the target rectangle does not release
+the command's protection while its client is still being reconfigured. A later
+non-immersive-to-immersive request after completion remains effective; no extra
+settling timer or task query is added.
+A replacement application process does not cancel that
 preference: its first observed client sample reuses the bounded cold-start
 immersive protection, including a default non-immersive sample followed by the
 client's initial request to hide system bars. Protection is consumed once or

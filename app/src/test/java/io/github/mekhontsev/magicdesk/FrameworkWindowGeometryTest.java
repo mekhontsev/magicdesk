@@ -86,7 +86,7 @@ public final class FrameworkWindowGeometryTest {
                     boolean scaled=true; Object transaction, token; float scale;
                     boolean hasScaledWindows() { return scaled; }
                     float taskScale(Object task) { return ((Task)task).scale; }
-                    void preserveTaskScale(Object tx,Class<?> type,Object target,float value) {
+                    void prepareTaskGeometry(Object tx,Class<?> type,Object target,float value) {
                         transaction=tx; token=target; scale=value;
                     }
                     String geometryDiagnostic() { return "fixture"; }

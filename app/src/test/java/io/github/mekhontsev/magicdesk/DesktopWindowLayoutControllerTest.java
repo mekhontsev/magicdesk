@@ -28,12 +28,32 @@ public final class DesktopWindowLayoutControllerTest {
         execute(List.of(task(10, "freeform")), WindowLayoutPolicy.Retention.FLOATING);
         assertEquals(1, submissions.size());
         assertNotNull(states.state(10).boundsTransition());
+        assertTrue(states.state(10).isWindowedTransition());
         assertTrue(results.isEmpty());
         submissions.get(0).onComplete(new TaskRepository.ActionResult(true, "submitted"));
         assertEquals(List.of(true), results);
         assertNull(states.state(10).boundsTransition());
+        assertFalse(states.state(10).isWindowedTransition());
         // No observed geometry was fabricated by successful submission.
         assertNull(states.state(10).lastWindowBounds());
+    }
+
+    @Test public void targetObservationDoesNotEndRelayoutProtectionBeforeCommandCompletion() {
+        execute(List.of(task(10, "freeform")), WindowLayoutPolicy.Retention.ARRANGEMENT);
+        var state = states.state(10);
+        state.clearBoundsTransition(state.boundsTransition());
+        assertTrue(state.isWindowedTransition());
+        submissions.get(0).onComplete(new TaskRepository.ActionResult(true, "complete"));
+        assertFalse(state.isWindowedTransition());
+    }
+
+    @Test public void oldCommandCompletionDoesNotReleaseNewRelayoutProtection() {
+        execute(List.of(task(10, "freeform")), WindowLayoutPolicy.Retention.ARRANGEMENT);
+        execute(List.of(task(10, "freeform")), WindowLayoutPolicy.Retention.ARRANGEMENT);
+        submissions.get(0).onComplete(new TaskRepository.ActionResult(false, "old"));
+        assertTrue(states.state(10).isWindowedTransition());
+        submissions.get(1).onComplete(new TaskRepository.ActionResult(false, "declined"));
+        assertFalse(states.state(10).isWindowedTransition());
     }
 
     @Test public void batchFailureRestoresAllGeometryOwnership() {

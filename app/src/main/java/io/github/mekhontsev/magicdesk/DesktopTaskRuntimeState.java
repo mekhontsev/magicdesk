@@ -73,6 +73,7 @@ final class DesktopTaskRuntimeState {
 
     private Rect mLastWindowBounds;
     private BoundsTransition mBoundsTransition;
+    private BoundsTransition mBoundsCommand;
     private BoundsObservation mBoundsObservation;
     private Rect mWindowRestoreBounds;
     private Rect mArrangedWindowBounds;
@@ -121,6 +122,7 @@ final class DesktopTaskRuntimeState {
             final boolean preservesRestoreBounds) {
         mBoundsTransition = new BoundsTransition(
                 targetBounds, preservesRestoreBounds);
+        mBoundsCommand = mBoundsTransition;
         if (mBoundsObservation != null) {
             mBoundsObservation = mBoundsObservation.invalidated();
         }
@@ -141,6 +143,15 @@ final class DesktopTaskRuntimeState {
         if (mBoundsTransition == transition) {
             mBoundsTransition = null;
         }
+    }
+
+    synchronized void finishBoundsCommand(final BoundsTransition command) {
+        if (mBoundsCommand == command) mBoundsCommand = null;
+    }
+
+    synchronized boolean isWindowedTransition() {
+        // Observed target bounds do not mean the client has finished relayout.
+        return mBoundsCommand != null || isFullscreenRestoreTransition();
     }
 
     synchronized void clearNativeBoundsState() {

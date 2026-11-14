@@ -248,7 +248,11 @@ isolated behind these boundaries.
   same normalized snapshots. Rollback retains the captured logical size and
   scale, not a size converted using the destination's scale.
   The Honor extension passively reads `TaskInfo.hnTaskInfoEx.mFreeformScale`
-  and appends scale through the firmware WCT extension. It owns no task
+  and appends scale through the firmware WCT extension. Explicit geometry also
+  marks its bounds as caller-calculated in that same transaction, preventing
+  the firmware's configuration-change calculation from substituting a default
+  rectangle. Both extension methods must be available before writing.
+  It owns no task
   organizer, input route, HOME role, surface observer or system property.
   A fresh freeform transition may assign its scale only when it completes;
   an explicit placement then finalizes its requested footprint once and verifies

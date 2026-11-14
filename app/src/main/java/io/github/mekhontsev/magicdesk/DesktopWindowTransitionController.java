@@ -222,6 +222,13 @@ final class DesktopWindowTransitionController {
         final Boolean previous =
                 state.updateImmersiveObservation(
                         requestingImmersive, foreground);
+        final boolean windowedTransitionRequest = requestingImmersive
+                && state.isWindowedTransition();
+        if (windowedTransitionRequest) {
+            // Relayout can hide system bars without a new user fullscreen action.
+            // Retain that sample, but do not let it undo the geometry command.
+            state.setManualImmersiveOverride(true);
+        }
         if (initialSample) {
             // The shell launch returns once the task exists, before a cold
             // client publishes its initial insets state. The same bounded
@@ -245,7 +252,7 @@ final class DesktopWindowTransitionController {
         final boolean startupWindowedRequest = newImmersiveRequest
                 && state.consumeStartupWindowed(
                         SystemClock.uptimeMillis());
-        if (shouldClearManualImmersiveOverride(
+        if (!windowedTransitionRequest && shouldClearManualImmersiveOverride(
                 newImmersiveRequest, startupWindowedRequest)) {
             state.setManualImmersiveOverride(false);
         } else if (startupWindowedRequest) {
@@ -253,7 +260,8 @@ final class DesktopWindowTransitionController {
         }
         DesktopWindowTransitionProvenance.noteImmersiveObservation(taskId,
                 requestingImmersive, initialSample, foreground,
-                startupWindowedRequest ? "kept-startup-windowed" : "reconcile", state);
+                windowedTransitionRequest ? "kept-windowed-transition"
+                        : startupWindowedRequest ? "kept-startup-windowed" : "reconcile", state);
         mRuntimeState.scheduleRefresh();
     }
 
@@ -843,6 +851,7 @@ final class DesktopWindowTransitionController {
                 && state.isImmersiveRequestForeground()
                 && !state.isAppRequestedFullscreen()
                 && !state.hasManualImmersiveOverride()
+                && !state.isWindowedTransition()
                 && !state.isFullscreenTransition();
     }
 

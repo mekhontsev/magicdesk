@@ -8,8 +8,8 @@ public interface PlatformWindowingDriver {
     /** Optional firmware geometry, independent of managed Desktop ownership. */
     default boolean hasScaledWindows() { return false; }
 
-    /** Append firmware fields to the same transaction as logical bounds. */
-    default void preserveTaskScale(Object transaction, Class<?> tokenClass,
+    /** Preserve explicit geometry against firmware recalculation in the bounds transaction. */
+    default void prepareTaskGeometry(Object transaction, Class<?> tokenClass,
             Object token, float scale) throws ReflectiveOperationException { }
 
     default String geometryDiagnostic() { return "identity"; }
