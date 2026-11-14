@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark_cpu import observe_cpu
 from fixture_executor import FixtureExecutor
 from installed_desktop import controller_command, wait_controller
-from test_oci_services import Server, Suite
+from test_oci_services import Server, Suite, port
 
 
 PAGE = b'''<!doctype html><title>Shroot video and input</title>
@@ -306,8 +306,10 @@ def run(args, server_url, mode, index):
     suite.report['browserVideo'] = row
     launch_started = time.monotonic()
     try:
+        # Port zero enables Chromium's AutomationControlled mode. Observe the
+        # ordinary browser instead; readiness still requires its own endpoint.
         options = ['--no-first-run', '--user-data-dir=' + profile,
-                   '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
+                   '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=' + str(port()),
                    '--window-size=1280,900', *args.browser_arg, 'about:blank']
         if state:
             wait_controller(state, user=True)
@@ -334,6 +336,7 @@ def run(args, server_url, mode, index):
         row['target'] = target
         session = protocol.call('Target.attachToTarget', dict(targetId=target, flatten=True))['sessionId']
         protocol.call('Page.enable', session=session)
+        row['automationControlled'] = protocol.evaluate('navigator.webdriver', session)
         if getattr(args, 'url', None):
             protocol.call('Network.enable', session=session)
             protocol.call('Media.enable', session=session)
@@ -405,6 +408,7 @@ def run(args, server_url, mode, index):
             try:
                 row['failedPage'] = protocol.evaluate('({url:location.href,title:document.title,'
                     'visibility:document.visibilityState,focused:document.hasFocus(),'
+                    'playerError:String(document.getElementById("movie_player")?.getVideoStats?.()?.debug_error||"").slice(0,3000),'
                     'text:document.body?.innerText.slice(0,3000)})', session)
                 row['screenshot'] = save_page(protocol, session, args.output, suite.report['id'])
             except Exception as observation_error:

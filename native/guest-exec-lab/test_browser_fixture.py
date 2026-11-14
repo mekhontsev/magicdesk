@@ -35,6 +35,27 @@ class InstalledDesktopConnections(unittest.TestCase):
 
 
 class BrowserBenchmark(unittest.TestCase):
+    def test_debug_endpoint_does_not_enable_automation_control(self):
+        args = SimpleNamespace(desktop_session=None, output=Path('unused'), build=None,
+            executor='app', store='store', browser_arg=[], statistics=False, diagnostics=False,
+            seconds=10, chromium='/usr/bin/chromium')
+        suite = mock.Mock()
+        suite.report = dict(id='fixture', passed=False)
+        suite.guest.return_value = []
+        with mock.patch.object(benchmark, 'Suite', return_value=suite), \
+                mock.patch.object(benchmark, 'port', return_value=54321), \
+                mock.patch.object(benchmark, 'Server', side_effect=RuntimeError('launch receipt')) as server:
+            with self.assertRaisesRegex(RuntimeError, 'launch receipt'):
+                benchmark.run(args, 'http://127.0.0.1/', 'lazy', 0)
+        command = server.call_args.args[1]
+        self.assertIn('--remote-debugging-address=127.0.0.1', command)
+        self.assertEqual([arg for arg in command if arg.startswith('--remote-debugging-port=')],
+                         ['--remote-debugging-port=54321'])
+        self.assertNotIn('--enable-automation', command)
+        self.assertNotIn('--disable-blink-features=AutomationControlled', command)
+        self.assertNotIn('--no-sandbox', command)
+        suite.finish.assert_called_once_with()
+
     def test_cleanup_failure_preserves_the_failed_run(self):
         args = SimpleNamespace(desktop_session=None, output=Path('unused'), build=None,
             executor='app', store='store', browser_arg=[], statistics=False, diagnostics=False)

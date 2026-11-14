@@ -121,6 +121,13 @@ measurement rejects that sample. Compare like playback segments.
 Live-page runs also retain bounded Media events and failed network requests,
 with URL queries and fragments removed and without response headers. This
 diagnostic collection is not enabled for the local-video timing control.
+Failure observations include the page text and an available bounded player error.
+The debugger uses a specific loopback port: Chromium treats port zero as an
+explicit request for automation-controlled behavior, which can change a live
+site's responses. Reports retain the observed `navigator.webdriver` value;
+headless execution can still enable it. No browser properties or site responses
+are overridden. See Chromium's
+[runtime feature selection](https://chromium.googlesource.com/chromium/src/+/HEAD/content/child/runtime_features.cc).
 
 ```sh
 python native/guest-exec-lab/browser/benchmark.py --build BUILD --store DEVICE_GUEST_STORE --executor app --video LOCAL_VIDEO.webm --output build/browser-video --seconds 45 --rounds 2
