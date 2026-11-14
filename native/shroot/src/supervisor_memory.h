@@ -126,6 +126,8 @@ pid_t entry_fence_take(int *status,struct rusage *usage);
 int64_t memory_deadline(void);
 void memory_discard(void);
 int memory_available(pid_t pid);
+int memory_access_defer(struct thread *,const struct md_interception_memory *,void (*retry)(struct thread *));
+void memory_access_retry(struct thread *);
 int memory_runnable(void);
 void memory_progress(void);
 int quiescence_repair_event(pid_t pid,int status,const struct rusage *usage);

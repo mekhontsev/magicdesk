@@ -65,6 +65,7 @@ struct md_adapter_input md_adapter_buffer_begin(unsigned command,unsigned long a
 long md_adapter_buffer_release(void);
 /* Terminal acknowledgement retires the buffer and completes the syscall. */
 long md_adapter_buffer_finish(long copied, long result);
+long md_guest_buffer_finish(long copied,long result);
 /* Operations without an input payload can acquire and execute together. */
 struct md_adapter_input md_adapter_buffer_start(size_t length);
 struct md_adapter_input md_guest_buffer_start(unsigned, unsigned long, unsigned long);

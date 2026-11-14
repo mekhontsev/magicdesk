@@ -6,6 +6,44 @@
 #include <linux/reboot.h>
 #include <signal.h>
 
+static void native_index(void) {
+    struct md_pid_namespace *outer=md_pid_namespace_new(NULL,NULL);
+    struct md_pid_namespace *inner=md_pid_namespace_new(outer,NULL);
+    assert(outer && inner);
+    struct md_pid_identity *ids[260];
+    for (unsigned i=0;i<260;++i) {
+        assert(!md_pid_identity_prepare(inner,&ids[i]));
+        assert(!md_pid_namespace_find(inner,40000+(pid_t)i));
+        assert(!md_pid_identity_publish(ids[i],40000+(pid_t)i,40000+(pid_t)i));
+    }
+    for (unsigned i=1;i<260;++i) {
+        for (unsigned level=0;level<2;++level) {
+            struct md_pid_identity *p=md_pid_namespace_find(level ? outer : inner,40000+(pid_t)i);
+            assert(p==ids[i]); md_pid_identity_release(p);
+        }
+        assert(!md_pid_identity_exit(ids[i]));
+        struct md_pid_identity *zombie=md_pid_namespace_find(inner,40000+(pid_t)i);
+        assert(zombie==ids[i]); md_pid_identity_release(zombie);
+    }
+    /* Native PID reuse must not let an old retained identity remove its
+     * replacement from either namespace's reverse index. */
+    struct md_pid_identity *replacement;
+    assert(!md_pid_identity_prepare(inner,&replacement));
+    assert(!md_pid_identity_publish(replacement,40001,40001));
+    for (unsigned i=1;i<260;++i) {
+        md_pid_identity_reap(ids[i]); md_pid_identity_reap(ids[i]);
+        md_pid_identity_release(ids[i]);
+        struct md_pid_identity *p=md_pid_namespace_find(outer,40000+(pid_t)i);
+        assert(i==1 ? p==replacement : !p);
+        md_pid_identity_release(p);
+    }
+    md_pid_identity_release(replacement);
+    assert(!md_pid_namespace_find(inner,40001));
+    assert(md_pid_identity_exit(ids[0])); md_pid_identity_release(ids[0]);
+    md_pid_namespace_release(inner); md_pid_namespace_release(outer);
+    puts("PASS PID reverse index: nested visibility, collisions, zombies, native reuse and repeated retirement");
+}
+
 static void reboot_admission(void) {
     struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
     struct md_pid_namespace *space=md_pid_namespace_new(NULL,NULL); assert(space);
@@ -35,6 +73,7 @@ static void reboot_admission(void) {
 }
 
 int main(void) {
+    native_index();
     reboot_admission();
     struct md_pid_identity *a=NULL,*b=NULL,*c=NULL;
     assert(!md_pid_identity_prepare(NULL,&a) && !a);

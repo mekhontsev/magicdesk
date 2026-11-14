@@ -5,6 +5,12 @@
 /* One shared protocol, two execution owners. This layer publishes readiness;
  * its caller owns kernel wakeups, operation lifetime and effect cancellation. */
 enum md_entry_owner { MD_ENTRY_WORKER_OWNER, MD_ENTRY_SUPERVISOR_OWNER };
+/* Only these states let the caller publish another request without an owner
+ * response. RUNNING belongs to an asynchronous handler, not a hot peer. */
+static inline int md_entry_peer_runnable(unsigned state) {
+    return state==MD_ENTRY_IDLE || state==MD_ENTRY_RESPONSE
+        || state==MD_ENTRY_NATIVE || state==MD_ENTRY_RETIRING;
+}
 static inline enum md_entry_owner md_entry_request_owner(unsigned kind) {
     return md_entry_control_request(kind) ? MD_ENTRY_SUPERVISOR_OWNER : MD_ENTRY_WORKER_OWNER;
 }

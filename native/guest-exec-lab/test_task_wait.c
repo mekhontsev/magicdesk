@@ -47,6 +47,32 @@ pid_t __wrap_wait4(pid_t selected, int *status, int options, struct rusage *usag
 }
 static void done(void) { assert(taken == queued); taken = queued = 0; }
 
+static void runnable_discovery(unsigned population) {
+    struct md_task_wait w={0};
+    struct md_task_wait_member *members=calloc(population,sizeof(*members));
+    assert(members && population>4);
+    for (unsigned i=0;i<population;++i) md_task_wait_track(&w,&members[i],10000+i);
+    unsigned budget=population<64 ? 64 : population>1024 ? 1024 : population;
+    unsigned passes=0;
+    int status;
+    for (;;) {
+        unsigned directed=w.directed+(w.fair_phase<2);
+        if (w.fair_phase<2) expect(w.cursor->pid,0,0);
+        if (directed==budget) {
+            /* A newborn without a hint or tracked membership must still be
+             * discovered while the shared-memory producer never goes idle. */
+            expect(-1,9000,0); expect(-1,0,0);
+            assert(md_task_wait_ready(&w,&status,NULL,1)==9000 && status==0x7057f);
+            done(); break;
+        }
+        assert(!md_task_wait_ready(&w,&status,NULL,1) && !w.drained);
+        assert(w.directed==directed && ++passes<=2*budget);
+        done();
+    }
+    for (unsigned i=0;i<population;++i) md_task_wait_untrack(&w,&members[i]);
+    free(members);
+}
+
 static void fair_discovery(unsigned population,unsigned hot) {
     struct md_task_wait w={0};
     struct md_task_wait_member *members=calloc(population,sizeof(*members));
@@ -62,7 +88,7 @@ static void fair_discovery(unsigned population,unsigned hot) {
     for (;;) {
         md_task_wait_hint(&w,10000);
         int status;
-        pid_t pid=md_task_wait_ready(&w,&status,NULL);
+        pid_t pid=md_task_wait_ready(&w,&status,NULL,0);
         assert(pid>=10000 && (unsigned)(pid-10000)<population && status==0x7057f);
         ++events;
         assert(events<=2*population+64);
@@ -80,39 +106,39 @@ int main(void) {
     int status;
     struct md_task_wait w = {0};
     expect(-1,10,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==10 && status==0x7057f);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==10 && status==0x7057f);
     done();
     struct rusage usage = {0};
     expected_usage = &usage;
     md_task_wait_hint(&w,11);
     expect(11,11,0);
-    assert(md_task_wait_ready(&w,&status,&usage)==11 && usage.ru_utime.tv_usec==1234);
+    assert(md_task_wait_ready(&w,&status,&usage,0)==11 && usage.ru_utime.tv_usec==1234);
     done(); expected_usage=NULL;
 
     /* Keep distinct notifications and deduplicate without buffering statuses. */
     md_task_wait_hint(&w,11); md_task_wait_hint(&w,11); md_task_wait_hint(&w,12);
     expect(11,0,0); expect(12,12,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==12);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==12);
     done();
     expect(12,0,0); expect(10,0,0); expect(-1,13,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==13);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==13);
     done();
     w=(struct md_task_wait){0};
     md_task_wait_hint(&w,11); md_task_wait_hint(&w,12);
     expect(11,-1,ECHILD); expect(12,-1,ESRCH); expect(-1,14,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==14);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==14);
     done();
 
     w=(struct md_task_wait){0};
     md_task_wait_hint(&w,15);
     expect(15,-1,EINTR);
-    assert(md_task_wait_ready(&w,&status,NULL)==-1 && errno==EINTR);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==-1 && errno==EINTR);
     done();
     expect(-1,15,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==15);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==15);
     done();
     expect(15,-1,ECHILD); expect(-1,-1,ECHILD);
-    assert(md_task_wait_ready(&w,&status,NULL)==-1 && errno==ECHILD);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==-1 && errno==ECHILD);
     done();
 
     /* An older unnotified stop gets service despite a perpetually hot TID. */
@@ -120,114 +146,114 @@ int main(void) {
     for (unsigned i=0;i<8;i++) {
         md_task_wait_hint(&w,16);
         expect(16,16,0);
-        assert(md_task_wait_ready(&w,&status,NULL)==16); done();
+        assert(md_task_wait_ready(&w,&status,NULL,0)==16); done();
     }
     md_task_wait_hint(&w,16);
     expect(-1,17,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==17); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==17); done();
     expect(16,16,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==16); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==16); done();
 
     /* Overflow and stale hints remain bounded; a general wait finds the rest. */
     w=(struct md_task_wait){0};
     for (pid_t pid=20;pid<40;pid++) md_task_wait_hint(&w,pid);
     for (pid_t pid=20;pid<28;pid++) expect(pid,0,0);
     expect(-1,39,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==39); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==39); done();
     expect(39,0,0); expect(-1,0,0);
-    assert(!md_task_wait_ready(&w,&status,NULL)); done();
+    assert(!md_task_wait_ready(&w,&status,NULL,0)); done();
     for (unsigned i=0;i<1024;i++) {
         md_task_wait_hint(&w,i&1 ? 0 : -1);
-        assert(!md_task_wait_ready(&w,&status,NULL));
+        assert(!md_task_wait_ready(&w,&status,NULL,0));
     }
     done();
     md_task_wait_hint(&w,18);
     expect(18,0,0); expect(-1,19,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==19); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==19); done();
     expect(19,0,0); expect(-1,0,0);
-    assert(!md_task_wait_ready(&w,&status,NULL)); done();
+    assert(!md_task_wait_ready(&w,&status,NULL,0)); done();
     md_task_wait_hint(&w,20);
     expect(20,20,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==20); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==20); done();
     /* Wrap the hint ring while preserving order and the global budget. */
     w=(struct md_task_wait){0};
     for (pid_t pid=30;pid<38;pid++) md_task_wait_hint(&w,pid);
     for (pid_t pid=30;pid<33;pid++) {
         expect(pid,pid,0);
-        assert(md_task_wait_ready(&w,&status,NULL)==pid); done();
+        assert(md_task_wait_ready(&w,&status,NULL,0)==pid); done();
     }
     for (pid_t pid=38;pid<41;pid++) md_task_wait_hint(&w,pid);
     for (pid_t pid=33;pid<38;pid++) {
         expect(pid,pid,0);
-        assert(md_task_wait_ready(&w,&status,NULL)==pid); done();
+        assert(md_task_wait_ready(&w,&status,NULL,0)==pid); done();
     }
     expect(-1,50,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==50); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==50); done();
     for (pid_t pid=38;pid<41;pid++) {
         expect(pid,pid,0);
-        assert(md_task_wait_ready(&w,&status,NULL)==pid); done();
+        assert(md_task_wait_ready(&w,&status,NULL,0)==pid); done();
     }
     /* The previous TID is a bounded preference, not a substitute for the
      * general queue or a claim that it has already stopped again. */
     w=(struct md_task_wait){0};
     expect(-1,60,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==60); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==60); done();
     for (unsigned i=0;i<8;++i) {
         expect(60,60,0);
-        assert(md_task_wait_ready(&w,&status,NULL)==60); done();
+        assert(md_task_wait_ready(&w,&status,NULL,0)==60); done();
     }
     expect(-1,61,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==61); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==61); done();
     md_task_wait_hint(&w,62);
     expect(62,62,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==62); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==62); done();
     expect(62,0,0); expect(61,0,0); expect(60,0,0); expect(-1,0,0);
-    assert(!md_task_wait_ready(&w,&status,NULL) && !w.recent[0]); done();
+    assert(!md_task_wait_ready(&w,&status,NULL,0) && !w.recent[0]); done();
     md_task_wait_hint(&w,63);
     expect(63,63,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==63); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==63); done();
     expect(63,-1,EINTR);
-    assert(md_task_wait_ready(&w,&status,NULL)==-1 && errno==EINTR); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==-1 && errno==EINTR); done();
     expect(63,0,0); expect(-1,64,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==64); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==64); done();
     /* Alternating checkpoint owners do not require a tree-wide wait. Misses
      * consume the same budget, so speculation cannot postpone collection. */
     w=(struct md_task_wait){0};
     for (pid_t pid=70;pid<74;++pid) {
         md_task_wait_hint(&w,pid); expect(pid,pid,0);
-        assert(md_task_wait_ready(&w,&status,NULL)==pid); done();
+        assert(md_task_wait_ready(&w,&status,NULL,0)==pid); done();
     }
     expect(73,0,0); expect(72,72,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==72); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==72); done();
     expect(72,0,0); expect(73,73,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==73); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==73); done();
     expect(-1,80,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==80); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==80); done();
     expect(80,0,0); expect(73,0,0); expect(72,0,0); expect(71,71,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==71); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==71); done();
     expect(71,0,0); expect(80,0,0); expect(73,0,0); expect(72,0,0); expect(-1,0,0);
-    assert(!md_task_wait_ready(&w,&status,NULL)); done();
+    assert(!md_task_wait_ready(&w,&status,NULL,0)); done();
     /* A small tree collects before any hot child can repeat its checkpoint.
      * An unnotified older stop survives membership changes and a new hint. */
     w=(struct md_task_wait){0};
     struct md_task_wait_member members[3]={0};
     for (unsigned i=0;i<3;++i) md_task_wait_track(&w,&members[i],90+i);
     expect(-1,90,0); expect(-1,92,0); expect(-1,0,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==90); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==90); done();
     md_task_wait_hint(&w,90);
-    assert(md_task_wait_ready(&w,&status,NULL)==92); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==92); done();
     assert(w.cursor==&members[0]);
     md_task_wait_untrack(&w,&members[0]);
     assert(w.cursor==&members[1] && members[2].next==&members[1]);
     expect(-1,91,0); expect(-1,0,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==91); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==91); done();
     md_task_wait_untrack(&w,&members[2]);
     md_task_wait_untrack(&w,&members[2]);
     assert(w.cursor==&members[1] && members[1].next==&members[1]);
     /* One live tracee does not acquire an extra fairness syscall. */
     md_task_wait_hint(&w,91);
     expect(91,91,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==91); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==91); done();
     md_task_wait_untrack(&w,&members[1]);
     assert(!w.cursor);
     /* Larger trees still impose a finite discovery bound on a hot hint. */
@@ -237,11 +263,11 @@ int main(void) {
         unsigned budget=populations[n]<64 ? 64 : populations[n]>1024 ? 1024 : populations[n];
         for (unsigned i=0;i<budget;++i) {
             md_task_wait_hint(&w,99); expect(99,99,0);
-            assert(md_task_wait_ready(&w,&status,NULL)==99); done();
+            assert(md_task_wait_ready(&w,&status,NULL,0)==99); done();
         }
         md_task_wait_hint(&w,99);
         expect(-1,98,0); expect(-1,0,0);
-        assert(md_task_wait_ready(&w,&status,NULL)==98); done();
+        assert(md_task_wait_ready(&w,&status,NULL,0)==98); done();
     }
     /* Ready children are collected while none can yet repeat a checkpoint.
      * Buffered statuses survive SIGCHLD hints, membership and accounting changes. */
@@ -252,13 +278,13 @@ int main(void) {
     /* Force discovery after the directed budget, not on every stop. */
     w.directed=64;
     expect(-1,100,0); expect(-1,101,0); expect(-1,102,0); expect(-1,0,0);
-    assert(md_task_wait_ready(&w,&status,&usage)==100 && status==0x7057f && usage.ru_utime.tv_usec==1234);
+    assert(md_task_wait_ready(&w,&status,&usage,0)==100 && status==0x7057f && usage.ru_utime.tv_usec==1234);
     done(); batch_usage=0;
     md_task_wait_hint(&w,105);
     md_task_wait_untrack(&w,&batch[0]); md_task_wait_untrack(&w,&batch[1]);
     assert(md_task_wait_take(&w,&status,NULL)==101 && status==0x7057f);
     usage=(struct rusage){0};
-    assert(md_task_wait_ready(&w,&status,&usage)==102 && usage.ru_utime.tv_usec==1234);
+    assert(md_task_wait_ready(&w,&status,&usage,0)==102 && usage.ru_utime.tv_usec==1234);
     done();
     for (unsigned i=2;i<6;++i) md_task_wait_untrack(&w,&batch[i]);
     assert(!w.members && !w.pending_count);
@@ -268,22 +294,22 @@ int main(void) {
     done();
     w=(struct md_task_wait){.members=6};
     expect(-1,110,0); expect(-1,-1,EINTR);
-    assert(md_task_wait_ready(&w,&status,NULL)==110); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==110); done();
     expect(110,0,0);
     expect(-1,-1,EINTR);
-    assert(md_task_wait_ready(&w,&status,NULL)==-1 && errno==EINTR); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==-1 && errno==EINTR); done();
     expect(110,0,0);
     for (unsigned i=0;i<32;++i) expect(-1,120+i,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==120); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==120); done();
     for (unsigned i=1;i<32;++i) {
         usage=(struct rusage){.ru_utime.tv_usec=999};
-        assert(md_task_wait_ready(&w,&status,&usage)==120+(pid_t)i && !usage.ru_utime.tv_usec);
+        assert(md_task_wait_ready(&w,&status,&usage,0)==120+(pid_t)i && !usage.ru_utime.tv_usec);
     }
     done();
     for (pid_t pid=151;pid>=148;--pid) expect(pid,0,0);
     expect(-1,0,0);
-    assert(!md_task_wait_ready(&w,&status,NULL) && w.drained); done();
-    for (unsigned i=0;i<1000;++i) assert(!md_task_wait_ready(&w,&status,NULL));
+    assert(!md_task_wait_ready(&w,&status,NULL,0) && w.drained); done();
+    for (unsigned i=0;i<1000;++i) assert(!md_task_wait_ready(&w,&status,NULL,0));
     done();
     /* Each TID gets one query per discovery pass even if it appears in every
      * source. Only the general wait establishes that the queue is drained. */
@@ -293,14 +319,30 @@ int main(void) {
     w.recent[0]=200; w.recent[1]=201; w.recent[2]=202;
     md_task_wait_hint(&w,200); md_task_wait_hint(&w,201);
     expect(200,0,0); expect(201,0,0); expect(202,0,0); expect(-1,0,0);
-    assert(!md_task_wait_ready(&w,&status,NULL) && w.drained); done();
+    assert(!md_task_wait_ready(&w,&status,NULL,0) && w.drained); done();
     assert(w.cursor==&duplicate[1]);
     /* A later signal begins a new pass; a previous miss is never cached. */
     md_task_wait_hint(&w,200);
     expect(201,0,0); expect(200,200,0);
-    assert(md_task_wait_ready(&w,&status,NULL)==200); done();
+    assert(md_task_wait_ready(&w,&status,NULL,0)==200); done();
+    for (unsigned i=0;i<6;++i) md_task_wait_untrack(&w,&duplicate[i]);
+    /* A productive turn is not proof of a drained queue. Before parking,
+     * collect an untracked stop even without a new SIGCHLD notification. */
+    w=(struct md_task_wait){0};
+    for (unsigned i=0;i<6;++i) md_task_wait_track(&w,&duplicate[i],200+i);
+    md_task_wait_hint(&w,200); w.recent[0]=200;
+    expect(200,0,0);
+    assert(!md_task_wait_ready(&w,&status,NULL,1) && !w.drained && w.directed==1); done();
+    expect(201,0,0); expect(-1,300,0); expect(-1,0,0);
+    assert(md_task_wait_ready(&w,&status,NULL,0)==300 && w.drained); done();
+    for (unsigned i=0;i<100;++i) assert(!md_task_wait_ready(&w,&status,NULL,i&1));
+    done();
+    md_task_wait_hint(&w,203);
+    expect(202,0,0); expect(203,203,0);
+    assert(md_task_wait_ready(&w,&status,NULL,1)==203 && !w.drained); done();
     for (unsigned i=0;i<6;++i) md_task_wait_untrack(&w,&duplicate[i]);
     for (unsigned i=0;i<sizeof(populations)/sizeof(*populations);++i) {
+        runnable_discovery(populations[i]);
         fair_discovery(populations[i],1);
         fair_discovery(populations[i],populations[i]>48 ? 48 : populations[i]-1);
     }

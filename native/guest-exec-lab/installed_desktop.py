@@ -117,6 +117,15 @@ def keep_display_awake(client, state, statefile, display=None):
     statefile.write_text(json.dumps(state, indent=2))
 
 
+def runner_connections(suite, classes):
+    # The installed Shell wrapper owns connection forwarding. Raw APK and
+    # staged native runners need the same production fragment exactly once.
+    if suite.image is None:
+        return ''
+    return subprocess.check_output(['java', '-cp', str(classes),
+        'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'connections'], text=True)
+
+
 def recipe_launch(shell, tools, recipe, log):
     # The nested non-interactive script does not inherit console-local variables.
     assert shell.startswith('/') and '\n' not in shell, 'Missing executor shell'
@@ -344,10 +353,7 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         command = shlex.join([binary + '/script', '-q', '-e', '-c', boot_command, '/dev/null'])
         recipe = subprocess.check_output(['java', '-cp', str(classes),
             'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'routed', 'wayland', store, '/root', command, '0:0'], text=True)
-        # The fixture calls the exact native runner. Reuse production connection
-        # forwarding for both installed APK and staged runtime helpers.
-        connections = subprocess.check_output(['java', '-cp', str(classes),
-            'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'connections'], text=True)
+        connections = runner_connections(suite, classes)
         wrapper = out / 'shroot'
         wrapper.write_text('#!/system/bin/sh\nmd_run() {\n' + connections + 'exec '
             + shlex.join([suite.runner, *(['--diagnostics'] if args.diagnostics else []),

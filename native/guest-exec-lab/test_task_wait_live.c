@@ -46,7 +46,7 @@ static void cancel_collected(void) {
         md_task_wait_track(&state,&members[i],pid);
     }
     state.directed=64;
-    int status; pid_t first=md_task_wait_ready(&state,&status,NULL);
+    int status; pid_t first=md_task_wait_ready(&state,&status,NULL,0);
     assert(first>0 && (unsigned)status>>16==PTRACE_EVENT_EXIT && state.pending_count);
     assert(!ptrace(PTRACE_CONT,first,0,0));
     for (unsigned i=0;i<CHILDREN;++i) kill(children[i],SIGKILL);
@@ -104,13 +104,15 @@ int main(int argc,char **argv) {
             md_task_wait_hint(&state,(pid_t)info[i].ssi_pid);
         }
         int status;
-        pid_t pid=md_task_wait_ready(&state,&status,NULL);
+        pid_t pid=md_task_wait_ready(&state,&status,NULL,1);
+        /* A directed miss while runnable must be flushed before parking. */
+        if (!pid) pid=md_task_wait_ready(&state,&status,NULL,0);
         if (pid<0 && errno==EINTR) continue;
         assert(pid>=0);
         if (!pid) {
             empty++;
             unsigned before=calls;
-            for (unsigned i=0;i<32;i++) assert(!md_task_wait_ready(&state,&status,NULL));
+            for (unsigned i=0;i<32;i++) assert(!md_task_wait_ready(&state,&status,NULL,0));
             assert(calls==before);
             struct pollfd item={fd,POLLIN,0};
             /* EVENT_WAIT: blocked SIGCHLD invalidates the drained observation;

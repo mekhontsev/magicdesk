@@ -601,7 +601,7 @@ static struct {
     struct md_namespace_broker *broker;
     struct md_fs_worker *worker;
     struct md_entry_channel channel;
-    int listener,received,control,native;
+    int listener,received,control,native,retained;
     pid_t owner;
 } registration;
 static void registration_control(pid_t pid,struct md_entry_channel *c) {
@@ -610,6 +610,7 @@ static void registration_control(pid_t pid,struct md_entry_channel *c) {
         && atomic_load(&c->state)==MD_ENTRY_RUNNING);
     int stopped=0;
     assert(md_broker_native_borrow(registration.broker,pid,&stopped)==-EBUSY);
+    if (registration.retained) return;
     if (registration.native && c->call.reserved==MD_ENTRY_BUFFER_CONTROL) {
         uint64_t args[6]={7,0,1,registration.native==2 ? (uint64_t)-1 : 0};
         md_broker_entry_effect(registration.broker,c,SYS_epoll_pwait,args);
@@ -783,6 +784,22 @@ static void registration_retirement(const char *store,int control) {
             md_broker_entry_wake(registration.broker,c->owner);
             assert(!md_broker_entry_progress(registration.broker));
         }
+    }
+    if (control) {
+        registration.retained=1;
+        ++c->sequence; c->call.reserved=MD_ENTRY_BUFFER_CONTROL;
+        assert(md_entry_publish_request(c,MD_ENTRY_REQUEST));
+        md_broker_resumed(registration.broker,c->owner);
+        assert(md_broker_entry_progress(registration.broker));
+        assert(atomic_load(&c->state)==MD_ENTRY_RUNNING && !atomic_load(&c->control_awake));
+        assert(!md_broker_entry_progress(registration.broker));
+        registration.retained=0;
+        md_broker_entry_reply(registration.broker,c,MD_ENTRY_COMPLETED,0);
+        ++c->sequence;
+        assert(md_entry_publish_request(c,MD_ENTRY_REQUEST));
+        md_broker_resumed(registration.broker,c->owner);
+        assert(md_broker_entry_progress(registration.broker));
+        assert(atomic_load(&c->state)==MD_ENTRY_RESPONSE && c->receipt==c->sequence);
     }
     assert(write(sockets[0],"c",1)==1); int status;
     assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));

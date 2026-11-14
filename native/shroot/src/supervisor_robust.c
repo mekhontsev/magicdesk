@@ -53,7 +53,7 @@ static void retained_retirement_progress(void);
 int retained_task_held(const struct thread *t) {
     /* Registration and terminal cleanup own the exact stopped continuation,
      * including the interval before their deferred event is replayed. */
-    return t->robust.registering || t->robust.terminal;
+    return t->robust.registering || t->robust.terminal || t->robust.replay;
 }
 
 struct retained_memory *retained_actor(pid_t pid) {
@@ -152,8 +152,7 @@ int robust_call(struct thread *t,const struct seccomp_data *call,struct user_pt_
     if (entry_context(t,MD_CONTEXT_BIRTH)) return 1;
     t->robust.registers=*regs; t->robust.boundary=boundary;
     t->robust.registering_head=call->args[0];
-    t->terminal_observation=1; t->trace_options_dirty=1;
-    int error=debugger_options(t->pid,t->debug.options);
+    int error=task_observe_exit(t);
     if (error) { robust_register_complete(t,error); return 1; }
     struct retained_memory *m=retained_memory_get(t);
     if (!m) { robust_register_complete(t,-ENOMEM); return 1; }
@@ -199,8 +198,7 @@ void retained_creation_begin(struct retained_memory *m,struct thread *t,
         const struct user_pt_regs *regs,enum md_task_call_boundary call) {
     CHECK(!retained_creation && !m->ready && !m->creator && !m->retiring);
     m->creator=t; m->parent=t; retained_creation=m;
-    t->terminal_observation=1; t->trace_options_dirty=1;
-    int error=debugger_options(t->pid,t->debug.options);
+    int error=task_observe_exit(t);
     if (error) { retained_creation_finish(m,error); return; }
     int boundary=md_task_checkpoint_suspend(&checkpoints,t->pid);
     if (boundary<0) { retained_creation_finish(m,boundary); return; }
@@ -352,16 +350,23 @@ static void retained_retirement_progress(void) {
         if (!m->dead || r->stage!=1) return;
         struct user_pt_regs saved;
         struct ptrace_syscall_info info={0};
-        CHECK(registers(t->pid,&saved));
-        CHECK(native_trace(PTRACE_GET_SYSCALL_INFO,t->pid,(void *)sizeof(info),&info)>=0);
+        if (!registers(t->pid,&saved)
+                || !tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"retirement-boundary")) {
+            retained_retirement_finish(0); return;
+        }
         int checkpoint=task_checkpoint_borrow(t,&r->checkpoint_suspended);
         CHECK(checkpoint>=0);
         enum md_task_call_boundary boundary=(enum md_task_call_boundary)info.op;
         if (checkpoint && boundary==MD_TASK_CALL_ENTRY) boundary=MD_TASK_CALL_EMULATED_ENTRY;
         /* Direct children are held with the parent group: a private notice
          * cannot coalesce a new real terminal notice during exact reaping. */
-        CHECK(!md_task_child_reap_begin(&r->reap,native_trace,t->pid,t->tgid,m->retained.actor,
-            boundary,&saved,abi.task_call,abi.task_return,&r->scratch,r->peer,NULL));
+        int error=md_task_child_reap_begin(&r->reap,native_trace,t->pid,t->tgid,m->retained.actor,
+            boundary,&saved,abi.task_call,abi.task_return,&r->scratch,r->peer,NULL);
+        if (error) {
+            CHECK(error==-ESRCH); t->resume_lost=1;
+            if (!r->reap.call.stage) retained_retirement_finish(0);
+            return;
+        }
         r->stage=2; t->kernel_stopped=0;
         return;
     }
@@ -446,7 +451,7 @@ int retained_runnable(void) {
 
 pid_t retained_take(int *status,struct rusage *usage) {
     if (retained_barrier && !retained_creation && !retained_retirement) {
-        pid_t pid=md_task_quiesce_take(retained_barrier,status,usage);
+        pid_t pid=quiesce_take_event(retained_barrier,status,usage);
         if (pid) return pid;
         md_task_quiesce_destroy(retained_barrier); retained_barrier=NULL;
         CHECK(!md_event_signal(fd_ready));

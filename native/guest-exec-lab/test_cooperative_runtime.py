@@ -210,6 +210,7 @@ def main():
                                '--user', '0:0', '--', '/bin/probe'])
         assert 'PASS cooperative entry: metadata' in output
         assert 'PASS cooperative ABI: runtime-owned offers' in output
+        assert 'PASS cooperative identity: task-owned PID/TID publication' in output
         assert 'PASS cooperative protected copy:' in output
         assert 'PASS native FD plans: 192 live opens' in output
         assert 'PASS native FD watches: exactly one open and one close event' in output
@@ -222,6 +223,9 @@ def main():
         assert 'PASS native open exhaustion:' in output
         assert 'PASS execution bursts:' in output
         assert 'PASS filter exec: leader and nonleader retain policy and internal registration' in output
+        entry_count = re.search(r'MD_EXECUTION taskEntries=(\d+)', output)
+        assert entry_count and int(entry_count[1]) == sum(map(int,
+            re.findall(r'MD_ENTRY_SYSCALL nr=\d+ calls=(\d+)', output)))
         for key, minimum in (('nativeOpen', 1000), ('nativeClose', 990), ('nativeFlags', 576),
                              ('nativeDuplicate', 576), ('nativeSeek', 384), ('nativeDeferred', 1)):
             count = re.search(rf'{key}=(\d+)', output)

@@ -95,6 +95,26 @@ int quiescence_busy(const struct mapping_owner *parent) {
     return quiescence_barrier(parent)!=NULL;
 }
 
+struct md_task_quiesce *quiescence_pending(pid_t pid) {
+    struct md_task_quiesce *barriers[]={
+        retained_creation || retained_retirement ? NULL : retained_barrier,
+        policy_installer ? NULL : policy_barrier,
+        memory_execution ? NULL : memory_barrier,
+        mapping_execution ? NULL : mapping_barrier,
+        task_action_execution || task_action_releasing ? NULL : task_action_barrier};
+    for (unsigned i=0;i<sizeof(barriers)/sizeof(*barriers);++i)
+        if (md_task_quiesce_pending(barriers[i],pid)) return barriers[i];
+    return NULL;
+}
+
+pid_t quiesce_take_event(struct md_task_quiesce *barrier,int *status,struct rusage *usage) {
+    pid_t pid=md_task_quiesce_take(barrier,status,usage);
+    /* Replay owns this event until the dispatcher returns. Runnable resource
+     * continuations are serviced on the next event-loop turn, not here. */
+    if (pid) task_action_unpark();
+    return pid;
+}
+
 int buffer_admission_quiescing(pid_t pid) {
     return md_task_quiesce_interrupting(retained_barrier,pid)
         || md_task_quiesce_interrupting(policy_barrier,pid)
@@ -106,6 +126,9 @@ int buffer_admission_quiescing(pid_t pid) {
 long quiesce_trace(int request,pid_t pid,void *address,void *data) {
     if (trace_continues(request)) {
         struct thread *t=find_thread(pid);
+        /* Cancellation relinquishes the old stop, not a newer terminal stop.
+         * Its event must reach normal lifecycle processing before any resume. */
+        if (t && t->resume_lost) return 0;
         if (t) t->interrupt_pending=0;
         /* A barrier and guest debugger can share one INTERRUPT stop. Release
          * through normal admission so the debugger receives its pending stop
@@ -301,7 +324,6 @@ void task_continuations_progress(void) {
 
 void task_action_unpark(void) {
     task_continuations_ready=1;
-    task_continuations_progress();
     /* A resource can become ready while a barrier prevents its continuation.
      * Its eventfd was already acknowledged then; releasing the barrier is the
      * new readiness event, even when no resource owner has anything left to signal. */
@@ -431,6 +453,11 @@ int task_checkpoint_borrow(struct thread *actor,int *owned) {
     return boundary;
 }
 
+static void task_action_boundary_failed(long error,int retry) {
+    if (error==-ESRCH) task_action_execution->actor->resume_lost=1;
+    task_action_call_complete(error,retry);
+}
+
 static void task_action_call_start(struct task_action *owner) {
     struct thread *actor=owner->actor;
     struct user_pt_regs saved=owner->continuation;
@@ -440,7 +467,7 @@ static void task_action_call_start(struct task_action *owner) {
         if (!md_task_quiesce_ready(barrier)) return;
         struct md_task_quiesce_stop stop;
         int error=md_task_quiesce_borrow(barrier,actor->pid,&stop);
-        if (error) { task_action_call_complete(error,error==-ESRCH); return; }
+        if (error) { task_action_boundary_failed(error,error==-ESRCH); return; }
         owner->borrowed=1;
         owner->synthetic=stop.kind==MD_TASK_QUIESCE_SYNTHETIC;
         if (stop.kind==MD_TASK_QUIESCE_EVENT) {
@@ -453,13 +480,13 @@ static void task_action_call_start(struct task_action *owner) {
         }
         struct ptrace_syscall_info info={0};
         if (!registers(actor->pid,&saved)) { task_action_call_complete(-ESRCH,1); return; }
-        if (native_trace(PTRACE_GET_SYSCALL_INFO,actor->pid,(void *)sizeof(info),&info)<0) {
-            task_action_call_complete(-errno,0); return;
+        if (!tracee_request(actor,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"borrowed-boundary")) {
+            task_action_call_complete(-ESRCH,1); return;
         }
         boundary=(enum md_task_call_boundary)info.op;
     }
     int checkpoint=task_checkpoint_borrow(actor,&owner->checkpoint_suspended);
-    if (checkpoint<0) { task_action_call_complete(checkpoint,0); return; }
+    if (checkpoint<0) { task_action_boundary_failed(checkpoint,0); return; }
     if (checkpoint && boundary==MD_TASK_CALL_ENTRY) boundary=MD_TASK_CALL_EMULATED_ENTRY;
     SUPERVISOR_TRACE("PROBE selector-start requester=%d actor=%d remote=%d synthetic=%d kind=%u fd=%d boundary=%d pc=%llx nr=%llu value=%lld\n",
         owner->requester ? owner->requester->pid : 0,actor->pid,owner->remote,owner->synthetic,
@@ -470,7 +497,7 @@ static void task_action_call_start(struct task_action *owner) {
         int error=md_task_call_begin(&owner->native,native_trace,actor->pid,boundary,
             &saved,abi.task_call,abi.task_return,&args);
         if (error && owner->native.stage) { CHECK(error==-ESRCH); actor->resume_lost=1; return; }
-        if (error) { task_action_call_complete(error,error==-EAGAIN); return; }
+        if (error) { task_action_boundary_failed(error,error==-EAGAIN); return; }
         actor->kernel_stopped=0; return;
     }
     if (owner->capture) {
@@ -480,10 +507,7 @@ static void task_action_call_start(struct task_action *owner) {
             error=md_process_nofile_reserve(actor->resources.process,actor->pid,2);
             if (!error) owner->capture_capacity=md_process_member_retain(actor->resources.process);
         }
-        if (!error) {
-            actor->terminal_observation=1; actor->trace_options_dirty=1;
-            error=debugger_options(actor->pid,actor->debug.options);
-        }
+        if (!error) error=task_observe_exit(actor);
         if (!error) {
             struct md_task_helper_request request={.kind=MD_TASK_HELPER_CAPTURE,
                 .path=capture->target.path,.flags=capture->target.flags,
@@ -491,7 +515,7 @@ static void task_action_call_start(struct task_action *owner) {
             error=md_task_helper_borrow(helpers,actor->pid,actor->tgid,boundary,&saved,&abi,
                 actor->memory,&owner->buffer,&request,capture_borrowed_complete,owner);
         }
-        if (error) { task_action_call_complete(error,error==-EAGAIN); return; }
+        if (error) { task_action_boundary_failed(error,error==-EAGAIN); return; }
         capture->started=1; actor->kernel_stopped=0; return;
     }
     int error=md_buffers_take_reserved(md_memory_buffers(actor->memory),&owner->buffer);
@@ -523,7 +547,7 @@ static void task_action_call_start(struct task_action *owner) {
     if (error && owner->filter.task.stage) {
         CHECK(error==-ESRCH); actor->resume_lost=1; return;
     }
-    if (error) { task_action_call_complete(error,error==-EAGAIN); return; }
+    if (error) { task_action_boundary_failed(error,error==-EAGAIN); return; }
     actor->kernel_stopped=0;
 }
 
@@ -587,7 +611,7 @@ int task_completion_available(pid_t pid) {
 }
 
 int task_action_borrowable(struct thread *p,struct thread *requester) {
-    if (retained_task_held(p)) return 0;
+    if (retained_task_held(p) || quiescence_pending(p->pid)) return 0;
     /* A queued table user is parked before its operation, through either
      * transport. Other candidates retain their exact kernel continuation.
      * Never borrow an active worker,
@@ -622,7 +646,7 @@ int task_action_borrowable(struct thread *p,struct thread *requester) {
 }
 
 static int task_action_native_borrow(struct task_action *owner,struct thread *actor,int *stopped) {
-    if (retained_task_held(actor)) return -EBUSY;
+    if (retained_task_held(actor) || quiescence_pending(actor->pid)) return -EBUSY;
     *stopped=actor->kernel_stopped;
     int borrowed=md_broker_native_borrow(broker,actor->pid,stopped);
     if (borrowed<0) return borrowed;
@@ -635,7 +659,7 @@ void task_action_start(struct thread *t) {
     struct task_action *owner=t->action;
     CHECK(owner && !task_action_call(owner)->stage);
     if (owner->loan) { loan_start(owner); return; }
-    if (quiescence_busy(NULL) || retained_task_held(t)) { retry_wait(t,RETRY_TASK_ACTION); return; }
+    if (quiescence_busy(NULL) || !task_continuation_available(t)) { retry_wait(t,RETRY_TASK_ACTION); return; }
     if (owner->pid_filter) {
         if (t->process_op.filter) { task_action_finish(owner,0); return; }
         owner->actor=t; task_action_execution=owner;
@@ -836,7 +860,7 @@ static void loan_start(struct task_action *owner) {
     struct thread *t=owner->requester;
     if (t && t->pid && !t->kernel_stopped && !t->listening && !t->terminal_stop && !t->resume_lost
             && t->resources.files==owner->loan_table
-            && t->entry.control && !t->entry.effect && !t->entry.stop.resume && !retained_task_held(t)) {
+            && t->entry.control && !t->entry.effect && !t->entry.stop.resume && task_continuation_available(t)) {
         owner->native.arguments=(struct md_task_call_arguments){.number=SYS_close,
             .value={(unsigned long)owner->number}};
         uint64_t args[6]={owner->number};
@@ -969,15 +993,32 @@ int task_action_event(pid_t pid,int status,const struct rusage *usage) {
     }
     int helper=owner->capture && owner->capture->started;
     struct md_task_call *call=helper ? md_task_helper_call(helpers,pid) : task_action_call(owner);
+    if ((helper || (call && call->stage))
+            && (!WIFSTOPPED(status) || event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)) {
+        int remote=owner->remote;
+        if (remote) {
+            /* A terminal event replaces the borrowed synthetic stop. Revoke
+             * its resume before releasing the action; the barrier retains the
+             * exact event until ordinary lifecycle processing can consume it. */
+            struct md_task_quiesce *barrier=owner->outer_barrier ? owner->outer_barrier : task_action_barrier;
+            CHECK(!md_task_quiesce_terminal(barrier,pid,status,usage));
+            owner->borrowed=owner->synthetic=0;
+        }
+        if (helper) {
+            /* Adopt an unreported clone before detaching its parent. Keep
+             * the terminal event and actor alive until exact helper reaping
+             * completes the capture, even after its parent call finished. */
+            CHECK(remote && md_task_helper_event(helpers,pid,status)>=0);
+            CHECK(!md_task_helper_detach(helpers,pid));
+            return 1;
+        }
+        if (!owner->remote) { t->action=NULL; owner->requester=NULL; }
+        task_action_call_complete(-ESRCH,0); return remote;
+    }
     if (!call) return 0;
     if (!call->stage) {
         SUPERVISOR_TRACE("PROBE selector-stop pid=%d status=%x\n",pid,status);
         CHECK(owner->remote && !quiesce_event(task_action_barrier,pid,status,usage)); return 1;
-    }
-    if (!WIFSTOPPED(status) || event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC) {
-        if (helper) return 0;
-        if (!owner->remote) { t->action=NULL; owner->requester=NULL; }
-        task_action_call_complete(-ESRCH,0); return 0;
     }
     if (task_call_signal(t,call,status)) return 1;
     int owned_interrupt=md_task_call_expects_interrupt(call);

@@ -51,7 +51,7 @@ long md_adapter_buffer_release(void) {
     return md_guest_buffer_control(MD_BUFFER_RELEASE,0,0);
 }
 long md_adapter_buffer_finish(long copied,long result) {
-    return md_guest_buffer_control(MD_BUFFER_FINISH,(unsigned long)copied,(unsigned long)result);
+    return md_guest_buffer_finish(copied,result);
 }
 struct md_adapter_input md_adapter_buffer_start(size_t length) {
     return enabled ? md_guest_buffer_start(MD_BUFFER_PROC_START,length,0)

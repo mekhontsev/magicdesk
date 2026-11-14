@@ -24,6 +24,17 @@ for p in /sys/devices/system/cpu/cpufreq/policy*; do
         printf '%s\tstats/time_in_state\t-\n' "$policy"
     fi
 done
+for p in /sys/class/power_supply/*; do
+    { IFS= read -r type < "$p/type"; } 2>/dev/null || continue
+    [ "$type" = Battery ] || continue
+    for field in temp status capacity; do
+        if { IFS= read -r value < "$p/$field"; } 2>/dev/null; then
+            printf 'battery:%s\t%s\t%s\n' "${p##*/}" "$field" "$value"
+        else
+            printf 'battery:%s\t%s\t-\n' "${p##*/}" "$field"
+        fi
+    done
+done
 '''
 
 
@@ -31,6 +42,8 @@ def parse_snapshot(output):
     policies = {}
     for line in output.splitlines():
         name, field, value = line.split('\t', 2)
+        if name.startswith('battery:'):
+            continue
         policy = policies.setdefault(name, {})
         if value == '-':
             policy[field] = None
@@ -54,8 +67,15 @@ def parse_snapshot(output):
 def snapshot(run_shell):
     result = {'startedUnixNs': time.time_ns()}
     try:
-        result['policies'] = parse_snapshot(run_shell(SNAPSHOT_COMMAND))
+        output = run_shell(SNAPSHOT_COMMAND)
+        result['policies'] = parse_snapshot(output)
         result['status'] = 'available' if result['policies'] else 'unavailable'
+        result['batteries'] = {}
+        for line in output.splitlines():
+            name, field, value = line.split('\t', 2)
+            if name.startswith('battery:'):
+                result['batteries'].setdefault(name.removeprefix('battery:'), {})[field] = (
+                    None if value == '-' else value.strip())
     except Exception as error:
         result.update(status='unavailable', error=str(error), policies={})
     result['finishedUnixNs'] = time.time_ns()
@@ -108,6 +128,7 @@ def observe_cpu(run_shell):
         'scope': 'host cpufreq policies across command envelope, not per-thread execution',
         'frequencyUnit': 'kHz',
         'residencyUnit': 'kernel time_in_state ticks',
+        'batteryUnits': {'temp': 'tenths of degrees Celsius', 'capacity': 'percent'},
         'before': snapshot(run_shell),
     }
     try:

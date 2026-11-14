@@ -302,6 +302,9 @@ static void *publish(void *unused) {
     return NULL;
 }
 static void park_handoff(void) {
+    for (unsigned state=MD_ENTRY_IDLE;state<=MD_ENTRY_PARKED;++state)
+        assert(md_entry_peer_runnable(state)==(state==MD_ENTRY_IDLE || state==MD_ENTRY_RESPONSE
+            || state==MD_ENTRY_NATIVE || state==MD_ENTRY_RETIRING));
     assert(!pthread_barrier_init(&phase,NULL,2));
     pthread_t peer; assert(!pthread_create(&peer,NULL,publish,NULL));
     for (unsigned i=0;i<2000;++i) {

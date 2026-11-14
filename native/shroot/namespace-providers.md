@@ -233,6 +233,11 @@ pidfds; ordinary filesystem IO does not participate.
 ## PID and Proc Views
 
 `pid_namespace` owns nested number spaces and process/thread identities.
+Each namespace indexes both visible numbers and native PIDs through the same
+retained identity nodes. Publication adds the reverse link; reap removes that
+exact node, so native PID reuse cannot retire a replacement identity. Translation
+does not scan unrelated namespace entries. The shared namespaces fixture checks
+nested visibility, hash collisions, zombies and repeated retirement.
 The executor's native view is represented by NULL: ordinary launches allocate
 no PID identity or PID-specific syscall filter. First namespace use installs a
 thread-group filter through the existing adapter; inherited filters do not

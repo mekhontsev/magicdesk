@@ -18,6 +18,8 @@ int md_task_quiesce_add(struct md_task_quiesce *, pid_t, int stopped, int resume
 int md_task_quiesce_stop(struct md_task_quiesce *);
 int md_task_quiesce_ready(const struct md_task_quiesce *);
 int md_task_quiesce_contains(struct md_task_quiesce *, pid_t);
+/* Released barriers still own unreplayed events. */
+int md_task_quiesce_pending(const struct md_task_quiesce *,pid_t);
 /* A participant's stop is still outstanding, not held or lent to a helper. */
 int md_task_quiesce_waiting(struct md_task_quiesce *, pid_t);
 /* A real interrupt was requested and its stop has not yet been collected. */

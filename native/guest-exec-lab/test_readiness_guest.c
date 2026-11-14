@@ -243,8 +243,15 @@ static void native_ready(void) {
     struct sock_fprog policy={sizeof(code)/sizeof(*code),code};
     assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&policy));
-    assert(syscall(SYS_epoll_pwait,ep,&out,1,0,NULL,8)==-1 && errno==EACCES);
-    assert(syscall(SYS_epoll_pwait,ep,&out,1,-1,NULL,8)==1 && out.data.u64==73);
+    for (unsigned round=0;round<32;++round) {
+        assert(!epoll_ctl(ep,EPOLL_CTL_MOD,fd,&event));
+        assert(syscall(SYS_epoll_pwait,ep,&out,1,0,NULL,8)==-1 && errno==EACCES);
+        long result=round&1 ? syscall(SYS_epoll_pwait2,ep,&out,1,NULL,NULL,8)
+            : syscall(SYS_epoll_pwait,ep,&out,1,-1,NULL,8);
+        assert(result==1 && out.data.u64==73);
+        struct timespec zero={0};
+        assert(!syscall(SYS_epoll_pwait2,ep,&out,1,&zero,NULL,8));
+    }
     close(ep); close(fd);
     puts("PASS mixed epoll: native ready result, one-shot consumption, pointers and argument-sensitive filter");
 }
@@ -663,7 +670,11 @@ static void mixed(int filtered,int shared) {
     chunks[512]=(struct pollfd){fd,0,0};
     assert(!poll(chunks,513,0));
     assert(!sethostname("poll-chunks",11));
-    assert(poll(chunks,513,0)==1 && (chunks[512].revents&POLLERR));
+    uint64_t token=1;
+    assert(write(event,&token,sizeof(token))==sizeof(token));
+    assert(poll(chunks,513,0)==2 && (chunks[0].revents&POLLIN) && (chunks[512].revents&POLLERR));
+    for (unsigned i=1;i<512;++i) assert(!chunks[i].revents);
+    assert(read(event,&token,sizeof(token))==sizeof(token) && token==1);
     assert(!poll(chunks,513,0));
     struct epoll_event e={.events=0,.data.u64=42},out[4];
     puts("READY virtual ADD");

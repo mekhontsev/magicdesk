@@ -5,14 +5,24 @@
 
 /* Each scalar is independently observable, just like separate Linux calls.
  * Zero means unavailable; bit 32 distinguishes a published UID/GID of zero. */
-struct md_identity_view { atomic_uint_fast64_t ids[4]; };
+struct md_identity_view { atomic_uint_fast64_t ids[6]; };
 static inline int md_identity_view_index(long nr) {
     switch (nr) {
     case SYS_getuid: return 0;
     case SYS_geteuid: return 1;
     case SYS_getgid: return 2;
     case SYS_getegid: return 3;
+    case SYS_getpid: return 4;
+    case SYS_gettid: return 5;
     default: return -1;
+    }
+}
+static inline void md_identity_view_publish_process(struct md_identity_view *view,pid_t group,pid_t task) {
+    const pid_t ids[]={group,task};
+    for (unsigned i=0;i<2;++i) {
+        uint64_t value=ids[i]>0 ? (UINT64_C(1)<<32)|(uint32_t)ids[i] : 0;
+        if (atomic_load_explicit(&view->ids[4+i],memory_order_relaxed)!=value)
+            atomic_store_explicit(&view->ids[4+i],value,memory_order_release);
     }
 }
 static inline int md_identity_view_read(const struct md_identity_view *view,long nr,int64_t *result) {

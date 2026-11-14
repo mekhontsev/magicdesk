@@ -576,6 +576,15 @@ static int process_wait_interrupt(struct thread *t) {
     return 1;
 }
 
+static void process_retry(struct thread *t);
+pid_t process_self(const struct thread *t,long number) {
+    CHECK(number==SYS_getpid || number==SYS_gettid);
+    const struct md_pid_identity *identity=number==SYS_getpid ? t->resources.pid_group : t->resources.pid;
+    /* A PID selector may serve future children while its caller still uses
+     * native IDs. Never publish the namespace prepared only for children. */
+    return identity ? md_pid_identity_number(identity,md_pid_identity_namespace(t->resources.pid))
+        : number==SYS_getpid ? t->tgid : t->pid;
+}
 int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r,unsigned long *cookie) {
     long nr=call->nr;
     if (t->phase==IDLE && robust_call(t,call,r,MD_TASK_CALL_SECCOMP)) return 1;
@@ -596,12 +605,7 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
                 && t->phase==IDLE && call->instruction_pointer!=RAW_GATE)) return 0;
     if (t->phase==IDLE && (nr==SYS_getpid || nr==SYS_gettid)
             && (entry_pending(t) || t->resources.pid)) {
-        const struct md_pid_identity *identity=nr==SYS_getpid ? t->resources.pid_group : t->resources.pid;
-        /* A PID selector can be installed for future children while the
-         * caller still uses native IDs and has no virtual identity. */
-        pid_t target=identity ? md_pid_identity_number(identity,md_pid_identity_namespace(t->resources.pid))
-            : nr==SYS_getpid ? t->tgid : t->pid;
-        return_value(t,r,target); return 1;
+        return_value(t,r,process_self(t,nr)); return 1;
     }
     *cookie=MD_INTERCEPT_NATIVE;
     if (t->phase!=IDLE) return 0;
@@ -754,6 +758,14 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
         if (t->process_op.inspection_denied) native.args[0]=(uint64_t)-1;
         CHECK(!t->memory_op.remote);
         if (target && !t->process_op.inspection_denied) {
+            /* EVENT_WAIT: private mapping replacement releases this unchanged
+             * request through the shared retry owner. A resident admission has
+             * no kernel stop for memory_event() to retain. Revalidate identity
+             * on retry; no remote effect has been published yet. */
+            if (memory_access_defer(t,target->memory,process_retry)) {
+                execution_retain(t,call,r);
+                return 1;
+            }
             t->memory_op.remote=md_memory_fork(target->memory,1); CHECK(t->memory_op.remote);
         }
     }
@@ -768,6 +780,11 @@ int process_call(struct thread *t,const struct seccomp_data *call,struct user_pt
         if (set_registers(t->pid,&regs)) resume(t->pid,0);
     }
     return 1;
+}
+
+static void process_retry(struct thread *t) {
+    unsigned long cookie=MD_INTERCEPT_PROCESS;
+    CHECK(process_call(t,&t->execution.request,entry_pending(t) ? NULL : &t->execution.registers,&cookie));
 }
 
 int freezer_parked(const struct thread *t) {
@@ -922,6 +939,32 @@ void pid_collect(void) {
     md_task_registry_collect(tasks,pid_collectible); pid_collection_pending=0;
 }
 
+int task_trace_options(struct thread *t) {
+    if (!t->trace_options_dirty) return 0;
+    if (!t->kernel_stopped) return debugger_interrupt(t->pid);
+    unsigned long required=t->terminal_observation ? PTRACE_O_TRACEEXIT : 0;
+    if (native_trace(PTRACE_SETOPTIONS,t->pid,NULL,
+            (void *)(trace_options|required|(t->debug.options&PTRACE_O_TRACEEXIT)))) return -errno;
+    t->trace_options_dirty=0;
+    return 0;
+}
+
+int task_observe_exit(struct thread *t) {
+    /* Observation is monotonic for this native task, including exec. Reusing
+     * it must not add a ptrace mutation to each capture or mapping. */
+    if (!t->terminal_observation) {
+        t->terminal_observation=1; t->trace_options_dirty=1;
+    }
+    return task_trace_options(t);
+}
+
+static void inherit_trace_options(struct thread *child,const struct thread *parent) {
+    child->debug.options=parent->debug.options;
+    child->terminal_observation=parent->terminal_observation;
+    /* The kernel inherits installed options, not a pending logical update. */
+    child->trace_options_dirty=parent->trace_options_dirty;
+}
+
 static int publish_birth(struct thread *t,pid_t child,unsigned event) {
     pid_t pid=t->pid;
     if (event==PTRACE_EVENT_VFORK) {
@@ -939,8 +982,7 @@ static int publish_birth(struct thread *t,pid_t child,unsigned event) {
     /* A newborn has no syscall entry of its own. Adapter setup must
      * not publish the parent's pending clone exit as a child stop. */
     c->debug.call_active=0;
-    c->debug.options=t->debug.options;
-    c->terminal_observation=t->terminal_observation;
+    inherit_trace_options(c,t);
     c->process_op.filter=t->process_op.filter;
     int prior=t->seccomp.admission_policy_valid && !(t->process_op.cloning&CLONE_THREAD);
     c->seccomp.application_filter=prior ? t->seccomp.admission_application_filter : t->seccomp.application_filter;
@@ -1183,11 +1225,9 @@ void task_exec_event(struct thread *t,pid_t pid,unsigned event) {
             former->signals.delivery=(struct md_signal_delivery){0};
             t->signals.origin=former->signals.origin;
             former->signals.origin.valid=0;
-            t->terminal_observation=former->terminal_observation;
-            t->debug.options=former->debug.options;
+            inherit_trace_options(t,former);
             t->debug.call_active=former->debug.call_active;
             t->debug.step_call=former->debug.step_call;
-            t->trace_options_dirty=former->trace_options_dirty;
             t->process_op.filter=former->process_op.filter;
             t->seccomp.application_filter=former->seccomp.application_filter;
             md_seccomp_policy_replace(&t->seccomp.policy,NULL);

@@ -39,6 +39,18 @@ static void routing_contract(void) {
         assert(result==(SECCOMP_RET_TRACE|MD_INTERCEPT_CHECKPOINT));
     }
     struct md_fd_filter_gates gates=md_fd_filter_runtime_gates(&abi);
+    for (unsigned selected_queue=0;selected_queue<2;++selected_queue) {
+        struct md_fd_selector_view view={.active=selected_queue ? 1u<<MD_FD_SELECTOR_EPOLL : 0};
+        view.bits[MD_FD_SELECTOR_EPOLL][3/64]=UINT64_C(1)<<(3%64);
+        struct seccomp_data probe={.nr=SYS_epoll_pwait,.arch=AUDIT_ARCH_AARCH64,
+            .instruction_pointer=0x4010000004,.args={3,0x1000,1,0,0,8}};
+        uint32_t result;
+        assert(!md_interception_routes_eval(&routes,&view,MD_ROUTE_SIGNALS,&probe,&result));
+        assert(result==(selected_queue ? SECCOMP_RET_TRACE|MD_INTERCEPT_READINESS : SECCOMP_RET_ALLOW));
+        probe.args[3]=(uint64_t)-1;
+        assert(!md_interception_routes_eval(&routes,&view,MD_ROUTE_SIGNALS,&probe,&result));
+        assert(result==(SECCOMP_RET_TRACE|MD_INTERCEPT_READINESS));
+    }
     const int selected[]={3,190,511};
     for (unsigned receive=0;receive<2;++receive) for (unsigned controlled=0;controlled<2;++controlled)
         for (unsigned address=0;address<3;++address) {

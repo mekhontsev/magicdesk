@@ -119,18 +119,21 @@ int md_ipc_io_prepare(struct md_ipc_io *op, struct md_ipc_io_message *io, int fd
             || io->address_size>sizeof(io->address)) return -EINVAL;
     if (op->initialized) return op->batch ? prepare_entry(op,io) : -EINVAL;
     if (io->batch_count>MD_IPC_IO_BATCH || (io->batch_count && (io->batch_index || sending))) return -EINVAL;
-    int type, mode=fcntl(fd,F_GETFL); socklen_t length=sizeof(type);
+    /* Explicit nonblocking calls do not depend on the OFD flags or timeout.
+     * SO_TYPE still validates the captured socket before allocating payloads. */
+    int nonblocking=!!((flags&MSG_DONTWAIT) || (!sending && (flags&MSG_ERRQUEUE)));
+    int type, mode=nonblocking ? 0 : fcntl(fd,F_GETFL); socklen_t length=sizeof(type);
     if (mode<0 || getsockopt(fd,SOL_SOCKET,SO_TYPE,&type,&length)) return -errno;
+    nonblocking|=!!(mode&O_NONBLOCK);
     struct timeval timeout={0}; length=sizeof(timeout);
-    if (getsockopt(fd,SOL_SOCKET,sending ? SO_SNDTIMEO : SO_RCVTIMEO,&timeout,&length)) return -errno;
+    if (!nonblocking && getsockopt(fd,SOL_SOCKET,sending ? SO_SNDTIMEO : SO_RCVTIMEO,&timeout,&length)) return -errno;
     op->capacity=io->size; op->control_capacity=io->control_size;
     if (!io->batch_count && io->size>sizeof(io->data) && !(op->data=malloc(io->size))) return -ENOMEM;
     if (!io->batch_count && io->control_size>sizeof(io->control) && !(op->control=malloc(io->control_size))) {
         md_ipc_io_release(op); return -ENOMEM;
     }
     op->initialized=1; op->sending=sending; op->stream=type==SOCK_STREAM;
-    /* The error queue is a snapshot, even on an otherwise blocking socket. */
-    op->nonblocking=!!((mode&O_NONBLOCK) || (flags&MSG_DONTWAIT) || (!sending && (flags&MSG_ERRQUEUE)));
+    op->nonblocking=nonblocking;
     if (!sending && op->stream && !op->nonblocking) {
         int low=1; length=sizeof(low);
         if (getsockopt(fd,SOL_SOCKET,SO_RCVLOWAT,&low,&length)) {
@@ -211,7 +214,10 @@ static int receive_batch(struct md_ipc_io *op, struct md_received_fds **custody,
     if (!batch->prepared || batch->received) { *result=-EINVAL; return 0; }
     if (!op->job.started && !op->native_ready) {
         int error=allocate_batch(batch);
-        if (!error) error=md_received_fds_reserve(custody,1+MD_SOCKET_RECEIVED_FDS*batch->prepared);
+        unsigned descriptors=1;
+        for (unsigned i=0;i<batch->prepared;++i)
+            descriptors+=md_socket_control_capacity(batch->entries[i].control_capacity);
+        if (!error) error=md_received_fds_reserve(custody,descriptors);
         if (error) { *result=error; return 0; }
         long args[5]={(*custody)->fds[0],(long)batch->messages,batch->prepared,
             flags|MSG_CMSG_CLOEXEC,batch->timed ? (long)&batch->timeout : 0};
@@ -246,7 +252,7 @@ int md_ipc_io_receive(struct md_ipc_io *op, struct md_received_fds **custody,
     int error=admit(op,io,(*custody)->fds[0],flags,0);
     if (error) { *result=error; return 0; }
     if (op->batch) return receive_batch(op,custody,io,flags,result);
-    error=md_received_fds_reserve(custody,1+MD_SOCKET_RECEIVED_FDS);
+    error=md_received_fds_reserve(custody,1+md_socket_control_capacity(op->control_capacity));
     if (error) { *result=error; return 0; }
     struct md_received_fds *fds=*custody;
     char *bytes=op->data ? op->data : io->data;

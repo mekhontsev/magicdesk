@@ -46,10 +46,13 @@ int main(int argc,char **argv) {
     int flags=!strcmp(argv[1],"fd-flags"),control=!strcmp(argv[1],"fd-ioctl");
     int bytes=!strcmp(argv[1],"fd-bytes");
     int identity=!strcmp(argv[1],"identity"),uts=!strcmp(argv[1],"uname");
+    int process=!strcmp(argv[1],"process-identity");
     int rights=!strcmp(argv[1],"socket-rights");
     int messages=!strcmp(argv[1],"ipc-nowait"),sockets=rights || !strcmp(argv[1],"socket-nowait");
     assert(files || memory || idle || epoll || duplicate || metadata || flags || control || bytes
-        || identity || uts || messages || sockets || !strcmp(argv[1],"poll"));
+        || identity || process || uts || messages || sockets || !strcmp(argv[1],"poll"));
+    pid_t pid=getpid(),tid=(pid_t)syscall(SYS_gettid);
+    if (getenv("MD_BENCH_PID_NAMESPACE")) assert(pid==1 && tid==1);
     assert(files || blocks==1);
     char directory[]="/tmp/md-readiness-XXXXXX";
     int dir=-1;
@@ -102,6 +105,8 @@ int main(int argc,char **argv) {
             } else if (identity) {
                 assert(syscall(SYS_getuid)==uid && syscall(SYS_geteuid)==euid
                     && syscall(SYS_getgid)==gid && syscall(SYS_getegid)==egid);
+            } else if (process) {
+                assert(syscall(SYS_getpid)==pid && syscall(SYS_gettid)==tid);
             } else if (uts) {
                 struct utsname names; assert(!uname(&names) && !strcmp(names.sysname,"Linux"));
             } else if (messages) {

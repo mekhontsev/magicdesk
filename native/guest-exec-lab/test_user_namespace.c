@@ -569,7 +569,17 @@ void test_user_namespace(void) {
 
     struct md_identity identity=md_identity_new(2000,2000);
     struct md_identity_view view={0}; int64_t observed=-1;
+    assert(!md_identity_view_read(&view,SYS_getpid,&observed));
+    assert(!md_identity_view_read(&view,SYS_gettid,&observed));
+    md_identity_view_publish_process(&view,1,2);
+    assert(md_identity_view_read(&view,SYS_getpid,&observed) && observed==1);
+    assert(md_identity_view_read(&view,SYS_gettid,&observed) && observed==2);
+    assert(!md_identity_view_read(&view,SYS_getppid,&observed));
     md_identity_view_publish(&view,&identity);
+    assert(md_identity_view_read(&view,SYS_getpid,&observed) && observed==1);
+    md_identity_view_publish_process(&view,0,0);
+    assert(!md_identity_view_read(&view,SYS_getpid,&observed));
+    assert(!md_identity_view_read(&view,SYS_gettid,&observed));
     assert(md_identity_view_read(&view,SYS_getuid,&observed) && observed==2000);
     assert(!md_identity_enter_user_namespace(&identity));
     md_identity_view_publish(&view,&identity);

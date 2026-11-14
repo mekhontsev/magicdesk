@@ -107,7 +107,9 @@ struct md_namespace_broker {
     } watching[2];
     atomic_uint control_pending;
     pid_t control_target;
-    struct md_spin_policy control_spin;
+    /* A protocol continuation and the next application syscall have different
+     * arrival patterns. Short internal exchanges must not erase idle misses. */
+    struct md_spin_policy control_spin[2];
     struct {
         struct md_entry_channel **channels;
         size_t capacity;
@@ -1563,6 +1565,7 @@ static size_t control_snapshot(struct md_namespace_broker *b) {
     for (struct task *t=watch->first,*next;t;t=next) {
         next=t->watch_next[MD_ENTRY_SUPERVISOR_OWNER];
         if (!channel_available(t)
+                || !md_entry_peer_runnable(atomic_load_explicit(&t->channel->state,memory_order_acquire))
                 || !atomic_load_explicit(&t->channel->control_awake,memory_order_acquire)) {
             /* A retained operation cannot advance through this owner. Use
              * the ordinary park handshake now, so retirement publishes a
@@ -1596,7 +1599,8 @@ int md_broker_entry_progress(struct md_namespace_broker *b) {
     }
     pthread_mutex_unlock(&b->lock);
     uint64_t start=cooperative_clock(),idle=start;
-    unsigned completed=0,checks=0,spin=md_spin_budget(&b->control_spin,25000);
+    unsigned completed=0,checks=0,spin=0;
+    struct md_spin_policy *feedback=NULL;
     int spinning=0;
     while (completed<EXECUTION_BURST_CALLS) {
         /* This scan consumes earlier enrollment hints. A later enrollment
@@ -1610,6 +1614,7 @@ int md_broker_entry_progress(struct md_namespace_broker *b) {
             t=t->watch_next[MD_ENTRY_SUPERVISOR_OWNER] ? t->watch_next[MD_ENTRY_SUPERVISOR_OWNER] : watch->first; --left;
         }
         if (!left || !t) {
+            spin=feedback ? md_spin_budget(feedback,25000) : 0;
             size_t count=completed && spin ? control_snapshot(b) : 0;
             pthread_mutex_unlock(&b->lock);
             if (!count) break;
@@ -1619,7 +1624,7 @@ int md_broker_entry_progress(struct md_namespace_broker *b) {
                 if (!(checks++%8)) {
                     uint64_t now=cooperative_clock();
                     if (!now || now-idle>=spin || now-start>=EXECUTION_BURST_NS) {
-                        md_spin_result(&b->control_spin,0); expired=1; break;
+                        md_spin_result(feedback,0); expired=1; break;
                     }
                 }
                 if (control_snapshot_ready(b,count)) break;
@@ -1635,9 +1640,12 @@ int md_broker_entry_progress(struct md_namespace_broker *b) {
         t->sequence=sequence; t->control_active=1; ++t->borrowed;
         atomic_store_explicit(&c->state,MD_ENTRY_RUNNING,memory_order_release);
         pthread_mutex_unlock(&b->lock);
-        if (spinning) { md_spin_observed(&b->control_spin,1,cooperative_clock(),idle+spin); spinning=0; }
+        if (spinning) { md_spin_observed(feedback,1,cooperative_clock(),idle+spin); spinning=0; }
         if (admitted) b->entry(t->pid,c);
         else channel_reply(b,c,sequence,MD_ENTRY_DECLINED,0);
+        /* Only this thread publishes execution_action. Guest request bytes may
+         * already belong to the next sequence and cannot classify this reply. */
+        feedback=&b->control_spin[c->execution_action==MD_EXECUTION_GUEST];
         pthread_mutex_lock(&b->lock);
         t->control_active=0;
         unsigned target=task_operation_retired(b,t);
@@ -1698,8 +1706,7 @@ static int cooperative_progress(struct md_namespace_broker *b,struct md_filesyst
             /* A supervisor-owned wait cannot continue filesystem work until
              * its receipt/event. Worker-owned native plans retain their own
              * effect_pending batching, including open/close fast paths. */
-            runnable|=channel_available(t) && state!=MD_ENTRY_NATIVE && state!=MD_ENTRY_PARKED
-                && !control_request_pending(t);
+            runnable|=channel_available(t) && md_entry_peer_runnable(state) && state!=MD_ENTRY_NATIVE;
             t=t->watch_next[MD_ENTRY_WORKER_OWNER] ? t->watch_next[MD_ENTRY_WORKER_OWNER] : watch->first; --left;
         }
         if (!left) t=NULL;

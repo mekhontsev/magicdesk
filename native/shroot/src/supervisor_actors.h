@@ -49,6 +49,8 @@ extern struct md_task_quiesce *task_action_barrier;
 struct md_task_call *task_action_call(struct task_action *action);
 struct md_task_quiesce **quiescence_barrier(const struct mapping_owner *parent);
 int quiescence_busy(const struct mapping_owner *parent);
+struct md_task_quiesce *quiescence_pending(pid_t pid);
+pid_t quiesce_take_event(struct md_task_quiesce *,int *,struct rusage *);
 int buffer_admission_quiescing(pid_t pid);
 long quiesce_trace(int request,pid_t pid,void *address,void *data);
 int quiesce_event(struct md_task_quiesce *barrier,pid_t pid,int status,const struct rusage *usage);

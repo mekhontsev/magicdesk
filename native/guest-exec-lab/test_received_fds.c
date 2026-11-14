@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "received_fds.h"
 #include "fd_object.h"
+#include "socket_control.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -75,6 +76,13 @@ static void rollback(struct md_fd_object *origin) {
     }
 }
 int main(void) {
+    assert(!md_socket_control_capacity(0));
+    assert(!md_socket_control_capacity(CMSG_LEN(0)));
+    assert(!md_socket_control_capacity(CMSG_LEN(sizeof(int))-1));
+    assert(md_socket_control_capacity(CMSG_LEN(sizeof(int)))==1);
+    assert(md_socket_control_capacity(CMSG_LEN(253*sizeof(int)))==253);
+    assert(md_socket_control_capacity(CMSG_SPACE(253*sizeof(int))+CMSG_SPACE(sizeof(int)))==254);
+    assert(md_socket_control_capacity(SIZE_MAX)==254);
     struct md_fd_object origin; md_fd_object_init(&origin,&type);
     append(NULL); append(&origin); rollback(&origin);
     for (unsigned annotated=0;annotated<2;++annotated) {

@@ -47,6 +47,9 @@ statuses transfer exactly once, including during cancellation. Only an empty
 general wait establishes a drained queue, invalidated by SIGCHLD. Buffered
 delivery needs no extra signal read; the shared event loop still services all
 signal and resource sources within its progress budget.
+Productive shared-memory turns may defer a general scan within the same finite
+discovery budget. The caller must flush that discovery before parking; deferral
+neither proves an empty queue nor loses untracked births or terminal statuses.
 
 Pending selector installations use the shared intrusive continuation queue,
 not a scan of all tracees. Completion and cancellation remove their owned

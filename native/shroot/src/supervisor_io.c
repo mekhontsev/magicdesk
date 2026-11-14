@@ -466,8 +466,7 @@ static void outgoing_capture_task(struct thread *t) {
     struct outgoing_owner *owner=t->io.outgoing;
     if (entry_require_stop(t,MD_CONTEXT_DESCRIPTOR,0,outgoing_capture_task)) return;
     owner->continuation=t->fs.registers;
-    t->terminal_observation=1; t->trace_options_dirty=1;
-    int error=debugger_options(t->pid,t->debug.options);
+    int error=task_observe_exit(t);
     if (!error) {
         struct md_task_helper_request request={.kind=MD_TASK_HELPER_EXPORT,
             .descriptors=owner->input.keep,.descriptor_count=owner->input.count,.captured=outgoing_captured};
@@ -778,8 +777,7 @@ static void receive_capture_task(struct thread *t) {
     owner->started=1;
     if (entry_require_stop(t,MD_CONTEXT_DESCRIPTOR,0,receive_capture_task)) return;
     owner->continuation=t->fs.registers;
-    t->terminal_observation=1; t->trace_options_dirty=1;
-    int error=debugger_options(t->pid,t->debug.options);
+    int error=task_observe_exit(t);
     if (!error) {
         struct md_task_helper_request request={.kind=MD_TASK_HELPER_RECEIVE,
             .receive=owner->request,.captured=receive_captured};
@@ -1078,12 +1076,12 @@ void io_buffer_control(struct thread *t,const struct supervisor_control_request 
     buffer_reply(t,result); adapter_progress();
 }
 
-int receive_prepared(struct thread *t,const struct user_pt_regs *continuation,unsigned policy) {
+static struct receive_owner *receive_prepare(struct thread *t,unsigned policy) {
     if (t->execution.request.nr!=SYS_recvmsg || !t->execution.prepared || !t->endpoint[0]
             || (policy&(MD_DISPATCH_NETWORK_DATA|MD_DISPATCH_NETWORK_CONTROL|MD_DISPATCH_DEVICE_EVENTS|MD_DISPATCH_OFFLINE_SOCKET))
             || t->io.receive || t->descriptors.order.table || t->descriptors.running || t->descriptors.fs_order.fs
             || t->debug.options || t->debug.call_active || t->debug.step_call
-            || md_debugger_traced(debugger,t->pid)) return 0;
+            || md_debugger_traced(debugger,t->pid)) return NULL;
     struct md_buffer_span span;
     CHECK(!md_buffer_span(&t->fs.buffer,&span));
     struct md_task_receive_frame *frame=span.data;
@@ -1122,6 +1120,27 @@ int receive_prepared(struct thread *t,const struct user_pt_regs *continuation,un
     owner->started=owner->brokered=owner->prepared=1;
     if (statistics) ++statistics->captured_receives;
     t->io.receive=owner;
+    return owner;
+}
+
+int receive_resident(struct thread *t,unsigned policy,long *result) {
+    struct receive_owner *owner=receive_prepare(t,policy);
+    if (!owner) return 0;
+    struct md_buffer_span span;
+    CHECK(!md_buffer_span(&t->fs.buffer,&span));
+    struct md_task_receive_frame *frame=span.data;
+    CHECK(!md_ipc_io_receive(&owner->io,&owner->received,&frame->io,owner->request.flags,result));
+    owner->ready=1;
+    frame->io_completed=frame->prepared=1; frame->result=*result;
+    return 1;
+}
+
+int receive_prepared(struct thread *t,const struct user_pt_regs *continuation,unsigned policy) {
+    struct receive_owner *owner=receive_prepare(t,policy);
+    if (!owner) return 0;
+    struct md_buffer_span span;
+    CHECK(!md_buffer_span(&t->fs.buffer,&span));
+    struct md_task_receive_frame *frame=span.data;
     if (!continuation) {
         if (statistics) ++statistics->entry_receives;
         long result;

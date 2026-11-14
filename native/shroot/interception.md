@@ -310,9 +310,12 @@ Membership is updated at task admission/retirement, without a full task scan.
 Private mapping/descriptor helpers and deferred FIFO-open children belong to
 the same collection ring from confirmed birth through terminal reaping. They
 do not acquire guest task identities or depend on the general scan for progress.
-The signal source is refreshed when its hint queue is empty. A general wait
-still runs at the budget boundary and is the only way to establish an empty
-kernel queue; no timer or speculative sleep is added.
+The signal source is refreshed when its hint queue is empty. While shared-memory
+progress guarantees another event-loop turn, a directed miss retains the discovery
+budget instead of immediately scanning the entire child list. A general wait still
+runs at the budget boundary and before parking without another guaranteed turn.
+Only its empty result establishes a drained kernel queue; a directed miss does
+not cache emptiness, add a timer or authorize a speculative sleep.
 For larger task sets, general discovery collects at most 32 ready statuses
 before resuming any of them. This prevents a hot child from immediately
 reoccupying the kernel list head while the same batch is being collected.

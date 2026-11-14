@@ -232,7 +232,10 @@ void readiness_reply(struct thread *t,long result) {
     }
     if (o->poll && result!=MD_EPOLL_NATIVE) {
         struct md_buffer_span span;
-        if (!md_buffer_span(&t->fs.buffer,&span)) readiness_poll_elapsed(t,span.data);
+        if (!md_buffer_span(&t->fs.buffer,&span)) {
+            readiness_poll_elapsed(t,span.data);
+            if (result>=0) CHECK(!md_poll_wait_copy(o->poll,span.data,0));
+        }
     }
     if (o->detached) {
         if (!t->entry.execution && (result<=0 || o->detached->native_output)) {
@@ -240,6 +243,14 @@ void readiness_reply(struct thread *t,long result) {
             adapter_progress(); return;
         }
         if (!readiness_restore(t,READINESS_RESTORE_REPLY,result)) return;
+    }
+    if (!o->poll && result>=0 && result<MD_EPOLL_NATIVE) {
+        /* Results and capture/control states share a reply word. Keep ready
+         * event counts unambiguous when preparation completes the wait. */
+        struct md_buffer_span span;
+        CHECK(!md_buffer_span(&t->fs.buffer,&span));
+        ((struct md_epoll_frame *)span.data)->result=result;
+        result=MD_EPOLL_DONE;
     }
     buffer_reply(t,result);
 }
@@ -290,7 +301,7 @@ static void readiness_duplicate_done(struct thread *t,long result) {
     if (result<0) { readiness_reply(t,result); return; }
     CHECK(!md_fd_order_complete(&o->files));
     o->native_caller=1;
-    buffer_reply(t,MD_EPOLL_CAPTURED);
+    readiness_progress(t);
 }
 
 static void readiness_duplicate(struct thread *t) {
@@ -351,10 +362,7 @@ static void readiness_start_stopped(struct thread *t) {
 }
 
 static void readiness_shared_done(struct thread *t,long result) {
-    struct md_buffer_span span;
-    CHECK(!md_buffer_span(&t->fs.buffer,&span));
-    ((struct md_epoll_frame *)span.data)->result=result;
-    readiness_reply(t,MD_EPOLL_DONE);
+    readiness_reply(t,result);
 }
 
 static int readiness_shared(struct thread *t) {
@@ -493,7 +501,7 @@ void readiness_start(struct thread *t) {
             if (md_fd_origins_exclusive(&o->files)) {
                 o->native_caller=1;
                 CHECK(!md_fd_order_complete(&o->files));
-                buffer_reply(t,MD_EPOLL_CAPTURED); return;
+                readiness_progress(t); return;
             }
             if (t->entry.control && !checkpoint_restricted(t->pid)) {
                 readiness_duplicate(t); return;
@@ -572,7 +580,7 @@ void readiness_start(struct thread *t) {
         }
         if (error) { readiness_reply(t,error); return; }
         readiness_activated(o->queue);
-        o->native_caller=1; buffer_reply(t,MD_EPOLL_CAPTURED); return;
+        o->native_caller=1; readiness_progress(t); return;
     }
     readiness_reply(t,md_control_epoll_ctl(queue,o->operation,o->number,o->target,provider,&o->event,
         o->received ? o->received->fds[0] : -1));
@@ -659,7 +667,7 @@ static void readiness_poll_load(struct thread *t) {
     }
     o->native_caller=1;
     CHECK(!md_fd_order_complete(&o->files));
-    buffer_reply(t,MD_EPOLL_CAPTURED);
+    readiness_progress(t);
 }
 
 static void readiness_effect_done(struct thread *t,long result) {

@@ -15,6 +15,7 @@
 enum { PID_BUCKETS=127 };
 struct pid_number {
     struct pid_number *next;
+    struct pid_number *native_next;
     struct md_pid_identity *identity;
     struct md_pid_namespace *space;
     pid_t number;
@@ -31,6 +32,7 @@ struct md_pid_namespace {
     atomic_int dead, reboot_signal;
     int initialized;
     struct pid_number *numbers[PID_BUCKETS];
+    struct pid_number *native[PID_BUCKETS];
 };
 struct md_pid_identity {
     atomic_uint references;
@@ -108,7 +110,7 @@ void md_pid_namespace_release(struct md_pid_namespace *n) {
     while (*slot!=n) slot=&(*slot)->registry_next;
     *slot=n->registry_next;
     pthread_mutex_unlock(&registry_lock);
-    for (unsigned i=0;i<PID_BUCKETS;++i) assert(!n->numbers[i]);
+    for (unsigned i=0;i<PID_BUCKETS;++i) assert(!n->numbers[i] && !n->native[i]);
     md_pid_namespace_release(n->parent); md_user_namespace_release(n->owner);
     pthread_mutex_destroy(&n->lock); free(n);
 }
@@ -199,10 +201,13 @@ int md_pid_identity_publish(struct md_pid_identity *p, pid_t native, pid_t group
     if (!p) return 0;
     if (native<=0 || group<=0 || atomic_load_explicit(&p->native,memory_order_relaxed)) return -EINVAL;
     for (unsigned i=0;i<p->count;++i) {
-        struct md_pid_namespace *n=p->numbers[i].space;
-        if (p->numbers[i].number==1) {
-            pthread_mutex_lock(&n->lock); n->initialized=1; pthread_mutex_unlock(&n->lock);
-        }
+        struct pid_number *number=&p->numbers[i];
+        struct md_pid_namespace *n=number->space;
+        pthread_mutex_lock(&n->lock);
+        if (number->number==1) n->initialized=1;
+        unsigned bucket=(unsigned)native%PID_BUCKETS;
+        number->native_next=n->native[bucket]; n->native[bucket]=number;
+        pthread_mutex_unlock(&n->lock);
     }
     atomic_store_explicit(&p->group,group,memory_order_relaxed);
     atomic_store_explicit(&p->native,native,memory_order_release);
@@ -226,6 +231,12 @@ static void unreserve(struct md_pid_identity *p) {
         pthread_mutex_lock(&n->lock);
         struct pid_number **link=slot(n,number->number);
         if (*link==number) *link=number->next;
+        pid_t native=md_pid_identity_native(p);
+        if (native) {
+            link=&n->native[(unsigned)native%PID_BUCKETS];
+            while (*link && *link!=number) link=&(*link)->native_next;
+            if (*link) *link=number->native_next;
+        }
         pthread_mutex_unlock(&n->lock);
     }
 }
@@ -289,11 +300,10 @@ struct md_pid_identity *md_pid_namespace_find(struct md_pid_namespace *n,pid_t n
     if (!n || native<=0) return NULL;
     struct md_pid_identity *p=NULL;
     pthread_mutex_lock(&n->lock);
-    for (unsigned i=0;i<PID_BUCKETS && !p;++i)
-        for (struct pid_number *number=n->numbers[i];number;number=number->next)
-            if (md_pid_identity_native(number->identity)==native
-                    && !atomic_load_explicit(&number->identity->reaped,memory_order_acquire)) {
-                p=try_retain(number->identity); break;
-            }
+    for (struct pid_number *number=n->native[(unsigned)native%PID_BUCKETS];number;number=number->native_next)
+        if (md_pid_identity_native(number->identity)==native
+                && !atomic_load_explicit(&number->identity->reaped,memory_order_acquire)) {
+            p=try_retain(number->identity); break;
+        }
     pthread_mutex_unlock(&n->lock); return p;
 }

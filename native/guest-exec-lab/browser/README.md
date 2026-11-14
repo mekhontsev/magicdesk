@@ -110,6 +110,18 @@ then alternates Base/lazy runs with fresh owned profiles. It requires the host
 Python `websocket-client` package. Root observes host thread CPU counters only;
 browser execution retains the selected executor and guest UID 2000.
 
+Use `--url https://...` instead of `--video` for an actual streaming page.
+The page keeps its player, network traffic and advertisements; a small fixture
+input measures renderer responsiveness independently of site markup. Reports
+include browser readiness and time to 30 video frames, plus the current video
+source, title and YouTube advertisement state. Readiness and input focus are
+checked in the same live document; navigation never extends the startup bound.
+Advertisements do not satisfy readiness, and an advertisement observed during
+measurement rejects that sample. Compare like playback segments.
+Live-page runs also retain bounded Media events and failed network requests,
+with URL queries and fragments removed and without response headers. This
+diagnostic collection is not enabled for the local-video timing control.
+
 ```sh
 python native/guest-exec-lab/browser/benchmark.py --build BUILD --store DEVICE_GUEST_STORE --executor app --video LOCAL_VIDEO.webm --output build/browser-video --seconds 45 --rounds 2
 ```
@@ -123,6 +135,9 @@ input/frame observations for correlation with external CPU samples, without
 additional browser polling. Input latency is the DevTools insertion and
 next-animation-frame round trip, not a physical-keyboard-to-display measurement.
 CPU percentages use one core as 100%; they exclude the browser's own processes.
+The shared CPU observation also records readable battery temperature, charging
+status and capacity at each endpoint. Missing host values remain unavailable;
+no power or thermal polling runs inside the measured interval.
 Display snapshots are read outside the timing interval and do not change refresh
 rate; they do not observe every intermediate mode change.
 Profiles and processes are removed after each run; images and reports remain.
@@ -143,8 +158,9 @@ post-filter completions. `--diagnostics` adds detailed runtime transitions.
 during playback, retaining the recording, sampling log and symbol report.
 Instrumented variants are not timing baselines. A few accelerated calls do
 not prove that video's hot path is accelerated. Do not overlap timing runs with
-builds or other tests. This fixture does not certify Wayland, hardware decoding,
-YouTube networking or desktop presentation. The retained-desktop variant tests
+builds or other tests. Local-media results do not qualify streaming/network
+behavior. This fixture does not certify Wayland, hardware decoding or desktop
+presentation. The retained-desktop variant tests
 that selected compositor and GPU configuration, not other devices or displays.
 
 ## Coverage And Limits

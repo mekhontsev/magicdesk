@@ -695,6 +695,49 @@ static void scalar_credentials(void) {
     reap(child);
     puts("PASS cooperative entry: scalar credentials observe live IDs and user namespace translation");
 }
+static void scalar_process_ids(void) {
+    struct md_entry_client local={0};
+    assert(required_call(&local,SYS_getuid,(uint64_t[6]){0})==getuid());
+    struct md_entry_channel *channel=(void *)local.opaque[MD_ENTRY_CLIENT_CHANNEL];
+    assert(channel);
+    const int calls[]={SYS_getpid,SYS_gettid};
+    for (unsigned round=0;round<16;++round) for (unsigned i=0;i<2;++i) {
+        long expected=syscall(calls[i]);
+        uint64_t sequence=channel->sequence;
+        assert(required_call(&local,calls[i],(uint64_t[6]){0})==expected);
+        assert(channel->sequence==sequence);
+    }
+}
+static void *scalar_process_peer(void *argument) {
+    assert(getpid()==(pid_t)(uintptr_t)argument && syscall(SYS_gettid)!=getpid());
+    scalar_process_ids(); return NULL;
+}
+static void scalar_process_policy(void) {
+    scalar_process_ids();
+    pthread_t peer; assert(!pthread_create(&peer,NULL,scalar_process_peer,(void *)(uintptr_t)getpid()));
+    assert(!pthread_join(peer,NULL));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        scalar_process_ids();
+        struct md_entry_client local={0};
+        assert(required_call(&local,SYS_getpid,(uint64_t[6]){0})==getpid());
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getpid,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EPERM),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+        assert(required_call(&local,SYS_getpid,(uint64_t[6]){0})==-EPERM);
+        assert(required_call(&local,SYS_gettid,(uint64_t[6]){0})==-EACCES);
+        _exit(0);
+    }
+    reap(child);
+    puts("PASS cooperative identity: task-owned PID/TID publication, fork, threads and guest policy before scalar reads");
+}
 static unsigned live_descriptors(void) {
     DIR *directory=opendir("/proc/self/fd"); assert(directory);
     unsigned count=0; struct dirent *entry;
@@ -1522,10 +1565,15 @@ static void credentials(void) {
 static void pid_namespace(void) {
     pid_t child=fork(); assert(child>=0);
     if (!child) {
+        pid_t original=getpid(); scalar_process_ids();
         assert(!unshare(CLONE_NEWPID));
+        assert(getpid()==original); scalar_process_ids();
         pid_t init=fork(); assert(init>=0);
         if (!init) {
             assert(getpid()==1 && syscall(SYS_gettid)==1);
+            scalar_process_ids();
+            pthread_t peer; assert(!pthread_create(&peer,NULL,scalar_process_peer,(void *)(uintptr_t)1));
+            assert(!pthread_join(peer,NULL));
             assert(api->thread_identity()>1);
             struct md_entry_client fresh={0}; struct stat st; long result;
             for (unsigned i=0;i<100;++i)
@@ -1836,7 +1884,7 @@ static void contracts(const char *executable) {
     }
     long fd=call6(SYS_openat,AT_FDCWD,(uintptr_t)path,O_CREAT|O_RDWR|O_TRUNC,0600,0,0); assert(fd>=0);
     assert(call6(SYS_write,fd,(uintptr_t)"payload",7,0,0,0)==7);
-    scalar_credentials();
+    scalar_credentials(); scalar_process_policy();
     native_descriptors();
     native_interruptions();
     task_completion(); create_admission(); birth_retirement();
@@ -1883,15 +1931,19 @@ static void contracts(const char *executable) {
         assert(context.kernel==caller_kernel && !context.next);
         assert(!(client.opaque[MD_ENTRY_CLIENT_CONTROL]&MD_ENTRY_CLIENT_BUSY));
     }
+    struct jit_entry_peer *fork_gate=mmap(NULL,sizeof(*fork_gate),PROT_READ|PROT_WRITE,
+        MAP_SHARED|MAP_ANONYMOUS,-1,0);
+    assert(fork_gate!=MAP_FAILED); atomic_init(&fork_gate->stage,0);
     pid_t child=fork(); assert(child>=0);
     if (!child) {
+        jit_wait(fork_gate,1);
         struct md_entry_channel *inherited=(void *)client.opaque[MD_ENTRY_CLIENT_CHANNEL];
         assert(inherited && client.opaque[MD_ENTRY_CLIENT_OWNER]==(uintptr_t)inherited->owner);
         uint64_t sequence=inherited->sequence;
         enum md_entry_outcome outcome=stat_try(&client,&st,&result);
-        /* The parent may enter a task-affine wait before this child runs.
-         * Its disabled channel takes the original kernel call without a
-         * helper identity probe; an enabled foreign channel declines. */
+        /* Native futex synchronization keeps the parent out of its channel.
+         * An accelerated wait4 would legitimately change this shared sequence
+         * while the child checks that foreign admission leaves it untouched. */
         assert(outcome==MD_ENTRY_DECLINED || (outcome==MD_ENTRY_COMPLETED && !result && st.st_size==7));
         assert(inherited->sequence==sequence && !atomic_load(&inherited->caller));
         sampled=(struct md_entry_call){.number=SYS_newfstatat,
@@ -1899,11 +1951,14 @@ static void contracts(const char *executable) {
         outcome=md_entry_invoke(&identified,&client,&sampled);
         assert(outcome==MD_ENTRY_DECLINED || (outcome==MD_ENTRY_COMPLETED && !sampled.result && st.st_size==7));
         assert(inherited->sequence==sequence && !atomic_load(&inherited->caller));
+        jit_stage(fork_gate,2);
         struct md_entry_client fresh={0};
         assert(stat_try(&fresh,&st,&result)==MD_ENTRY_COMPLETED && !result);
         execl(executable,executable,"exec",NULL); _exit(90);
     }
+    jit_stage(fork_gate,1); jit_wait(fork_gate,2);
     reap(child);
+    assert(!munmap(fork_gate,sizeof(*fork_gate)));
     pthread_t peers[4];
     for (unsigned i=0;i<4;++i) assert(!pthread_create(&peers[i],NULL,threaded,NULL));
     for (unsigned i=0;i<4;++i) assert(!pthread_join(peers[i],NULL));
@@ -2027,6 +2082,7 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"exec")) {
         struct stat st; long result;
         assert(stat_try(&client,&st,&result)==MD_ENTRY_COMPLETED && !result);
+        scalar_process_ids();
         puts("PASS cooperative entry: fresh auxv and channel after exec"); return 0;
     }
     contracts(argv[0]); return 0;

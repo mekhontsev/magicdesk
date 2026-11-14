@@ -62,7 +62,7 @@ def main():
         entry = {"name": name, "command": command, "passed": False}
         result["checks"].append(entry)
         try:
-            value = executor.execute(command)
+            value = executor.execute(command, capture='--diagnostics' in command)
         except Exception as error:
             entry["error"] = str(error)
             raise
@@ -108,6 +108,8 @@ def main():
                       + root + "/store --deadline-seconds 90 -- /bin/test " + case, message)
 
     def check_namespaces():
+        check("PID namespace identity indexes", executable("test_pid_namespace"),
+              "PASS PID reverse index:")
         for entry in (0, 1):
             check(f"guest device nodes entry={entry}", guest_run + " --user 0:0"
                   + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
@@ -547,6 +549,8 @@ def main():
             names += ("fs_dispatch",)
         if args.case in ("all", "fs-buffer"):
             names += ("test_interception_memory", "test_interception_buffers")
+        if args.case in ("all", "namespaces", "mount-namespace"):
+            names += ("test_pid_namespace",)
         if args.case == "all":
             names += ("test_open_job", "fs_dispatch", "test_launch_registry", "ipc_credentials_guest", "ipc_io_job", "fd_observation", "task_helper_fd", "test_native_mounts", "file_metadata", "event_signal", "test_svc_machine_signal")
             names += ("control_event", "wait_guest")
@@ -717,7 +721,6 @@ def main():
             for filtered in range(2):
                 check("native wait control " + str(filtered), executable("wait_guest") + " "
                       + str(filtered), "PASS native wait fast paths")
-                expected = [r"MD_SYSCALL nr=20 trace=2 notification=0"]
                 absent = [r"MD_SYSCALL nr=(?:21|22|72|73) "]
                 if filtered:
                     absent = []
@@ -725,9 +728,12 @@ def main():
                       + root + "/wait-store --deadline-seconds 30 " + ("--diagnostics " if args.diagnostics else "")
                       + "-- /bin/waits " + str(filtered),
                       "PASS native wait fast paths",
-                      patterns=expected, absent_patterns=absent)
+                      absent_patterns=absent)
                 counts = {int(nr): int(count) for nr, count in re.findall(
                     r'MD_SYSCALL nr=(\d+) trace=(\d+)', value['output'])}
+                entries = {int(nr): int(count) for nr, count in re.findall(
+                    r'MD_ENTRY_SYSCALL nr=(\d+) calls=(\d+)', value['output'])}
+                assert counts.get(20, 0) + entries.get(20, 0) == 2, value['output']
                 # epoll_pwait2 may discover a shared SVC once; repeated native
                 # waits must still avoid interception under either executor.
                 assert counts.get(441, 0) <= 1, counts

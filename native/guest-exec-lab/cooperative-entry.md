@@ -82,8 +82,10 @@ paired ratios, not just ratios of independently displayed medians. CPU affinity
 is a diagnostic control, not a production scheduling policy.
 
 Confirm actual entry completions separately from timing. A probe silently
-falling back to Base does not establish accelerated throughput. Sandboxes revoke
-lazy admission; their results measure the supported original-SVC fallback.
+falling back to Base does not establish accelerated throughput. Guest filters
+are evaluated with the original syscall context; eligible calls retain resident
+execution after installation. Verify post-filter completions separately from
+calls requiring the original stopped context.
 Counter collection adds work to hot paths and is not enabled for normal timings.
 
 ### Handoff And Startup
@@ -97,6 +99,10 @@ block follows fixture initialization; it is not a filesystem-cache-cold test.
 Full launch time and the last-half block median remain separate measurements.
 Frequency observations cover host cpufreq policies across each command, not the
 instantaneous frequency of every worker or caller instruction.
+`--pid-namespace` runs each measured command as a new guest PID 1; the fixture
+asserts its visible IDs before timing. `--workload process-identity` measures
+PID/TID pairs independently of the credential-scalar workload. Combine it with
+`--application-filter` to retain post-filter admission in the comparison.
 
 Compare unrestricted execution, a shared multi-CPU mask and a single-CPU mask.
 A shared mask does not prove simultaneous execution on separate CPUs. Sustained

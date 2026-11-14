@@ -10,7 +10,7 @@ from test_oci_services import Suite
 from benchmark_cpu import observe_suite_cpu
 
 CONTROL_WORKLOADS = ('fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl', 'fd-bytes',
-                     'identity', 'uname', 'ipc-nowait', 'socket-nowait', 'socket-rights')
+                     'identity', 'process-identity', 'uname', 'ipc-nowait', 'socket-nowait', 'socket-rights')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -26,6 +26,8 @@ def main():
                         help='Consecutive 1024-operation file blocks per launch (1-64); retain first and tail timings')
     parser.add_argument('--application-filter', action='store_true',
                         help='Install an application ALLOW filter before the measured fixture loop')
+    parser.add_argument('--pid-namespace', action='store_true',
+                        help='Run measured guests in a new PID namespace, as desktop/container children')
     parser.add_argument('--statistics', action='store_true',
                         help='Record runtime counters for each workload; not a timing baseline')
     parser.add_argument('--cpu-mask', type=lambda value: int(value, 16),
@@ -62,6 +64,7 @@ def main():
             instrumented=args.statistics,
             cpuMask=None if args.cpu_mask is None else format(args.cpu_mask, 'x'),
             applicationFilter=args.application_filter,
+            pidNamespace=args.pid_namespace,
             timing='loop wall/caller CPU; time -p covers full launch and reaped descendants',
             fileBlocks=args.file_blocks,
             blockScope='first block follows fixture setup, not a dropped filesystem cache; tail is the last half',
@@ -81,6 +84,9 @@ def main():
         if args.application_filter:
             for prefix in modes.values():
                 prefix.extend(['--env', 'MD_BENCH_FILTER=1'])
+        if args.pid_namespace:
+            for prefix in modes.values():
+                prefix.extend(['--env', 'MD_BENCH_PID_NAMESPACE=1'])
         if args.statistics:
             for prefix in modes.values():
                 prefix.append('--statistics')
@@ -97,6 +103,9 @@ def main():
             workloads[workload] = [target + '/benchmark', workload, str(args.iterations)]
         if args.workload:
             workloads = {name: command for name, command in workloads.items() if name in args.workload}
+        if args.pid_namespace:
+            workloads = {name: ['/usr/bin/unshare', '--pid', '--fork', '--', *command]
+                         for name, command in workloads.items()}
         measured = {'poll', 'epoll', 'epoll-ready', 'idle', 'file-stat', 'file-open', 'file-cycle',
                     *CONTROL_WORKLOADS}
         suite.report['samples'] = samples = []

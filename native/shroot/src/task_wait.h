@@ -32,6 +32,10 @@ pid_t md_task_wait_take(struct md_task_wait *, int *, struct rusage *);
 /* Nonblocking __WALL wait with bounded preference for notified TIDs.
  * A general empty result remains valid until SIGCHLD invalidates it. Callers
  * must service the blocked signal source and include it in readiness waits.
- * Returns the unmodified wait4 result, status, rusage and errno. */
-pid_t md_task_wait_ready(struct md_task_wait *, int *, struct rusage *);
+ * Runnable callers guarantee another discovery pass before parking. They may
+ * receive zero after a directed miss without a general empty observation;
+ * the finite discovery budget still bounds untracked births and lost hints.
+ * Pass runnable=0 before waiting on external events. Positive results, errors
+ * and accounting are the unmodified wait4 result. */
+pid_t md_task_wait_ready(struct md_task_wait *, int *, struct rusage *, int runnable);
 #endif

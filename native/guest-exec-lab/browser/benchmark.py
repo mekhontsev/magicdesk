@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Stock Chromium video/input checks, not an isolation certificate.
 
-Uses an owned profile, a local video and the shared fixture executor. Optional
+Uses an owned profile, a local video or live page and the shared fixture executor. Optional
 retained-desktop mode exercises stock Flatpak without disabling its GPU.
 Root only observes host CPU counters; the browser retains its selected identity.
 """
 import argparse
 import base64
+from collections import OrderedDict, deque
 from contextlib import contextmanager
 import hashlib
 import http.server
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark_cpu import observe_cpu
@@ -48,12 +50,69 @@ window.snapshot=()=>{const q=video.getVideoPlaybackQuality();return {
  inputTimes:[...window.inputTimes],time:video.currentTime}};
 </script>'''
 
+# Live pages retain their player and sandbox. The small fixture input measures
+# renderer responsiveness without depending on a site's search-box markup.
+LIVE_PROBE = '''(()=>{
+const observer=new MutationObserver(install);
+function install(){
+ const video=document.querySelector('video');
+ if(!video||!document.body)return;
+ observer.disconnect();
+ const input=document.createElement('input');input.id='magicdesk-benchmark-input';
+ input.style.cssText='position:fixed;bottom:0;left:0;width:160px;z-index:2147483647';
+ document.body.append(input);window.magicdeskInput=input;window.magicdeskVideo=video;
+ let frames=0;const times=[];
+ function frame(){frames++;video.requestVideoFrameCallback(frame)}
+ video.requestVideoFrameCallback(frame);
+ input.addEventListener('input',()=>{const t=performance.now();
+  requestAnimationFrame(()=>times.push(performance.now()-t))});
+ window.snapshot=()=>{const q=video.getVideoPlaybackQuality();return {
+  frames:q.totalVideoFrames,dropped:q.droppedVideoFrames,presented:frames,
+  width:video.videoWidth,height:video.videoHeight,paused:video.paused,
+  ready:video.readyState,error:video.error?.message||'',inputs:input.value.length,
+  inputTimes:[...times],time:video.currentTime,source:video.currentSrc,
+  title:document.title,advertisement:!!document.querySelector('.ad-showing')}};
+}
+observer.observe(document,{childList:true,subtree:true});install();
+})()'''
+
+
+class ProtocolError(AssertionError):
+    def __init__(self, error):
+        super().__init__(error)
+        self.document_replaced = error.get('code') in (-32000, -32001) and error.get('message') in (
+            'Inspected target navigated or closed', 'Execution context was destroyed.',
+            'Cannot find context with specified id')
+
 
 class Protocol:
     def __init__(self, url):
         import websocket
         self.socket = websocket.create_connection(url, suppress_origin=True, timeout=30)
         self.serial = 0
+        self.events = deque(maxlen=256)
+        self.requests = OrderedDict()
+
+    def observe(self, reply):
+        method, params = reply.get('method', ''), reply.get('params', {})
+        if method.startswith('Media.'):
+            self.events.append(reply)
+        elif method == 'Network.requestWillBeSent':
+            key = (reply.get('sessionId'), params['requestId'])
+            url = urlsplit(params['request']['url'])
+            self.requests[key] = url._replace(query='', fragment='').geturl()
+            self.requests.move_to_end(key)
+            if len(self.requests) > 512:
+                self.requests.popitem(last=False)
+        elif method in ('Network.loadingFailed', 'Network.loadingFinished'):
+            url = self.requests.pop((reply.get('sessionId'), params['requestId']), None)
+            if method == 'Network.loadingFailed':
+                self.events.append(dict(reply, params=dict(params, url=url)))
+        elif method == 'Network.responseReceived' and params['response']['status'] >= 400:
+            response = params['response']
+            url = urlsplit(response['url'])
+            self.events.append(dict(method=method, params=dict(requestId=params['requestId'],
+                status=response['status'], url=url._replace(query='', fragment='').geturl())))
 
     def call(self, method, params=None, session=None):
         self.serial += 1
@@ -69,18 +128,57 @@ class Protocol:
                 raise TimeoutError('DevTools reply: ' + method)
             self.socket.settimeout(remaining)
             reply = json.loads(self.socket.recv())
+            self.observe(reply)
             if reply.get('id') == self.serial:
-                assert 'error' not in reply, reply
+                if 'error' in reply:
+                    raise ProtocolError(reply['error'])
                 return reply.get('result', {})
 
-    def evaluate(self, expression, session):
+    def evaluate(self, expression, session, *, user_gesture=False):
         reply = self.call('Runtime.evaluate', dict(expression=expression,
-                          returnByValue=True, awaitPromise=True), session)
+                          returnByValue=True, awaitPromise=True, userGesture=user_gesture), session)
         assert 'exceptionDetails' not in reply, reply
         return reply['result'].get('value')
 
     def close(self):
         self.socket.close()
+
+
+def wait_video(protocol, session):
+    deadline = time.monotonic() + 30
+    last = None
+    while time.monotonic() < deadline:
+        try:
+            last = protocol.evaluate('''(()=>{
+const input=window.magicdeskInput||document.getElementById('input');
+const video=window.magicdeskVideo||document.getElementById('video');
+if(typeof window.snapshot!=='function'||!input?.isConnected||!video?.isConnected)return null;
+const state=snapshot();
+if(state.presented>=30&&!state.paused&&state.ready>=3)input.focus();
+return state;
+})()''', session)
+            if last:
+                assert not last['error'], last
+                if (last['presented'] >= 30 and not last['paused'] and last['ready'] >= 3
+                        and not last.get('advertisement')):
+                    return
+                if last['paused']:
+                    protocol.evaluate('(window.magicdeskVideo||document.getElementById("video"))?.play();true',
+                                      session, user_gesture=True)
+        except ProtocolError as error:
+            if not error.document_replaced:
+                raise
+        # Bounded state wait: frames in the current document. Navigation never
+        # extends this deadline or counts the previous document as ready.
+        threading.Event().wait(.05)
+    raise TimeoutError('Video did not start: ' + repr(last))
+
+
+def save_page(protocol, session, output, ident):
+    screenshot = protocol.call('Page.captureScreenshot', dict(format='png'), session)
+    path = output / ('video-' + ident + '.png')
+    path.write_bytes(base64.b64decode(screenshot['data'], validate=True))
+    return str(path)
 
 
 def host(command):
@@ -202,10 +300,11 @@ def run(args, server_url, mode, index):
     suite = Suite(args.output, None if state else args.build, executor=args.executor, session=state)
     profile = ('/home/' + state['user'] + '/.var/app/' + args.flatpak + '/cache/' if state
                else '/tmp/') + 'md-video-' + suite.report['id']
-    worker = protocol = None
+    worker = protocol = session = None
     row = dict(mode=mode, round=index, passed=False, profile=profile, browserArguments=args.browser_arg,
                **instrumentation(args, state))
     suite.report['browserVideo'] = row
+    launch_started = time.monotonic()
     try:
         options = ['--no-first-run', '--user-data-dir=' + profile,
                    '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
@@ -225,6 +324,7 @@ def run(args, server_url, mode, index):
             launch += ['--', args.chromium, '--headless', '--disable-gpu', *options]
             worker = Server(suite, launch, timeout=args.seconds+170)
         worker.ready('DevTools listening on ', timeout=90)
+        row['browserReadySeconds'] = time.monotonic()-launch_started
         endpoint = re.search(r'DevTools listening on (ws://\S+)', ''.join(worker.log))[1]
         protocol = Protocol(endpoint)
         row['version'] = protocol.call('Browser.getVersion')
@@ -234,18 +334,10 @@ def run(args, server_url, mode, index):
         row['target'] = target
         session = protocol.call('Target.attachToTarget', dict(targetId=target, flatten=True))['sessionId']
         protocol.call('Page.enable', session=session)
-        protocol.call('Page.navigate', dict(url=server_url), session)
-        # Bounded state wait: document navigation creates the fixture API.
-        deadline = time.monotonic()+30
-        while not protocol.evaluate('typeof window.snapshot === "function"', session):
-            assert time.monotonic() < deadline, 'Fixture document did not load'
-            threading.Event().wait(.05)
-        # EVENT_WAIT: decoded/presented video frames, not an arbitrary warmup delay.
-        protocol.evaluate('new Promise((resolve,reject)=>{const v=document.getElementById("video");'
-            'const t=setTimeout(()=>reject(Error("video startup")),20000);'
-            'v.addEventListener("error",()=>reject(Error(v.error.message)),{once:true});'
-            'let n=0;function frame(){if(++n===30){clearTimeout(t);resolve(true)}'
-            'else v.requestVideoFrameCallback(frame)}v.requestVideoFrameCallback(frame);v.play().catch(reject)})', session)
+        if getattr(args, 'url', None):
+            protocol.call('Network.enable', session=session)
+            protocol.call('Media.enable', session=session)
+            protocol.call('Page.addScriptToEvaluateOnNewDocument', dict(source=LIVE_PROBE), session)
         records = [json.loads(line) for line in suite.command(
             suite.image_command('launches', args.store), quiet=True).splitlines() if line]
         owned = [record for record in records if record.get('label') == state['id']] if state else [
@@ -253,14 +345,20 @@ def run(args, server_url, mode, index):
         assert len(owned) == 1, records
         pid = owned[0]['pid']
         row['launch'] = owned[0]
-        protocol.evaluate('document.getElementById("input").focus();true', session)
         row['hostDisplaysBefore'] = display_clocks(suite.client)
+        navigated = time.monotonic()
+        row['url'] = server_url
+        protocol.call('Page.navigate', dict(url=server_url), session)
+        protocol.call('Page.bringToFront', session=session)
+        wait_video(protocol, session)
+        row['videoReadySeconds'] = time.monotonic()-navigated
         with sample_profile(args, row, pid, suite.report['id']), observe_cpu(host) as cpu:
             before = threads(pid)
             first = protocol.evaluate('snapshot()', session)
             start = time.monotonic()
             latencies = []
             timeline = []
+            row.update(before=first, timeline=timeline, inputRoundTripMs=latencies, cpu=cpu)
             for count in range(args.seconds):
                 # Measurement pacing only, never a readiness assertion.
                 threading.Event().wait(max(0, start+count-time.monotonic()))
@@ -286,11 +384,10 @@ def run(args, server_url, mode, index):
                    frames=last['frames']-first['frames'], dropped=last['dropped']-first['dropped'],
                    inputRoundTripMs=latencies, inputMedianMs=statistics.median(latencies), timeline=timeline)
         assert not last['paused'] and not last['error'] and last['ready'] >= 3, last
+        assert not any(value.get('advertisement') for value in
+                       [first, last, *(item['video'] for item in timeline)]), 'Advertisement during measurement'
         assert last['presented']-first['presented'] > elapsed*10, (first,last,elapsed)
-        screenshot = protocol.call('Page.captureScreenshot', dict(format='png'), session)
-        image = args.output / ('video-' + suite.report['id'] + '.png')
-        image.write_bytes(base64.b64decode(screenshot['data'], validate=True))
-        row['screenshot'] = str(image)
+        row['screenshot'] = save_page(protocol, session, args.output, suite.report['id'])
         protocol.call('Browser.close')
         worker.completed(timeout=30)
         output = ''.join(worker.log)
@@ -301,11 +398,21 @@ def run(args, server_url, mode, index):
         if mode == 'base':
             assert not any(value['completed'] for value in counters), counters
         row['passed'] = suite.report['passed'] = True
-        print('VIDEO_RESULT', json.dumps({k:v for k,v in row.items() if k not in
-              ('cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}), flush=True)
         return row
+    except Exception as error:
+        row['error'] = repr(error)
+        if protocol and session:
+            try:
+                row['failedPage'] = protocol.evaluate('({url:location.href,title:document.title,'
+                    'visibility:document.visibilityState,focused:document.hasFocus(),'
+                    'text:document.body?.innerText.slice(0,3000)})', session)
+                row['screenshot'] = save_page(protocol, session, args.output, suite.report['id'])
+            except Exception as observation_error:
+                row['observationError'] = repr(observation_error)
+        raise
     finally:
         if protocol:
+            row['browserEvents'] = list(protocol.events)
             if state and worker and worker.result is None:
                 try:
                     protocol.call('Browser.close')
@@ -320,6 +427,10 @@ def run(args, server_url, mode, index):
                 assert result['exitCode'] == 0, result
             else:
                 suite.command(suite.guest(args.store, '--user', '0:0') + ['--', '/bin/rm', '-rf', '--', profile], quiet=True)
+        except Exception as error:
+            row['passed'] = suite.report['passed'] = False
+            row['cleanupError'] = repr(error)
+            raise
         finally:
             suite.finish()
 
@@ -332,7 +443,9 @@ def main():
     parser.add_argument('--flatpak', default='org.chromium.Chromium')
     parser.add_argument('--browser-arg', action='append', default=[],
                         help='Explicit diagnostic browser option, retained in the report')
-    parser.add_argument('--video', type=Path, required=True)
+    media = parser.add_mutually_exclusive_group(required=True)
+    media.add_argument('--video', type=Path)
+    media.add_argument('--url', help='Live HTTP(S) video page; retains advertisements and network effects')
     parser.add_argument('--chromium', default='/usr/lib/chromium/chromium')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=45)
@@ -357,7 +470,9 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     assert 10 <= args.seconds <= 120 and 1 <= args.rounds <= 5
-    video = args.video.read_bytes()
+    if args.url and not args.url.startswith(('https://', 'http://')):
+        parser.error('--url requires HTTP(S)')
+    video = args.video.read_bytes() if args.video else b''
     args.output.mkdir(parents=True, exist_ok=True)
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -372,13 +487,17 @@ def main():
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
-    report = dict(videoSha256=hashlib.sha256(video).hexdigest(), executor=args.executor,
+    report = dict(videoSha256=hashlib.sha256(video).hexdigest() if args.video else None,
+                  url=args.url, executor=args.executor,
                   **runtime, profile=args.profile,
                   samples=[], passed=False)
     try:
         for index in range(args.rounds):
             for mode in (args.modes if index%2 == 0 else reversed(args.modes)):
-                report['samples'].append(run(args, f'http://127.0.0.1:{server.server_port}/', mode, index))
+                row = run(args, args.url or f'http://127.0.0.1:{server.server_port}/', mode, index)
+                report['samples'].append(row)
+                print('VIDEO_RESULT', json.dumps({k:v for k,v in row.items() if k not in
+                      ('cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}), flush=True)
         report['passed'] = True
     finally:
         server.shutdown()

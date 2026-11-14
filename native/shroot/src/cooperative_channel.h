@@ -83,6 +83,9 @@ struct md_entry_channel {
         uint32_t reserved;
     } call;
     struct md_guest_execution execution;
+    /* Caller-owned terminal receipt, published with END after C unwinds.
+     * Buffer completion never requires an intermediate response. */
+    struct { long copied; unsigned buffer; } completion;
     enum md_execution_action execution_action;
     unsigned return_checkpoint;
     uintptr_t instruction_pointer;

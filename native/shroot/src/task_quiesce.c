@@ -47,6 +47,11 @@ static struct participant *find(struct md_task_quiesce *q,pid_t pid) {
 int md_task_quiesce_contains(struct md_task_quiesce *q,pid_t pid) {
     return find(q,pid)!=NULL;
 }
+int md_task_quiesce_pending(const struct md_task_quiesce *q,pid_t pid) {
+    if (q) for (const struct deferred *d=q->first;d;d=d->next)
+        if (d->pid==pid) return 1;
+    return 0;
+}
 int md_task_quiesce_waiting(struct md_task_quiesce *q,pid_t pid) {
     struct participant *p=find(q,pid);
     return p && !p->stopped;

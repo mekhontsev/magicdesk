@@ -87,7 +87,7 @@ static pid_t collect(struct md_task_wait *w,int *status,struct rusage *usage,uns
     }
     return md_task_wait_take(w,status,usage);
 }
-pid_t md_task_wait_ready(struct md_task_wait *w, int *status, struct rusage *usage) {
+pid_t md_task_wait_ready(struct md_task_wait *w, int *status, struct rusage *usage, int runnable) {
     pid_t pending=md_task_wait_take(w,status,usage);
     if (pending) return pending;
     if (w->drained) return 0;
@@ -142,6 +142,10 @@ pid_t md_task_wait_ready(struct md_task_wait *w, int *status, struct rusage *usa
         if (pid>0) return remember(w,pid,*status);
         if (pid<0 && errno!=ECHILD && errno!=ESRCH) return pid;
     }
+    /* Productive shared-memory turns need not rescan every sleeping child.
+     * Do not call this a drained queue: the next pass must retain the cursor
+     * and discovery budget, or collect immediately when it may park. */
+    if (runnable && w->members>4 && w->directed<directed_budget) return 0;
     w->directed = 0;
     if (w->members>4) {
         /* General wait scans every child, including sleeping threads. Reuse

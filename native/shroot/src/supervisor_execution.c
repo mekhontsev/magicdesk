@@ -102,9 +102,9 @@ struct md_task_checkpoints checkpoints={.trace=checkpoint_native_trace,
 static int machine_context(struct thread *t,const struct ptrace_syscall_info *info);
 static enum execution_continuation execution_complete(struct thread *t,long value);
 static void entry_begin(struct thread *t,struct md_entry_channel *channel);
+static void entry_execution_finish(struct thread *t,long result);
 static void entry_execution_retire(struct thread *t,long result);
 static void entry_execution_native_done(struct thread *t,long result);
-static void entry_execution_finish(struct thread *t,long result);
 static void buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r);
 static int resource_call(struct thread *t,const struct seccomp_data *call,struct user_pt_regs *r,unsigned long *cookie);
 static int svc_client_alive(pid_t pid,void *memory);
@@ -316,6 +316,7 @@ void cooperative_buffer_release(struct thread *t) {
     md_uts_namespace_unsubscribe(&t->entry.uts);
     t->entry.selectors=NULL; t->entry.selector_revision=0; t->entry.route_flags=0;
     t->entry.control=NULL; t->entry.admission=0;
+    t->entry.completing_buffer=0;
     t->entry.stop.resume=NULL;
     t->entry.stop.reason=MD_CONTEXT_COUNT;
     t->entry.effect=NULL;
@@ -376,6 +377,12 @@ long cooperative_bind(struct thread *t) {
     error=md_buffer_span(&t->entry.buffer,&span);
     if (!error && span.size<sizeof(struct md_entry_channel)) error=-ENOBUFS;
     if (!error) error=md_broker_cooperative_bind(broker,t->pid,span.data,abi.buffer_admit);
+    if (!error) {
+        /* Active PID identity is fixed for this channel's lifetime. Fork gets
+         * its own channel, and exec revokes the old one before publishing IDs. */
+        struct md_entry_channel *c=span.data;
+        md_identity_view_publish_process(&c->identity,process_self(t,SYS_getpid),process_self(t,SYS_gettid));
+    }
     t->entry.selectors=NULL;
     if (!error) cooperative_memory_publish(t,machine_discovery(t));
     if (error) {
@@ -427,6 +434,12 @@ int entry_reply(struct thread *t,long value,uintptr_t extra) {
     if (!channel) return 0;
     CHECK(!t->entry.effect);
     t->entry.control=NULL; t->entry.admission=0;
+    if (t->entry.completing_buffer) {
+        CHECK(t->entry.execution==channel);
+        t->entry.completing_buffer=0;
+        entry_execution_finish(t,value);
+        return 1;
+    }
     channel->result_extra=extra;
     channel->adapter_native_managed=t->descriptors.job==MD_FD_DUPLICATE_BEGIN;
     md_broker_entry_reply(broker,channel,MD_ENTRY_COMPLETED,value);
@@ -814,6 +827,13 @@ void entry_execution_begin(struct thread *t) {
     t->entry.control=NULL; t->entry.admission=0; t->entry.execution=channel;
     t->phase=DISPATCHING; ++calls; ++t->calls;
     execution.prepared=dispatch_input(t,execution.policy);
+    long received;
+    if (receive_resident(t,execution.policy,&received) && received<0) {
+        /* No guest output was committed. Retire through the same completion
+         * owner as C execution, without an extra preparation/END exchange. */
+        entry_execution_finish(t,buffer_result_finish(t,0,received));
+        return;
+    }
     channel->execution=execution;
     channel->execution_action=MD_EXECUTION_GUEST;
     channel->adapter_native_managed=t->descriptors.job==MD_FD_DUPLICATE_BEGIN;
@@ -827,7 +847,10 @@ static void entry_begin(struct thread *t,struct md_entry_channel *channel) {
     memcpy(call.args,channel->call.args,sizeof(call.args));
     t->entry.control=channel; t->entry.admission=1;
     channel->return_checkpoint=0;
-    if (statistics) ++statistics->entry_executions;
+    if (statistics) {
+        ++statistics->entry_executions;
+        ++statistics->calls[(unsigned)call.nr].entry;
+    }
     uint32_t decision=interception_decision(t,&call);
     unsigned action=decision&SECCOMP_RET_ACTION_FULL;
     if (action==SECCOMP_RET_ERRNO) {
@@ -856,7 +879,7 @@ static void entry_begin(struct thread *t,struct md_entry_channel *channel) {
 
 static struct md_entry_channel *entry_execution_release(struct thread *t) {
     struct md_entry_channel *channel=t->entry.execution;
-    CHECK(channel && !t->entry.control && !t->entry.stop.resume && !t->entry.effect
+    CHECK(channel && !t->entry.control && !t->entry.completing_buffer && !t->entry.stop.resume && !t->entry.effect
         && !t->entry.wait.complete && !t->signals.shielded);
     if (statistics) ++statistics->entry_completions;
     t->entry.execution=NULL; t->entry.kernel_context=0; t->phase=IDLE;
@@ -878,8 +901,6 @@ static void entry_execution_native_done(struct thread *t,long result) {
     t->entry.control=NULL;
     entry_execution_retire(t,result);
 }
-
-static void entry_execution_finish(struct thread *t,long result);
 
 static void entry_watch_ready(struct thread *t,long result) {
     CHECK(t->entry.control==t->entry.execution);
@@ -999,6 +1020,15 @@ void entry_control(pid_t pid,struct md_entry_channel *channel) {
     if (t && channel->call.reserved==MD_ENTRY_EXECUTION_END) {
         CHECK(t->entry.execution==channel && !t->entry.control && !t->entry.stop.resume);
         long result=(long)channel->call.args[0];
+        if (channel->call.args[1]) {
+            CHECK(channel->call.args[1]==1 && !t->entry.completing_buffer);
+            struct supervisor_control_request control={.command=MD_BUFFER_FINISH,
+                .args={channel->call.args[2],(unsigned long)result}};
+            t->entry.control=channel;
+            t->entry.completing_buffer=1;
+            buffer_control(t,&control,NULL);
+            return;
+        }
         entry_execution_finish(t,result);
         return;
     }
@@ -1329,6 +1359,7 @@ void resume(pid_t pid, int sig) {
         CHECK(!t->memory_op.resume || !sig || sig==t->memory_op.signal);
         t->memory_op.resume=1; if (sig) t->memory_op.signal=sig;
         task_continuation_defer(t);
+        if (quiescence_pending(pid)) return;
         struct md_task_quiesce *barrier=memory_execution ? memory_barrier
             : mapping_execution ? mapping_barrier : task_action_barrier;
         if (retained_creation || retained_retirement) barrier=retained_barrier;
@@ -1413,7 +1444,7 @@ void resume(pid_t pid, int sig) {
     }
     if (!svc_clients_prepare(t)) return;
     if (!svc_entry_observe(t)) return;
-    if (t->trace_options_dirty && debugger_options(pid,t->debug.options)) return;
+    if (task_trace_options(t)) return;
     if (phase!=IDLE && t->debug.call_active) t->debug.adapter=1;
     if (debugger_at_boundary(t) && t->entered && t->image.process_image) {
         if (t->debug.call_active && t->debug.adapter) {

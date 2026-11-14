@@ -150,7 +150,7 @@ static void cancellation_expired(void);
 static void progress_events(const struct pollfd *events);
 static void event_sources(struct pollfd events[EVENT_SOURCES]);
 static pid_t deferred_event(int *status,struct rusage *usage);
-static pid_t kernel_event(int *status,struct rusage *usage);
+static pid_t kernel_event(int *status,struct rusage *usage,int runnable);
 static int checkpoint_event(pid_t pid,int *status);
 static int tasks_pending(void);
 static pid_t wait_event(int *status, struct rusage *usage);
@@ -324,6 +324,7 @@ static void retry_progress(struct md_pending_node *node,void *context) {
     RETRY(RETRY_SIGNAL,signal_control_progress);
     RETRY(RETRY_TRANSFER,transfer_progress);
     RETRY(RETRY_DEBUG_WAIT,debugger_wait_retry);
+    RETRY(RETRY_MEMORY_ACCESS,memory_access_retry);
 #undef RETRY
     CHECK(!!owner->mask==!!owner->node.list);
 }
@@ -461,7 +462,7 @@ static pid_t deferred_event(int *status,struct rusage *usage) {
     pid_t robust=retained_take(status,usage);
     if (robust) return robust;
     if (policy_barrier && !policy_installer) {
-        pid_t event=md_task_quiesce_take(policy_barrier,status,usage);
+        pid_t event=quiesce_take_event(policy_barrier,status,usage);
         if (event) return event;
         md_task_quiesce_destroy(policy_barrier); policy_barrier=NULL;
         CHECK(!md_event_signal(fd_ready));
@@ -476,19 +477,19 @@ static pid_t deferred_event(int *status,struct rusage *usage) {
     }
     pid_t broker_event=md_broker_take_event(broker,status,usage);
     if (broker_event) return broker_event;
-    pid_t pid=memory_execution ? 0 : md_task_quiesce_take(memory_barrier,status,usage);
+    pid_t pid=memory_execution ? 0 : quiesce_take_event(memory_barrier,status,usage);
     if (pid) return pid;
-    pid=task_action_execution ? 0 : md_task_quiesce_take(task_action_barrier,status,usage);
-    return pid ? pid : mapping_execution ? 0 : md_task_quiesce_take(mapping_barrier,status,usage);
+    pid=task_action_execution ? 0 : quiesce_take_event(task_action_barrier,status,usage);
+    return pid ? pid : mapping_execution ? 0 : quiesce_take_event(mapping_barrier,status,usage);
 }
 
-static pid_t kernel_event(int *status,struct rusage *usage) {
+static pid_t kernel_event(int *status,struct rusage *usage,int runnable) {
     int64_t start=md_cost_begin(statistics ? &statistics->event_collect : NULL);
     int accounting=md_debugger_active(debugger);
     /* Refresh the lossy TID hint before a kernel query, not for an owned batch.
      * The periodic source budget still services all other event owners. */
     if (!task_wait.pending_count && !task_wait.count && !task_wait.drained) drain();
-    pid_t pid=md_task_wait_ready(&task_wait,status,accounting ? usage : NULL);
+    pid_t pid=md_task_wait_ready(&task_wait,status,accounting ? usage : NULL,runnable);
     /* Deferred events may outlive a debugger attachment. Absent accounting
      * must be explicit, not a previous event's or uninitialized stack data. */
     if (pid>0 && usage && !accounting) *usage=(struct rusage){0};
@@ -561,7 +562,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
         /* Progress can return a borrowed stop without generating SIGCHLD.
          * Drain that local event before trusting the kernel's empty queue. */
         pid_t pid=deferred_event(status,usage);
-        if (!pid) pid=kernel_event(status,usage);
+        if (!pid) pid=kernel_event(status,usage,entry_progress);
         if (pid > 0) {
             struct thread *returning=find_thread(pid);
             child_signals_observe(returning,*status);
@@ -1147,10 +1148,14 @@ static void report_statistics(void) {
             (unsigned long long)statistics->native_io,(unsigned long long)statistics->captured_writes,
             (unsigned long long)statistics->captured_receives,
             (unsigned long long)statistics->entry_receives);
-        for (unsigned nr = 0; nr < 512; nr++)
+        for (unsigned nr = 0; nr < 512; nr++) {
             if (statistics->calls[nr].trace || statistics->calls[nr].notification)
                 fprintf(stderr, "MD_SYSCALL nr=%u trace=%llu notification=%llu\n", nr,
                     (unsigned long long)statistics->calls[nr].trace,
                     (unsigned long long)statistics->calls[nr].notification);
+            if (statistics->calls[nr].entry)
+                fprintf(stderr,"MD_ENTRY_SYSCALL nr=%u calls=%llu\n",nr,
+                    (unsigned long long)statistics->calls[nr].entry);
+        }
     }
 }

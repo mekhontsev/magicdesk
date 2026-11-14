@@ -121,11 +121,23 @@ class FixtureExecutor:
         return dict(exitCode=record['exitCode'],
                     output=(directory / (report['runId'] + '-shell.log')).read_text(errors='replace'))
 
-    def execute(self, command, timeout=120):
+    def execute(self, command, timeout=120, *, capture=False):
         if getattr(self, 'directory', None):
             command = 'cd ' + shlex.quote(self.directory) + ' || exit\n' + command
         if self.mode == 'app':
             return self._app_command(command, timeout)
+        if capture:
+            # Console replies are bounded summaries. Diagnostic assertions need
+            # the complete stream, transported as a file without rerunning it.
+            name = 'command-' + uuid.uuid4().hex + '.log'
+            remote, local = self.root + '/' + name, self.output / name
+            try:
+                value = self.client.call('console.execute', dict(sessionId=self.console,
+                    command='(\n' + command + '\n) > ' + shlex.quote(remote) + ' 2>&1'))
+                self.download(remote, local)
+                return dict(value, output=local.read_text(errors='replace'))
+            finally:
+                self._transport_command(shlex.join(['rm', '-f', '--', remote]))
         return self.client.call('console.execute', dict(sessionId=self.console, command=command))
 
     def _transport_command(self, command):

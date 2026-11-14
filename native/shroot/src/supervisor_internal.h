@@ -50,7 +50,7 @@ struct interception_statistics {
     uint64_t entry_local_native;
     uint64_t signal_frames[5];
     struct md_cost event_collect, event_sleep;
-    struct { uint64_t trace, notification; } calls[512];
+    struct { uint64_t trace, notification, entry; } calls[512];
 };
 #define SUPERVISOR_TRACE(...) do { if (diagnostics) fprintf(stderr, __VA_ARGS__); } while (0)
 #define SUPERVISOR_SIGNAL_TRACE(...) do { if (diagnostics || signal_diagnostics) fprintf(stderr, __VA_ARGS__); } while (0)

@@ -91,6 +91,7 @@ void memory_buffers_discard(struct thread *t) {
 }
 
 void memory_operation_discard(struct thread *t) {
+    retry_clear(t,RETRY_MEMORY_ACCESS); t->memory_op.access_retry=NULL;
     if (t->memory_op.svc_pool) {
         struct svc_pool_mapping *owner=t->memory_op.svc_pool;
         if (owner->order.queue && md_resource_order_cancel(&owner->order)==1)
@@ -269,8 +270,7 @@ static void probe_begin(struct thread *t, const struct user_pt_regs *regs) {
     int error=owner ? 0 : -ENOMEM;
     if (!error) {
         *owner=(struct probe_owner){t->pid,*regs};
-        t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug.options);
+        error=task_observe_exit(t);
     }
     if (!error) {
         struct md_task_helper_request request={.kind=MD_TASK_HELPER_CAPTURE,
@@ -341,10 +341,7 @@ int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
         struct buffer_mapping *owner) {
     owner->caller=t->pid; owner->continuation=*regs;
     int error=md_buffers_take(md_memory_buffers(t->memory),&owner->scratch);
-    if (!error) {
-        t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug.options);
-    }
+    if (!error) error=task_observe_exit(t);
     if (!error) {
         struct md_interception_buffers *buffers=owner->buffers;
         const struct md_task_helper_request request={.kind=MD_TASK_HELPER_MAP,
@@ -399,6 +396,10 @@ static void entry_mapping_begin(struct thread *t,const struct user_pt_regs *regs
     if (error) buffer_reply(t,error);
 }
 
+static void memory_open_retry(struct thread *t) {
+    memory_buffer_control(t,&t->fs.request,t->entry.control ? NULL : &t->fs.registers);
+}
+
 void memory_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r) {
     long result=-EINVAL;
     switch (control->command) {
@@ -439,6 +440,11 @@ void memory_buffer_control(struct thread *t,const struct supervisor_control_requ
         struct thread *target=find_thread((pid_t)control->args[0]);
         if (!target || (!(control->args[1]&O_PATH) && !proc_allowed(t->pid,target->pid))) {
             result=-EACCES; break;
+        }
+        if (memory_access_defer(t,target->memory,memory_open_retry)) {
+            t->fs.request=*control;
+            if (r) t->fs.registers=*r;
+            return;
         }
         /* O_PATH admits only the dentry, but its retained pin can outlive a
          * later access-policy change. Keep exposure tracking for both kinds. */
@@ -686,6 +692,7 @@ static int mapping_direct_start(struct thread *t) {
     if (!error) error=md_fd_origins_prepare_loan(&owner->delivery,loan->loan);
     if (!error) error=md_task_mapping_begin(&owner->direct,native_trace,t->pid,
         &owner->continuation,&abi,&owner->request);
+    if (error==-ESRCH) t->resume_lost=1;
     if (error && owner->direct.call.stage) { CHECK(error==-ESRCH); t->resume_lost=1; return 0; }
     if (!error) t->kernel_stopped=0;
     return error;
@@ -700,8 +707,7 @@ static void mapping_admitted(struct thread *t) {
     if (!owner->admitted) {
         owner->continuation=t->fs.registers;
         owner->admitted=1;
-        t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug.options);
+        error=task_observe_exit(t);
         if (!error && owner->file) owner->guarded=!md_task_mapping_safe(owner->request.source);
     }
     if (!error) error=owner->file ? mapping_direct_start(t) : mapping_helper_start(t);
@@ -1143,8 +1149,7 @@ int memory_capture_begin(struct thread *t,const struct user_pt_regs *returned) {
     int fd=(int)t->execution.request.args[4];
     struct md_task_helper_request request={.kind=MD_TASK_HELPER_EXPORT,.descriptors=&fd,.descriptor_count=1,
         .captured=memory_captured};
-    t->terminal_observation=1; t->trace_options_dirty=1;
-    error=debugger_options(t->pid,t->debug.options);
+    error=task_observe_exit(t);
     t->memory_op.capture=capture;
     if (!error) error=md_task_helper_begin(helpers,t->pid,t->tgid,returned,&abi,t->memory,&capture->buffer,
         &request,memory_capture_complete,capture);
@@ -1338,11 +1343,28 @@ void memory_discard(void) {
 }
 
 int memory_available(pid_t pid) {
-    return (!(retained_creation || retained_retirement) || !md_task_quiesce_contains(retained_barrier,pid))
+    return !quiescence_pending(pid)
+        && (!(retained_creation || retained_retirement) || !md_task_quiesce_contains(retained_barrier,pid))
         && (!policy_installer || pid==policy_installer->pid || !md_task_quiesce_contains(policy_barrier,pid))
         && (!memory_execution || !md_task_quiesce_contains(memory_barrier,pid))
         && (!mapping_execution || !md_task_quiesce_contains(mapping_barrier,pid))
         && (!task_action_execution || !md_task_quiesce_contains(task_action_barrier,pid));
+}
+
+int memory_access_defer(struct thread *t,const struct md_interception_memory *memory,void (*retry)(struct thread *)) {
+    if (!memory_execution || (!memory_execution->global && memory_execution->actor->memory!=memory)) return 0;
+    CHECK(!t->memory_op.access_retry || t->memory_op.access_retry==retry);
+    t->memory_op.access_retry=retry;
+    retry_wait(t,RETRY_MEMORY_ACCESS);
+    return 1;
+}
+
+void memory_access_retry(struct thread *t) {
+    void (*retry)(struct thread *)=t->memory_op.access_retry;
+    CHECK(retry);
+    t->memory_op.access_retry=NULL;
+    retry_clear(t,RETRY_MEMORY_ACCESS);
+    retry(t);
 }
 
 int memory_runnable(void) {

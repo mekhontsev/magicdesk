@@ -323,6 +323,24 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
         uint64_t args[6];
         for (unsigned i=0;i<6;++i) args[i]=call->args[i];
         args[3]=0;
+        if (atomic_load_explicit(&c->routes.flags,memory_order_acquire)&MD_ROUTE_ADMITTED_KERNEL) {
+            struct seccomp_data data={.nr=SYS_epoll_pwait,.arch=AUDIT_ARCH_AARCH64,
+                .instruction_pointer=call->instruction_pointer};
+            memcpy(data.args,args,sizeof(data.args));
+            uint32_t decision;
+            /* The original wait already passed guest policy. This owned probe
+             * only needs our current route: virtual selectors must still use
+             * their readiness owner, not the exempt service gate. */
+            if (!md_interception_route_eval(&routes,&c->routes,&data,&decision)
+                    && decision==SECCOMP_RET_ALLOW) {
+                long result=md_guest_entry_kernel(SYS_epoll_pwait,args);
+                if (result || immediate) {
+                    call->result=result;
+                    return finish(client,call,MD_ENTRY_COMPLETED);
+                }
+                goto classified;
+            }
+        }
         unsigned idle=0;
         if (atomic_load_explicit(&c->policy,memory_order_acquire)
                 && atomic_compare_exchange_strong_explicit(&c->caller,&idle,1,memory_order_acquire,memory_order_relaxed)) {
@@ -604,6 +622,7 @@ static enum md_entry_outcome task_execute(struct md_entry_client *client,struct 
          * contract. A resumed owner has not admitted a second syscall. */
         started=1;
         struct md_guest_execution execution=c->execution;
+        c->completion.buffer=0;
         long result=md_guest_execute(&execution);
         uintptr_t control=__atomic_fetch_or(&client->opaque[MD_ENTRY_CLIENT_CONTROL],MD_ENTRY_CLIENT_BUSY,__ATOMIC_ACQUIRE);
         unsigned idle=0;
@@ -615,7 +634,26 @@ static enum md_entry_outcome task_execute(struct md_entry_client *client,struct 
         request.continuation[CONT_SEQUENCE]=c->sequence;
         request.continuation[CONT_FLAGS]=CALL_END;
         request.args[0]=(uint64_t)result;
+        request.args[1]=c->completion.buffer;
+        request.args[2]=(uint64_t)c->completion.copied;
     }
+}
+long md_guest_buffer_finish(long copied,long result) {
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    struct md_entry_client *client=md_svc_runtime.frames
+        ? md_svc_frame_client(md_svc_runtime.frames,sp) : NULL;
+    struct md_entry_channel *c=client ? (void *)client->opaque[MD_ENTRY_CLIENT_CHANNEL] : NULL;
+    /* Only the resident C driver consumes this receipt. Base and nested
+     * adapters retain the existing immediate control boundary. */
+    if (c && c->execution_action==MD_EXECUTION_GUEST
+            && !(__atomic_load_n(&client->opaque[MD_ENTRY_CLIENT_CONTROL],__ATOMIC_ACQUIRE)&MD_ENTRY_CLIENT_BUSY)
+            && !atomic_load_explicit(&c->caller,memory_order_acquire)
+            && atomic_load_explicit(&c->state,memory_order_acquire)==MD_ENTRY_IDLE) {
+        c->completion.copied=copied; c->completion.buffer=1;
+        return result;
+    }
+    return md_guest_buffer_control(MD_BUFFER_FINISH,(unsigned long)copied,(unsigned long)result);
 }
 extern struct md_adapter_input md_guest_buffer_start_kernel(unsigned,unsigned long,unsigned long);
 extern struct md_fd_observation md_guest_fd_control_kernel(unsigned,uint64_t,long,long);

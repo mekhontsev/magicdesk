@@ -138,6 +138,12 @@ int proc_allowed(pid_t caller, pid_t pid) {
     return inspect_allowed(caller,pid,1);
 }
 
+static void debugger_call_retry(struct thread *t) {
+    int result=debugger_call(t,&t->execution.request,entry_pending(t) ? NULL : &t->execution.registers);
+    if (result==MD_DEBUG_CALL_CONTEXT) CHECK(entry_context(t,MD_CONTEXT_POLICY));
+    else CHECK(result==MD_DEBUG_CALL_HANDLED);
+}
+
 int debugger_call(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *regs) {
     if (call->nr==SYS_ptrace)
         SUPERVISOR_TRACE("PROBE guest debugger caller=%d request=%llu target=%llu address=%#llx data=%#llx traced=%d\n",
@@ -145,6 +151,10 @@ int debugger_call(struct thread *t,const struct seccomp_data *call,const struct 
             (unsigned long long)call->args[2],(unsigned long long)call->args[3],
             md_debugger_traced(debugger,native_pid(t,(pid_t)call->args[1])));
     execution_retain(t,call,regs);
+    if (call->nr==SYS_ptrace && call->args[0]!=PTRACE_TRACEME) {
+        struct thread *target=find_thread(native_pid(t,(pid_t)call->args[1]));
+        if (target && memory_access_defer(t,target->memory,debugger_call_retry)) return MD_DEBUG_CALL_HANDLED;
+    }
     return md_debugger_call(debugger,t->pid,*call);
 }
 
@@ -202,13 +212,8 @@ int debugger_options(pid_t pid, unsigned long options) {
     if (!t) return -ESRCH;
     int changed=((t->debug.options^options)&PTRACE_O_TRACEEXIT) && !t->terminal_observation;
     t->debug.options=options;
-    if (!changed && !t->trace_options_dirty) return 0;
-    t->trace_options_dirty=1;
-    if (!t->kernel_stopped) return debugger_interrupt(pid);
-    unsigned long required=t->terminal_observation ? PTRACE_O_TRACEEXIT : 0;
-    if (native_trace(PTRACE_SETOPTIONS,pid,NULL,(void *)(trace_options|required|(options&PTRACE_O_TRACEEXIT)))) return -errno;
-    t->trace_options_dirty=0;
-    return 0;
+    if (changed) t->trace_options_dirty=1;
+    return task_trace_options(t);
 }
 
 void debugger_usage(pid_t pid, struct rusage *usage) {

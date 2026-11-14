@@ -102,7 +102,7 @@ offered calls as follows:
 | FD | Existing regular-file/directory `openat` and `openat2`, including O_PATH and writable/append/truncate flags, can use a checked native plan. Known ordinary-file close, dup/dup3, lseek and supported fcntl commands share that protocol and the existing file-table owner. Other open/fsopen calls retain their exact kernel publication carrier. |
 | Memory | The resident SVC driver can execute private untracked `munmap`/nonfixed `mremap`, ordinary-range `mprotect` and anonymous private `MAP_FIXED` replacement directly in the caller, using a supervisor-published exclusion snapshot. Other mappings use ordered native effects through the common memory owner. Original-context operations retain explicit admission below. |
 | Task | Default route. The guest evaluates the shared interception programs against the published selector inventory, choosing native execution, a direct error or the common owner request. The supervisor retains shared process/resource state and explicitly requests any original context it needs. |
-| Readiness | An unmasked native epoll queue can execute a zero-time probe through the existing worker/native-effect journal, including under an admitted guest filter. Native poll/select classification can finish before a terminal kernel wait. Virtual queues retain their readiness owner; an empty infinite-wait probe continues to the real interruptible wait. |
+| Readiness | An unmasked epoll call checks the original guest policy, then the shared native route admits its zero-time probe locally when possible. Native poll/select classification can finish before a terminal kernel wait. Virtual queues retain their readiness owner; an empty infinite-wait probe continues to the real interruptible wait. |
 
 An original-context task route, failed registration and a worker's explicit pre-execution decline
 invoke the kernel continuation and return `COMPLETED`. The callback receives the
@@ -180,7 +180,13 @@ selector program, in both Base and lazy execution. Provider FD selectors retain
 virtual control sockets, including duplicated descriptors and reused numbers.
 No peer address or ancillary data translation is bypassed.
 
-UID/GID views are refreshed at credential publication. UTS namespaces publish
+UID/GID views are refreshed at credential publication. The same scalar view
+publishes the caller's visible PID/TID once at channel creation, using the common
+process owner. Active PID identity is immutable for that channel: fork and exec
+acquire fresh channels; a PID namespace selected for future children cannot
+change the caller's published IDs. Guest policy is evaluated before local reads.
+Parent/process-group/session queries retain their live owners, not snapshots.
+UTS namespaces publish
 atomic-word snapshots to their subscribed channels; namespace replacement and
 channel teardown release the subscription. Resident `uname` reads one coherent
 snapshot and uses the existing checked guest copy. A concurrent publication
@@ -365,10 +371,12 @@ When the filesystem worker cannot serve an otherwise admitted operation, it
 releases its turns and hands the unexecuted request to BEGIN. This is distinct
 from a cancellation, policy fence or retained-result decline: those keep their
 original kernel boundary. The worker fast path needs no extra exchange.
-Buffer completion returns to a resident C frame; only its END retires the guest
-operation. A Base terminal checkpoint can retire directly after acquiring the
-original stopped context. The two deliveries share resource cleanup, not a
-register-restoration path.
+Terminal buffer completion is carried by the resident frame's END, including
+its copy acknowledgement and result. The same buffer owner validates the
+receipt, commits provider bytes and releases custody before final publication;
+no intermediate completion exchange is needed. A Base terminal checkpoint
+retires through that owner after acquiring the original stopped context. The
+two deliveries share resource cleanup, not a register-restoration path.
 Resident internal controls reuse the client belonging to their claimed private
 frame, without another thread-ID syscall or client lookup. The pointer is scoped
 to that runtime stack; ordinary Base adapters retain identity-based lookup.
@@ -473,6 +481,14 @@ terminal cleanup reconcile the same receipt used by loan retirement; an unknown
 allocation never authorizes closing a guessed slot. Exclusive tables retain the
 no-duplicate path. Base and unavailable service gates retain descriptor capture;
 supervisor-owned virtual queues still use their existing loan transport.
+
+Completed preparation advances directly to the wait owner when no caller-side
+work remains: exclusive-table admission, local duplication and poll/select
+classification do not exchange a separate ready acknowledgement. Epoll replies
+encode final counts separately from capture/control states. The initial and
+resumed replies both return the current buffer address, including after a
+blocking wait released its transport slot. Descriptor exports still retain
+their explicit capture handshake.
 
 Blocking native effects and event-parked controls publish their park intent
 before releasing the caller. They do not consume the supervisor's idle-spin
@@ -594,6 +610,22 @@ resume adapter. Injected helper calls and deferred real events retain their stop
 ownership; they cannot re-enable ordinary admission. This adds no work to the
 ordinary per-call entry path.
 
+A released barrier retains each real stop until the event dispatcher takes it.
+Queued resource continuations and borrowed task actions cannot resume that task
+in this interval. Release schedules continuations for the next event-loop turn,
+never recursively inside another owner's completion. Unrelated tasks remain
+eligible; no process-state polling is needed for this custody rule. Robust
+cleanup retains the same exclusion through its terminal-event replay.
+
+Remote `process_vm_readv`/`process_vm_writev`, `/proc/PID/mem` admission
+(including O_PATH) and guest debugger requests share the mapping-repair access
+gate. A resident request arriving during replacement keeps its original operands
+and resumes through the ordinary retry owner after repair, revalidating the
+target and permissions before publishing any effect. Unrelated address spaces
+remain eligible unless an exposed mapping requires the global barrier. Operation
+discard cancels the deferred admission; no copied registers or extra kernel stop
+are needed for this wait.
+
 An interrupted internal IPC/readiness/debugger poll is marked as a service wake
 and rechecks its retained operation. Quiescence must not manufacture application
 EINTR. The JIT repair fixture includes a semop waiter whose pending operation
@@ -702,8 +734,11 @@ allow cache; stacked descriptor/PID selectors and application filters still
 apply. Memory operations with mapping provenance, FD IO and service `gettid`
 are not part of this unconditional path. Blocking epoll is owned from entry to
 support the later addition of virtual interests. For an infinite unmasked epoll
-wait, lazy entry first performs a zero-time probe through the ordinary filtered
-kernel gate, not the raw service gate. Both ABIs use scalar epoll_pwait for this
+wait, lazy entry first performs a zero-time probe through its kernel entry,
+not the raw adapter gate. An admitted guest policy and current native routing
+permit this service call without a coordinator exchange or a second evaluation
+of the guest filter. Unavailable admission retains the existing owner path.
+Both ABIs use scalar epoll_pwait for this
 probe. A validated zero timespec in epoll_pwait2 completes there even when empty;
 the existing caller-owned copy context validates that argument without adding a
 descriptor or memory cache. A ready result completes without a worker
@@ -915,6 +950,15 @@ An available resident caller executes the close through its native-effect
 journal, without a ptrace stop. Base and orphan cleanup retain the borrowed
 actor path. Both use the same mutation receipt and close-range fallback;
 terminal cleanup reconciles the receipt before releasing a borrowed table turn.
+Native task observation is shared by capture, mapping, robust cleanup and guest
+debugging. Repeated owners reuse installed exit observation; birth inherits both
+the installed policy and any pending update. A borrowed user boundary must still
+be the observed stop, not an unconsumed exit/exec replacement. Cancelling that
+borrow never resumes a confirmed lost stop when releasing the barrier.
+An exit, exec or reap during a borrowed action replaces its synthetic stop;
+ordinary lifecycle dispatch receives the exact event once the action releases
+custody. A capture additionally retains its actor until the private helper is
+reaped, including when the helper's parent call has already completed.
 A withdrawn plan is distinct from a completed `close(-EINTR)`, and an unknown
 effect makes the slot uncertain rather than authorizing a repeated close.
 An exclusive loser preserves the winner and returns `EEXIST`; a nonexclusive
@@ -969,7 +1013,10 @@ Caller feedback is independent for an open plan, completion of its native
 effect, and an ordinary reply. A slow creation therefore cannot put unrelated
 short metadata replies into the same cooldown. All caller phases retain the same
 iteration limit; supervisor control bursts have independent feedback from
-filesystem work. Only progress observed before parking counts as a caller hit.
+filesystem work. Supervisor control feedback also separates an internal adapter
+continuation from the next application call, using the owner-published execution
+action. Slow application work cannot cool down an immediate receipt exchange.
+Only progress observed before parking counts as a caller hit.
 Each owner also requires progress before its deadline. A reply already ready after a blocking
 wake cannot reset the miss history. The notification wake is acknowledged
 after its immediate work (or resource-queue admission), avoiding a redundant
@@ -985,6 +1032,11 @@ Eligibility changes participate in the same protocol: retiring a delegated
 operation wakes the next request's owner if the caller has already published its
 next request. Registration replies may resume the caller before supervisor-side
 retirement; that overlap must not require a later unrelated syscall to progress.
+Both execution owners use the same peer-runnable classifier. A retained
+asynchronous `RUNNING` request is not a runnable guest: its owner must publish a
+reply or native effect first. Such a channel therefore cannot justify spinning
+for a future guest request, but publication still participates in the same wake
+handshake.
 The broker fixture forces this ordering and waits without any further guest IO.
 Queued file-table admission wakes a supervisor that previously attempted to
 borrow that caller: preparation may have rejected the selector/capture borrower
@@ -1280,7 +1332,10 @@ to `cooperativeCompleted`; that total is not an SVC-free syscall count.
 `cooperativeControls` counts internal channel replies separately from syscall
 completions. `MD_EXECUTION` reports task entries, retired calls, explicit kernel
 promotions and journaled native actions. `MD_CHECKPOINT`, `MD_BUFFER` and
-`MD_PTRACE` distinguish the remaining kernel-control costs. Use
+`MD_PTRACE` distinguish the remaining kernel-control costs. `MD_ENTRY_SYSCALL`
+breaks task entries down by original syscall number, separately from Base's
+`MD_SYSCALL` interceptions; their sum equals `MD_EXECUTION taskEntries`.
+Use
 `benchmark_readiness.py --statistics` for separate instrumented runs; ordinary
 paired timing runs must omit that option.
 Current device qualification and its scope are recorded in the

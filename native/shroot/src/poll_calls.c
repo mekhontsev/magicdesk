@@ -92,7 +92,7 @@ long md_poll_call(long nr,const unsigned long *a,unsigned long prepared) {
     if (result>=0 && result!=MD_EPOLL_NATIVE) {
         long selected=0;
         for (unsigned offset=0;offset<count;offset+=MD_POLL_CHUNK) {
-            long error=md_guest_buffer_control(MD_BUFFER_POLL_COPY,offset,0);
+            long error=offset ? md_guest_buffer_control(MD_BUFFER_POLL_COPY,offset,0) : 0;
             if (!error) error=output(f,a,&selected);
             if (error) { result=error; break; }
         }

@@ -101,6 +101,12 @@ int md_task_call_begin(struct md_task_call *f,long (*operation)(int,pid_t,void *
         .saved=*resume,.entry=*resume,.call=call,.returned=returned,.arguments=*arguments};
     struct ptrace_syscall_info observed;
     int error=info(f,&observed);
+    if (!error && observed.op==PTRACE_SYSCALL_INFO_NONE) {
+        /* A terminal stop can replace a collected interrupt. NONE identifies
+         * both; never inject into (or resume) an unconsumed exit/exec event. */
+        int displaced=md_task_stop_displaced(operation,actor);
+        if (displaced) error=displaced>0 ? -ESRCH : displaced;
+    }
     if (!error && (observed.op==PTRACE_SYSCALL_INFO_ENTRY || observed.op==PTRACE_SYSCALL_INFO_SECCOMP))
         f->original_first_argument=observed.entry.args[0];
     unsigned expected=boundary==MD_TASK_CALL_EMULATED_ENTRY ? PTRACE_SYSCALL_INFO_ENTRY : (unsigned)boundary;

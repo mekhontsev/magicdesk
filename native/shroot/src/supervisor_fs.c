@@ -437,7 +437,8 @@ void external_stat(void) {
 
 void buffer_reply_signal(struct thread *t, long result, const siginfo_t *signal) {
     uintptr_t extra=t->fs.request.args[0];
-    if (t->fs.request.command==MD_BUFFER_PROC_START || t->fs.request.command==MD_BUFFER_EPOLL_WAIT
+    if (t->fs.request.command==MD_BUFFER_PROC_START || t->fs.request.command==MD_BUFFER_EPOLL_BEGIN
+            || t->fs.request.command==MD_BUFFER_EPOLL_WAIT
             || md_adapter_buffer_query(t->fs.request.command))
         extra=md_memory_buffer_address(t->memory,&t->fs.buffer);
     if (t->entry.control) {
@@ -525,10 +526,7 @@ static void capture_start(struct thread *t, struct md_fs_buffer_request *request
             task_action_start(t); return;
         }
     }
-    if (!error) {
-        t->terminal_observation=1; t->trace_options_dirty=1;
-        error=debugger_options(t->pid,t->debug.options);
-    }
+    if (!error) error=task_observe_exit(t);
     if (!error) {
         struct md_task_helper_request capture={.kind=MD_TASK_HELPER_CAPTURE,
             .path=owner->target.path,.flags=owner->target.flags,.capture_metadata=owner->metadata,
@@ -688,6 +686,13 @@ int buffer_cleanup(struct thread *t) {
 
 static struct buffer_completion buffer_finish(struct thread *t,long copied) {
     long value=t->proc.io.file ? md_proc_file_io_finish(&t->proc.io,copied) : copied ? -EINVAL : 0;
+    /* An invalid copy receipt must not leave a provider referring to a slot
+     * which cleanup is about to return. Retire without acknowledging bytes. */
+    if (value && t->proc.io.file) {
+        int error=t->proc.io.executed || t->proc.io.transferred
+            ? md_proc_file_io_finish(&t->proc.io,0) : md_proc_file_io_cancel(&t->proc.io);
+        if (error) return (struct buffer_completion){value,error};
+    }
     long released=buffer_cleanup(t);
     return (struct buffer_completion){value,released};
 }
@@ -695,7 +700,7 @@ static struct buffer_completion buffer_finish(struct thread *t,long copied) {
 long buffer_result_finish(struct thread *t,long copied,long result) {
     control_publication_finish(t,result);
     int delivered=t->proc.io.file && (t->proc.io.operation==MD_PROC_FILE_READ || t->proc.io.operation==MD_PROC_FILE_GETDENTS)
-        && (t->proc.io.transferred || copied>0);
+        && (t->proc.io.transferred || (copied>0 && copied<=t->proc.io.result && t->proc.io.offered));
     struct buffer_completion completed=buffer_finish(t,copied);
     if (completed.value && !delivered) result=completed.value;
     if (result==MD_CALL_NATIVE && completed.released<0) return completed.released;

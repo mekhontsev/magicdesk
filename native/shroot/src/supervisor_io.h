@@ -68,6 +68,7 @@ void socket_events_ready(void);
 void receive_start(struct thread *t);
 void io_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r);
 int receive_prepared(struct thread *t,const struct user_pt_regs *continuation,unsigned policy);
+int receive_resident(struct thread *t,unsigned policy,long *result);
 int receive_entry(struct thread *t);
 void ipc_wait_complete(struct thread *t);
 void socket_wait_complete(struct thread *t);

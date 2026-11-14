@@ -45,7 +45,8 @@ enum retry_kind {
     RETRY_OUTGOING=1u<<6, RETRY_PROC_DELIVERY=1u<<7, RETRY_RETURN=1u<<8,
     RETRY_FD=1u<<9, RETRY_EXPORT=1u<<10, RETRY_CONTROL=1u<<11,
     RETRY_PROC_IO=1u<<12, RETRY_PROC_LOOKUP=1u<<13, RETRY_READINESS=1u<<14, RETRY_CLOSE=1u<<15,
-    RETRY_FILTER=1u<<16, RETRY_SIGNAL=1u<<17, RETRY_DEBUG_WAIT=1u<<18, RETRY_TRANSFER=1u<<19
+    RETRY_FILTER=1u<<16, RETRY_SIGNAL=1u<<17, RETRY_DEBUG_WAIT=1u<<18, RETRY_TRANSFER=1u<<19,
+    RETRY_MEMORY_ACCESS=1u<<20
 };
 
 struct metadata_operation {
@@ -92,6 +93,7 @@ struct supervisor_memory_op_state {
     struct md_pending_node continuation;
     struct md_interception_memory *remote;
     struct md_interception_memory *exposure;
+    void (*access_retry)(struct thread *);
     int resume;
     int signal;
     struct seccomp_notif *notification;
@@ -123,6 +125,7 @@ struct supervisor_entry_state {
     struct md_entry_channel *control;
     struct md_entry_channel *execution;
     int admission;
+    int completing_buffer;
     int kernel_context;
     struct {
         enum md_execution_context reason;
