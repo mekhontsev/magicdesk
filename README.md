@@ -152,9 +152,10 @@ renderer, controls and automation API.
 - Persistent User/Shell command recall through bundled upstream mksh.
 - Touch scrolling, selection handles, Android keyboard resizing and paragraph copy.
 - One picker for retained User/Shell/Termux PTYs and discovered tmux sessions.
-- Session files and folders from Android's picker, camera or clipboard, with
+- Session files and folders from Android Share, the picker, camera or clipboard, with
   quoted paths for shell and supported guest sessions. Delete copies individually
   or end their session to remove them together.
+- A text editor in the paperclip menu: insert text or attach it as a UTF-8 file.
 
 Closing an ordinary terminal window detaches it; explicitly ending the session
 terminates its programs. Closing a managed tmux window releases its client, not

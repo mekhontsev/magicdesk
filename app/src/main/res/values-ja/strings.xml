@@ -1197,4 +1197,12 @@
     <string name="phone_panel_power_off">画面の電源を切る</string>
     <string name="phone_panel_unavailable">画面の電源制御を利用できません</string>
     <string name="settings_window_geometry">ファームウェアのウィンドウ形状</string>
+    <string name="console_share_target">MagicDesk コンソール</string>
+    <string name="console_new_text">新しいテキスト</string>
+    <string name="console_text">テキスト</string>
+    <string name="console_text_file">テキストをファイルとして添付</string>
+    <string name="console_content_sending">送信中…</string>
+    <string name="console_paste_lines_title">複数行を挿入しますか？</string>
+    <string name="console_paste_lines_message">この端末では bracketed paste が有効になっていません。改行によりコマンドが実行される場合があります。</string>
+    <string name="console_share_too_many">共有ファイルが多すぎます。一度に共有するファイル数を減らしてください。</string>
 </resources>

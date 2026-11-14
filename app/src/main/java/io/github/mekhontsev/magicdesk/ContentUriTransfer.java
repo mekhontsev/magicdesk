@@ -65,6 +65,13 @@ final class ContentUriTransfer {
 
     static ParcelFileDescriptor materialize(android.content.Context context, Uri uri,
             BooleanSupplier cancelled, long limit) throws IOException {
+        return materialize(context, () -> context.getContentResolver().openInputStream(uri), cancelled, limit);
+    }
+
+    interface InputSource { InputStream open() throws IOException; }
+
+    static ParcelFileDescriptor materialize(android.content.Context context, InputSource source,
+            BooleanSupplier cancelled, long limit) throws IOException {
         java.io.File file = java.io.File.createTempFile("content-transfer-", ".data", context.getCacheDir());
         ParcelFileDescriptor result = null;
         boolean complete = false;
@@ -73,7 +80,7 @@ final class ContentUriTransfer {
             try (var output = java.nio.file.Files.newOutputStream(file.toPath())) {
                 // Keep only descriptors during provider I/O; process death leaves no staging file.
                 java.nio.file.Files.delete(file.toPath());
-                try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+                try (InputStream input = source.open()) {
                     if (input == null) throw new IOException("Content is unavailable");
                     ContentStreamCopy.copy(input, output, cancelled, limit);
                 }

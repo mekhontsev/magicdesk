@@ -1221,4 +1221,12 @@
     <string name="phone_panel_power_off">Desligar fisicamente a tela</string>
     <string name="phone_panel_unavailable">O controle físico da tela não está disponível</string>
     <string name="settings_window_geometry">Geometria de janelas do firmware</string>
+    <string name="console_share_target">Console do MagicDesk</string>
+    <string name="console_new_text">Novo texto</string>
+    <string name="console_text">Texto</string>
+    <string name="console_text_file">Anexar texto como arquivo</string>
+    <string name="console_content_sending">Enviando…</string>
+    <string name="console_paste_lines_title">Inserir várias linhas?</string>
+    <string name="console_paste_lines_message">Este terminal não ativou bracketed paste. Quebras de linha podem executar comandos.</string>
+    <string name="console_share_too_many">Muitos arquivos compartilhados. Compartilhe menos arquivos por vez.</string>
 </resources>

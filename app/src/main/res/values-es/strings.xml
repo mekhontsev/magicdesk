@@ -1221,4 +1221,12 @@
     <string name="phone_panel_power_off">Apagar físicamente la pantalla</string>
     <string name="phone_panel_unavailable">El control físico de la pantalla no está disponible</string>
     <string name="settings_window_geometry">Geometría de ventanas del firmware</string>
+    <string name="console_share_target">Consola de MagicDesk</string>
+    <string name="console_new_text">Texto nuevo</string>
+    <string name="console_text">Texto</string>
+    <string name="console_text_file">Adjuntar texto como archivo</string>
+    <string name="console_content_sending">Enviando…</string>
+    <string name="console_paste_lines_title">¿Insertar varias líneas?</string>
+    <string name="console_paste_lines_message">Este terminal no ha activado bracketed paste. Los saltos de línea pueden ejecutar comandos.</string>
+    <string name="console_share_too_many">Demasiados archivos compartidos. Comparte menos archivos a la vez.</string>
 </resources>

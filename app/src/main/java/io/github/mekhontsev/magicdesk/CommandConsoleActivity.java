@@ -554,7 +554,7 @@ public final class CommandConsoleActivity extends Activity
                 ? ShellDesktopDirectory.ABSOLUTE_PATH : directory;
     }
 
-    private static DesktopExecBackend backend(final Intent intent) {
+    static DesktopExecBackend backend(final Intent intent) {
         try {
             return DesktopExecBackend.parse(intent == null
                     ? "" : intent.getStringExtra(EXTRA_BACKEND));

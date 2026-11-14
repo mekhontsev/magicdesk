@@ -111,6 +111,7 @@ final class ConsoleTerminalSession {
     private boolean mStarted;
     private boolean mClosed;
     private boolean mReady;
+    private final java.util.concurrent.CompletableFuture<Void> mInputReady = new java.util.concurrent.CompletableFuture<>();
     private boolean mReceivedOutput;
     private boolean mStartupCommandSent;
     private boolean mProcessRefreshPosted;
@@ -195,6 +196,12 @@ final class ConsoleTerminalSession {
         synchronized (mLock) {
             return mReady && !mClosed;
         }
+    }
+
+    void awaitInputReady() throws Exception {
+        // EVENT_WAIT: first PTY output and startup command ordering, or terminal failure.
+        mInputReady.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        if (!isReady()) throw new IOException("Terminal session closed");
     }
 
     long processId() {
@@ -420,6 +427,7 @@ final class ConsoleTerminalSession {
                 return;
             }
             mClosed = true;
+            mInputReady.completeExceptionally(new IOException("Terminal session closed"));
             mReady = false;
             mProcessId = -1L;
             mForegroundProcess = TerminalProcessInfo.unknown();
@@ -447,6 +455,7 @@ final class ConsoleTerminalSession {
             transport = mTransportFactory.open(
                     directory, rows, columns, mStartupCommand);
         } catch (IOException error) {
+            mInputReady.completeExceptionally(error);
             postError(error);
             return;
         }
@@ -557,6 +566,7 @@ final class ConsoleTerminalSession {
             if (mNotificationChanged) { mNotificationChanged = false; mListener.onNotification(mNotification); }
             mListener.onScreenChanged();
             sendStartupCommandIfReady();
+            mInputReady.complete(null);
             scheduleForegroundProcessRefresh();
         }
     }

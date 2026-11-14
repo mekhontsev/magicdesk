@@ -1209,4 +1209,12 @@
     <string name="phone_panel_power_off">Display physisch ausschalten</string>
     <string name="phone_panel_unavailable">Physische Displaysteuerung nicht verfügbar</string>
     <string name="settings_window_geometry">Fenstergeometrie der Firmware</string>
+    <string name="console_share_target">MagicDesk-Konsole</string>
+    <string name="console_new_text">Neuer Text</string>
+    <string name="console_text">Text</string>
+    <string name="console_text_file">Text als Datei anhängen</string>
+    <string name="console_content_sending">Wird gesendet…</string>
+    <string name="console_paste_lines_title">Mehrere Zeilen einfügen?</string>
+    <string name="console_paste_lines_message">Dieses Terminal hat Bracketed Paste nicht aktiviert. Zeilenumbrüche können Befehle ausführen.</string>
+    <string name="console_share_too_many">Zu viele geteilte Dateien. Teilen Sie weniger Dateien auf einmal.</string>
 </resources>

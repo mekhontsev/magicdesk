@@ -177,6 +177,23 @@
         </activity>
 
         <activity
+            android:name=".ConsoleContentReceiverActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@drawable/ic_file_console"
+            android:label="@string/console_share_target"
+            android:taskAffinity=""
+            android:theme="@style/TransparentActivityTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".DesktopContentReceiverActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize"
             android:excludeFromRecents="true"

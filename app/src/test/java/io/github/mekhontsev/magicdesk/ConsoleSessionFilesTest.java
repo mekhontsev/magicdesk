@@ -8,6 +8,60 @@ import java.util.List;
 import org.junit.Test;
 
 public final class ConsoleSessionFilesTest {
+    @Test public void allAttachmentSourcesPublishOnlyCompleteCopiesAndRollbackFailures() throws Exception {
+        RuntimeSourceFixture.verify("""
+                record Item(String key,String name,String path,long bytes){}
+                interface ImportWriter {long write(String relative,long available) throws Exception;}
+                static class ContentStreamCopy {
+                    static void checkCancelled(java.util.function.BooleanSupplier stopped) throws IOException {
+                        if(stopped.getAsBoolean())throw new IOException("cancelled");
+                    }
+                }
+                static class Bridge {
+                    List<String> created=new ArrayList<>(), removed=new ArrayList<>();
+                    void mkdir(String path){created.add(path);}
+                    void remove(String path){removed.add(path);}
+                }
+                static final long MAX_TOTAL=256;
+                final List<Item> items=new ArrayList<>(); final Bridge bridge=new Bridge();
+                boolean closed,cancelled; String directory="/owned"; int changes;
+                void changed(){changes++;}
+                public static void verify() throws Exception {
+                    var files=new Fixture();
+                    Item item=files.importItem("note.txt",(relative,available)->{
+                        check(files.items.isEmpty(),"partial copy published");
+                        check(available==256 && relative.endsWith("/note.txt"),"lost budget or name");
+                        return 12;
+                    });
+                    check(files.items.equals(List.of(item)) && item.bytes()==12,"copy not committed");
+                    check(item.path().equals("/owned/"+item.key()+"/note.txt"),"wrong session path");
+                    try {
+                        files.importItem("bad",(relative,available)->{
+                            check(available==244,"ignored retained byte budget");throw new IOException("copy failed");
+                        });
+                        throw new AssertionError("failure swallowed");
+                    } catch(IOException expected){}
+                    try {
+                        files.importItem("cancelled",(relative,available)->{files.cancelled=true;return 9;});
+                        throw new AssertionError("cancelled copy committed");
+                    } catch(IOException expected){}
+                    check(files.items.equals(List.of(item)) && files.bridge.removed.size()==2,"rollback affected completed files");
+                    files.cancelled=false;
+                    try {
+                        files.importItem("closed",(relative,available)->{files.directory="";return 1;});
+                        throw new AssertionError("closed channel committed");
+                    } catch(IOException expected){}
+                    check(files.changes==1 && files.bridge.removed.size()==3,"failed publication leaked files");
+                    files.directory="/owned";
+                    for(int i=files.items.size();i<128;i++)files.items.add(item);
+                    try {
+                        files.importItem("overflow",(relative,available)->{throw new AssertionError("quota ignored");});
+                        throw new AssertionError("item quota ignored");
+                    } catch(IOException expected){}
+                }
+                """ + RuntimeSourceFixture.methods("ConsoleSessionFiles", "importItem"));
+    }
+
     @Test public void namesPreserveLiteralShellCharactersButRejectControlSequencesAndTraversal() {
         for (String name : List.of("a b.txt", "it's.txt", "$(touch pwn); data", "photo.jpg", " spaced "))
             assertEquals(name, ConsoleSessionFiles.safeName(name));

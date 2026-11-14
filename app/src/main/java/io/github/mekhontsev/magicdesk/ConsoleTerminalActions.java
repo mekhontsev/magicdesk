@@ -58,7 +58,23 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
             if (text.isEmpty()) return;
             session.paste(text + " ");
             mTerminalView.requestFocus();
-        });
+        }, () -> editText(session));
+    }
+
+    private void editText(ConsoleTerminalSession session) {
+        if (mClosed || mSession.get() != session) return;
+        ConsoleTextDialog.show(mActivity, "", null, 0, (text, name, complete) ->
+                ConsoleContentDelivery.confirm(mActivity, session, name.isEmpty() ? text : "", confirmed ->
+                        ConsoleContentDelivery.prepare(session, java.util.List.of(), text, name)
+                                .whenComplete((value, failure) -> mActivity.runOnUiThread(() -> {
+                                    if (failure != null) { complete.accept(failure); return; }
+                                    try {
+                                        ConsoleContentDelivery.paste(session, () -> !mClosed && mSession.get() == session,
+                                                value, confirmed);
+                                        mTerminalView.requestFocus();
+                                        complete.accept(null);
+                                    } catch (IOException error) { complete.accept(error); }
+                                })), () -> complete.accept(new java.util.concurrent.CancellationException())), () -> { });
     }
 
     @Override public void showLink(final com.termux.terminal.TerminalHyperlink link) {
@@ -241,8 +257,16 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
         if (clipboard.text.isEmpty()) {
             return;
         }
-        mSession.get().paste(clipboard.text);
-        mTerminalView.scrollToBottom();
+        final var session = mSession.get();
+        ConsoleContentDelivery.confirm(mActivity, session, clipboard.text, confirmed -> {
+            try {
+                ConsoleContentDelivery.paste(session, () -> !mClosed && mSession.get() == session,
+                        clipboard.text, confirmed);
+                mTerminalView.scrollToBottom();
+            } catch (IOException error) {
+                Toast.makeText(mActivity, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+            }
+        }, () -> { });
     }
 
     boolean handleFileDrop(final View view, final DragEvent event) {

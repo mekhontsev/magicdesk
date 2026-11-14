@@ -1197,4 +1197,12 @@
     <string name="phone_panel_power_off">关闭屏幕电源</string>
     <string name="phone_panel_unavailable">无法控制屏幕电源</string>
     <string name="settings_window_geometry">固件窗口几何适配</string>
+    <string name="console_share_target">MagicDesk 控制台</string>
+    <string name="console_new_text">新建文本</string>
+    <string name="console_text">文本</string>
+    <string name="console_text_file">将文本作为文件附加</string>
+    <string name="console_content_sending">正在发送…</string>
+    <string name="console_paste_lines_title">插入多行文本？</string>
+    <string name="console_paste_lines_message">此终端未启用括号粘贴模式。换行可能会执行命令。</string>
+    <string name="console_share_too_many">共享文件过多。请减少每次共享的文件数量。</string>
 </resources>

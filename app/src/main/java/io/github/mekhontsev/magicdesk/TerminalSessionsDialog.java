@@ -82,6 +82,16 @@ final class TerminalSessionsDialog {
 
     static void show(Activity activity, ToolLaunchTarget target, String uniqueId, DesktopLaunchPresentation presentation) {
         final var picker = new TerminalSessionsDialog(activity, target, uniqueId, presentation, null, null);
+        picker.showPicker();
+    }
+
+    static void select(Activity activity, java.util.function.Consumer<Intent> selection) {
+        new TerminalSessionsDialog(activity, currentTarget(activity), null,
+                DesktopLaunchPresentation.automatic(), null, selection).showPicker();
+    }
+
+    private void showPicker() {
+        final var picker = this;
         picker.dialog.show();
         picker.dialog.getListView().addFooterView(picker.status, null, false);
         picker.dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> picker.create());

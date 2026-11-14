@@ -533,6 +533,17 @@ while the incoming grant is alive; accepted plain text becomes a UTF-8 desktop
 file. It does not retain incoming payloads, watch the clipboard, or start an
 idle service.
 
+`ConsoleContentReceiverActivity` is the independent **MagicDesk Console** share
+target. It reuses `AndroidContentPayload`, `TerminalSessionsDialog` and
+`TerminalSessions`; external extras cannot select an executor or supply startup
+commands. `ConsoleTextDialog` is shared with the paperclip editor, and
+`ConsoleContentDelivery` owns preparation and paste admission for one captured
+PTY. `ConsoleSessionFiles` publishes both provider copies and generated UTF-8
+text through the same quotas, executor-bound helper and cleanup path. Text-only
+insertion does not require a file helper or privileged service. Opening a new
+recipient waits for its exact registration and startup input ordering, rather
+than treating launch acceptance as readiness.
+
 ### Foreground Processes And Tmux
 
 `TerminalTransport` also has an optional foreground-process capability. The

@@ -43,10 +43,12 @@ public class DecSetTest extends TerminalTestCase {
 		assertEquals("Pasting 'a' should output 'a' when bracketed paste mode is disabled", "a", mOutput.getOutputAndClear());
 
 		enterString("\033[?2004h"); // Enable bracketed paste mode.
+		assertTrue(mTerminal.isBracketedPasteEnabled());
 		mTerminal.paste("a");
 		assertEquals("Pasting when in bracketed paste mode should be bracketed", "\033[200~a\033[201~", mOutput.getOutputAndClear());
 
 		enterString("\033[?2004l"); // Disable bracketed paste mode.
+		assertFalse(mTerminal.isBracketedPasteEnabled());
 		mTerminal.paste("a");
 		assertEquals("Pasting 'a' should output 'a' when bracketed paste mode is disabled", "a", mOutput.getOutputAndClear());
 

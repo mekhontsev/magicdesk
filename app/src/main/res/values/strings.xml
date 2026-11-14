@@ -1209,4 +1209,12 @@
     <string name="graphics_output_height">Output height</string>
     <string name="graphics_detach_output">Release offscreen output</string>
     <string name="graphics_force_stop_session">Stop this graphics session and disconnect its applications without saving?</string>
+    <string name="console_share_target">MagicDesk Console</string>
+    <string name="console_new_text">New text</string>
+    <string name="console_text">Text</string>
+    <string name="console_text_file">Attach text as a file</string>
+    <string name="console_content_sending">Sending…</string>
+    <string name="console_paste_lines_title">Insert multiple lines?</string>
+    <string name="console_paste_lines_message">This terminal has not enabled bracketed paste. Line breaks can execute commands.</string>
+    <string name="console_share_too_many">Too many shared files. Share fewer files at a time.</string>
 </resources>

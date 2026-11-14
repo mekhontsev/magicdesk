@@ -201,12 +201,50 @@ final class ConsoleSessionFiles implements Closeable {
     }
 
     void importUris(List<Uri> uris) {
-        if (!begin()) return;
-        requests.submit(stopped -> { for (Uri uri : uris) importOne(uri, false); return null; }, null)
-                .thenAccept(done -> finish(done.failure));
+        importContent(uris, "", "");
     }
 
-    private void importOne(Uri uri, boolean tree) throws Exception {
+    java.util.concurrent.CompletableFuture<List<Item>> importContent(List<Uri> uris, String name, String text) {
+        List<Uri> sources = List.copyOf(uris);
+        if (!begin()) return java.util.concurrent.CompletableFuture.failedFuture(
+                new IOException(state().error().isEmpty() ? "Session files are busy or closed" : state().error()));
+        return requests.submit(stopped -> {
+            var imported = new ArrayList<Item>();
+            for (Uri uri : sources) imported.add(importOne(uri, false));
+            if (!name.isEmpty()) {
+                byte[] bytes = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                imported.add(importItem(safeName(name), (relative, available) -> {
+                    try (var file = ContentUriTransfer.materialize(context,
+                            () -> new java.io.ByteArrayInputStream(bytes), () -> closed || cancelled,
+                            Math.min(MAX_FILE, available))) {
+                        bridge.put(relative, file);
+                        return file.getStatSize();
+                    }
+                }));
+            }
+            return List.copyOf(imported);
+        }, null).thenCompose(done -> {
+            finish(done.failure);
+            return done.failure == null ? java.util.concurrent.CompletableFuture.completedFuture(done.value)
+                    : java.util.concurrent.CompletableFuture.failedFuture(done.failure);
+        });
+    }
+
+    private Item importOne(Uri uri, boolean tree) throws Exception {
+        ContentStreamCopy.checkCancelled(() -> closed || cancelled);
+        if (tree) uri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri));
+        String name = safeName(ContentUriTransfer.displayName(context.getContentResolver(), uri, "content"));
+        Uri source = uri;
+        return importItem(name, (relative, available) -> {
+            long[] copied = {0, 0};
+            copy(source, relative, tree, 0, available, copied);
+            return copied[0];
+        });
+    }
+
+    private interface ImportWriter { long write(String relative, long available) throws Exception; }
+
+    private Item importItem(String name, ImportWriter writer) throws Exception {
         ContentStreamCopy.checkCancelled(() -> closed || cancelled);
         long available;
         synchronized (this) {
@@ -214,21 +252,21 @@ final class ConsoleSessionFiles implements Closeable {
             available = MAX_TOTAL - items.stream().mapToLong(Item::bytes).sum();
         }
         String key = UUID.randomUUID().toString();
-        if (tree) uri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri));
-        String name = safeName(ContentUriTransfer.displayName(context.getContentResolver(), uri, "content"));
         String relative = key + "/" + name;
         bridge.mkdir(key);
-        long[] copied = {0, 0};
         boolean committed = false;
         try {
-            copy(uri, relative, tree, 0, available, copied);
+            long copied = writer.write(relative, available);
             ContentStreamCopy.checkCancelled(() -> closed || cancelled);
+            Item item;
             synchronized (this) {
                 if (closed || directory.isEmpty()) throw new IOException("File channel closed");
-                items.add(new Item(key, name, directory + "/" + relative, copied[0]));
+                item = new Item(key, name, directory + "/" + relative, copied);
+                items.add(item);
                 committed = true;
             }
             changed();
+            return item;
         } finally { if (!committed) bridge.remove(key); }
     }
 

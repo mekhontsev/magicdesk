@@ -2742,6 +2742,10 @@ public final class TerminalEmulator {
         }
     }
 
+    public boolean isBracketedPasteEnabled() {
+        return isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
+    }
+
     /** If DECSET 2004 is set, prefix paste with "\033[200~" and suffix with "\033[201~". */
     public void paste(String text) {
         // First: Always remove escape key and C1 control characters [0x80,0x9F]:
@@ -2750,7 +2754,7 @@ public final class TerminalEmulator {
         text = text.replaceAll("\r?\n", "\r");
 
         // Then: Implement bracketed paste mode if enabled:
-        boolean bracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
+        boolean bracketed = isBracketedPasteEnabled();
         if (bracketed) mSession.write("\033[200~");
         mSession.write(text);
         if (bracketed) mSession.write("\033[201~");

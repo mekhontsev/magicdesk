@@ -1233,4 +1233,12 @@
     <string name="graphics_detach_output">Отключить внеэкранный вывод</string>
     <string name="graphics_force_stop_session">Остановить графический сеанс и отключить его приложения без сохранения?</string>
     <string name="settings_window_geometry">Геометрия окон прошивки</string>
+    <string name="console_share_target">Консоль MagicDesk</string>
+    <string name="console_new_text">Новый текст</string>
+    <string name="console_text">Текст</string>
+    <string name="console_text_file">Прикрепить текст как файл</string>
+    <string name="console_content_sending">Отправка…</string>
+    <string name="console_paste_lines_title">Вставить несколько строк?</string>
+    <string name="console_paste_lines_message">В этом терминале не включён режим bracketed paste. Переводы строк могут выполнить команды.</string>
+    <string name="console_share_too_many">Слишком много файлов. Отправьте меньше файлов за один раз.</string>
 </resources>

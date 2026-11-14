@@ -202,6 +202,22 @@ their shell-quoted paths without Enter, or delete them individually. Folder impo
 preserve their structure. Each attachment has a separate directory, so matching
 names do not overwrite another attachment.
 
+**New text** in the paperclip's Add menu opens a multiline editor. Insert the
+text directly, or attach it as a named UTF-8 file and insert its quoted path.
+Android's **Share > MagicDesk Console** opens the same editable preview and
+selects the most recently focused console. The recipient button uses the normal
+session picker, including creation of a new User, Shell, Termux or Linux session.
+Shared files are copied into that session's attachments before their paths are
+inserted. Mixed text and file shares retain both parts. Nothing is sent before
+confirmation, and insertion never adds Enter. Multiline text and clipboard
+pastes require an additional confirmation when the terminal has not enabled
+bracketed paste, since embedded line breaks can execute commands.
+
+The selected PTY remains the destination throughout the operation. Closing it
+fails the request; focusing another console never redirects the content. Incoming
+Android URI permissions remain held by the share Activity during copying.
+Ending the share dialog does not terminate the recipient session.
+
 `ConsoleSessionFiles` owns imports, temporary URI grants and the captured command
 identity, independently of the Activity. Closing an ordinary window retains its
 copies; ending the PTY removes them. A late picker result still belongs to that
