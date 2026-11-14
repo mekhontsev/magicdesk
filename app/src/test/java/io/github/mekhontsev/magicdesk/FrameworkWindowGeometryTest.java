@@ -5,6 +5,39 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public final class FrameworkWindowGeometryTest {
+    @Test public void fullscreenRestoreUsesRetainedScaleInItsFirstTransaction() throws Exception {
+        verify("""
+                Task task = new Task(); task.mode = 1; task.scale = 1;
+                Rect bounds = new Rect(1280, 677, 2560, 1355);
+                var plan = FrameworkWindowGeometry.plan(task, bounds, .5576389f);
+                plan.apply(new FrameworkWindowingApi(), new Object(), new Object());
+                check(plan.scale == .5576389f && applied.right == 3576 && applied.bottom == 1893,
+                        "restore used fullscreen scale instead of retained freeform geometry");
+                observed = new FrameworkTaskSnapshot(); observed.windowScale = plan.scale;
+                observed.bounds = plan.displayBounds();
+                FrameworkWindowGeometry.finishPlacement(new Object(), 7, 42, bounds);
+                check(resizes == 0, "known restore geometry required another visible resize");
+                check(FrameworkWindowGeometry.capture(task).scale == 1, "fullscreen observation was scaled");
+                """);
+    }
+
+    @Test public void retainedScaleCannotOverrideDisabledOrStandardGeometry() throws Exception {
+        verify("""
+                Task task = new Task(); task.mode = 1;
+                Rect bounds = new Rect(10, 20, 810, 620);
+                driver.scaled = false;
+                check(FrameworkWindowGeometry.plan(task, bounds, .5f).scale == 1,
+                        "standard path used retained vendor scale");
+                driver.scaled = true; FrameworkWindowGeometry.initialize(false);
+                check(FrameworkWindowGeometry.plan(task, bounds, .5f).scale == 1,
+                        "disabled geometry used retained vendor scale");
+                FrameworkWindowGeometry.initialize(true);
+                try { FrameworkWindowGeometry.plan(task, bounds, Float.NaN);
+                    throw new AssertionError("invalid retained scale accepted"); }
+                catch (IllegalStateException expected) { }
+                """);
+    }
+
     @Test public void explicitPlacementAndRollbackShareOneCoordinateBoundary() throws Exception {
         verify("""
                 Task task = new Task(); task.scale = .5f;

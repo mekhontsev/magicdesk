@@ -2,7 +2,11 @@ package io.github.mekhontsev.magicdesk;
 
 import java.lang.reflect.Proxy;
 import java.util.Collection;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -10,6 +14,18 @@ import java.util.concurrent.TimeUnit;
 /** Commits fullscreen-plane surfaces inside the standard task workspace. */
 final class ShellDesktopSurfaceOrder {
     private static final long COMMIT_TIMEOUT_SECONDS = 2L;
+    private boolean mHomeHost = true;
+    private Object mService;
+    private int mDisplayId = -1;
+    private ShellDesktopTaskOwnership mOwnership;
+
+    synchronized void configure(final Object service, final int displayId,
+            final ShellDesktopTaskOwnership ownership, final boolean homeRole) {
+        mService = service;
+        mDisplayId = displayId;
+        mOwnership = ownership;
+        mHomeHost = homeRole;
+    }
 
     synchronized void applyLayers(
             final Map<TaskDisplayAreaHandle, Integer> layers)
@@ -17,6 +33,7 @@ final class ShellDesktopSurfaceOrder {
         if (layers.isEmpty()) {
             return;
         }
+        final int base = workspaceLayerBase(layers);
         final Class<?> surfaceClass = Class.forName("android.view.SurfaceControl");
         final Class<?> transactionClass = Class.forName(
                 "android.view.SurfaceControl$Transaction");
@@ -26,12 +43,42 @@ final class ShellDesktopSurfaceOrder {
                     : layers.entrySet()) {
                 transactionClass.getMethod("setLayer", surfaceClass, Integer.TYPE)
                         .invoke(transaction, entry.getKey().surfaceLeash(),
-                                entry.getValue());
+                                entry.getValue() > 0 ? base + entry.getValue()
+                                        : entry.getValue());
             }
             applyCommitted(transactionClass, transaction);
         } finally {
             transactionClass.getMethod("close").invoke(transaction);
         }
+    }
+
+    private int workspaceLayerBase(final Map<TaskDisplayAreaHandle, Integer> layers)
+            throws ReflectiveOperationException {
+        // HOME is assigned layer zero regardless of hierarchy. A STANDARD
+        // host shares native root ordering, including empty separators.
+        if (mHomeHost || layers.values().stream().noneMatch(layer -> layer > 0)) return 0;
+        final Set<Integer> areas = new LinkedHashSet<>();
+        for (final TaskDisplayAreaHandle plane : layers.keySet()) areas.add(plane.featureId());
+        return independentHostLayerBase(
+                FrameworkTaskSnapshotSource.readRoots(mService, mDisplayId),
+                areas, mOwnership.desktopHostTaskId());
+    }
+
+    static int independentHostLayerBase(final List<FrameworkTaskSnapshot> roots,
+            final Set<Integer> planeAreas, final int hostTaskId) {
+        final Set<Integer> siblings = new LinkedHashSet<>();
+        for (final FrameworkTaskSnapshot root : roots) {
+            if (planeAreas.contains(root.displayAreaFeatureId)) {
+                siblings.add(-root.displayAreaFeatureId);
+            } else if (root.displayAreaFeatureId
+                    == TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER.featureId()) {
+                siblings.add(root.taskId);
+            }
+        }
+        final List<Integer> order = new ArrayList<>(siblings);
+        final int host = order.indexOf(hostTaskId);
+        if (host < 0) throw new IllegalStateException("desktop host is absent from root order");
+        return order.size() - host - 1;
     }
 
     synchronized void setVisible(

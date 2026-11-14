@@ -3,6 +3,41 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class NativeFullscreenAdoptionTest {
+    @Test public void explicitEntryCapturesScaleBeforeSubmission() throws Exception {
+        verify("""
+                f.target.windowingMode = 5; f.target.scale = .55f;
+                check(f.beginFullscreen(f, 4, 42, false, -1, f.ownership), "entry rejected");
+                check(f.mRestoreScales.get(42) == .55f, "entry lost source scale");
+                """);
+    }
+
+    @Test public void entryFailureRetainsScaleOnlyWithItsReservation() throws Exception {
+        verify("""
+                for (boolean reserved : List.of(false, true)) {
+                    f.target.windowingMode = 5; f.target.scale = .55f;
+                    f.failSubmission = true; f.reserveEntry = reserved;
+                    try { f.beginFullscreen(f, 4, 42, false, -1, f.ownership);
+                        throw new AssertionError("entry failure expected"); }
+                    catch (IllegalStateException expected) { }
+                    check(f.mRestoreScales.containsKey(42) == reserved,
+                            "scale lifetime diverged from reservation");
+                }
+                """);
+    }
+
+    @Test public void retainsNativeFreeformScaleUntilTheFullscreenResidencyEnds() throws Exception {
+        verify("""
+                var previous = task(42, 1); previous.windowingMode = 5; previous.scale = .55f;
+                f.previousTasks = List.of(previous, task(10, 1));
+                f.adopt();
+                check(f.mRestoreScales.get(42) == .55f, "native adoption lost source scale");
+                f.rememberFreeformScale(42, f.target);
+                check(f.mRestoreScales.get(42) == .55f, "fullscreen observation replaced restore scale");
+                f.retirePlaneRecord(42);
+                check(f.mRestoreScales.isEmpty(), "retired task retained scale");
+                """);
+    }
+
     @Test
     public void nativeHomePromotionDoesNotConcealVisiblePeers() throws Exception {
         verify("""
@@ -189,11 +224,14 @@ public final class NativeFullscreenAdoptionTest {
     @Test
     public void failedSubmissionRetainsUnconfirmedReservation() throws Exception {
         verify("""
+                var previous = task(42, 1); previous.windowingMode = 5; previous.scale = .55f;
+                f.previousTasks = List.of(previous, task(10, 1));
                 f.failSubmission = true;
                 try { f.adopt(); throw new AssertionError("failure expected"); }
                 catch (IllegalStateException expected) {}
                 check(f.mPlanes.containsKey(42) && f.mUnconfirmedPlanes.size() == 1, "uncertain ownership lost");
                 check(f.mAvailablePlanes.isEmpty(), "uncertain plane published as reusable");
+                check(f.mRestoreScales.get(42) == .55f, "uncertain submission lost scale");
                 """);
     }
 
@@ -249,6 +287,14 @@ public final class NativeFullscreenAdoptionTest {
                     int taskId, rootTaskId, displayAreaFeatureId, windowingMode = 1;
                     boolean focused = true;
                     Object task = this;
+                    float scale = 1;
+                }
+                static class FrameworkWindowGeometry {
+                    static boolean adapted() { return true; }
+                    static float scale(Object task, int mode) { return ((FrameworkTaskSnapshot)task).scale; }
+                }
+                static class TaskWindowGeometry {
+                    static boolean validScale(float value) { return Float.isFinite(value) && value > 0; }
                 }
                 static FrameworkTaskSnapshot task(int id, int area) {
                     FrameworkTaskSnapshot t = new FrameworkTaskSnapshot();
@@ -256,9 +302,11 @@ public final class NativeFullscreenAdoptionTest {
                 }
                 static class ShellDesktopTaskOwnership {
                     boolean isDesktopTask(Object task) { return current.owned; }
+                    boolean isDesktopHostTask(int id) { return id == 10; }
                     int desktopHostTaskId() { return 10; }
                 }
                 static class HiddenTaskApi {
+                    static Object requireTask(Object service, int display, int id) { return current.target; }
                     static Object findTask(Object service, int display, int id) { return current.target; }
                     static int getTaskWindowingMode(Object task) { return ((FrameworkTaskSnapshot) task).windowingMode; }
                     static Object getTaskToken(Object task) { return ((FrameworkTaskSnapshot) task).taskId; }
@@ -310,7 +358,26 @@ public final class NativeFullscreenAdoptionTest {
                     static void i(String tag, String message) {}
                     static void w(String tag, String message, Throwable error) {}
                 }
+                static class TaskCaptionInsetsRefresher {
+                    static int captureCaptionSourceId(int id) { return -1; }
+                }
+                static class TaskLocalInsetsSourceParser { static final int NO_SOURCE_ID = -1; }
+                static class TaskFullscreenTransitionCommand {
+                    static void refreshCaptionIfRequested(Object service, int display, int id,
+                            boolean refresh, int source) { }
+                }
+                boolean reserveEntry = true;
+                List<Integer> desktopFullscreenTasks(Object service, int display,
+                        ShellDesktopTaskOwnership owner) { return new ArrayList<>(); }
+                void applyStableOrder(Object service, int display, List<Integer> fullscreen,
+                        int[] order, int id, boolean force, int density, Object mixed) {
+                    check(mRestoreScales.get(id) == .55f, "source scale unavailable at submission");
+                    if (reserveEntry) mPlanes.put(id, new TaskDisplayAreaHandle());
+                    target.windowingMode = 1; target.scale = 1;
+                    if (failSubmission) throw new IllegalStateException("entry failed");
+                }
                 final Map<Integer, TaskDisplayAreaHandle> mPlanes = new LinkedHashMap<>();
+                final Map<Integer, Float> mRestoreScales = new LinkedHashMap<>();
                 final Map<TaskDisplayAreaHandle, Integer> mPlaneAnchorTaskIds = new LinkedHashMap<>();
                 final Set<TaskDisplayAreaHandle> mUnconfirmedPlanes = new HashSet<>();
                 final List<TaskDisplayAreaHandle> mAvailablePlanes = new ArrayList<>();
@@ -345,8 +412,8 @@ public final class NativeFullscreenAdoptionTest {
                 public static void verify() throws Exception {
                     Fixture f = current = new Fixture();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods(
-                "ShellFullscreenTaskPlanes", "adoptFullscreenTask",
+                "ShellFullscreenTaskPlanes", "adoptFullscreenTask", "beginFullscreen",
                 "adoptionWorkspaceOrder", "nativeFullscreenWorkspaceOrder", "adoptionSurfaceLayers",
-                "applySurfaceLayers", "planesBelowWorkspace"));
+                "applySurfaceLayers", "planesBelowWorkspace", "rememberFreeformScale", "retirePlaneRecord"));
     }
 }

@@ -365,7 +365,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         mCompatibility = java.util.Objects.requireNonNull(compatibility);
         mProcessFailureTracker.configure(displayId);
-        mSecondaryHomeStartPolicy.configure(homeRole ? displayId : Display.INVALID_DISPLAY);
+        mSecondaryHomeStartPolicy.configure(displayId);
         try {
             mActivityStartController.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -394,6 +394,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mDesktopOwnership.markDesktopHost(desktopHostTaskId);
         }
         mFullscreenTaskArea.configure(displayId);
+        mSurfaceOrder.configure(mService, displayId, mDesktopOwnership, homeRole);
         mDesktopChromeHost.configure(displayId);
         mConfiguredDisplayId = displayId;
         mPhoneWallpaperPolicy.configure(displayId);

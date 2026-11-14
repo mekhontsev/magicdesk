@@ -513,6 +513,12 @@ public final class MagicDeskRuntime {
         return tasks == null ? null : tasks.observedTaskSnapshot(displayId);
     }
 
+    static int taskInputFocusTarget(final int displayId, final int observedTaskId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
+        final int pending = tasks == null ? -1 : tasks.pendingTaskFocus(displayId);
+        return pending >= 0 ? pending : observedTaskId;
+    }
+
     static void setWindowLayoutPolicy(int displayId, WindowLayoutPolicy policy,
             TaskRepository.ActionCallback callback) {
         final DesktopTaskRuntime tasks = desktopTasks(displayId);

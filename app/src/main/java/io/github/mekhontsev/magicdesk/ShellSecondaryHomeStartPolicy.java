@@ -6,7 +6,7 @@ import android.view.Display;
 
 import java.util.Set;
 
-/** Keeps unaddressed secondary-HOME selection out of a leased desktop workspace. */
+/** Keeps unaddressed secondary-HOME selection out of an active desktop workspace. */
 final class ShellSecondaryHomeStartPolicy implements ShellActivityStartController.Listener {
     private volatile int mDisplayId = Display.INVALID_DISPLAY;
 
@@ -29,7 +29,7 @@ final class ShellSecondaryHomeStartPolicy implements ShellActivityStartControlle
     static boolean shouldBlock(final int displayId, final String action,
             final Set<String> categories, final String requestedPackage) {
         // The resolved component is not evidence of an addressed request: an
-        // implicit SystemUI selector also resolves to our preferred HOME. The
+        // implicit SystemUI selector resolves to whichever HOME is preferred. The
         // controller receives no ActivityOptions, so it cannot repair its display.
         // Android's own per-area HOME starts carry a package; our explicit host
         // launches use ActivityOptions without the SECONDARY_HOME category.

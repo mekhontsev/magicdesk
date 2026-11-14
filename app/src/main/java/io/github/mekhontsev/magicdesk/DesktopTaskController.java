@@ -558,6 +558,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 && snapshot != null && snapshot.available ? snapshot : null;
     }
 
+    @Override
+    public int pendingTaskFocus(final int displayId) {
+        return mRunning && mTaskWatcherReady && displayId == mDisplayId
+                && mWorkspaceQueue.isRunning() ? mFocusingTaskId : -1;
+    }
+
     private void publishTaskObservation(final TaskRepository.Snapshot snapshot) {
         final boolean wasAvailable = mObservedTaskSnapshot != null;
         final TaskRepository.Snapshot next = mRunning && mTaskWatcherReady

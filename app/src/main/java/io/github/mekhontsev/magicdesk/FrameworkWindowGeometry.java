@@ -22,7 +22,13 @@ final class FrameworkWindowGeometry {
     }
 
     static Plan plan(Object task, Rect displayBounds) throws ReflectiveOperationException {
-        float scale = scale(task, HiddenTaskApi.getTaskWindowingMode(task));
+        return plan(task, displayBounds, null);
+    }
+
+    static Plan plan(Object task, Rect displayBounds, Float retainedScale)
+            throws ReflectiveOperationException {
+        float scale = adapted() && retainedScale != null ? retainedScale
+                : scale(task, HiddenTaskApi.getTaskWindowingMode(task));
         if (!TaskWindowGeometry.validScale(scale)) {
             throw new IllegalStateException("task window scale is unavailable");
         }

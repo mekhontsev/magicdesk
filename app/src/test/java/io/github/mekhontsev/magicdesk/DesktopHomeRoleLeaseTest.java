@@ -6,6 +6,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -694,7 +695,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertTrue(DesktopHomeRoleLease.isActiveForDisplay(0));
     }
 
-    @Test public void disabledHomeNeverReadsOrChangesRolesAcrossWorkspaceLifecycle() throws Exception {
+    @Test public void disabledHomeDoesNotAcquireRolesAndClosePresentsPrimaryHome() throws Exception {
         final var external = DesktopDisplayTarget.wired(7);
         final var phone = DesktopDisplayTarget.phone();
         final var prepared = DesktopHomeRoleLease.prepare(external, DesktopSessionPolicy.USER,
@@ -709,13 +710,20 @@ public final class DesktopHomeRoleLeaseTest {
         assertNull(DesktopHomeRoleLease.finishSessionClose(phone));
         assertTrue(DesktopHomeRoleLease.isActiveForDisplay(7));
         DesktopHomeRoleLease.releaseForSessionClose(external);
-        assertNull(DesktopHomeRoleLease.finishSessionClose(external));
+        final DesktopHomeRoleLease.RestoredHomePresentation presentation =
+                DesktopHomeRoleLease.finishSessionClose(external);
+        assertNotNull(presentation);
         assertNull(mStorage.state);
         assertEquals(0, mBackend.homeReads);
         assertEquals(0, mBackend.setCalls);
         assertEquals(0, mBackend.surfaceSelections);
         assertTrue(mBackend.secondaryCalls.isEmpty());
         assertTrue(mBackend.releaseCalls.isEmpty());
+        DesktopHomeRoleLease.presentRestoredHome(presentation);
+        assertEquals(List.of("present:" + LAUNCHER), mBackend.releaseCalls);
+        assertEquals(0, mBackend.setCalls);
+        assertEquals(0, mBackend.surfaceSelections);
+        assertTrue(mBackend.secondaryCalls.isEmpty());
     }
 
     @Test public void fallbackCannotHideIncompleteRoleRestoration() {

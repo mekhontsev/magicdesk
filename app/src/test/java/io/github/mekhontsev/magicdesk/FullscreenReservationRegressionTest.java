@@ -3,6 +3,53 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class FullscreenReservationRegressionTest {
+    @Test public void parkedPlaneParticipatesInTheFinalSurfaceCommit() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class TaskDisplayAreaHandle { Object token() { return this; } }
+                static class FrameworkWindowingApi {
+                    Object newTransaction() { return this; }
+                    Class<?> transactionClass() { return Object.class; }
+                    void setFocusable(Object tx, Object token, boolean focusable) { check(!focusable, "idle plane eligible"); }
+                    void reorder(Object tx, Object token, boolean top) { check(!top, "idle plane raised"); }
+                }
+                static class FrameworkRuntime {
+                    static FrameworkRuntime current() { return new FrameworkRuntime(); }
+                    FrameworkWindowingApi windowing() { return new FrameworkWindowingApi(); }
+                }
+                static class ShellWindowTransitionExecutor {
+                    static boolean committed;
+                    static void applySynchronized(Object service, Class<?> type, Object tx) { committed = true; }
+                }
+                final Set<TaskDisplayAreaHandle> mUnconfirmedPlanes = new HashSet<>();
+                final List<TaskDisplayAreaHandle> mAvailablePlanes = new ArrayList<>();
+                final Map<Integer, Integer> mCommittedPlaneLayers = Map.of(42, 1);
+                final Map<Integer, TaskDisplayAreaHandle> mPlanes = new HashMap<>();
+                final int mDisplayId = 7;
+                final TaskDisplayAreaHandle idle = new TaskDisplayAreaHandle();
+                int surfaceCommits;
+                void requirePlaneAnchor(Object service, int display, TaskDisplayAreaHandle plane) { }
+                void requireEmptyPlane(Object service, int display, TaskDisplayAreaHandle plane) { }
+                void applySurfaceLayers(Map<Integer, Integer> layers, Map<Integer, TaskDisplayAreaHandle> planes) {
+                    check(ShellWindowTransitionExecutor.committed, "surfaces preceded hierarchy commit");
+                    check(mAvailablePlanes.contains(idle), "newly idle plane omitted from final composition");
+                    check(layers.get(42) == 1, "retained foreground was demoted");
+                    surfaceCommits++;
+                }
+                public static void verify() throws Exception {
+                    Fixture f = new Fixture();
+                    f.mUnconfirmedPlanes.add(f.idle);
+                    try { f.parkPlane(f, f.idle); throw new AssertionError("unconfirmed slot accepted"); }
+                    catch (IllegalStateException expected) { }
+                    check(f.mAvailablePlanes.isEmpty(), "unconfirmed slot published as free");
+                    f.mUnconfirmedPlanes.clear();
+                    f.parkPlane(f, f.idle);
+                    check(f.surfaceCommits == 1 && f.mAvailablePlanes.size() == 1, "parking did not commit once");
+                    f.parkPlane(f, f.idle);
+                    check(f.mAvailablePlanes.size() == 1, "duplicate free slot published");
+                }
+                """ + RuntimeSourceFixture.methods("ShellFullscreenTaskPlanes", "parkPlane"));
+    }
+
     @Test
     public void failedLaunchDoesNotDeleteReturnedExistingTask() throws Exception {
         verifyCleanup("""
@@ -40,13 +87,16 @@ public final class FullscreenReservationRegressionTest {
         RuntimeSourceFixture.verify("""
                 static class TaskDisplayAreaHandle {}
                 final Map<Integer, TaskDisplayAreaHandle> mPlanes = new LinkedHashMap<>();
+                final Map<Integer, Float> mRestoreScales = new LinkedHashMap<>();
                 final List<TaskDisplayAreaHandle> mAvailablePlanes = new ArrayList<>();
                 final List<Integer> mPlaneOrder = new ArrayList<>();
                 public static void verify() {
                     Fixture f = new Fixture();
                     TaskDisplayAreaHandle plane = new TaskDisplayAreaHandle();
                     f.mPlanes.put(42, plane);
+                    f.mRestoreScales.put(42, .55f);
                     check(f.retirePlaneRecord(42) == plane, "wrong retired plane");
+                    check(f.mRestoreScales.isEmpty(), "retired residency retained its scale");
                     check(f.mAvailablePlanes.isEmpty(), "record retirement published unchecked plane as free");
                 }
                 """ + RuntimeSourceFixture.methods("ShellFullscreenTaskPlanes", "retirePlaneRecord"));
@@ -70,6 +120,7 @@ public final class FullscreenReservationRegressionTest {
                 static final String TAG = "test";
                 static final long FAILED_LAUNCH_REMOVAL_TIMEOUT_MILLIS = 1000, FAILED_LAUNCH_REMOVAL_POLL_MILLIS = 25;
                 final Map<Integer, TaskDisplayAreaHandle> mPlanes = new LinkedHashMap<>();
+                final Map<Integer, Float> mRestoreScales = new LinkedHashMap<>();
                 final List<Integer> mPlaneOrder = new ArrayList<>();
                 final List<TaskDisplayAreaHandle> mAvailablePlanes = new ArrayList<>();
                 int parked;
@@ -80,6 +131,7 @@ public final class FullscreenReservationRegressionTest {
                     Fixture f = new Fixture();
                     TaskDisplayAreaHandle plane = new TaskDisplayAreaHandle();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods(
-                "ShellFullscreenTaskPlanes", "cleanupFailedLaunch", "retainObservedPlaneChildren"));
+                "ShellFullscreenTaskPlanes", "cleanupFailedLaunch", "retainObservedPlaneChildren",
+                "retirePlaneRecord"));
     }
 }

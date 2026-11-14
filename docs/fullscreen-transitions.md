@@ -37,7 +37,8 @@ configured system secondary launcher when necessary, before disabling HOME
 components. Preferred-handler selection does not change the display targeted
 by a system launch; display routing remains a separate launch boundary.
 
-While an external workspace is configured, `ShellSecondaryHomeStartPolicy`
+While an external workspace is configured, with either host type,
+`ShellSecondaryHomeStartPolicy`
 rejects unaddressed `MAIN`/`SECONDARY_HOME` selectors in the shared
 `IActivityController`, before Android can reorder the phone's HOME root.
 A resolved MagicDesk component does not exempt an implicit selector. Android's
@@ -290,7 +291,13 @@ while it inherits fullscreen is insufficient.
 ### Surface Ordering And Activation
 
 `ShellDesktopSurfaceOrder` owns only fullscreen-plane surfaces inside the
-standard workspace. Chrome retains no organizer leash and requires no manual
+standard workspace. HOME-relative layer assignment uses Android's HOME layer
+zero. An independent STANDARD host instead uses its position among native
+workspace siblings, including empty separators and collapsed fullscreen areas.
+That base comes from one complete typed root snapshot at the explicit surface
+commit, not a background poll. Concealed planes remain below the workspace.
+Plane visibility and lifecycle retain the same owner in both cases.
+Chrome retains no organizer leash and requires no manual
 layer assignment. Area-capable WCT operations configure its mode, priority,
 and orientation policy once; task-only operations still target the host task.
 Launches, mode transitions, and workspace commands do not append a chrome
@@ -439,6 +446,16 @@ reasserts hierarchy. Secondary display-default configuration belongs to the
 shared `DisplayWindowingSession` lifecycle, not to a firmware focus policy.
 Focus repair is enabled by default in the Android baseline on every platform;
 an explicit user disable remains effective for subsequent sessions.
+
+Host input focusability follows the selected task, not surface order. A typed
+snapshot can still list a freeform or PiP window above the focused desktop;
+that must not disable the host's input window. Conversely, a host listed above
+the selected application must not take its keyboard focus. HOME and ordinary
+desktop hosts share this rule, including independent applications and chrome.
+While a workspace focus command awaits its input acknowledgement, its existing
+pending target owns host focusability. Intermediate snapshots and relayout
+callbacks must not restore the preceding target; observed focus resumes after
+the command completes or fails.
 
 An unsuccessful explicit input-focus commit retains one bounded diagnostic
 snapshot: target/display, InputDispatcher focus identities and the top task
@@ -634,6 +651,9 @@ owner retains HOME surfaces and the `RELEASING` lease through workspace cleanup
 and the display quiescence gate, then disables the components before presenting
 the previous launcher. Recovery callbacks do not compete with an explicit
 start/close owner. Startup prepares the components before acquiring the role.
+Closing the last independent-host workspace also presents the primary launcher
+before the selected close destination, without acquiring or restoring HOME roles.
+Closing one of several workspaces does not present the launcher.
 
 ## Activate and demote
 
@@ -726,6 +746,12 @@ existing-task launch path with its final freeform mode, display, and bounds.
 Each plane has one retained standard anchor task that keeps the source
 hierarchy non-empty until the reparent transition commits and lets the idle
 plane be reused without organizer deletion and recreation.
+On scaled-window firmware, fullscreen residency also retains the observed
+freeform scale. Restore applies that scale and the requested bounds together;
+the fullscreen task's identity scale must not replace it. Native caption
+adoption uses the preceding typed snapshot, and retirement discards the scale.
+Cross-display preparation similarly retains captured source geometry. A cold
+window without a known scale still uses the bounded placement finalization.
 After the application leaves, the plane becomes a non-focusable idle slot and
 is reused by a later fullscreen task. The anchor has a valid input channel for
 the brief task-removal boundary and accepts no pointer input. `NOT_TOUCHABLE`

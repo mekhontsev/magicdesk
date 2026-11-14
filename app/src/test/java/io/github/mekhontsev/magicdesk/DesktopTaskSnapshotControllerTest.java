@@ -24,56 +24,42 @@ public final class DesktopTaskSnapshotControllerTest {
         assertTrue(DesktopInfrastructureTasks.isTask(delegate));
         assertFalse(DesktopTaskController.isDesktopHostTask(delegate));
         assertEquals(HOME, resolve(Arrays.asList(delegate, home)));
-        assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(delegate, home)));
     }
 
     @Test
     public void desktopHostWinsOverNominallyVisibleFullscreenTaskBelowIt() {
         assertEquals(HOME, resolve(Arrays.asList(desktopHost(true), app(true))));
-        assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(desktopHost(true), app(true))));
     }
 
     @Test
     public void applicationAboveDesktopHostRemainsForeground() {
         assertEquals(FULLSCREEN, resolve(Arrays.asList(app(true), desktopHost(true))));
-        assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(app(true), desktopHost(true))));
     }
 
     @Test
     public void taskAreaBackstopDoesNotHideForegroundDesktopHost() {
         assertEquals(HOME, resolve(Arrays.asList(backstop(true), desktopHost(true))));
-        assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(backstop(true), desktopHost(true))));
     }
 
     @Test
     public void taskAreaBackstopDoesNotHideForegroundApplication() {
         assertEquals(FULLSCREEN, resolve(Arrays.asList(backstop(true), app(true), desktopHost(true))));
-        assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(backstop(true), app(true), desktopHost(true))));
     }
 
     @Test
     public void taskbarPlaneDoesNotHideForegroundDesktopHost() {
         assertEquals(HOME, resolve(Arrays.asList(taskbar(true), desktopHost(true))));
-        assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(taskbar(true), desktopHost(true))));
     }
 
     @Test
     public void taskbarPlaneDoesNotHideForegroundApplication() {
         assertEquals(FULLSCREEN, resolve(Arrays.asList(taskbar(true), app(true), desktopHost(true))));
-        assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(taskbar(true), app(true), desktopHost(true))));
     }
 
     @Test
     public void ordinaryHomeTaskIsNotDesktopHost() {
-        assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(new TaskRepository.TaskEntry(
+        assertFalse(DesktopTaskController.isDesktopHostTask(
+                new TaskRepository.TaskEntry(
                         1,
                         1,
                         0,
@@ -84,7 +70,7 @@ public final class DesktopTaskSnapshotControllerTest {
                         new Rect(0, 0, 1920, 1080),
                         true,
                         true,
-                        false))));
+                        false)));
     }
 
     @Test
@@ -192,13 +178,11 @@ public final class DesktopTaskSnapshotControllerTest {
     }
 
     @Test
-    public void pictureInPictureDoesNotOwnSceneOrGiveHomeKeyboardFocus() {
+    public void pictureInPictureDoesNotOwnScene() {
         final TaskRepository.TaskEntry pip = unmanageable("2", true);
         assertEquals(HOME, resolve(Arrays.asList(pip, desktopHost(true))));
         assertEquals(FREEFORM, resolve(Arrays.asList(pip, freeform(true), desktopHost(true))));
         assertEquals(FULLSCREEN, resolve(Arrays.asList(pip, app(false, true), freeform(true))));
-        assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
-                Arrays.asList(pip, desktopHost(true))));
     }
 
     @Test

@@ -601,7 +601,8 @@ final class DesktopUiGateway {
                 return;
             }
             activity.setDesktopWindowFocusable(
-                    focusedTaskId == activity.getTaskId());
+                    MagicDeskRuntime.taskInputFocusTarget(displayId, focusedTaskId)
+                            == activity.getTaskId());
             activity.refreshDesktopInputFocus(completion);
         });
         return true;
@@ -985,7 +986,8 @@ final class DesktopUiGateway {
         if (activity != null
                 && activity.getCurrentDisplayId() == displayId) {
             activity.setDesktopWindowFocusable(
-                    taskId == activity.getTaskId());
+                    MagicDeskRuntime.taskInputFocusTarget(displayId, taskId)
+                            == activity.getTaskId());
         }
     }
 

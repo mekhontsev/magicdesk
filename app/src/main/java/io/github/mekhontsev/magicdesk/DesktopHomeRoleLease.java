@@ -360,7 +360,10 @@ final class DesktopHomeRoleLease {
             if (state.phase != Phase.RELEASING) {
                 throw new IOException("HOME release has not started");
             }
-            return finishRelease(state);
+            finishRelease(state);
+            // Closing the last workspace returns to primary HOME even when
+            // this session never borrowed the role (or secondary HOME).
+            return new RestoredHomePresentation(state.userId);
         }
     }
 

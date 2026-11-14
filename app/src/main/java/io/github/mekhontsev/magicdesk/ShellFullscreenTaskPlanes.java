@@ -20,6 +20,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
 
     private final Map<Integer, TaskDisplayAreaHandle> mPlanes =
             new LinkedHashMap<>();
+    private final Map<Integer, Float> mRestoreScales = new LinkedHashMap<>();
     private final Map<TaskDisplayAreaHandle, Integer> mPlaneAnchorTaskIds =
             new LinkedHashMap<>();
     private final Map<TaskDisplayAreaHandle, FrameworkRootTaskApi.Root> mPlaneSeparators =
@@ -149,6 +150,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     service, displayId, ownership);
             fullscreenTaskIds.remove(Integer.valueOf(taskId));
             fullscreenTaskIds.add(Integer.valueOf(taskId));
+            // TaskInfo reports scale 1 in fullscreen. Capture before submission;
+            // an uncertain acknowledgement must retain both plane and scale.
+            rememberFreeformScale(taskId, enteringTask);
             applyStableOrder(
                     service,
                     displayId,
@@ -166,6 +170,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     captionSourceId);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
+            if (!mPlanes.containsKey(taskId)) mRestoreScales.remove(taskId);
             throw new IllegalStateException(
                     "cannot enter fullscreen task=" + taskId + ": "
                             + error.getMessage(), error);
@@ -245,6 +250,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                         ? HiddenTaskApi.requireRootTaskToken(service, displayId, orderedTaskId)
                         : plane.token();
                 windowing.reorder(transaction, token, true, false);
+            }
+            if (previousTasks != null) {
+                for (final FrameworkTaskSnapshot previous : previousTasks) {
+                    if (previous.taskId == taskId) {
+                        rememberFreeformScale(taskId, previous.task);
+                        break;
+                    }
+                }
             }
             mPlanes.put(Integer.valueOf(taskId), acquired);
             mUnconfirmedPlanes.add(acquired);
@@ -512,7 +525,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     bounds,
                     plane.token(),
                     null,
-                    densityDpi);
+                    densityDpi,
+                    mRestoreScales.get(taskId));
             TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                     service, displayId, taskId, bounds);
             waitForTaskOutsidePlane(
@@ -2022,8 +2036,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     unexpectedPlaneChildren(service, displayId, plane);
             if (remainingChildren.isEmpty()) {
                 if (mPlanes.get(Integer.valueOf(taskId)) == plane) {
-                    mPlanes.remove(Integer.valueOf(taskId));
-                    mPlaneOrder.remove(Integer.valueOf(taskId));
+                    retirePlaneRecord(taskId);
                 }
                 parkPlane(service, plane);
             } else {
@@ -2101,12 +2114,12 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         // Commit hierarchy state before restoring explicit organizer layers.
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
-        // Retiring one plane preserves the remaining composition, including
-        // a fullscreen background whose freeform foreground now owns focus.
-        applySurfaceLayers(mCommittedPlaneLayers, mPlanes);
         if (!mAvailablePlanes.contains(plane)) {
             mAvailablePlanes.add(plane);
         }
+        // Include the newly idle plane in this same surface commit; otherwise
+        // its native layer can still cover the retained fullscreen background.
+        applySurfaceLayers(mCommittedPlaneLayers, mPlanes);
     }
 
     private void requireEmptyPlane(
@@ -2125,9 +2138,19 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
 
     private TaskDisplayAreaHandle retirePlaneRecord(final int taskId) {
         mPlaneOrder.remove(Integer.valueOf(taskId));
+        mRestoreScales.remove(taskId);
         final TaskDisplayAreaHandle plane =
                 mPlanes.remove(Integer.valueOf(taskId));
         return plane;
+    }
+
+    private void rememberFreeformScale(final int taskId, final Object task)
+            throws ReflectiveOperationException {
+        if (!FrameworkWindowGeometry.adapted()
+                || HiddenTaskApi.getTaskWindowingMode(task) != WINDOWING_MODE_FREEFORM) return;
+        final float scale = FrameworkWindowGeometry.scale(task, WINDOWING_MODE_FREEFORM);
+        if (TaskWindowGeometry.validScale(scale)) mRestoreScales.put(taskId, scale);
+        else mRestoreScales.remove(taskId);
     }
 
     @Override
@@ -2182,6 +2205,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mLaunchGuard.clear();
         mPlaneSeparators.clear();
         mPlanes.clear();
+        mRestoreScales.clear();
         mPlaneAnchorTaskIds.clear();
         mAvailablePlanes.clear();
         mUnconfirmedPlanes.clear();

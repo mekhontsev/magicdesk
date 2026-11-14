@@ -126,7 +126,8 @@ final class ShellPreparedTaskTransition {
                 bounds,
                 sourceParentToken,
                 targetParentToken,
-                DesktopTaskDensity.UNCHANGED);
+                DesktopTaskDensity.UNCHANGED,
+                null);
     }
 
     static void detachAndShowFreeform(
@@ -136,7 +137,8 @@ final class ShellPreparedTaskTransition {
             final Rect bounds,
             final Object sourceParentToken,
             final Object targetParentToken,
-            final int densityDpi)
+            final int densityDpi,
+            final Float retainedScale)
             throws ReflectiveOperationException {
         applyFreeform(
                 service,
@@ -146,7 +148,8 @@ final class ShellPreparedTaskTransition {
                 FreeformApplication.DETACH_AND_SHOW_TRANSITION,
                 densityDpi,
                 sourceParentToken,
-                targetParentToken);
+                targetParentToken,
+                retainedScale);
     }
 
     static void prepareFullscreen(
@@ -291,6 +294,7 @@ final class ShellPreparedTaskTransition {
                 application,
                 densityDpi,
                 null,
+                null,
                 null);
     }
 
@@ -302,7 +306,8 @@ final class ShellPreparedTaskTransition {
             final FreeformApplication application,
             final int densityDpi,
             final Object sourceParentToken,
-            final Object targetParentToken)
+            final Object targetParentToken,
+            final Float retainedScale)
             throws ReflectiveOperationException {
         final Object task = HiddenTaskApi.requireTask(
                 service, displayId, taskId);
@@ -313,7 +318,7 @@ final class ShellPreparedTaskTransition {
         final Object transaction = windowing.newTransaction();
         windowing.setWindowingMode(
                 transaction, taskToken, WINDOWING_MODE_FREEFORM);
-        FrameworkWindowGeometry.plan(task, bounds).apply(windowing, transaction, taskToken);
+        FrameworkWindowGeometry.plan(task, bounds, retainedScale).apply(windowing, transaction, taskToken);
         DesktopTaskDensity.apply(
                 windowing, transaction, taskToken, densityDpi);
         windowing.setForceTranslucent(transaction, taskToken, false);

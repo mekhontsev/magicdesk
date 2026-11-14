@@ -1008,13 +1008,11 @@ public final class TaskDisplayAreaLaunchCommand {
             if (observation != null) {
                 observation.sample("prepared");
             }
-            moveExistingTaskAsFreeform(
-                    service,
-                    taskId,
-                    sourceDisplayId,
-                    targetDisplayId,
-                    bounds,
-                    densityDpi);
+            moveExistingTaskToDisplay(service, taskId, sourceDisplayId,
+                    targetDisplayId, WINDOWING_MODE_FREEFORM, bounds, densityDpi,
+                    originalWindowingMode == WINDOWING_MODE_FREEFORM
+                            ? new FrameworkWindowGeometry.Plan(bounds, originalGeometry.scale)
+                            : null);
             waitForTaskFreeformBounds(
                     service, targetDisplayId, taskId, bounds);
             waitForTaskVisibility(
