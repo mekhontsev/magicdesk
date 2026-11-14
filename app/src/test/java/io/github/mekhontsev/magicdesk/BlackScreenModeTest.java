@@ -24,7 +24,7 @@ public final class BlackScreenModeTest {
         assertTrue(applied.contains("!hasWindowFocus()"));
         assertTrue(applied.contains("request.isDone()"));
         assertTrue(applied.contains("Display.DEFAULT_DISPLAY"));
-        assertTrue(applied.indexOf("mBlackScreen.enter()") < applied.indexOf("mBlackScreen.confirmFrame(request)"));
+        assertTrue(applied.indexOf("mBlackScreen.enter(") < applied.indexOf("mBlackScreen.confirmFrame(request)"));
         assertTrue(RuntimeSourceFixture.methods("ControlActivity", "onWindowFocusChanged")
                 .contains("applyBlackScreenRequest()"));
     }
@@ -173,9 +173,63 @@ public final class BlackScreenModeTest {
                         mode.dispatchKeyEvent(new KeyEvent(key, 1, 0, false));
                         check(mode.active(), "previous key sequence survived exit");
                         mode.exit();
+                        int[] returns = {0};
+                        mode.enter(() -> {
+                            check(!mode.active() && panel.visibility == View.VISIBLE, "return before restoration");
+                            returns[0]++;
+                        });
+                        mode.enter(() -> { throw new AssertionError("duplicate entry replaced origin"); });
+                        mode.dispatchKeyEvent(new KeyEvent(key, 0, 0, false));
+                        mode.dispatchKeyEvent(new KeyEvent(key, 1, 0, false));
+                        check(returns[0] == 1, "volume exit did not return exactly once");
+                        mode.enter(() -> returns[0]++);
+                        mode.exit();
+                        check(returns[0] == 1, "programmatic/lifecycle exit stole focus");
+                        mode.enter();
+                        mode.dispatchKeyEvent(new KeyEvent(key, 0, 0, false));
+                        mode.dispatchKeyEvent(new KeyEvent(key, 1, 0, false));
+                        check(returns[0] == 1, "previous origin survived exit");
+                        var shortcut = new VolumeKeyAction();
+                        Runnable enter = () -> mode.enter();
+                        check(!shortcut.dispatch(new KeyEvent(key, 0, 0, false), false, enter), "disabled shortcut consumed down");
+                        check(!shortcut.dispatch(new KeyEvent(key, 1, 0, false), false, enter), "disabled shortcut consumed up");
+                        shortcut.dispatch(new KeyEvent(key, 1, 0, false), true, enter);
+                        check(!mode.active(), "unmatched console up activated mode");
+                        shortcut.dispatch(new KeyEvent(key, 0, 0, false), true, enter);
+                        shortcut.dispatch(new KeyEvent(key, 0, 2, false), true, enter);
+                        check(!mode.active(), "console repeat activated mode");
+                        check(shortcut.dispatch(new KeyEvent(key, 1, 0, false), false, enter), "lost ownership of consumed down");
+                        check(!mode.active(), "deactivated shortcut executed");
+                        shortcut.dispatch(new KeyEvent(key, 0, 0, false), true, enter);
+                        shortcut.reset();
+                        shortcut.dispatch(new KeyEvent(key, 1, 0, false), true, enter);
+                        check(!mode.active(), "console pause retained pressed key");
+                        shortcut.dispatch(new KeyEvent(key, 0, 0, false), true, enter);
+                        shortcut.dispatch(new KeyEvent(key, 1, 0, false), true, enter);
+                        check(mode.active(), "console release did not enter mode");
+                        mode.dispatchKeyEvent(new KeyEvent(key, 1, 0, false));
+                        check(mode.active(), "entry key also exited black mode");
+                        mode.exit();
                     }
                 }
-                """ + "static " + RuntimeSourceFixture.nestedClass("BlackScreenMode", "BlackScreenMode"));
+                """ + "static " + RuntimeSourceFixture.nestedClass("BlackScreenMode", "BlackScreenMode")
+                        + "static " + RuntimeSourceFixture.nestedClass("VolumeKeyAction", "VolumeKeyAction"));
+    }
+
+    @Test public void returnIsTransientAndConsoleShortcutIsIndependentOfExecutor() throws Exception {
+        String restore = RuntimeSourceFixture.methods("AppUpdateResumeActivity", "restorePower");
+        assertTrue(restore.contains("requestBlackScreen(true, false, restored)"));
+        String exit = RuntimeSourceFixture.methods("ControlActivity", "returnFromBlackScreen");
+        assertTrue(exit.contains("moveTaskToBack(true)"));
+        assertFalse(exit.contains("startActivity"));
+        assertFalse(RuntimeSourceFixture.methods("ControlActivity", "onSaveInstanceState").contains("BlackScreenReturn"));
+        String console = RuntimeSourceFixture.methods("CommandConsoleActivity", "dispatchKeyEvent");
+        assertTrue(console.contains("ConsolePreferences.volumeBlackScreen(this)"));
+        assertTrue(console.contains("Display.DEFAULT_DISPLAY"));
+        assertFalse(console.contains("ShellAccess"));
+        assertFalse(console.contains("ConsoleBackend"));
+        String preference = RuntimeSourceFixture.methods("ConsolePreferences", "volumeBlackScreen");
+        assertTrue(preference.contains("getBoolean(\"volume_black_screen\", false)"));
     }
 
     @Test public void panelOwnsTheModeWithoutStartingAnotherActivityOrService() throws Exception {

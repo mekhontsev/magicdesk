@@ -178,10 +178,14 @@ window or Recents entry; it starts enabled automation and immediately finishes.
 If phone keep-awake or black-screen mode was active at handoff, the worker
 bridges replacement with a bounded wake lock. The new process retains the
 original phone lease ID and expiration, and restores black mode through Control
-Panel. The bridge is released after acknowledgement of the new lease and/or
+Panel. Its previous-app return action is not persisted: volume-key exit after
+replacement stays in the panel. The bridge is released after acknowledgement of the new lease and/or
 drawn black window, or after a bounded failure deadline. It does not enable
 previously inactive modes, wake/unlock a manually locked phone, or restore
 virtual displays. This is a one-update handoff, not a startup preference.
+During replacement, Android may briefly reveal the underlying application,
+which can restore its keyboard. The bridge preserves wakefulness, not continuous
+ownership of the screen; restored black mode hides the keyboard again.
 This does not rely on delivery of the package-replaced
 broadcast and adds no continuously running updater. The normal privileged command
 service retains its original lifetime. Neither the worker nor the new runtime
@@ -1320,7 +1324,7 @@ Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 | `input.gesture` | Explicit-display touch tap, long press, swipe or drag through bounded point lists. |
 | `input.key_chord` | Press ordered Android key names, release them in reverse order, including on failure. |
 | `device.keep_awake` | Acquire or renew bounded display work. Phone mode needs no shell; owned virtual-display mode requires shell, not Desktop. |
-| `device.set_black_screen` | With `enabled=true`, bring Control Panel to the phone foreground and apply its black, minimum-brightness, touch-blocking keep-awake mode. Requires `control`, an awake unlocked phone and Android launch permission, not shell or Desktop. Success confirms window focus and applied policy. `enabled=false` only removes the mode, without foregrounding anything. Volume-key release also exits; `get_state.runtime.blackScreenEnabled` reports current state. |
+| `device.set_black_screen` | With `enabled=true`, bring Control Panel to the phone foreground and apply its black, minimum-brightness, touch-blocking keep-awake mode. Requires `control`, an awake unlocked phone and Android launch permission, not shell or Desktop. Success confirms window focus and applied policy. `enabled=false` only removes the mode, without foregrounding anything. A volume-button press and release exits and returns to the previously foreground app, unless entered from the panel or restored after an update. `get_state.runtime.blackScreenEnabled` reports current state. |
 | `device.release_awake` | Release the exact lease token. |
 
 `linux.list`, `ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text

@@ -18,7 +18,8 @@ final class BlackScreenMode {
     private WindowManager.LayoutParams previous;
     private int visibleBars;
     private int barsBehavior;
-    private int volumeKey = KeyEvent.KEYCODE_UNKNOWN;
+    private final VolumeKeyAction volumeKey = new VolumeKeyAction();
+    private Runnable onVolumeExit;
 
     BlackScreenMode(Window window, View panel) {
         this.window = window;
@@ -52,8 +53,12 @@ final class BlackScreenMode {
         root.invalidate();
     }
 
-    void enter() {
+    void enter() { enter(null); }
+
+    void enter(Runnable onVolumeExit) {
         if (active()) return;
+        this.onVolumeExit = onVolumeExit;
+        volumeKey.reset();
         previous = new WindowManager.LayoutParams();
         previous.copyFrom(window.getAttributes());
         var insets = root.getRootWindowInsets();
@@ -94,7 +99,8 @@ final class BlackScreenMode {
         attributes.buttonBrightness = previous.buttonBrightness;
         attributes.layoutInDisplayCutoutMode = previous.layoutInDisplayCutoutMode;
         previous = null;
-        volumeKey = KeyEvent.KEYCODE_UNKNOWN;
+        volumeKey.reset();
+        onVolumeExit = null;
         window.setAttributes(attributes);
         var controller = window.getInsetsController();
         if (controller != null) {
@@ -107,17 +113,10 @@ final class BlackScreenMode {
     }
 
     boolean dispatchKeyEvent(KeyEvent event) {
-        if (!active()) return false;
-        int key = event.getKeyCode();
-        if (key != KeyEvent.KEYCODE_VOLUME_UP && key != KeyEvent.KEYCODE_VOLUME_DOWN
-                && key != KeyEvent.KEYCODE_VOLUME_MUTE) return false;
-        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-            volumeKey = key;
-        } else if (event.getAction() == KeyEvent.ACTION_UP && volumeKey == key) {
-            volumeKey = KeyEvent.KEYCODE_UNKNOWN;
-            // Keep both halves of the key press in this window, without adjusting volume.
-            if (!event.isCanceled()) exit();
-        }
-        return true;
+        return volumeKey.dispatch(event, active(), () -> {
+            Runnable target = onVolumeExit;
+            exit();
+            if (target != null) target.run();
+        });
     }
 }

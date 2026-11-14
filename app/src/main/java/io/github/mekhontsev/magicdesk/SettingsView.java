@@ -68,6 +68,7 @@ final class SettingsView {
         void setDesktopEnabled(boolean enabled);
 
         void configureConsoleFontSize();
+        void setConsoleVolumeBlackScreen(boolean enabled);
         void configureGraphicsRenderer();
 
         void openDeviceSetup();
@@ -114,6 +115,7 @@ final class SettingsView {
     private final java.util.EnumMap<IntegrationPackage, TextView> mIntegrationPackages =
             new java.util.EnumMap<>(IntegrationPackage.class);
     private TextView mConsoleFontSize;
+    private Switch mConsoleVolumeBlackScreen;
     private TextView mGraphicsRenderer;
     private TextView mShellBackend;
     private TextView mMaximumAccess;
@@ -178,6 +180,10 @@ final class SettingsView {
         mConsoleFontSize.setTextSize(12);
         addAction(content, R.drawable.ic_font_size, R.string.settings_console_font_size,
                 mActions::configureConsoleFontSize, mConsoleFontSize);
+        mConsoleVolumeBlackScreen = addSwitch(content, R.string.settings_console_volume_black_screen);
+        mConsoleVolumeBlackScreen.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setConsoleVolumeBlackScreen(checked);
+        });
 
         addSection(content, R.string.graphics_title);
         mGraphicsRenderer = new TextView(mActivity);
@@ -403,6 +409,7 @@ final class SettingsView {
                 : mActivity.getString(R.string.settings_integration_restart_pending, configuredBackend.label));
         mConsoleFontSize.setText(mActivity.getString(R.string.console_font_size_value,
                 ConsolePreferences.fontSizeSp(mActivity)));
+        mConsoleVolumeBlackScreen.setChecked(ConsolePreferences.volumeBlackScreen(mActivity));
         mGraphicsRenderer.setText(GraphicalPreferences.rendererLabel(GraphicalPreferences.renderer(mActivity)));
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
             final String saved = integration.configured(mActivity);

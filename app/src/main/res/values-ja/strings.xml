@@ -1,5 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_console_volume_black_screen">音量キーで黒い画面を有効にする</string>
     <string name="settings_request_home_role">ホームアプリへの設定を試みる</string>
     <string name="console_app_title">User</string>
     <string name="executor_android_shell">Shell</string>

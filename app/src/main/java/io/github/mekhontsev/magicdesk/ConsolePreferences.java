@@ -2,7 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 
-/** Default for new consoles only; retained PTYs and saved launchers keep their own executor. */
+/** Local console presentation and the default executor for new sessions. */
 final class ConsolePreferences {
     static final int DEFAULT_FONT_SIZE_SP = 14;
     static final int MIN_FONT_SIZE_SP = 8;
@@ -20,6 +20,16 @@ final class ConsolePreferences {
 
     static int clampFontSize(final int size) {
         return Math.max(MIN_FONT_SIZE_SP, Math.min(MAX_FONT_SIZE_SP, size));
+    }
+
+    static boolean volumeBlackScreen(Context context) {
+        return context.getSharedPreferences("console", Context.MODE_PRIVATE)
+                .getBoolean("volume_black_screen", false);
+    }
+
+    static void setVolumeBlackScreen(Context context, boolean enabled) {
+        context.getSharedPreferences("console", Context.MODE_PRIVATE).edit()
+                .putBoolean("volume_black_screen", enabled).apply();
     }
 
     static DesktopExecBackend selected(Context context) {

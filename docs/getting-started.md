@@ -489,8 +489,8 @@ Tapping the persistent notification's **MagicDesk** name and status opens
 icons, with no expansion required.
 **Open touchpad** appears as a third icon when an external input target and its
 pointer transport are ready, including manual display control without Desktop.
-Each icon first brings a fresh Control Panel to the phone
-foreground, dismissing its previous dialogs without closing terminal sessions.
+Each icon first brings Control Panel to the phone foreground. Console and
+touchpad actions dismiss its previous dialogs without closing terminal sessions.
 **Console** resumes the most recently focused retained terminal on the phone,
 without creating another PTY or changing its executor. If none remains, it opens
 the existing **New session** chooser. **Black screen** enters the keep-awake mode
@@ -500,13 +500,23 @@ available from the panel.
 
 The **Black screen (keep awake)** icon beside Console in Control Panel keeps
 the phone awake with a black screen at minimum window brightness. Touches are
-ignored; press and release either volume button to return to the panel without
-changing volume. Leaving the panel also ends the mode. It needs no Shizuku,
+ignored; press and release either volume button to exit without changing volume.
+Entering from the notification or MCP returns to the previously foreground
+application on volume-key exit; entering from Control Panel stays in the panel.
+The return action exists only in memory: after an APK update restores black
+mode, exiting stays in Control Panel. Leaving the panel also ends the mode,
+without switching applications. It needs no Shizuku,
 root or Desktop, including when using Termux or PRoot. System brightness and
 screen-timeout settings are unchanged. This is not a lock screen: Android's
 navigation and power button remain available. It prevents ordinary screen-off
 sleep, not every vendor restriction or process termination; the display remains
 powered and battery consumption is higher than with the screen off.
+
+**Settings > Console > Volume keys enable black screen** optionally makes a
+volume-button press and release enter this mode from a phone console. Another
+press and release returns to the same console, retaining its PTY and programs.
+This is off by default and applies equally to User, Shell and Termux sessions;
+console windows on external displays keep normal volume-key behavior.
 
 Long-press the same icon for **Turn off the physical panel**, available with
 privileged access and supported Android display-power commands. This switches

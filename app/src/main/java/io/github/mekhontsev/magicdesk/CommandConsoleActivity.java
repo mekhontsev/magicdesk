@@ -40,6 +40,7 @@ public final class CommandConsoleActivity extends Activity
     private String mTerminalRegistryId = "";
     private boolean mTerminalFailed;
     private boolean mPermissionRequested;
+    private final VolumeKeyAction mBlackScreenKey = new VolumeKeyAction();
 
     static Intent createIntent(final Context context) {
         var backend = ConsolePreferences.selected(context);
@@ -204,6 +205,10 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     public boolean dispatchKeyEvent(final KeyEvent event) {
+        if (VolumeKeyAction.accepts(event.getKeyCode()) && mBlackScreenKey.dispatch(event,
+                hasWindowFocus() && getDisplay() != null
+                        && getDisplay().getDisplayId() == android.view.Display.DEFAULT_DISPLAY
+                        && ConsolePreferences.volumeBlackScreen(this), this::openBlackScreen)) return true;
         if (!isToggleToolbarShortcut(event)) {
             return super.dispatchKeyEvent(event);
         }
@@ -212,6 +217,22 @@ public final class CommandConsoleActivity extends Activity
             mWindow.toggleToolbar();
         }
         return true;
+    }
+
+    private void openBlackScreen() {
+        var request = new java.util.concurrent.CompletableFuture<Boolean>();
+        // EVENT_WAIT: the phone panel applies black mode; expiry cancels pending activation.
+        request.orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).whenComplete((active, error) -> {
+            if (error != null) runOnUiThread(() -> Toast.makeText(this,
+                    ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show());
+        });
+        ControlActivity.requestBlackScreen(true, request);
+    }
+
+    @Override
+    protected void onPause() {
+        mBlackScreenKey.reset();
+        super.onPause();
     }
 
     @Override

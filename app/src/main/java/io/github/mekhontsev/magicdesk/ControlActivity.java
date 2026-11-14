@@ -22,6 +22,7 @@ public final class ControlActivity extends Activity
     private static WeakReference<ControlActivity> sActive =
             new WeakReference<>(null);
     private static java.util.concurrent.CompletableFuture<Boolean> sBlackScreenRequest;
+    private static boolean sBlackScreenReturn;
 
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final PlatformProjectionDriver mProjection =
@@ -36,6 +37,8 @@ public final class ControlActivity extends Activity
     private boolean mStartupAuditRunning;
     private boolean mStartupPrepared;
     private boolean mResumed;
+    private boolean mStopped = true;
+    private boolean mBlackScreenReturn;
     private Runnable mStartupRequest;
     private boolean mReturnToPanelAfterWirelessConnection;
     private boolean mWirelessConnectionUiAvailable;
@@ -63,9 +66,11 @@ public final class ControlActivity extends Activity
     }
 
     static Intent createLaunchIntent(final android.content.Context context, final LaunchAction action) {
-        // Notification actions reset only the dedicated panel task, including its modal dialogs.
-        // Terminal windows and PTYs have independent lifetimes.
-        return createLaunchIntent(context).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        // Black mode borrows the panel task; retain its foreground history for
+        // return. Other notification actions reset the panel's modal dialogs.
+        final Intent intent = createLaunchIntent(context);
+        if (action != LaunchAction.BLACK_SCREEN) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        return intent
                 .setAction(BuildConfig.APPLICATION_ID + ".control." + action.name())
                 .putExtra(EXTRA_PANEL_ACTION, action.name());
     }
@@ -80,6 +85,7 @@ public final class ControlActivity extends Activity
         }
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         initializeControlPanel();
+        mBlackScreenReturn = savedInstanceState == null;
         if (savedInstanceState != null) {
             // Android retains the original launch Intent across recreation, including consumed actions.
             getIntent().putExtra(EXTRA_PANEL_ACTION, savedInstanceState.getString(EXTRA_PANEL_ACTION));
@@ -92,7 +98,10 @@ public final class ControlActivity extends Activity
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        mBlackScreenReturn = mStopped;
         setIntent(intent);
+        if (LaunchAction.BLACK_SCREEN.name().equals(intent.getStringExtra(EXTRA_PANEL_ACTION)))
+            UiDialogs.dismissOwned(this);
         applyLaunchAction();
     }
 
@@ -115,11 +124,15 @@ public final class ControlActivity extends Activity
                     new IllegalStateException("Control Panel action superseded black-screen request"));
         }
         sBlackScreenRequest = null;
+        if (LaunchAction.BLACK_SCREEN.name().equals(action)) {
+            mBlackScreen.enter(mBlackScreenReturn ? this::returnFromBlackScreen : null);
+            mBlackScreenReturn = false;
+            return;
+        }
+        mBlackScreenReturn = false;
         mBlackScreen.exit();
         if (LaunchAction.CONSOLE.name().equals(action)) {
             TerminalSessions.resumeMostRecent(this);
-        } else if (LaunchAction.BLACK_SCREEN.name().equals(action)) {
-            openBlackScreen();
         } else if (LaunchAction.TOUCHPAD.name().equals(action)) {
             openTouchpad();
         }
@@ -248,6 +261,13 @@ public final class ControlActivity extends Activity
         }
         refresh();
         applyLaunchAction();
+        mStopped = false;
+    }
+
+    @Override
+    protected void onStop() {
+        mStopped = true;
+        super.onStop();
     }
 
     @Override
@@ -261,6 +281,12 @@ public final class ControlActivity extends Activity
 
     @Override public void openBlackScreen() {
         mBlackScreen.enter();
+    }
+
+    private void returnFromBlackScreen() {
+        // This dedicated phone task temporarily covered the previous app.
+        // Let Android reveal its existing stack; never relaunch or move a target.
+        if (mResumed && hasWindowFocus() && !isActivityUnavailable()) moveTaskToBack(true);
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -318,12 +344,18 @@ public final class ControlActivity extends Activity
 
     /** Main-thread request; entering also brings the existing phone panel forward. */
     static void requestBlackScreen(boolean enabled, java.util.concurrent.CompletableFuture<Boolean> result) {
+        requestBlackScreen(enabled, true, result);
+    }
+
+    static void requestBlackScreen(boolean enabled, boolean returnToPrevious,
+            java.util.concurrent.CompletableFuture<Boolean> result) {
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Main thread required");
         if (result.isDone()) return;
         if (sBlackScreenRequest != null && !sBlackScreenRequest.isDone())
             sBlackScreenRequest.completeExceptionally(new IllegalStateException("Black-screen request superseded"));
         sBlackScreenRequest = null;
         var activity = sActive.get();
+        sBlackScreenReturn = false;
         if (!enabled) {
             if (activity != null && activity.mBlackScreen != null) activity.mBlackScreen.exit();
             result.complete(false);
@@ -337,6 +369,8 @@ public final class ControlActivity extends Activity
             return;
         }
         sBlackScreenRequest = result;
+        sBlackScreenReturn = returnToPrevious && (activity == null || !activity.mResumed);
+        if (activity != null) UiDialogs.dismissOwned(activity);
         if (!PhoneControlPanelLauncher.openWithAndroidApi(context))
             result.completeExceptionally(new IllegalStateException("Could not open the phone Control Panel"));
         if (activity != null) activity.applyBlackScreenRequest();
@@ -347,7 +381,8 @@ public final class ControlActivity extends Activity
         if (request == null || request.isDone() || !hasWindowFocus() || isActivityUnavailable()
                 || getDisplay() == null || getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY || mBlackScreen == null) return;
         sBlackScreenRequest = null;
-        mBlackScreen.enter();
+        mBlackScreen.enter(sBlackScreenReturn ? this::returnFromBlackScreen : null);
+        sBlackScreenReturn = false;
         mBlackScreen.confirmFrame(request);
     }
 

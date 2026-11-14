@@ -536,6 +536,12 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setConsoleVolumeBlackScreen(boolean enabled) {
+        ConsolePreferences.setVolumeBlackScreen(this, enabled);
+        render();
+    }
+
+    @Override
     public void configureGraphicsRenderer() {
         var modes = io.github.mekhontsev.magicdesk.hosted.HostedRenderer.values();
         String[] labels = java.util.Arrays.stream(modes)

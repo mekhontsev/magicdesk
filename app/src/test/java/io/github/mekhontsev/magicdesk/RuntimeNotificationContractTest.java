@@ -48,7 +48,7 @@ public final class RuntimeNotificationContractTest {
         assertFalse(source.contains("PendingIntent.getBroadcast("));
         final String panel = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/ControlActivity.java"));
-        assertTrue(panel.contains("createLaunchIntent(context).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)"));
+        assertTrue(panel.contains("if (action != LaunchAction.BLACK_SCREEN) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)"));
         assertTrue(panel.contains(".setAction(BuildConfig.APPLICATION_ID + \".control.\" + action.name())"));
         final String manifest = Files.readString(Path.of("src/main/AndroidManifest.xml"));
         final String panelDeclaration = manifest.substring(manifest.indexOf("android:name=\".ControlActivity\""));
@@ -219,7 +219,9 @@ public final class RuntimeNotificationContractTest {
                     boolean locked; boolean isKeyguardLocked(){return locked;}
                 }
                 static class BlackScreenMode {
-                    boolean active; void exit(){active=false;}
+                    boolean active; int enters; Runnable returnAction;
+                    void enter(Runnable action){if(active)return;active=true;enters++;returnAction=action;}
+                    void exit(){active=false;returnAction=null;}
                 }
                 static class TerminalSessions {
                     static int opens;
@@ -234,14 +236,14 @@ public final class RuntimeNotificationContractTest {
                 final Display display=new Display();
                 final KeyguardManager keyguard=new KeyguardManager();
                 final BlackScreenMode mBlackScreen=new BlackScreenMode();
-                boolean mResumed,focused,unavailable;
-                int blackEnters, touchpadOpens;
+                boolean mResumed,focused,unavailable,mBlackScreenReturn;
+                int touchpadOpens;
                 Intent getIntent(){return intent;}
                 boolean hasWindowFocus(){return focused;}
                 boolean isActivityUnavailable(){return unavailable;}
                 Display getDisplay(){return display;}
                 KeyguardManager getSystemService(Class<?> type){return keyguard;}
-                void openBlackScreen(){check(intent.action==null,"action not consumed");mBlackScreen.active=true;blackEnters++;}
+                void returnFromBlackScreen(){}
                 void openTouchpad(){check(intent.action==null,"action not consumed");touchpadOpens++;applyLaunchAction();}
                 public static void verify() {
                     var panel=new Fixture();panel.intent.action="CONSOLE";
@@ -254,10 +256,17 @@ public final class RuntimeNotificationContractTest {
                     check(TerminalSessions.opens==0,"acted while locked");
                     panel.keyguard.locked=false;panel.applyLaunchAction();panel.applyLaunchAction();
                     check(TerminalSessions.opens==1,"console action repeated");
+                    panel.mBlackScreenReturn=true;
                     panel.intent.action="BLACK_SCREEN";panel.applyLaunchAction();
-                    check(panel.mBlackScreen.active && panel.blackEnters==1,"black mode missing");
+                    check(panel.mBlackScreen.active && panel.mBlackScreen.enters==1,"black mode missing");
+                    var origin=panel.mBlackScreen.returnAction;
+                    check(origin!=null && !panel.mBlackScreenReturn,"outside entry lost origin");
+                    panel.intent.action="BLACK_SCREEN";panel.applyLaunchAction();
+                    check(panel.mBlackScreen.enters==1 && panel.mBlackScreen.returnAction==origin,"repeated action changed origin");
                     panel.mBlackScreen.exit();panel.applyLaunchAction();
-                    check(!panel.mBlackScreen.active && panel.blackEnters==1,"focus reentered black mode");
+                    check(!panel.mBlackScreen.active && panel.mBlackScreen.enters==1,"focus reentered black mode");
+                    panel.intent.action="BLACK_SCREEN";panel.applyLaunchAction();
+                    check(panel.mBlackScreen.returnAction==null,"panel entry returned elsewhere");
                     sBlackScreenRequest=new CompletableFuture<>();var request=sBlackScreenRequest;
                     panel.mBlackScreen.active=true;panel.intent.action="PANEL";panel.applyLaunchAction();
                     check(!panel.mBlackScreen.active && request.isCompletedExceptionally(),"explicit panel did not supersede black mode");

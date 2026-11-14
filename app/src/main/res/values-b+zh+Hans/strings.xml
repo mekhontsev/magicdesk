@@ -1,5 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_console_volume_black_screen">音量键开启黑屏</string>
     <string name="settings_request_home_role">尝试设为主屏幕应用</string>
     <string name="console_app_title">User</string>
     <string name="executor_android_shell">Shell</string>

@@ -1,4 +1,5 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="settings_console_volume_black_screen">Volume keys enable black screen</string>
     <string name="settings_request_home_role">Try to become the Home app</string>
     <string name="console_app_title">User</string>
     <string name="executor_android_shell">Shell</string>

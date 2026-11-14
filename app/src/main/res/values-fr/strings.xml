@@ -1,5 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_console_volume_black_screen">Écran noir avec les touches de volume</string>
     <string name="settings_request_home_role">Essayer de devenir l’application d’accueil</string>
     <string name="console_app_title">User</string>
     <string name="executor_android_shell">Shell</string>

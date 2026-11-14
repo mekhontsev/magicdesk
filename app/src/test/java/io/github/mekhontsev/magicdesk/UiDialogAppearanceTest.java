@@ -13,8 +13,12 @@ public final class UiDialogAppearanceTest {
                         AlertDialog create() { return new AlertDialog(); }
                     }
                     Activity owner;
-                    boolean created, themed, fitted;
+                    boolean created, themed, fitted, showing;
+                    Runnable onDismiss;
                     void setOwnerActivity(Activity value) { owner=value; }
+                    Activity getOwnerActivity() { return owner; }
+                    boolean isShowing() { return showing; }
+                    void dismiss() { showing=false;if(onDismiss!=null)onDismiss.run(); }
                     void create() { created=true; }
                     AlertDialog findViewById(int id) { return this; }
                 }
@@ -30,16 +34,22 @@ public final class UiDialogAppearanceTest {
                         content.fitted=true;
                     }
                 }
-                static class UiDialogs {
-                """ + RuntimeSourceFixture.methods("UiDialogs", "builder")
-                + RuntimeSourceFixture.nestedClass("UiDialogs", "Builder").replace("android.R.id.", "R.id.") + """
-                }
+                """ + "static " + RuntimeSourceFixture.nestedClass("UiDialogs", "UiDialogs")
+                        .replace("android.R.id.", "R.id.") + """
                 public static void verify() {
                     Activity owner=new Activity();
                     AlertDialog first=UiDialogs.builder(owner).create();
                     check(first.owner==owner && first.themed && first.fitted,"default modal skipped scoped appearance");
                     AlertDialog second=UiDialogs.builder(owner).create();
                     check(first!=second && second.themed && second.fitted,"appearance depends on a prior modal");
+                    Activity other=new Activity();
+                    AlertDialog external=UiDialogs.builder(other).create();
+                    first.showing=second.showing=external.showing=true;
+                    first.onDismiss=() -> UiDialogs.builder(other).create();
+                    UiDialogs.dismissOwned(owner);
+                    check(!first.showing && !second.showing && external.showing,"dismiss crossed owner boundary");
+                    UiDialogs.dismissOwned(owner);
+                    check(external.showing,"repeated dismiss affected another activity");
                 }
                 """);
     }

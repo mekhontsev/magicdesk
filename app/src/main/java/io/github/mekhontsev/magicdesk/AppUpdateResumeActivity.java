@@ -38,7 +38,7 @@ public final class AppUpdateResumeActivity extends Activity {
             AutomationMainThread.submit(() -> {
                 if (restored.isDone()) return null;
                 AutomationCommandRuntime.get(context).commands.restoreUpdatePower(power);
-                if (power.blackScreen()) ControlActivity.requestBlackScreen(true, restored);
+                if (power.blackScreen()) ControlActivity.requestBlackScreen(true, false, restored);
                 else restored.complete(true);
                 return null;
             }).whenComplete((unused, error) -> {
