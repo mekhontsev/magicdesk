@@ -45,10 +45,16 @@ actions or acquire their authority implicitly.
 
 The complete plan is validated before acquiring geometry ownership. Missing,
 foreign and non-freeform targets reject the plan. `TaskWindowingCommand`
-revalidates live display and mode at the shell boundary. One placement uses
-Android's native task resize. Multiple placements use one bounds-only WMShell
-`CHANGE` through `FrameworkWindowingApi` and the existing transition executor.
-Neither operation changes density, mode, task parent or z-order.
+revalidates live display and mode at the shell boundary. One placement without
+firmware geometry adaptation uses Android's native task resize. Adapted or
+multiple placements use one bounds-only WMShell `CHANGE` through
+`FrameworkWindowingApi` and the existing transition executor. Organized task
+surfaces require that lifecycle: a draw-sync callback alone can publish new task
+bounds while leaving surfaces and input regions at their previous positions.
+The existing transition/input barrier precedes live validation and scale capture,
+and follows submission. Neither path changes density, mode, task
+parent or z-order; launch, activation and mode transitions retain their own
+surface lifecycle.
 
 Submission acknowledgement and observed geometry are different facts. An
 acknowledged command releases its pending state even when Android constrains

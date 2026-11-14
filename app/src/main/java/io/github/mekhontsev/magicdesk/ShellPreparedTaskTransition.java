@@ -236,6 +236,7 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final int windowingMode,
             final FrameworkWindowGeometry.Plan geometry) throws ReflectiveOperationException {
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
         final FrameworkWindowingApi windowing =
@@ -250,8 +251,12 @@ final class ShellPreparedTaskTransition {
                 transaction,
                 taskToken,
                 windowingMode != WINDOWING_MODE_FREEFORM);
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, transaction);
+        // Recovery changes geometry and reveals the task just like a normal
+        // placement; WMShell must restore its surface and decoration too.
+        ShellWindowTransitionExecutor.startForShellAdoption(
+                displayId, ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                transactionClass, transaction, "restore-prepared-task");
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
     }
 
     private static void applyFreeform(

@@ -28,7 +28,8 @@ public final class TaskWindowingCommand {
     static void resizeBounds(Object service, int displayId, int[] taskIds, Rect[] bounds)
             throws ReflectiveOperationException {
         validateGeometry(displayId, taskIds, bounds);
-        if (taskIds.length > 1) FrameworkWindowCommitBarrier.awaitSystemTransitions();
+        boolean nativeResize = taskIds.length == 1 && !FrameworkWindowGeometry.adapted();
+        if (!nativeResize) FrameworkWindowCommitBarrier.awaitSystemTransitions();
         Object[] tokens = new Object[taskIds.length];
         FrameworkWindowGeometry.Plan[] geometry = new FrameworkWindowGeometry.Plan[taskIds.length];
         for (int i = 0; i < taskIds.length; i++) {
@@ -39,7 +40,7 @@ public final class TaskWindowingCommand {
             tokens[i] = HiddenTaskApi.getTaskToken(task);
             geometry[i] = FrameworkWindowGeometry.plan(task, bounds[i]);
         }
-        if (taskIds.length == 1 && !FrameworkWindowGeometry.adapted()) {
+        if (nativeResize) {
             HiddenTaskApi.resizeTaskBounds(service, displayId, taskIds[0], bounds[0]);
             return;
         }
@@ -48,6 +49,8 @@ public final class TaskWindowingCommand {
         for (int i = 0; i < taskIds.length; i++) {
             geometry[i].apply(windowing, transaction, tokens[i]);
         }
+        // Organized task surfaces belong to WMShell even for bounds-only changes.
+        // A draw-sync callback can leave their position and input regions stale.
         ShellWindowTransitionExecutor.startForShellAdoption(displayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 windowing.transactionClass(), transaction, "place-desktop-windows");
@@ -126,8 +129,10 @@ public final class TaskWindowingCommand {
         final Object transaction = windowing.newTransaction();
         windowing.reorder(transaction, taskToken, false);
         windowing.reorder(transaction, focusTaskToken, true, true);
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, transaction);
+        ShellWindowTransitionExecutor.startForShellAdoption(
+                displayId, ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
+                transactionClass, transaction, "select-minimize-successor");
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
         System.out.println("task-minimized=" + taskId
                 + " focused=" + focusTaskId);
     }

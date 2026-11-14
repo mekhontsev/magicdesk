@@ -491,6 +491,14 @@ navigation-bar insets or enabling system Desktop.
   waiting for a surface that is not expected to draw. For ordinary freeform
   selection, merely applying the returned sync transaction also does not force
   root layer assignment. Use the native transition's surface lifecycle instead.
+- Bounds-only WCT changes to organized freeform tasks also require that surface
+  lifecycle. Task bounds can converge while the surface and input region retain
+  the old position; a subsequent focus transition is not a geometry repair.
+  Keep scale and bounds in one `CHANGE`, with a transition barrier before reading
+  the current geometry. Unadapted single-window placement retains native resize.
+  Failed-transfer and normalization recovery also restore the captured geometry,
+  mode and visibility through `CHANGE`. Hidden preparation and caption-only
+  updates retain their synchronized submission; they do not publish placement.
 - Following an atomic reorder with `moveTaskToFront`, `setFocusedTask`, or
   `setFocusedRootTask` creates a second selection path and still does not
   reliably repair an input window left on a peer task.

@@ -252,6 +252,9 @@ isolated behind these boundaries.
   marks its bounds as caller-calculated in that same transaction, preventing
   the firmware's configuration-change calculation from substituting a default
   rectangle. Both extension methods must be available before writing.
+  Bounds-only placement retains WMShell's `CHANGE` surface lifecycle; scale and
+  bounds remain in one transaction. The framework transition barrier precedes
+  capture of the current scale, including single-window placement.
   It owns no task
   organizer, input route, HOME role, surface observer or system property.
   A fresh freeform transition may assign its scale only when it completes;
