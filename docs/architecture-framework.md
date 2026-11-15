@@ -264,6 +264,8 @@ isolated behind these boundaries.
   initial geometry; subsequent explicit placement uses the same adapter.
   The startup preference is propagated to the privileged service and inherited
   by command helpers. Standard Android's unscaled resize path is unchanged.
+  Firmware evidence and unresolved animation constraints are maintained in the
+  [Honor vendor audit](honor-vendor-audit.md).
 - Exact tested fingerprints and their confirmed scope live in the declarative
   `assets/compatibility/firmware-profiles.json` catalog, not in driver code.
   Updating confidence therefore cannot change runtime selection or behavior.

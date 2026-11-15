@@ -35,6 +35,8 @@ APK. The option appears only when the firmware interface is detected.
 Reports include both coordinate spaces, scale availability and the adapter's
 read/write status. Detection and local fixture tests are not proof of working
 transitions on an untested Honor firmware; remote-device verification is required.
+The [Honor vendor audit](honor-vendor-audit.md) records interface ownership,
+resize-animation limitations and the scope of available evidence.
 
 The selected driver owns firmware-specific windowing properties, projection
 state and output modes, cursor observation, optional

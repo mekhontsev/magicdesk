@@ -62,6 +62,7 @@ self-tests do not replace protocol, installer or guest-runtime workflows.
 - [Device-porting workflow](ai-assisted-device-porting.md)
 - [Paused graphics-adaptation research](../native/guest-exec-lab/README.md#graphics-adaptation-paused)
 - [Nubia vendor API audit](nubia-vendor-audit.md)
+- [Honor windowing API audit](honor-vendor-audit.md)
 - [Chrome custom-caption investigation](chrome-custom-caption-investigation.md)
 - [Independent XR resolution add-on](xr-resolution-fix.md)
 - [Artwork](artwork.md), [licensing](licensing.md),
