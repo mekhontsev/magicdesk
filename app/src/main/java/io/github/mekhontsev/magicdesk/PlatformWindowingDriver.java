@@ -8,6 +8,19 @@ public interface PlatformWindowingDriver {
     /** Optional firmware geometry, independent of managed Desktop ownership. */
     default boolean hasScaledWindows() { return false; }
 
+    /** Whether native gestures publish their released scale in TaskInfo. */
+    default boolean hasNativeScaleCommit() { return false; }
+
+    interface TaskScalePeer {
+        float read() throws ReflectiveOperationException;
+        void request(float scale) throws ReflectiveOperationException;
+    }
+
+    /** Optional decoration/gesture owner, separate from the WM transaction. */
+    default TaskScalePeer taskScalePeer(int taskId) throws ReflectiveOperationException {
+        throw new UnsupportedOperationException("task scale synchronization unavailable");
+    }
+
     /** Preserve explicit geometry against firmware recalculation in the bounds transaction. */
     default void prepareTaskGeometry(Object transaction, Class<?> tokenClass,
             Object token, float scale) throws ReflectiveOperationException { }

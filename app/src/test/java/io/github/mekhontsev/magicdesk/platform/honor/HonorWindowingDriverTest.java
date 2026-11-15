@@ -6,6 +6,36 @@ import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformComponent;
 
 public final class HonorWindowingDriverTest {
+    public interface ScaleApi {
+        float getFreeformStackScale(int taskId);
+        void notifyFreeformScaleChange(int taskId, float scale);
+    }
+    public static final class ScaleService implements ScaleApi {
+        float scale = .5f;
+        boolean denied;
+        @Override public float getFreeformStackScale(int taskId) {
+            assertEquals(42, taskId);
+            if (denied) throw new SecurityException("denied");
+            return scale;
+        }
+        @Override public void notifyFreeformScaleChange(int taskId, float value) {
+            assertEquals(42, taskId); scale = value;
+        }
+    }
+
+    @Test public void scalePeerUsesNamedInterfaceAndRejectsUnknownState() throws Exception {
+        var service = new ScaleService();
+        var peer = HonorWindowingDriver.scalePeer(service, ScaleApi.class, 42);
+        assertEquals(.5f, peer.read(), 0);
+        peer.request(.75f); assertEquals(.75f, peer.read(), 0);
+        assertThrows(IllegalArgumentException.class, () -> peer.request(Float.NaN));
+        service.scale = 0;
+        assertThrows(IllegalStateException.class, peer::read);
+        service.denied = true;
+        assertThrows(java.lang.reflect.InvocationTargetException.class, peer::read);
+        assertThrows(IllegalStateException.class,
+                () -> HonorWindowingDriver.scalePeer(new Object(), ScaleApi.class, 42));
+    }
     public static class Task {
         public Extension hnTaskInfoEx = new Extension();
     }

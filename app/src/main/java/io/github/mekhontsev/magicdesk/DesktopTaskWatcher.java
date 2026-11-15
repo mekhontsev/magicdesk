@@ -43,7 +43,7 @@ final class DesktopTaskWatcher {
                 boolean backgroundAppFullscreenReleased);
         void onFreeformBoundsChanged(
                 int generation,
-                FrameworkTaskSnapshot task);
+                FrameworkTaskSnapshot previous, FrameworkTaskSnapshot task);
         void onInputFocusRefreshRequired(
                 int generation, int focusedTaskId);
         void onTaskFocusChanged(
@@ -932,8 +932,8 @@ final class DesktopTaskWatcher {
     }
 
     private void onFreeformBoundsChanged(
-            final int generation, final FrameworkTaskSnapshot task) {
-        postIfActive(generation, () -> mListener.onFreeformBoundsChanged(generation, task));
+            final int generation, final FrameworkTaskSnapshot previous, final FrameworkTaskSnapshot task) {
+        postIfActive(generation, () -> mListener.onFreeformBoundsChanged(generation, previous, task));
     }
 
     private void onWorkspaceCommandResult(
@@ -1203,8 +1203,8 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void onFreeformBoundsChanged(final FrameworkTaskSnapshot task) {
-            mOwner.onFreeformBoundsChanged(mGeneration, task);
+        public void onFreeformBoundsChanged(final FrameworkTaskSnapshot previous, final FrameworkTaskSnapshot task) {
+            mOwner.onFreeformBoundsChanged(mGeneration, previous, task);
         }
 
         @Override

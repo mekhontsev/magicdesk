@@ -16,6 +16,7 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
     private Method mUseShellCalculateBounds;
     private String mWriteProbe = "not used";
     private volatile String mReadError = "none";
+    private volatile String mPeerProbe = "not used";
 
     private HonorWindowingDriver(Field extension, Field scale, String probe) {
         mTaskExtension = extension;
@@ -41,6 +42,47 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override public boolean hasScaledWindows() { return mScale != null; }
+
+    @Override public boolean hasNativeScaleCommit() { return hasScaledWindows(); }
+
+    @Override public TaskScalePeer taskScalePeer(int taskId) throws ReflectiveOperationException {
+        try {
+            // The framework singleton owns Binder death/reconnection. Do not retain its proxy.
+            Class<?> manager = Class.forName("android.app.HnFreeformManager");
+            Object service = manager.getMethod("getService").invoke(null);
+            if (service == null) throw new IllegalStateException("freeform service unavailable or denied");
+            TaskScalePeer peer = scalePeer(service,
+                    Class.forName("android.window.IHnFreeformEx"), taskId);
+            mPeerProbe = "available";
+            return peer;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            mPeerProbe = error.toString();
+            throw error;
+        }
+    }
+
+    static TaskScalePeer scalePeer(Object service, Class<?> api, int taskId)
+            throws ReflectiveOperationException {
+        Method read = api.getMethod("getFreeformStackScale", Integer.TYPE);
+        Method request = api.getMethod("notifyFreeformScaleChange", Integer.TYPE, Float.TYPE);
+        if (!api.isInstance(service) || read.getReturnType() != Float.TYPE
+                || request.getReturnType() != Void.TYPE) {
+            throw new IllegalStateException("incompatible freeform scale service");
+        }
+        return new TaskScalePeer() {
+            @Override public float read() throws ReflectiveOperationException {
+                float value = (Float) read.invoke(service, taskId);
+                if (!TaskWindowGeometry.validScale(value)) {
+                    throw new IllegalStateException("decoration scale unavailable");
+                }
+                return value;
+            }
+            @Override public void request(float value) throws ReflectiveOperationException {
+                if (!TaskWindowGeometry.validScale(value)) throw new IllegalArgumentException("invalid scale");
+                request.invoke(service, taskId, value);
+            }
+        };
+    }
 
     @Override public float taskScale(Object task) {
         if (mScale == null || task == null) return Float.NaN;
@@ -88,7 +130,8 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override public synchronized String geometryDiagnostic() {
-        return "read=" + mProbe + ", write=" + mWriteProbe + ", readError=" + mReadError;
+        return "read=" + mProbe + ", write=" + mWriteProbe + ", readError=" + mReadError
+                + ", scalePeer=" + mPeerProbe;
     }
 
     @Override public String restrictionsPropertyKey() { return null; }

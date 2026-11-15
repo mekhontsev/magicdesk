@@ -307,6 +307,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     @Override
                     public void onFreeformBoundsChanged(
                             final int generation,
+                            final FrameworkTaskSnapshot previous,
                             final FrameworkTaskSnapshot task) {
                         final int displayId = task.displayId;
                         final Rect bounds = task.bounds;
@@ -314,6 +315,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (!mRunning || displayId != mDisplayId) {
                             return;
                         }
+                        mWindowTransitions.observeFreeformGeometry(previous, task);
                         if (stateKey != null
                                 && !isLayoutOwned(task.taskId)
                                 && !mNativeWindowBounds

@@ -516,6 +516,14 @@ navigation-bar insets or enabling system Desktop.
   Failed-transfer and normalization recovery also restore the captured geometry,
   mode and visibility through `CHANGE`. Hidden preparation and caption-only
   updates retain their synchronized submission; they do not publish placement.
+- Native scale commits use the same geometry submission and command queue. The
+  preceding typed observation supplies content scale; the new footprint supplies
+  logical dimensions. The executor revalidates the task's Binder identity and
+  geometry, synchronizes a separate firmware decoration-scale owner when needed,
+  and verifies the resulting geometry. No extra sampler, gesture inactivity
+  delay or persistent target-size enforcement is introduced. See the
+  [Honor audit](honor-vendor-audit.md#indirect-completion-candidate) for the local
+  rebound-animation limitation and required target-device checks.
 - Following an atomic reorder with `moveTaskToFront`, `setFocusedTask`, or
   `setFocusedRootTask` creates a second selection path and still does not
   reliably repair an input window left on a peer task.

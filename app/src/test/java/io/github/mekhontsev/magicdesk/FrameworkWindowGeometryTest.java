@@ -5,6 +5,34 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public final class FrameworkWindowGeometryTest {
+    @Test public void repeatedScaleConversionRetainsFootprintAndOriginalContentScale() throws Exception {
+        verify("""
+                Task task = new Task(); task.scale = .5f;
+                task.bounds = new Rect(100,120,1100,920);
+                float retained = FrameworkWindowGeometry.capture(task).scale;
+                task.scale = .75f;
+                Rect footprint = FrameworkWindowGeometry.capture(task).displayBounds();
+                var first = FrameworkWindowGeometry.plan(task, footprint, retained);
+                first.apply(new FrameworkWindowingApi(),new Object(),new Object());
+                check(first.scale == .5f && applied.left == 100 && applied.top == 120
+                        && applied.right == 1600 && applied.bottom == 1320,
+                        "scale conversion changed origin or failed to resize logical content");
+                check(first.displayBounds().right == footprint.right
+                        && first.displayBounds().bottom == footprint.bottom,
+                        "scale conversion changed the chosen footprint");
+                task.bounds = first.logicalBounds; task.scale = .4f;
+                footprint = FrameworkWindowGeometry.capture(task).displayBounds();
+                var second = FrameworkWindowGeometry.plan(task, footprint, retained);
+                second.apply(new FrameworkWindowingApi(),new Object(),new Object());
+                check(second.scale == .5f && applied.left == 100 && applied.top == 120
+                        && applied.right == 1300 && applied.bottom == 1080,
+                        "next gesture reused the previous scaled size or forced identity scale");
+                check(second.displayBounds().right == footprint.right
+                        && second.displayBounds().bottom == footprint.bottom && writes == 2,
+                        "repeated conversion requires another geometry correction");
+                """);
+    }
+
     @Test public void fullscreenRestoreUsesRetainedScaleInItsFirstTransaction() throws Exception {
         verify("""
                 Task task = new Task(); task.mode = 1; task.scale = 1;

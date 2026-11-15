@@ -62,6 +62,59 @@ public final class TaskWindowingCommand {
         FrameworkWindowCommitBarrier.awaitSystemTransitions();
     }
 
+    static boolean normalizeTaskScale(Object service, FrameworkTaskSnapshot expected, float retainedScale)
+            throws ReflectiveOperationException {
+        if (!FrameworkWindowGeometry.adapted()
+                || !PlatformDrivers.current().windowing().hasNativeScaleCommit()
+                || !NativeWindowScaleCorrection.eligible(expected)
+                || !TaskWindowGeometry.validScale(retainedScale)) {
+            throw new IllegalArgumentException("native scale correction unavailable");
+        }
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
+        FrameworkTaskSnapshot current = FrameworkTaskSnapshotSource.findTask(
+                service, expected.displayId, expected.taskId);
+        if (!NativeWindowScaleCorrection.matches(expected, current)) return false;
+        Object token = HiddenTaskApi.getTaskToken(current.task);
+        FrameworkWindowGeometry.Plan geometry = FrameworkWindowGeometry.plan(
+                current.task, expected.bounds, retainedScale);
+        FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
+        android.os.IBinder identity = windowing.tokenIdentity(token);
+        if (identity == null) throw new IllegalStateException("task identity unavailable");
+        Object transaction = windowing.newTransaction();
+        geometry.apply(windowing, transaction, token);
+        PlatformWindowingDriver.TaskScalePeer peer = PlatformDrivers.current().windowing()
+                .taskScalePeer(expected.taskId);
+        return TaskScaleSynchronization.apply(peer, expected.windowScale, retainedScale,
+                new TaskScaleSynchronization.Geometry() {
+                    private FrameworkTaskSnapshot owned() throws ReflectiveOperationException {
+                        FrameworkTaskSnapshot task = FrameworkTaskSnapshotSource.findTask(
+                                service, expected.displayId, expected.taskId);
+                        return NativeWindowScaleCorrection.eligible(task)
+                                && NativeWindowScaleCorrection.sameIdentity(expected, task)
+                                && identity.equals(windowing.tokenIdentity(HiddenTaskApi.getTaskToken(task.task)))
+                                ? task : null;
+                    }
+
+                    @Override public boolean isCurrent() throws ReflectiveOperationException {
+                        return NativeWindowScaleCorrection.matches(expected, owned());
+                    }
+
+                    @Override public void commit() throws ReflectiveOperationException {
+                        submitGeometry(expected.displayId, windowing, transaction);
+                        FrameworkTaskSnapshot task = owned();
+                        if (task == null || task.windowScale != retainedScale
+                                || !task.logicalBounds.equals(geometry.logicalBounds)) {
+                            throw new IllegalStateException("native resize geometry did not converge");
+                        }
+                    }
+
+                    @Override public float committedScale() throws ReflectiveOperationException {
+                        FrameworkTaskSnapshot task = owned();
+                        return task == null ? Float.NaN : task.windowScale;
+                    }
+                });
+    }
+
     public static void main(final String[] args) {
         try {
             if (args.length == 7 && "freeform".equals(args[0])) {

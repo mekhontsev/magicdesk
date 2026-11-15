@@ -336,6 +336,13 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         }
     }
 
+    @Override public boolean normalizeTaskScale(FrameworkTaskSnapshot expected, float retainedScale) {
+        try { return TaskWindowingCommand.normalizeTaskScale(HiddenTaskApi.getService(), expected, retainedScale); }
+        catch (ReflectiveOperationException | RuntimeException error) {
+            throw FailureDiagnostics.binderFailure("native window resize failed", error);
+        }
+    }
+
     @Override public void moveOrdinaryTask(final int taskId, final int sourceDisplayId,
             final int targetDisplayId, final int userId, final Rect bounds) {
         try {

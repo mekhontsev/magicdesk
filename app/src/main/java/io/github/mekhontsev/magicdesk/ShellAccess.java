@@ -1042,6 +1042,16 @@ public final class ShellAccess {
         resizeTaskBounds(displayId, new int[] {taskId}, new android.graphics.Rect[] {bounds});
     }
 
+    static boolean normalizeTaskScale(FrameworkTaskSnapshot expected, float retainedScale) throws IOException {
+        try { return requireService().normalizeTaskScale(expected, retainedScale); }
+        catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException("Native window resize failed: " + usefulMessage(error), error);
+        } catch (RuntimeException error) {
+            throw new IOException("Native window resize failed: " + usefulMessage(error), error);
+        }
+    }
+
     static void resizeTaskBounds(int displayId, int[] taskIds, android.graphics.Rect[] bounds) throws IOException {
         TaskWindowingCommand.validateGeometry(displayId, taskIds, bounds);
         try { requireService().resizeTaskBounds(displayId, taskIds, bounds); }

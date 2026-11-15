@@ -503,4 +503,5 @@ interface IShellCommandService {
         io.github.mekhontsev.magicdesk.IUnixConnectionReceiver receiver) = 155;
     boolean getChildProcessMonitoringDefault() = 156;
     String readWindowGeometryDiagnostics(in FrameworkTaskSnapshot[] tasks) = 157;
+    boolean normalizeTaskScale(in FrameworkTaskSnapshot expected, float retainedScale) = 158;
 }

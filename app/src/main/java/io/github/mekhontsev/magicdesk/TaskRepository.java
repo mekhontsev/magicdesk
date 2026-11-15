@@ -255,6 +255,20 @@ public final class TaskRepository {
         });
     }
 
+    static void normalizeTaskScale(FrameworkTaskSnapshot expected, float retainedScale,
+            java.util.function.BooleanSupplier isCurrent, ActionCallback callback) {
+        TaskCommandQueue.execute(() -> {
+            if (!isCurrent.getAsBoolean()) {
+                complete(callback, true, "superseded");
+                return;
+            }
+            try {
+                boolean applied = ShellAccess.normalizeTaskScale(expected, retainedScale);
+                complete(callback, true, applied ? "applied" : "superseded");
+            } catch (IOException error) { complete(callback, false, usefulMessage(error)); }
+        });
+    }
+
     static void sendBackToDisplay(final int displayId, final ActionCallback callback) {
         if (displayId < 0) {
             complete(callback, false, "invalid display");

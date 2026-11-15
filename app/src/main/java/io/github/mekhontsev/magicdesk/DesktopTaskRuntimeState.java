@@ -149,6 +149,10 @@ final class DesktopTaskRuntimeState {
         if (mBoundsCommand == command) mBoundsCommand = null;
     }
 
+    synchronized boolean isBoundsCommand(final BoundsTransition command) {
+        return mBoundsCommand == command;
+    }
+
     synchronized boolean isWindowedTransition() {
         // Observed target bounds do not mean the client has finished relayout.
         return mBoundsCommand != null || isFullscreenRestoreTransition();

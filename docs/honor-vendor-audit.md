@@ -20,9 +20,10 @@ Android 17 / API 37, firmware `11.0.0.117`. The unresolved animation is visible
 in feedback for MagicDesk `2.3-dev.252.194afed`. This scope does not establish
 behavior on other Honor firmware or every configuration of that build.
 
-Local remote-transition probes ran as UID 2000 on Nubia NX809J, Android 16 /
-API 36, with unscaled fixtures. They establish properties of that local
-submission path, not Honor's animation selection or scaled-surface behavior.
+Local remote-transition and passive input-window probes ran as UID 2000 on
+Nubia NX809J, Android 16 / API 36, with unscaled fixtures. They establish
+properties of that local path, not Honor's animation selection or
+scaled-surface behavior.
 Unit fixtures cover the adapter contract independently of either device.
 
 The APK minimum remains API 34 and managed Desktop requires API 35. Honor's
@@ -88,12 +89,179 @@ first transition completes; explicit placement can finalize its footprint once.
 There is no continuous geometry-repair loop. Ordinary launches without a
 confirmed task token remain dispatch-only.
 
-Honor's native corner gesture can scale content rather than resize its logical
-layout. MagicDesk does not replace that gesture or native captions. No verified
-per-task switch between native scaling and ordinary resizing is implemented.
-That limitation is separate from acceptance of explicit snap/fullscreen/restore
-commands. Hosted Linux clients must also preserve the distinction between
-Activity `WindowMetrics` and display-space task bounds.
+Honor's native manual resize can scale content rather than resize its logical
+layout. This is not a corner-specific contract: the inspected positioner accepts
+edge bitmasks, and native gesture handling also includes movement, cancellation
+and transitions to other window modes. MagicDesk does not replace these gestures
+or native captions. No verified per-task switch between native scaling and
+ordinary resizing is implemented. That limitation is separate from acceptance
+of explicit snap/fullscreen/restore commands. Hosted Linux clients must also
+preserve the distinction between Activity `WindowMetrics` and display-space
+task bounds.
+
+### Native Resize Observation
+
+The supplied `HnCaptionWindowDecorViewModel` selects among
+`HnScaledResizeTaskPositioner`, `GridResizeTaskPositioner` and
+`FluidResizeTaskPositioner`. Its debug force-resize selector is a process-static
+system property, not a scoped per-window control. Its existence does not justify
+changing global firmware policy.
+
+The scaled positioner's start/move/end/cancel callbacks are internal SystemUI
+calls. During movement it changes surface scale; release can also start a
+rebound animation to an allowed size. A pointer release is therefore not proof
+that the final geometry has been committed. Its local drag listeners and
+animation-performance notifications are not an external resize subscription.
+The task scale can be published before the local rebound animator completes.
+Neither `IHnFreeformEx.getIsFreeformAnimRunning` nor `isInAnimation` establishes
+completion of that animator: their inspected owners track other animation state.
+
+The inspected Android 16/17 task listeners and Honor task snapshots do not
+publish the internal `Task.mDragResizing` lifecycle. No usable external
+begin/end/cancel subscription has been established through the inspected Honor
+interfaces. Standard
+[`IDecorViewGestureListener`](https://android.googlesource.com/platform/frameworks/base/+/8aa6f2119eef24e944750fe74bf13e4dddbded75/core/java/android/view/IDecorViewGestureListener.aidl)
+reports DecorView gesture interception, not a task-resize lifecycle.
+
+The actual caption receiver is `HnDragResizeInputListener`. Its
+`isHandlingDragResize` state is local to SystemUI, not exposed by
+`IHnFreeformEx`. The additional `ITaskStackListenerEx` reports display and task
+lifecycle, not resize gestures. `getMultiWinGestureStatus` reads a secure
+setting, while `HnSystemStatusManager` observes application/audio/service scenes;
+neither is a per-task native resize subscription.
+
+#### Passive Input-Window Evidence
+
+`WindowInfosListener`, already owned by
+`FrameworkInputWindowObservationSource`, can observe committed input regions
+without intercepting motion events. A disposable local fixture on an offscreen
+1280x900 display confirms that the native `TaskInputSink` expands on corner
+press, remains expanded while held, and returns to its normal region after
+release. The logical task changes from 640x550 to 720x598. A press/release
+without movement also restores the region. Injected `ACTION_CANCEL` produces
+the same region lifecycle and commits the resized bounds in this fixture; the
+region alone cannot distinguish release from cancellation. The attempted edge
+gesture did not engage native resizing, so edge coverage remains unverified.
+Every fixture removes its task and display; it does not acquire HOME or Desktop.
+
+This is not a portable gesture detector. In the supplied Honor implementation,
+the sink surface is cropped to task bounds, its region is reset by ordinary
+decoration relayout (including unchanged geometry), and template gestures omit
+the drag-region update. An unchanged or restored region is therefore not proof
+of an ended gesture. Surface transforms are useful geometry evidence, but a
+matching transform is not proof that an animator has relinquished ownership.
+
+The production correction uses task-scale commits, not these input regions.
+Passive pointer observation remains a separate candidate: its permission,
+input-delivery effects and final-animation boundary need verification. Do not
+replace native input ownership or parse SystemUI logs as the production protocol.
+
+#### Indirect Completion Candidate
+
+In the inspected scaled positioner, ordinary movement updates the surface and
+local gesture state. `onDragPositioningEnd` publishes the current scale through
+a WCT. A changed task scale can therefore trigger a one-shot geometry check
+using the existing task observer; a separate raw-input subscription is not
+necessarily required to recognize this candidate.
+
+This publication is not an animation-completion acknowledgement. The rebound
+path starts a local animator, publishes scale, and later applies final bounds
+from its finish callback. In a bottom/right resize, the final logical bounds
+can equal the original bounds, so a second distinct bounds event is not
+guaranteed. A temporarily matching input transform and the global WM transition
+barrier do not establish that this local animator has finished. The saved-bounds
+path in `HnFreeFormAssistant` updates private records, not an externally
+subscribable completion event. Native grid resizing and mode-changing gestures
+must not be classified solely from the ordinary scaled-positioner path.
+
+The existing observer carries the previous and current typed geometry in the
+same notification. `NativeWindowScaleCorrection` admits a changed scale only
+within the same visible task/display/freeform residency and unchanged logical
+dimensions and density. New tasks, unknown geometry, mode/display changes and
+pending MagicDesk geometry commands do not qualify. The existing command queue
+orders one correction; the shell executor waits at the WM barrier and rechecks
+the captured geometry and Binder task identity before submission. There is no
+inactivity timer or new task sampler.
+
+This bounded attempt is enabled for testing through **Firmware window geometry**.
+It is not proof of local rebound-animation completion. A late SystemUI finish
+may supersede it; target-device acceptance must include rebound and subsequent
+gestures. Failures are diagnostic, not a reason to keep rewriting the window.
+
+Range checks are not a substitute for that boundary. SystemUI's positioner
+can adjust its scale range for grid layout and task geometry; the legacy
+ActivityTaskManager range is not a complete description of those decisions.
+`getHnFreeformParams()` exposes caption sizes and corner radius, not the live
+resize range. The external `IHnFreeformListener` publishes freeform visibility,
+not per-task resize completion.
+
+#### Shared Correction Contract
+
+Correction belongs to the ordinary geometry transition used by snap commands,
+not a separate surface writer or a custom resize mode. Keep the committed
+display-space footprint and request the pre-gesture scale through
+`FrameworkWindowGeometry.plan(task, footprint, retainedScale)`. This converts
+logical dimensions while retaining position; it does not force scale 1 or
+change interface density. Repeated gestures can use the same operation.
+
+Changing scale has a stronger firmware contract than retaining it:
+
+- The inspected WCT handler sets `HwTaskEx.mFreeformScale` in WindowManager.
+  `sendPcScreenTaskScale` only handles the PC-assistant path; it is not a general
+  synchronization with SystemUI.
+- SystemUI separately retains `HnRunningFreeformTaskInfo.getCurrentScale()`.
+  Both the next native gesture and decoration surface updates use this value.
+  The inspected ordinary `CHANGE` observer and task-info callback do not copy
+  the new task scale into that retained value.
+- `HnFreeformManager.getService()` exposes `IHnFreeformEx`, including
+  `notifyFreeformScaleChange(taskId, scale)` and
+  `getFreeformStackScale(taskId)`. The notification updates the retained value,
+  but is a one-way Binder call. Its return is not an acknowledgement, and a
+  following synchronous query must not be assumed to serialize with it.
+  Permission, acknowledgement and ordering relative to the WCT still require
+  validation on the target firmware.
+
+The inspected `getHnFreeformEx()` gate admits system app-ID 1000 or a caller
+whose package is a system application or platform-signed. It is not an
+unconditional shell grant, but it does not inherently exclude UID 2000:
+`com.android.shell` can qualify through its package. The package lookup and
+returned Binder must be checked under the actual executor. Do not make root
+or a system-UID switch a prerequisite.
+
+Any scale-changing submission must reconcile these owners through the focused
+Honor adapter, including explicit failure and rollback behavior. Retaining the
+current scale must not acquire additional Binder calls. Geometry-only success
+in a unit fixture does not validate this firmware contract or the completion
+signal. Do not bypass it by repeatedly rewriting bounds until they stick.
+
+`TaskWindowingCommand` prepares the complete WCT before requesting the SystemUI
+scale. `TaskScaleSynchronization` observes acknowledgement, revalidates the task,
+submits through the common `CHANGE` owner and verifies WM geometry. Failure
+compensates the decoration cache to the observed WM scale, rather than blindly
+undoing a transaction that may already have committed. Removed, moved or replaced
+tasks cannot receive compensation. Unchanged-scale placement retains its existing
+path without the extra peer calls. The one-way acknowledgement wait is bounded;
+timeout rejects submission and does not mean that a native animation finished.
+
+Focused tests cover repeated footprint conversion, candidate admission,
+delayed acknowledgement, unchanged scale, timeout, denied access, stale identity
+and compensation before/after WM commit. Local unscaled-device checks do not
+validate the Honor service's permission or scaled surface/input result.
+
+Honor's `hnfreeform freeform` shell command is not an alternative completion
+protocol. Its inspected helper centers the task at a firmware-selected scale
+and submits bounds; it neither preserves the requested origin/retained scale
+nor acknowledges native-gesture completion.
+
+Conversion from content scaling to logical resize must retain the
+pre-gesture scale and committed visible footprint, handle cancellation according
+to the native outcome, distinguish mode/display changes, and submit through the
+existing geometry owner. It must not infer completion from inactivity, add
+another task polling loop, or treat
+every observed bounds/scale change as a manual resize. A proven shared Android
+observation belongs in the framework layer; firmware-only evidence belongs in
+the focused platform adapter. Custom decorations or a separate user resize
+mode are not required by this design.
 
 ## Resize Animation
 
@@ -208,7 +376,14 @@ replace SystemUI, its task organizer or its Recents connection to obtain it.
 Adapter fixtures are in `HonorWindowingDriverTest`, `TaskWindowGeometryTest` and
 `FrameworkWindowGeometryTest`. They cover interface selection, invalid scale,
 transaction-local writes, coordinate conversion and placement ownership, not
-remote firmware behavior. Further device acceptance must include:
+remote firmware behavior. `NativeWindowScaleCorrectionTest` and
+`TaskScaleSynchronizationTest` cover release admission and the two-owner commit.
+The integrated build passed all 3,895 app unit tests. On NX809J / Android 16,
+simulated Desktop completed with 157 PASS / 0 FAIL and phone Desktop with
+141 PASS / 0 FAIL; warnings covered pre-existing transition state and framework
+ownership logs. Both runs completed cleanup. These unscaled-device results are
+regression coverage, not Honor gesture acceptance. Further device acceptance
+must include:
 
 - Half/quarter placement, fullscreen/restore and phone/external transfer, with
   intermediate-frame evidence as well as final geometry and actual input.

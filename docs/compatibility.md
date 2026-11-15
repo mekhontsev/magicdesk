@@ -27,14 +27,19 @@ On Honor firmware that publishes freeform scale in `TaskInfo`, the windowing
 extension distinguishes logical content dimensions from the window's visible
 display-space bounds. MagicDesk placement, snapping, restore and transfer use
 the visible bounds; transaction-local scale and logical dimensions are applied
-together. Native corner dragging can still scale the content instead of
-resizing it. MagicDesk does not replace that firmware gesture or native caption.
+together. In managed Desktop, a released native scale change requests one
+logical resize, preserving the chosen visible footprint and previous content
+scale. It uses the existing task observer and geometry transition, without
+replacing native gestures or captions. Mode/display changes, logical resizes
+and pending MagicDesk geometry commands are excluded. Missing firmware access
+or failed convergence is reported as `WINDOW-SCALE-001`, without a repair loop.
 **Settings > Compatibility > Firmware window geometry** disables this adaptation
 after restarting MagicDesk, without changing system settings or requiring another
 APK. The option appears only when the firmware interface is detected.
 Reports include both coordinate spaces, scale availability and the adapter's
 read/write status. Detection and local fixture tests are not proof of working
-transitions on an untested Honor firmware; remote-device verification is required.
+transitions on an untested Honor firmware; gesture rebound and SystemUI scale
+synchronization still require remote-device verification.
 The [Honor vendor audit](honor-vendor-audit.md) records interface ownership,
 resize-animation limitations and the scope of available evidence.
 
