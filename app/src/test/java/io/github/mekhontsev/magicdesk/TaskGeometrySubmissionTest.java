@@ -228,7 +228,7 @@ public final class TaskGeometrySubmissionTest {
                     for (int i=0; i<ids.length; i++) bounds[i] = new Rect(i*1280, 0, (i+1)*1280, 678);
                     resizeBounds(service, 7, ids, bounds);
                 }
-                """ + RuntimeSourceFixture.methods("TaskWindowingCommand", "validateGeometry", "resizeBounds", "minimize")
+                """ + RuntimeSourceFixture.methods("TaskWindowingCommand", "validateGeometry", "resizeBounds", "submitGeometry", "minimize")
                 + RuntimeSourceFixture.methods("ShellPreparedTaskTransition", "restorePreparedTask")
                 + "public static void verify() throws Exception { " + scenario + " }");
     }

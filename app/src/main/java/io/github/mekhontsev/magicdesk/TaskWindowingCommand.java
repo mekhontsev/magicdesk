@@ -49,6 +49,11 @@ public final class TaskWindowingCommand {
         for (int i = 0; i < taskIds.length; i++) {
             geometry[i].apply(windowing, transaction, tokens[i]);
         }
+        submitGeometry(displayId, windowing, transaction);
+    }
+
+    private static void submitGeometry(int displayId, FrameworkWindowingApi windowing, Object transaction)
+            throws ReflectiveOperationException {
         // Organized task surfaces belong to WMShell even for bounds-only changes.
         // A draw-sync callback can leave their position and input regions stale.
         ShellWindowTransitionExecutor.startForShellAdoption(displayId,
