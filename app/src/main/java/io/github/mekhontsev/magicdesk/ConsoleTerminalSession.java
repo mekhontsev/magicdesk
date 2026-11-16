@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
 /** One interactive PTY and emulator, independent of display and Activity lifetime. */
-final class ConsoleTerminalSession {
+final class ConsoleTerminalSession implements ConsoleTerminalInputConnection.Session {
     interface Listener {
         void onScreenChanged();
 
@@ -171,7 +171,7 @@ final class ConsoleTerminalSession {
         mEmulator.getGraphics().setByteBudget(Runtime.getRuntime().maxMemory() / 4);
     }
 
-    TerminalEmulator emulator() {
+    public TerminalEmulator emulator() {
         return mEmulator;
     }
 
@@ -260,7 +260,7 @@ final class ConsoleTerminalSession {
         executeWriter(() -> openPty(directory, rows, columns));
     }
 
-    void write(final String text) {
+    public void write(final String text) {
         if (text != null && !text.isEmpty()) {
             write(text.getBytes(StandardCharsets.UTF_8));
         }
@@ -275,7 +275,7 @@ final class ConsoleTerminalSession {
         return true;
     }
 
-    void write(final byte[] data) {
+    public void write(final byte[] data) {
         if (data == null || data.length == 0) {
             return;
         }

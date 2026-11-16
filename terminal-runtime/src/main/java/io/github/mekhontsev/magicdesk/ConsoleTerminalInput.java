@@ -10,17 +10,17 @@ import com.termux.terminal.TerminalEmulator;
 import java.util.function.IntBinaryOperator;
 
 /** Pure translation of Android input flags before they reach the terminal. */
-final class ConsoleTerminalInput {
+public final class ConsoleTerminalInput {
     private final IntBinaryOperator mComposeAccent;
     private int mPendingAccent;
 
-    ConsoleTerminalInput(final IntBinaryOperator composeAccent) {
+    public ConsoleTerminalInput(final IntBinaryOperator composeAccent) {
         mComposeAccent = composeAccent;
     }
 
-    void reset() { mPendingAccent = 0; }
+    public void reset() { mPendingAccent = 0; }
 
-    String text(final int unicode) {
+    public String text(final int unicode) {
         final boolean deadKey = (unicode & KeyCharacterMap.COMBINING_ACCENT) != 0;
         final int codePoint = unicode & KeyCharacterMap.COMBINING_ACCENT_MASK;
         if (!isScalar(codePoint)) {
@@ -42,7 +42,7 @@ final class ConsoleTerminalInput {
         return prefix + new String(Character.toChars(codePoint));
     }
 
-    String flushAccent() {
+    public String flushAccent() {
         if (mPendingAccent == 0) {
             return "";
         }
@@ -51,7 +51,7 @@ final class ConsoleTerminalInput {
         return accent;
     }
 
-    String key(final KeyEvent event, final TerminalEmulator emulator) {
+    public String key(final KeyEvent event, final TerminalEmulator emulator) {
         final int keyCode = event.getKeyCode();
         final String sequence = KeyHandler.getCode(keyCode, keyModifiers(event),
                 emulator.isCursorKeysApplicationMode(), emulator.isKeypadApplicationMode());
@@ -108,7 +108,7 @@ final class ConsoleTerminalInput {
         }
     }
 
-    static boolean isTouch(final int toolType, final int source) {
+    public static boolean isTouch(final int toolType, final int source) {
         return toolType == MotionEvent.TOOL_TYPE_FINGER
                 || (source & InputDevice.SOURCE_TOUCHSCREEN) == InputDevice.SOURCE_TOUCHSCREEN;
     }

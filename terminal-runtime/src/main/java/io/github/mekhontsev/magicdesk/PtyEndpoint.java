@@ -3,15 +3,15 @@ package io.github.mekhontsev.magicdesk;
 import java.io.IOException;
 
 /** Slave PTY and process birth identity, captured by its owner at creation. */
-record PtyEndpoint(long processId, long startTicks, String tty) {
-    PtyEndpoint {
+public record PtyEndpoint(long processId, long startTicks, String tty) {
+    public PtyEndpoint {
         if (processId < 1 || processId > Integer.MAX_VALUE || startTicks < 1
                 || tty == null || !tty.matches("/dev/pts/[0-9]+")) {
             throw new IllegalArgumentException("invalid PTY endpoint");
         }
     }
 
-    static PtyEndpoint parse(String value) throws IOException {
+    public static PtyEndpoint parse(String value) throws IOException {
         try {
             final String[] fields = value.split(" ", -1);
             if (fields.length != 3) throw new IllegalArgumentException("invalid PTY identity");
@@ -21,5 +21,5 @@ record PtyEndpoint(long processId, long startTicks, String tty) {
         }
     }
 
-    String wireValue() { return processId + " " + startTicks + " " + tty; }
+    public String wireValue() { return processId + " " + startTicks + " " + tty; }
 }

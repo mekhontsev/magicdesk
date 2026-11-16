@@ -32,9 +32,14 @@ final class RuntimeSourceFixture {
     private RuntimeSourceFixture() {
     }
 
-    private static Path sourcePath(String file) {
+    static Path sourcePath(String file) {
         Path path = Path.of(file);
-        return path.isAbsolute() ? path : Path.of(MAIN + file + ".java");
+        if (path.isAbsolute()) return path;
+        for (String module : List.of("", "../terminal-runtime/", "../connection-runtime/")) {
+            path = Path.of(module + MAIN + file + ".java");
+            if (Files.exists(path)) return path;
+        }
+        throw new IllegalArgumentException("Unknown runtime source: " + file);
     }
 
     static String methods(final String file, final String... names) throws IOException {
@@ -84,7 +89,7 @@ final class RuntimeSourceFixture {
 
     static String nestedClass(final String file, final String name) throws IOException {
         final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        final Path path = Path.of(MAIN + file + ".java");
+        final Path path = sourcePath(file);
         final String source = Files.readString(path);
         final StringBuilder result = new StringBuilder();
         try (StandardJavaFileManager files = compiler.getStandardFileManager(null, null, StandardCharsets.UTF_8)) {
@@ -119,7 +124,7 @@ final class RuntimeSourceFixture {
                 null, null, StandardCharsets.UTF_8)) {
             final JavacTask task = (JavacTask) compiler.getTask(null, files, null,
                     List.of("-proc:none"), null,
-                    files.getJavaFileObjects(Path.of(MAIN + file + ".java").toFile()));
+                    files.getJavaFileObjects(sourcePath(file).toFile()));
             for (final CompilationUnitTree unit : task.parse()) {
                 new TreeScanner<Void, Void>() {
                     @Override public Void visitMethod(final MethodTree method, final Void unused) {

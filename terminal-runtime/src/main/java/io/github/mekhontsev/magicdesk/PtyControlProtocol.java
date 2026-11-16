@@ -4,8 +4,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /** Binary control frames consumed by magicdesk_pty_bridge. */
-final class PtyControlProtocol {
-    static final int MAX_DATA_BYTES = 1024 * 1024;
+public final class PtyControlProtocol {
+    public static final int MAX_DATA_BYTES = 1024 * 1024;
 
     private static final int FRAME_DATA = 1;
     private static final int FRAME_RESIZE = 2;
@@ -15,7 +15,7 @@ final class PtyControlProtocol {
     private PtyControlProtocol() {
     }
 
-    static PtyEndpoint readEndpoint(java.io.InputStream input) throws IOException {
+    public static PtyEndpoint readEndpoint(java.io.InputStream input) throws IOException {
         StringBuilder header = new StringBuilder();
         int value = -1;
         while (header.length() < 192 && (value = input.read()) >= 0 && value != '\n') header.append((char) value);
@@ -24,7 +24,7 @@ final class PtyControlProtocol {
         return PtyEndpoint.parse(header.substring("MAGICDESK_PTY ".length()));
     }
 
-    static void writeData(final DataOutput output, final byte[] data)
+    public static void writeData(final DataOutput output, final byte[] data)
             throws IOException {
         if (data == null || data.length == 0) {
             return;
@@ -37,7 +37,7 @@ final class PtyControlProtocol {
         output.write(data);
     }
 
-    static void writeResize(
+    public static void writeResize(
             final DataOutput output, final int rows, final int columns)
             throws IOException {
         if (rows < 2 || rows > 65535
@@ -50,13 +50,13 @@ final class PtyControlProtocol {
         output.writeInt(columns);
     }
 
-    static void writeWorkingDirectoryRequest(final DataOutput output)
+    public static void writeWorkingDirectoryRequest(final DataOutput output)
             throws IOException {
         output.writeByte(FRAME_QUERY_CWD);
         output.writeInt(0);
     }
 
-    static void writeForegroundProcessRequest(final DataOutput output)
+    public static void writeForegroundProcessRequest(final DataOutput output)
             throws IOException {
         output.writeByte(FRAME_QUERY_FOREGROUND_PROCESS);
         output.writeInt(0);

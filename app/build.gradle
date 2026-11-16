@@ -15,6 +15,7 @@ sourceDigest.update(magicDeskX11SourceRevision.getBytes('UTF-8'))
 def sourceFiles = rootProject.fileTree('.') {
     include 'app/src/main/**', 'app/src/debug/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
     include 'terminal-emulator/src/main/**', 'terminal-emulator/*.gradle'
+    include 'terminal-runtime/src/main/**', 'terminal-runtime/*.gradle'
     include '*.gradle', 'app/*.gradle', 'gradle.properties'
     include 'x11-runtime/src/main/**', 'x11-runtime/*.gradle', 'x11-runtime/consumer-rules.pro'
     include 'hosted-runtime/src/main/**', 'hosted-runtime/*.gradle'
@@ -139,7 +140,7 @@ dependencies {
     implementation('dev.rikka.shizuku:provider:13.1.5') {
         exclude group: 'androidx.annotation', module: 'annotation'
     }
-    implementation project(':terminal-emulator')
+    implementation project(':terminal-runtime')
     implementation project(':x11-runtime')
     implementation project(':wayland-runtime')
     implementation project(':audio-runtime')

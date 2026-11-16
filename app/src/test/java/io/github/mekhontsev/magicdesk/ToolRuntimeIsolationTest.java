@@ -2,12 +2,11 @@ package io.github.mekhontsev.magicdesk;
 
 import org.junit.Test;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import static org.junit.Assert.*;
 
 public final class ToolRuntimeIsolationTest {
     private static String source(final String name) throws Exception {
-        return Files.readString(Path.of("src/main/java/io/github/mekhontsev/magicdesk/" + name + ".java"));
+        return Files.readString(RuntimeSourceFixture.sourcePath(name));
     }
 
     @Test public void independentServicesDoNotOwnDesktopPolicy() throws Exception {

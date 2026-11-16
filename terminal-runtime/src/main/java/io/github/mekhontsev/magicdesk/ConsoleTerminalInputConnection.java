@@ -6,15 +6,20 @@ import android.view.inputmethod.BaseInputConnection;
 import com.termux.terminal.KeyHandler;
 
 /** Android owns connection lifetime; the window attachment rejects late callbacks. */
-final class ConsoleTerminalInputConnection extends BaseInputConnection {
+public final class ConsoleTerminalInputConnection extends BaseInputConnection {
+    public interface Session {
+        com.termux.terminal.TerminalEmulator emulator();
+        void write(byte[] data);
+        default void write(String text) { if (text != null) write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+    }
     private final View mView;
-    private final ConsoleTerminalSession mSession;
+    private final Session mSession;
     private final java.util.function.BooleanSupplier mAttached;
     private final Runnable mOnInput;
     private boolean mClosed;
     private String mComposingText = "";
 
-    ConsoleTerminalInputConnection(View view, ConsoleTerminalSession session,
+    public ConsoleTerminalInputConnection(View view, Session session,
             java.util.function.BooleanSupplier attached, Runnable onInput) {
         super(view, false);
         mView = view;
