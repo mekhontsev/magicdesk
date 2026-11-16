@@ -76,8 +76,9 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
-    @Override public IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) {
-        try { return new ShellUnixEndpoint(name, expectedUid, ioTimeoutMillis, receiver); }
+    @Override public IUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) {
+        try { return new UnixSocketEndpoint(name, expectedUid, ioTimeoutMillis, receiver,
+                RuntimeDataPaths.privileged(Os.getuid()).temporary()); }
         catch (IOException error) { throw FailureDiagnostics.binderFailure("Cannot create Unix endpoint", error); }
     }
 

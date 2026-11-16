@@ -69,7 +69,7 @@ MagicDesk's local `x11-runtime` module. X11 and Wayland use MagicDesk's shared
 
 The experimental native guest filesystem service statically links unmodified
 SQLite 3.51.3. The amalgamation archive and SHA-256 are pinned in
-[`native/shroot/CMakeLists.txt`](native/shroot/CMakeLists.txt).
+[`native/shroot/CMakeLists.txt`](https://github.com/mekhontsev/shroot/blob/develop/CMakeLists.txt).
 SQLite is public domain; its dedication is packaged under
 `assets/licenses/guest-images/sqlite.txt`. It is not linked into the bootstrap
 or syscall handler. Debian fixture packages are development inputs and are not
@@ -79,7 +79,7 @@ included in the APK.
 
 Shroot statically links lwIP 2.2.1 under its BSD-style license. The source
 archive at commit `77dcd25a72509eb83f72b033d219b1d40cd8eb95` and its SHA-256
-are pinned in [`native/shroot/lwip/CMakeLists.txt`](native/shroot/lwip/CMakeLists.txt).
+are pinned in [`native/shroot/lwip/CMakeLists.txt`](https://github.com/mekhontsev/shroot/blob/develop/lwip/CMakeLists.txt).
 The adjacent `context.patch` moves mutable protocol state into independent
 namespace contexts. Upstream's copyright and license text is packaged at
 `assets/licenses/guest-images/lwip.txt`. This native packet stack is not loaded
@@ -90,7 +90,7 @@ into ART or the freestanding syscall bootstrap.
 The native guest image utility links libarchive 3.8.9 (BSD-style licenses),
 zlib 1.3.2 (zlib license), Zstandard 1.5.7 (BSD license), and the SHA-256 component
 of Mbed TLS 3.6.7 (Apache-2.0). Hash-verified upstream source archives are pinned in
-[`native/shroot/image-dependencies.cmake`](native/shroot/image-dependencies.cmake).
+[`native/shroot/image-dependencies.cmake`](https://github.com/mekhontsev/shroot/blob/develop/image-dependencies.cmake).
 Their license texts are packaged under `assets/licenses/guest-images`. Archive,
 compression and digest code is not linked into the guest syscall adapter.
 

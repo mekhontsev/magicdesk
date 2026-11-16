@@ -222,6 +222,15 @@ class VersionChannelTest(unittest.TestCase):
 
 
 class WorkflowBoundaryTest(unittest.TestCase):
+    def test_shared_linux_modules_have_standard_verification_gates(self):
+        development = (ROOT / "build.gradle").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        for module in ("terminal-runtime", "connection-runtime", "guest-template"):
+            with self.subTest(module=module):
+                self.assertIn(f"':{module}:testDebugUnitTest'", development)
+                self.assertIn(f"':{module}:lintDebug'", development)
+                self.assertEqual(workflow.count(f":{module}:lintRelease"), 2)
+
     def test_linux_build_owns_verification_and_publication(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         build, publish = workflow.split("  publish-development:\n", 1)

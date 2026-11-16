@@ -2,8 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 /** Audio launch addresses are independent of the selected graphics protocol and guest launcher. */
 final class LinuxAudioEnvironment {
-    static final String GUEST_NATIVE = "/tmp/magicdesk-audio/pipewire";
-    static final String GUEST_PULSE = "/tmp/magicdesk-audio/pulse";
+    static final String GUEST_NATIVE = LinuxConnectionContract.PIPEWIRE_PATH;
+    static final String GUEST_PULSE = LinuxConnectionContract.PULSE_PATH;
 
     // In a shell function: prepend explicit guest routes, without leaking Android filesystem addresses.
     static String shrootArguments() {

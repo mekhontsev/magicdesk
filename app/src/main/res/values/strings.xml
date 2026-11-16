@@ -1,4 +1,5 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="guest_install_application">Install Linux as an application</string>
     <string name="settings_console_volume_black_screen">Volume keys enable black screen</string>
     <string name="settings_request_home_role">Try to become the Home app</string>
     <string name="console_app_title">User</string>
@@ -1217,4 +1218,10 @@
     <string name="console_paste_lines_title">Insert multiple lines?</string>
     <string name="console_paste_lines_message">This terminal has not enabled bracketed paste. Line breaks can execute commands.</string>
     <string name="console_share_too_many">Too many shared files. Share fewer files at a time.</string>
+    <string name="linux_connection_title">Connect to MagicDesk</string>
+    <string name="linux_connection_audio">Audio only</string>
+    <string name="linux_connection_graphics">Audio + %1$s: %2$s</string>
+    <string name="linux_connection_permission">%1$s can use the selected audio and graphical session. X11 clients share access to their display. No command or file access is granted.</string>
+    <string name="linux_connection_connect">Connect</string>
+    <string name="linux_connection_pending">Connecting&#8230;</string>
 </resources>

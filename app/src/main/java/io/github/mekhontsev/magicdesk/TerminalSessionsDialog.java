@@ -237,9 +237,11 @@ final class TerminalSessionsDialog {
                                 (dialog, index) -> {
                                     var entry = entries.get(index);
                                     UiDialogs.builder(activity).setTitle(entry.name())
-                                            .setItems(new String[]{activity.getString(R.string.terminal_new), activity.getString(R.string.guest_launches)},
+                                            .setItems(new String[]{activity.getString(R.string.terminal_new), activity.getString(R.string.guest_launches),
+                                                    activity.getString(R.string.guest_install_application)},
                                                     (action, selected) -> {
                                                         if (selected == 1) GuestLaunchesDialog.show(activity, entry);
+                                                        else if (selected == 2) LauncherExportActivity.openEnvironment(activity,entry);
                                                         else openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
                                                                 GuestEnvironmentCatalog.login(entry), "", entry.backend()));
                                                     }).setNegativeButton(android.R.string.cancel, null).show();

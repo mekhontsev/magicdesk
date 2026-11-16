@@ -205,12 +205,20 @@ if (guestFixtures == 'true') {
         dependsOn buildGuest
         commandLine 'cmake', '--build', guestBuild, '--parallel', '4'
     }
+    def preparedFixtures = tasks.register('buildPreparedGuestFixtures', Exec) {
+        dependsOn buildGuest
+        commandLine 'cmake', '--build', guestBuild, '--target', 'shroot-prepared-fixtures', '--parallel', '4'
+    }
     def packageFixtures = tasks.register('packageGuestFixtures', Sync) {
-        dependsOn buildFixtures
+        dependsOn buildFixtures, preparedFixtures
         from(guestBuild) {
             include 'libmagicdesk_guest_*.so'
             exclude 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so',
                     'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so', 'libmagicdesk_guest_image.so'
+        }
+        from(guestBuild) {
+            include 'md-*-test'
+            rename { 'libmagicdesk_guest_prepared_' + it.substring(3).replace('-', '_') + '.so' }
         }
         into new File(fixtures, 'arm64-v8a')
     }

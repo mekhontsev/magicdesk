@@ -138,6 +138,9 @@ jobs:
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
+            :terminal-runtime:lintRelease \
+            :connection-runtime:lintRelease \
+            :guest-template:lintRelease \
             :x11-runtime:testDebugUnitTest \
             :x11-runtime:lintRelease \
             :hosted-runtime:testDebugUnitTest \
@@ -157,6 +160,9 @@ jobs:
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
+            :terminal-runtime:lintRelease \
+            :connection-runtime:lintRelease \
+            :guest-template:lintRelease \
             :x11-runtime:testDebugUnitTest \
             :x11-runtime:lintRelease \
             :hosted-runtime:testDebugUnitTest \

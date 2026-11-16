@@ -37,11 +37,15 @@ Android placement goes through `ToolApplications`.
 and toplevel catalog. Termux clients connect to a private named socket; Shell
 clients default to a connection FD, and prepared root guests use a session-owned
 named-socket broker. Explicit guest-runtime recipes select routed admission for
-either protocol: `ShellUnixEndpoint` accepts connections under the captured
+either protocol: `UnixSocketEndpoint` in `connection-runtime` accepts connections under the captured
 executor UID, `GraphicalSocketEndpoint` transfers owned descriptors, and
 `HostedSocketAdmission` delivers them to the protocol loop. Binder carries FD
 admission, not protocol bytes or shared buffers. X11 still requires its cookie.
 These owners neither elevate renderers nor proxy socket IO.
+Independent [Linux application packages](linux-applications.md) reuse this
+admission boundary through an explicit, revocable consent grant. They retain
+their own UID, executable bundle, PTY and private store; borrowed graphics/audio
+never delegate MagicDesk's command executor or filesystem authority.
 The server's event loop owns wlroots state, while borrowed
 outputs and their Android presenters have independent lifetimes. Nested-desktop
 viewers retain their compositor after closing, like X11 whole-screen viewers.

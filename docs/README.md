@@ -13,6 +13,7 @@ coverage, not a chronological development log.
 | Files, content, task management and independent tools | [Workstation tools](workstation-tools.md) |
 | Consoles, retained sessions and tmux | [Terminal integration](terminal-integration.md) |
 | Install Linux, run applications and containers | [Shroot](shroot.md) |
+| Give Linux its own Android UID, runtime and private data | [Independent Linux applications](linux-applications.md) |
 | Compare Shroot, PRoot and native execution | [Benchmarks and measurement scope](shroot-benchmarks.md) |
 | Launch recipes and shortcuts | [Desktop entries](desktop-entries.md) |
 | Themes, panels, wallpapers and customization | [Native appearance](appearance.md) |
@@ -49,18 +50,18 @@ Start with [contributing](../CONTRIBUTING.md) and the
 The focused contracts remain authoritative for
 [Android API levels](runtime-api-levels.md), [privilege boundaries](privilege-modes.md),
 [fullscreen/focus](fullscreen-transitions.md), [window layout](window-layout.md),
-and [Shroot native internals](../native/shroot/README.md).
-Use [Shroot fixtures](../native/shroot/tests/README.md) for Linux checks and
+and [Shroot native internals](https://github.com/mekhontsev/shroot/blob/develop/README.md).
+Use [Shroot fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md) for Linux checks and
 the [device validation matrix](testing-backlog.md) for Android coverage and the
-[distribution matrix](../native/shroot/tests/validation-matrix.md) for per-OS
-Linux acceptance. Its [evidence ledger](../native/shroot/tests/distribution-evidence.md)
+[distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md) for per-OS
+Linux acceptance. Its [evidence ledger](https://github.com/mekhontsev/shroot/blob/develop/tests/distribution-evidence.md)
 keeps exact application receipts separate from the status tables. Desktop
 self-tests do not replace protocol, installer or guest-runtime workflows.
 
 ## Evidence And Project Policy
 
 - [Device-porting workflow](ai-assisted-device-porting.md)
-- [Paused graphics-adaptation research](../native/shroot/tests/README.md#graphics-adaptation-paused)
+- [Paused graphics-adaptation research](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md#graphics-adaptation-paused)
 - [Nubia vendor API audit](nubia-vendor-audit.md)
 - [Honor windowing API audit](honor-vendor-audit.md)
 - [Chrome custom-caption investigation](chrome-custom-caption-investigation.md)

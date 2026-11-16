@@ -74,6 +74,13 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".LauncherEntryActivity" android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity android:name=".LinuxConnectionActivity" android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="io.github.mekhontsev.magicdesk.CONNECT_LINUX" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service android:name=".RunCommandService" android:exported="true"
             android:permission="${applicationId}.permission.RUN_COMMAND"
             android:foregroundServiceType="specialUse">

@@ -10,7 +10,7 @@ Android audio capture or Linux sound device is required.
 ## Ownership and Transport
 
 The selected command executor admits connections. Shell uses its existing
-`ShellUnixEndpoint`; Termux uses an authenticated `app_process` endpoint broker
+`UnixSocketEndpoint`; Termux uses an authenticated `app_process` endpoint broker
 under its own UID. The broker passes each accepted socket FD once. Neither
 Binder nor Java forwards PCM packets. Owner death closes admission and revokes
 that owner's connected clients without disconnecting other launches.

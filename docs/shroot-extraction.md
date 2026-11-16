@@ -60,39 +60,62 @@ service runners also have a direct local executor. MagicDesk launch identity,
 MCP and log/file transport live in an optional adapter; assertions remain shared.
 Local qualification covers Android execution from Termux and Raspberry Pi 5
 under an ordinary Linux UID, without capabilities. On Debian 13 with kernel
-6.18.50+rpt-rpi-2712 and 16 KiB pages, the bundled/static Clang build passes all
-78 native checks; GCC with system SQLite and dynamic helpers passes all 77
-applicable checks. Android passes the shared 78-test set. Stock Alpine and Debian
+6.18.60+rpt-rpi-2712 and 16 KiB pages, GCC with system SQLite and dynamic helpers
+passes all 82 applicable checks. Android passes the shared 83-test set with
+Clang and bundled static dependencies. Stock Alpine and Debian
 run on the Pi in Base and lazy-SVC modes with either build, including hardlinks
 and file IO; package-manager checks cover `apk update` and `apt-get update`.
-This does not replace qualification under MagicDesk's application domain and
-Shell, or a full GUI/container matrix on Linux. No existing MagicDesk
-distribution has been converted as part of extraction.
+Stock k3s qualification covers CoreDNS, cross-pod traffic, network policies,
+Traefik ingress, scaling, persistent volumes and server restart. Two full runs
+pass with the unmodified ten-second `kubectl exec` bound.
+
+MagicDesk consumes the pinned `native/shroot` submodule. Its catalog adapter
+invokes the native CLI rather than implementing a second OCI/catalog manager.
+Application-domain and Shell acceptance cover install, metadata, DNS changes,
+backup/restore, concurrent launches, targeted cancellation and removal. Existing
+installed identities are retained without conversion or distribution copies.
+The shared prepared-userspace runner passes 79 User and 70 Shell checks,
+including package transactions, signals, descriptor transfer, process-tree
+cancellation and crash recovery. User additionally verifies admission of the
+exact immutable executables packaged in the APK. Native hardlink and pathname
+socket controls retain the selected identity's actual host restrictions.
+Graphical-session checks pass under User and Shell for X11 and Wayland, including
+D-Bus, launch arguments, environment, process exit and cleanup. Device checks cover
+cross-UID socket admission, descriptor handoff, scope revocation and peer cleanup;
+audio checks cover concurrent leases and User, Shell and Termux clients. These
+results do not substitute for acceptance of the generated autonomous applications.
+
+Shared fixture contracts belong to Shroot's `tests/`, including the executor,
+kernel-profile, borrowed-store, matrix and benchmark tests. Android-specific
+transport explicitly receives a MagicDesk checkout. Its file adapter transfers
+inert bytes under the selected app identity without `run-as`; it never replaces
+the real Zygote-launched fixture process. This loopback file adapter requires
+the runner on the same device.
+
+The bundled mksh retains upstream sources and persistent history. Verification
+covers concurrent consoles, restart and history compaction. Runtime and shell
+changes remain separate from MagicDesk's terminal presentation.
 
 ## Remaining Delivery
 
-1. Qualify additional prepared-libc/application workloads through the direct
-   executor and the extracted MagicDesk adapter. Graphical/installer checks
-   explicitly retain their MagicDesk dependencies. Keep shared assertions and
-   executor-specific capability evidence; local tests do not certify APK delivery.
-   Audit optional fixture builders and their documented commands as well: some
-   still assume the former `native/shroot`/`native/guest-exec-lab` layout or the
-   MagicDesk prepared-rootfs build. The standalone CTest build is independent.
-2. Publish the independent source/build contract and CI artifacts, then pin that
-   backend in MagicDesk. Replace Java catalog/download ownership with the native
-   API and remove the duplicated engine without changing installed identities.
-3. Finish autonomous Linux APK packaging, private runtime/data ownership,
-   authorized optional connections and cross-package denial tests.
-4. Qualify the pinned integration under User and Shell, including storage-update
-   continuity, GUI/services and matched performance checks. Extend ordinary
-   ARM64 Linux coverage to the selected application workloads; nested Shroot
-   and a host-runtime build against musl remain deferred.
+1. Finish autonomous Linux APK acceptance: private runtime/data ownership,
+   two independent package identities, updates, owner cancellation, operation
+   without MagicDesk and authorized optional connections. The APK template and
+   streamed signing/packaging are implemented; device results are still required.
+2. Qualify the final pinned integration under User and Shell, including the
+   storage-update continuity and matched performance checks. Shared assertions retain executor-specific capability
+   evidence. Nested Shroot and a host-runtime build against musl remain deferred.
+3. Complete final source/license audits, successful CI on the exact published
+   Shroot and MagicDesk commits, and delivery documentation. Linux and
+   Android/Termux are supported build hosts; Windows uses WSL2, not native builds.
 
 Separate production archives without test hooks pass local Android and Pi
 API/CLI execution and the common checksum/layout/ELF audit. The Pi also builds
 and runs an external CMake consumer against a relocated installed bundle.
-Hosted CI execution and publication remain separate acceptance requirements;
-the workflow definition alone does not establish those results.
+The current published backend passes all five hosted jobs: Android bundle,
+Linux GCC with system SQLite, Linux Clang with bundled SQLite, and standalone
+GCC/Clang client consumers. Subsequent shared-fixture changes and the final
+MagicDesk integration still need CI on their exact published commits.
 
 ## Acceptance
 

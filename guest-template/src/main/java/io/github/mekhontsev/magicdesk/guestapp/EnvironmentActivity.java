@@ -1,0 +1,143 @@
+package io.github.mekhontsev.magicdesk.guestapp;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.IBinder;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+/** Ordinary Android host for its own retained Linux session. No MagicDesk dependency. */
+public final class EnvironmentActivity extends Activity {
+    private EnvironmentService service;
+    private EnvironmentTerminalView terminal;
+    private TextView status;
+    private boolean bound;
+    private Uri pending;
+    private Intent pendingConnection;
+    private AlertDialog confirmation;
+    private final Runnable updated=this::refresh;
+    private final ServiceConnection connection=new ServiceConnection() {
+        @Override public void onServiceConnected(ComponentName name,IBinder binder) {
+            service=((EnvironmentService.Connection)binder).service();
+            terminal.attach(service);
+            service.changed=updated;
+            if (pendingConnection!=null) { service.acceptHost(pendingConnection); pendingConnection=null; }
+            openPending();
+        }
+        @Override public void onServiceDisconnected(ComponentName name) { detach(); finish(); }
+    };
+
+    private void openPending() {
+        if (service==null) return;
+        if (pending!=null && !service.installed() && !service.active()) {
+            Uri archive=pending;
+            EnvironmentService selected=service;
+            if (confirmation!=null) confirmation.dismiss();
+            confirmation=new AlertDialog.Builder(this).setTitle("Import Linux backup?")
+                    .setMessage("This creates a private copy for this application.")
+                    .setNegativeButton(android.R.string.cancel,(dialog,which) -> pending=null)
+                    .setOnCancelListener(dialog -> pending=null)
+                    .setPositiveButton("Import",(dialog,which) -> { pending=null; selected.importArchive(archive); }).show();
+        } else service.open();
+        refresh();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); setIntent(intent); pending=intent.getData(); openPending();
+    }
+
+    @Override protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        pending=state==null ? getIntent().getData() : state.getParcelable("pending",Uri.class);
+        pendingConnection=state==null ? null : state.getParcelable("connection",Intent.class);
+        var layout=new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL);
+        var toolbar=new android.widget.Toolbar(this);
+        toolbar.setTitle(getApplicationInfo().loadLabel(getPackageManager()));
+        layout.addView(toolbar,new LinearLayout.LayoutParams(-1,-2)); setActionBar(toolbar);
+        status=new TextView(this); status.setPadding(16,8,16,8);
+        layout.addView(status,new LinearLayout.LayoutParams(-1,-2));
+        terminal=new EnvironmentTerminalView(this);
+        layout.addView(terminal,new LinearLayout.LayoutParams(-1,0,1));
+        layout.setOnApplyWindowInsetsListener((view,insets) -> {
+            var bars=insets.getInsets(android.view.WindowInsets.Type.systemBars()|android.view.WindowInsets.Type.ime());
+            view.setPadding(bars.left,bars.top,bars.right,bars.bottom); return insets;
+        });
+        setContentView(layout);
+        Intent intent=new Intent(this,EnvironmentService.class);
+        startForegroundService(intent); bound=bindService(intent,connection,BIND_AUTO_CREATE);
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},2);
+    }
+    private void refresh() {
+        if (service==null) return;
+        if (service.closed()) { finish(); return; }
+        String text=service.installed() ? service.status : service.active() ? service.status : "No Linux environment";
+        status.setText(text); status.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+        terminal.invalidate(); invalidateOptionsMenu();
+    }
+    @Override public boolean onCreateOptionsMenu(Menu menu) {
+        menu.add(0,1,0,"Import backup"); menu.add(0,2,1,"New terminal"); menu.add(0,3,2,"End session");
+        if (android.os.Build.VERSION.SDK_INT>=37) menu.add(0,4,3,"Local network access");
+        menu.add(0,5,4,"Connect to MagicDesk");
+        menu.add(0,6,5,"Disconnect from MagicDesk");
+        return true;
+    }
+    @Override public boolean onPrepareOptionsMenu(Menu menu) {
+        menu.findItem(1).setEnabled(service!=null && !service.installed() && !service.active());
+        menu.findItem(2).setEnabled(service!=null && service.installed() && !service.active());
+        menu.findItem(3).setEnabled(service!=null && service.active());
+        menu.findItem(5).setEnabled(service!=null && !service.connected());
+        menu.findItem(6).setEnabled(service!=null && service.connected()); return true;
+    }
+    @Override public boolean onOptionsItemSelected(MenuItem item) {
+        if (service==null) return false;
+        if (item.getItemId()==1) {
+            startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),1);
+        } else if (item.getItemId()==2) service.startTerminal();
+        else if (item.getItemId()==3) {
+            EnvironmentService selected=service;
+            confirmation=new AlertDialog.Builder(this).setTitle("End Linux session?")
+                    .setNegativeButton(android.R.string.cancel,null).setPositiveButton("End",(dialog,which) -> selected.endTerminal()).show();
+        } else if (item.getItemId()==4 && android.os.Build.VERSION.SDK_INT>=37)
+            requestPermissions(new String[]{android.Manifest.permission.ACCESS_LOCAL_NETWORK},3);
+        else if (item.getItemId()==5) {
+            try { startActivityForResult(service.connectHost(),5); }
+            catch (Exception error) {
+                service.disconnectHost();
+                new AlertDialog.Builder(this).setMessage(error.toString()).setPositiveButton(android.R.string.ok,null).show();
+            }
+        } else if (item.getItemId()==6) { service.disconnectHost(); refresh(); }
+        else return super.onOptionsItemSelected(item);
+        return true;
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data);
+        if (request==1 && result==RESULT_OK && data!=null && data.getData()!=null && service!=null)
+            service.importArchive(data.getData());
+        if (request==5) {
+            if (result==RESULT_OK && data!=null) {
+                if (service!=null) service.acceptHost(data); else pendingConnection=data;
+            } else if (service!=null) service.disconnectHost();
+        }
+    }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state); state.putParcelable("pending",pending);
+        state.putParcelable("connection",pendingConnection);
+    }
+    private void detach() {
+        if (service!=null) { if (service.changed==updated) service.changed=null; service=null; }
+        if (terminal!=null) terminal.attach(null);
+    }
+    @Override protected void onDestroy() {
+        if (confirmation!=null) confirmation.dismiss();
+        detach(); if (bound) unbindService(connection); super.onDestroy();
+    }
+}

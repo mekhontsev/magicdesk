@@ -7,6 +7,7 @@
     <string name="black_screen">Écran noir (sans veille)</string>
     <string name="black_screen_hint">Écran noir ; touche de volume pour quitter</string>
     <string name="guest_command_access">Autoriser le contrôle de MagicDesk et Android</string>
+    <string name="guest_install_application">Installer Linux comme application</string>
     <string name="guest_environments">Environnements Shroot</string>
     <string name="guest_loading">Chargement des environnements&#8230;</string>
     <string name="guest_empty">Aucun environnement Shroot installé</string>
@@ -1229,4 +1230,10 @@
     <string name="console_paste_lines_title">Insérer plusieurs lignes ?</string>
     <string name="console_paste_lines_message">Ce terminal n’a pas activé le mode bracketed paste. Les sauts de ligne peuvent exécuter des commandes.</string>
     <string name="console_share_too_many">Trop de fichiers partagés. Partagez moins de fichiers à la fois.</string>
+    <string name="linux_connection_title">Se connecter à MagicDesk</string>
+    <string name="linux_connection_audio">Audio uniquement</string>
+    <string name="linux_connection_graphics">Audio + %1$s : %2$s</string>
+    <string name="linux_connection_permission">%1$s pourra utiliser les services audio et la session graphique sélectionnés. Les clients X11 partagent l\'accès à leur affichage. Aucun accès aux commandes ni aux fichiers n\'est accordé.</string>
+    <string name="linux_connection_connect">Connecter</string>
+    <string name="linux_connection_pending">Connexion&#8230;</string>
 </resources>

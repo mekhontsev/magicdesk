@@ -499,7 +499,7 @@ interface IShellCommandService {
     String getSystemNightMode(int userId) = 151;
     void setSystemNightMode(int userId, String mode) = 152;
     io.github.mekhontsev.magicdesk.SystemCpuSnapshot readSystemCpuSnapshot() = 153;
-    io.github.mekhontsev.magicdesk.IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis,
+    io.github.mekhontsev.magicdesk.IUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis,
         io.github.mekhontsev.magicdesk.IUnixConnectionReceiver receiver) = 155;
     boolean getChildProcessMonitoringDefault() = 156;
     String readWindowGeometryDiagnostics(in FrameworkTaskSnapshot[] tasks) = 157;

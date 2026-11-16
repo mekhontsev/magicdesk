@@ -247,6 +247,12 @@ final class WaylandSessions {
         String error() { return error; }
         boolean stopped() { return state.equals("CLOSED") || state.equals("FAILED"); }
         @Override public boolean ready() { return state.equals("READY") && renderer != null && !renderer.isClosed(); }
+        GraphicalConnection connect(int uid, ExecutorSocketEndpoint.Factory factory, Runnable ended) throws IOException {
+            var current=renderer;
+            if (!ready() || current==null) throw new IOException("Wayland session is not ready");
+            var description=new android.os.Bundle(); description.putString("graphicsProtocol","wayland");
+            return GraphicalConnection.acquire(resources,uid,factory,current::acceptClient,description,ended);
+        }
         List<WaylandSession.Window> windows() { var current = renderer; return current == null ? List.of() : current.windows(); }
         java.util.concurrent.CompletableFuture<io.github.mekhontsev.magicdesk.wayland.WaylandWindowInspection> inspectWindow(long window, int limit) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");

@@ -24,11 +24,13 @@ include ':hidden-api-stubs'
 include ':kernel-fixes'
 include ':terminal-emulator'
 include ':terminal-runtime'
+include ':connection-runtime'
 include ':x11-runtime'
 include ':hosted-runtime'
 include ':wayland-runtime'
 include ':audio-runtime'
 include ':launcher-template'
+include ':guest-template'
 if (providers.gradleProperty('commandClientFixture').isPresent()) {
     include ':run-command-client'
     project(':run-command-client').projectDir = file('tests/run-command-client')

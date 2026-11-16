@@ -78,25 +78,25 @@ the successful Miracast direct-pointer path.
 ## Independent-Service Matrix
 
 Shroot has its own [device coverage and limits](shroot.md#coverage-and-limits)
-and [fixture commands](../native/shroot/tests/README.md). On RM11/API 36 under
+and [fixture commands](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md). On RM11/API 36 under
 UID 2000 these exercise glibc/musl userspaces, packages and OCI layers, concurrent
 launches, watches/IPC, debuggers, browser filters and X11/Wayland applications.
 App-UID resource, ABI, signal, debugger, Alpine k3s and sandboxed Chromium
-coverage is recorded separately in [host execution](../native/shroot/tests/host-execution.md).
+coverage is recorded separately in [host execution](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md).
 Results do not transfer between executors, distributions or kernels and are not
 Desktop self-test results. Remaining Shroot device gates include actual API 34/older
 kernels, 16 KiB pages and actual root execution. Installer GUI/Turnip recipes
 also need separate validation for each distribution/toolchain; a recipe's
 presence is not a passed desktop or GPU test.
 
-The [Shroot distribution matrix](../native/shroot/tests/validation-matrix.md)
+The [Shroot distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md)
 tracks every installer OS separately: recipe/package setup, init, graphics,
 Docker/Podman, libvirt/QEMU, Flatpak/Snap browsers, portals, desktop applications
 and VS Code. It also adds nspawn, BuildKit, LXC and a small permanent LTP
 selection. Each scenario retains separate Shroot/Base status; historical or
 partial coverage is not current-build acceptance.
 
-- [ ] Complete [installer acceptance](../native/shroot/tests/README.md#installer-acceptance)
+- [ ] Complete [installer acceptance](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md#installer-acceptance)
   with the packaged APK and default environment library: download the script,
   configure it interactively, install, Refresh Apps, search in Start and launch.
   Cover individual applications and whole desktops separately. Test-library

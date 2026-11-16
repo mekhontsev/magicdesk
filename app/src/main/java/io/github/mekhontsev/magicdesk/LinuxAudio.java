@@ -49,6 +49,27 @@ final class LinuxAudio implements Closeable {
     }
 
     static LinuxAudio acquire(Context context, CommandExecution commands) throws IOException {
+        LinuxAudio audio=bind(context);
+        try {
+            var brokerSlot=audio.resources.reserve();
+            var broker=new ExecutorEndpointBroker(context,commands,audio::failed);
+            brokerSlot.attach(broker);
+            audio.connect(commands.uid,broker.factory);
+            return audio;
+        } catch (IOException | RuntimeException | RemoteException error) {
+            audio.close(); throw new IOException("Cannot prepare Linux audio",error);
+        }
+    }
+
+    static LinuxAudio acquire(Context context,int uid,ExecutorSocketEndpoint.Factory factory) throws IOException {
+        LinuxAudio audio=bind(context);
+        try { audio.connect(uid,factory); return audio; }
+        catch (IOException | RuntimeException | RemoteException error) {
+            audio.close(); throw new IOException("Cannot prepare Linux audio",error);
+        }
+    }
+
+    private static LinuxAudio bind(Context context) throws IOException {
         if (Looper.myLooper() == Looper.getMainLooper()) throw new IllegalStateException("Audio admission requires a worker");
         LinuxAudio audio = new LinuxAudio(context);
         try {
@@ -60,31 +81,24 @@ final class LinuxAudio implements Closeable {
             var lease = audio.resources.reserve();
             audio.lease = await(audio.connected, "audio service").acquire("audio-" + UUID.randomUUID(), audio.lifetime);
             lease.attach(() -> { try { audio.lease.close(); } catch (RemoteException ignored) { } });
-            var brokerSlot = audio.resources.reserve();
-            var broker = new ExecutorEndpointBroker(context, commands, audio::failed);
-            brokerSlot.attach(broker);
-            ExecutorSocketEndpoint.Factory factory = broker.factory;
-            var nativeEndpoint = audio.resources.reserve();
-            audio.nativeEndpoint = new ExecutorSocketEndpoint(commands.uid, 0, factory,
-                    fd -> audio.lease.accept(0, fd), audio::failed);
-            nativeEndpoint.attach(audio.nativeEndpoint);
-            var pulseEndpoint = audio.resources.reserve();
-            audio.pulseEndpoint = new ExecutorSocketEndpoint(commands.uid, 0, factory,
-                    fd -> audio.lease.accept(1, fd), audio::failed);
-            pulseEndpoint.attach(audio.pulseEndpoint);
-            // Shroot supplies guest filesystem names for abstract endpoints; shell needs no sock_file permission.
-            if (commands.uid != 2000) {
-                audio.nativePath = audio.nativeEndpoint.filesystemPath();
-                audio.pulsePath = audio.pulseEndpoint.filesystemPath();
-            }
-            LIVE.add(audio);
-            if (audio.closed.get()) LIVE.remove(audio);
-            if (audio.closed.get()) throw new IOException("Audio admission closed during startup");
             return audio;
         } catch (IOException | RuntimeException | RemoteException error) {
             audio.close();
             throw new IOException("Cannot prepare Linux audio", error);
         }
+    }
+
+    private void connect(int uid,ExecutorSocketEndpoint.Factory factory) throws IOException,RemoteException {
+        var nativeOwner=resources.reserve();
+        nativeEndpoint=new ExecutorSocketEndpoint(uid,0,factory,fd -> lease.accept(0,fd),this::failed);
+        nativeOwner.attach(nativeEndpoint);
+        var pulseOwner=resources.reserve();
+        pulseEndpoint=new ExecutorSocketEndpoint(uid,0,factory,fd -> lease.accept(1,fd),this::failed);
+        pulseOwner.attach(pulseEndpoint);
+        // Shroot supplies guest paths for abstract endpoints; UID 2000 needs no sock_file permission.
+        if (uid!=2000) { nativePath=nativeEndpoint.filesystemPath(); pulsePath=pulseEndpoint.filesystemPath(); }
+        LIVE.add(this);
+        if (closed.get()) { LIVE.remove(this); throw new IOException("Audio admission closed during startup"); }
     }
 
     String exports() {

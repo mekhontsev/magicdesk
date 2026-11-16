@@ -11,9 +11,9 @@ import java.util.function.Consumer;
 /** Captured executor admission shared by protocol servers; no graphics or protocol proxy. */
 final class ExecutorSocketEndpoint implements Closeable {
     interface Sink { void accept(ParcelFileDescriptor socket) throws RemoteException, IOException; }
-    interface Factory { IShellUnixEndpoint open(String name, int uid, int timeout, IUnixConnectionReceiver receiver) throws IOException, RemoteException; }
+    interface Factory { IUnixEndpoint open(String name, int uid, int timeout, IUnixConnectionReceiver receiver) throws IOException, RemoteException; }
     final String name;
-    private final CompletableFuture<IShellUnixEndpoint> endpoint = new CompletableFuture<>();
+    private final CompletableFuture<IUnixEndpoint> endpoint = new CompletableFuture<>();
     private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
     private final android.os.IBinder.DeathRecipient died;
 
@@ -55,7 +55,7 @@ final class ExecutorSocketEndpoint implements Closeable {
                 close();
             }
         };
-        IShellUnixEndpoint owner = null;
+        IUnixEndpoint owner = null;
         try {
             owner = factory.open(name, uid, ioTimeoutMillis, receiver);
             owner.asBinder().linkToDeath(died, 0);

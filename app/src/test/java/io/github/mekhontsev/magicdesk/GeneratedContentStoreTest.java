@@ -67,4 +67,16 @@ public final class GeneratedContentStoreTest {
         assertThrows(IOException.class, () -> GeneratedContentStore.publish(dir, out -> out.write(1), NOW));
         assertEquals(128, dir.list().length);
     }
+
+    @Test public void archiveQuotaIsExplicitAndKeepsOrdinaryExportsIndependent() throws Exception {
+        File archive = temporary.newFolder(), ordinary = temporary.newFolder();
+        String id = GeneratedContentStore.publish(archive, out -> out.write(new byte[8]), NOW, 10);
+        assertThrows(IOException.class, () -> GeneratedContentStore.publish(archive,
+                out -> out.write(new byte[3]), NOW, 10));
+        assertEquals(1, archive.list().length);
+        assertEquals(8, GeneratedContentStore.resolve(archive, id, NOW).length());
+        assertNotNull(GeneratedContentStore.publish(ordinary, out -> out.write(new byte[32]), NOW));
+        assertThrows(IllegalArgumentException.class, () -> GeneratedContentStore.publish(archive,
+                out -> fail("Invalid quota must not call writer"), NOW, 0));
+    }
 }

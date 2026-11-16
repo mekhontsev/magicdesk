@@ -4,7 +4,7 @@ import java.util.List;
 
 /** Explicit guest addresses and per-launch authentication; no host filesystem aliases. */
 final class GuestGraphicalConnection {
-    static final String WAYLAND_PATH = "/tmp/magicdesk-wayland/wayland-0";
+    static final String WAYLAND_PATH = LinuxConnectionContract.WAYLAND_PATH;
 
     static GuestLaunchPlan plan(GuestEnvironment environment, String directory, String command,
             GraphicalProtocol protocol) {

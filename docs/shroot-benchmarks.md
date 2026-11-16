@@ -81,9 +81,9 @@ remain possible.
 
 ## Reproduction
 
-Use [benchmark_compile.py](../native/shroot/tests/benchmark_compile.py) and an
+Use [benchmark_compile.py](https://github.com/mekhontsev/shroot/blob/develop/tests/benchmark_compile.py) and an
 independent build-only sysroot, not a running user's desktop environment.
-[Developer workflows](../native/shroot/tests/developer-workflows.md) describe
+[Developer workflows](https://github.com/mekhontsev/shroot/blob/develop/tests/developer-workflows.md) describe
 preparation, identity requirements and diagnostic counters.
 
 The source is the official

@@ -768,7 +768,7 @@ public final class ShellAccess {
         }
     }
 
-    static IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) throws IOException {
+    static IUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) throws IOException {
         try {
             var endpoint = requireService().openUnixEndpoint(name, expectedUid, ioTimeoutMillis, receiver);
             if (endpoint == null) throw new IOException("Shell service returned no Unix endpoint");

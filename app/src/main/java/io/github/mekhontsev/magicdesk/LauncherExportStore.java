@@ -15,12 +15,13 @@ final class LauncherExportStore {
     static final int LIMIT = 512;
     record Target(String source, String path, String termuxPackage, int termuxUid, int shellUid, long profile) {
         Target {
-            if (!List.of("termux", "guest", "desktop").contains(source) || path == null || !path.startsWith("/")
+            if (!List.of("termux", "guest", "desktop", "environment").contains(source) || path == null || !path.startsWith("/")
                     || path.indexOf('\0') >= 0 || path.length() > 4096 || profile < 0
                     || termuxPackage == null || (!termuxPackage.isEmpty() && !PackageNameValidator.isSafe(termuxPackage))
                     || (termuxPackage.isEmpty() ? termuxUid != -1 : termuxUid < 0)
+                    || (source.equals("environment") && !termuxPackage.isEmpty())
                     || (source.equals("termux") ? shellUid != -1 || termuxPackage.isEmpty()
-                            : shellUid != 0 && shellUid != 2000 && !(source.equals("guest") && shellUid >= 10000
+                            : shellUid != 0 && shellUid != 2000 && !((source.equals("guest") || source.equals("environment")) && shellUid >= 10000
                                     && shellUid % 100000 >= 10000 && shellUid % 100000 <= 19999)))
                 throw new IllegalArgumentException("Invalid launcher source identity");
         }
@@ -41,7 +42,7 @@ final class LauncherExportStore {
                     || certificate == null || !certificate.matches("[0-9a-f]{64}"))
                 throw new IllegalArgumentException("Invalid launcher export");
         }
-        String packageName(String host) { return host + ".launcher.e" + id; }
+        String packageName(String host) { return host + (target.source().equals("environment") ? ".linux.e" : ".launcher.e") + id; }
     }
 
     private final Path directory;

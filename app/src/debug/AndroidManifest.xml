@@ -51,6 +51,10 @@
     </application>
 
     <instrumentation
+        android:name=".ConnectionRuntimeInstrumentation"
+        android:functionalTest="true"
+        android:targetPackage="io.github.mekhontsev.magicdesk" />
+    <instrumentation
         android:name=".LinuxAudioInstrumentation"
         android:functionalTest="true"
         android:targetPackage="io.github.mekhontsev.magicdesk" />

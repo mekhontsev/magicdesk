@@ -5,13 +5,12 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
-import android.os.SystemClock;
 import android.system.Os;
 import android.system.OsConstants;
 import java.io.IOException;
 
 /** Executor-owned admission only: accepted sockets leave this process before protocol IO. */
-final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
+public final class UnixSocketEndpoint extends IUnixEndpoint.Stub {
     private final LocalServerSocket listener;
     private final IUnixConnectionReceiver receiver;
     private final int ownerUid = Binder.getCallingUid();
@@ -23,16 +22,11 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
     private java.nio.file.Path fileDirectory;
     private final IBinder.DeathRecipient died = this::release;
     private volatile boolean closed;
-    private long offered, acknowledged;
+    private long offered;
+    private java.util.concurrent.CompletableFuture<Void> pending;
     private final java.nio.file.Path temporaryDirectory;
 
-    ShellUnixEndpoint(String name, int uid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) throws IOException {
-        this(name, uid, ioTimeoutMillis, receiver, uid == 0 || uid == 2000
-                ? RuntimeDataPaths.privileged(uid).temporary()
-                : java.nio.file.Path.of(java.util.Objects.requireNonNull(System.getenv("TMPDIR"))));
-    }
-
-    ShellUnixEndpoint(String name, int uid, int ioTimeoutMillis, IUnixConnectionReceiver receiver,
+    public UnixSocketEndpoint(String name, int uid, int ioTimeoutMillis, IUnixConnectionReceiver receiver,
             java.nio.file.Path temporaryDirectory) throws IOException {
         this.temporaryDirectory = temporaryDirectory;
         if (ioTimeoutMillis < 0 || ioTimeoutMillis > 60000) throw new IllegalArgumentException("Invalid socket IO bound");
@@ -98,32 +92,33 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
                     client.setSoTimeout(ioTimeoutMillis);
                     synchronized (handoff) {
                     final long serial;
-                    synchronized (state) { serial = ++offered; }
+                    final java.util.concurrent.CompletableFuture<Void> receipt;
+                    synchronized (state) {
+                        if (closed) break;
+                        serial = ++offered;
+                        receipt = pending = new java.util.concurrent.CompletableFuture<>();
+                    }
                     try (var descriptor = ParcelFileDescriptor.dup(client.getFileDescriptor())) {
                         receiver.accepted(serial, descriptor);
                     }
                     // EVENT_WAIT: exact Binder FD handoff acknowledgement; expiry closes admission.
-                    long deadline = SystemClock.uptimeMillis() + 10000;
-                    synchronized (state) {
-                        while (!closed && acknowledged != serial) {
-                            long remaining = deadline - SystemClock.uptimeMillis();
-                            if (remaining <= 0) throw new IOException("Unix connection handoff timed out");
-                            EventDrivenWaits.await(state, EventDrivenWaits.Reason.UNIX_CONNECTION_HANDOFF, remaining);
-                        }
+                    try { receipt.get(10, java.util.concurrent.TimeUnit.SECONDS); }
+                    catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException error) {
+                        throw new IOException("Unix connection handoff did not complete", error);
                     }
                     }
                 }
             }
         } catch (IOException | RemoteException | InterruptedException error) {
             if (error instanceof InterruptedException) Thread.currentThread().interrupt();
-            if (!closed) try { receiver.failed(ShellAccess.usefulMessage(error)); } catch (RemoteException ignored) { }
+            if (!closed) try { receiver.failed(error.toString()); } catch (RemoteException ignored) { }
         } finally { release(); }
     }
 
     @Override public void acknowledge(long serial) {
         checkOwner();
         synchronized (state) {
-            if (!closed && offered == serial) { acknowledged = serial; state.notifyAll(); }
+            if (!closed && offered == serial && pending != null) pending.complete(null);
         }
     }
 
@@ -131,11 +126,11 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
     private void checkOwner() {
         if (Binder.getCallingUid() != ownerUid) throw new SecurityException("Wrong Unix endpoint owner");
     }
-    void release() {
+    public void release() {
         synchronized (state) {
             if (closed) return;
             closed = true;
-            state.notifyAll();
+            if (pending != null) pending.completeExceptionally(new IOException("Unix endpoint closed"));
         }
         receiver.asBinder().unlinkToDeath(died, 0);
         try { Os.shutdown(listener.getFileDescriptor(), OsConstants.SHUT_RDWR); } catch (android.system.ErrnoException ignored) { }

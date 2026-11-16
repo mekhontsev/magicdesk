@@ -7,6 +7,7 @@
     <string name="black_screen">Чёрный экран (без сна)</string>
     <string name="black_screen_hint">Чёрный экран; кнопка громкости для выхода</string>
     <string name="guest_command_access">Разрешить управление MagicDesk и Android</string>
+    <string name="guest_install_application">Установить Linux как приложение</string>
     <string name="guest_environments">Окружения Shroot</string>
     <string name="guest_loading">Загрузка окружений&#8230;</string>
     <string name="guest_empty">Нет установленных окружений Shroot</string>
@@ -1241,4 +1242,10 @@
     <string name="console_paste_lines_title">Вставить несколько строк?</string>
     <string name="console_paste_lines_message">В этом терминале не включён режим bracketed paste. Переводы строк могут выполнить команды.</string>
     <string name="console_share_too_many">Слишком много файлов. Отправьте меньше файлов за один раз.</string>
+    <string name="linux_connection_title">Подключиться к MagicDesk</string>
+    <string name="linux_connection_audio">Только звук</string>
+    <string name="linux_connection_graphics">Звук + %1$s: %2$s</string>
+    <string name="linux_connection_permission">%1$s сможет использовать выбранные звук и графическую сессию. Клиенты X11 имеют общий доступ к своему дисплею. Доступ к командам и файлам не предоставляется.</string>
+    <string name="linux_connection_connect">Подключить</string>
+    <string name="linux_connection_pending">Подключение&#8230;</string>
 </resources>

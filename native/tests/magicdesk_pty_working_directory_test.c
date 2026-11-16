@@ -79,6 +79,45 @@ static void check_startup(
     assert(unlink(marker) == 0);
 }
 
+static void check_stdio_command(const char *executable, const char *directory,
+        const char *marker, int with_command) {
+    assert(setenv(marker_environment, marker, 1) == 0);
+    int input[2], output[2];
+    assert(pipe(input) == 0 && pipe(output) == 0);
+    pid_t relay = fork();
+    assert(relay >= 0);
+    if (!relay) {
+        assert(dup2(input[0], STDIN_FILENO) == STDIN_FILENO);
+        assert(dup2(output[1], STDOUT_FILENO) == STDOUT_FILENO);
+        close(input[0]); close(input[1]); close(output[0]); close(output[1]);
+        char *arguments[] = {(char *)executable, "24", "80", (char *)directory,
+                (char *)executable, (char *)probe_command, NULL};
+        _exit(magicdesk_pty_bridge_main(with_command ? 6 : 5, arguments));
+    }
+    close(input[0]); close(output[1]);
+    char header[256];
+    size_t used = 0;
+    for (;;) {
+        ssize_t size = read(output[0], header + used, sizeof(header) - 1 - used);
+        if (size < 0 && errno == EINTR) continue;
+        assert(size >= 0);
+        if (!size) break;
+        used += (size_t)size; assert(used < sizeof(header) - 1);
+    }
+    header[used] = 0;
+    assert(strncmp(header, "MAGICDESK_PTY ", 14) == 0);
+    close(input[1]); close(output[0]);
+    int status;
+    assert(waitpid(relay, &status, 0) == relay);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    FILE *file = fopen(marker, "r"); assert(file);
+    char content[PATH_MAX * 2 + 64];
+    size_t size = fread(content, 1, sizeof(content) - 1, file);
+    assert(!ferror(file) && fclose(file) == 0); content[size] = 0;
+    assert(strstr(content, with_command ? "\ncommand\n" : "\ninteractive\n"));
+    assert(unlink(marker) == 0);
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "-i") == 0) {
         return child_probe("interactive");
@@ -119,6 +158,7 @@ int main(int argc, char **argv) {
         check_startup(executable, missing, marker, ENOENT, with_command);
         check_startup(executable, not_directory, marker, ENOTDIR, with_command);
         check_startup(executable, root, marker, 0, with_command);
+        check_stdio_command(executable, root, marker, with_command);
     }
     assert(unlink(not_directory) == 0);
     assert(rmdir(root) == 0);

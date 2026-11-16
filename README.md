@@ -263,6 +263,12 @@ kernel without Android root, a VM, Termux or PRoot.** Choose **User** to run und
 MagicDesk's app UID without Shizuku, or **Shell** for the authorized command
 service, normally UID 2000. Each executor has its own Linux library.
 
+Shroot is an [independent native project](https://github.com/mekhontsev/shroot)
+for Android and ARM64 Linux, with a CLI and `libshroot` management API. MagicDesk
+adds its consoles, graphical sessions and Android integration. An environment
+can also be exported as an [independent Linux application](docs/linux-applications.md)
+with its own Android UID, native runtime and private data.
+
 User and Shell use the same userspace syscall engine. It supplies supported
 filesystem, credential, namespace and networking interfaces missing from the
 host's kernel configuration or executor permissions. Guest namespaces, mounts
@@ -276,7 +282,7 @@ recipe-installed Alpine runs stock **runc** containers and a **single-node k3s
 NetworkPolicy, persistent volumes, ingress and server restart. Stock Chromium
 also passes software-rendered browser checks with its namespace and set-ID
 sandboxes. User mode is not limited to lightweight command-line utilities.
-See [app-UID test evidence](native/shroot/tests/host-execution.md#qualifying-evidence)
+See [app-UID test evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md#qualifying-evidence)
 for the tested device and exact scope. The broader Docker, Podman, systemd and
 multi-node matrix below includes Shell results; those results do not by themselves
 establish the same application coverage in User mode.
@@ -311,7 +317,7 @@ See [k3s support](docs/shroot.md#k3s).
   </a>
 </p>
 
-Coverage is [per distribution and scenario](native/shroot/tests/validation-matrix.md),
+Coverage is [per distribution and scenario](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md),
 not a guarantee that every service or package works. Packages come from the guest;
 the installer does not build missing container engines for users. Docker and
 Podman have [documented launch requirements](docs/shroot.md#services-and-containers).
@@ -387,7 +393,7 @@ launchers have HDMI checks with Zink/Turnip, keyboard input and close/reopen;
 broader application coverage remains incomplete. SteamOS uses Valve's ARM64
 recovery userspace, not a guest kernel; this does not imply compatibility with
 every Steam game. See the [recipes and image sources](docs/shroot.md#linux-installer)
-and [per-distribution evidence](native/shroot/tests/validation-matrix.md).
+and [per-distribution evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md).
 
 After installation, use **Apps** for individual programs and installed desktop
 entries, or **Terminal sessions > New session > Shroot environments** for a
@@ -660,7 +666,7 @@ architecture and verification. Start with:
 - [X11](docs/x11.md), [Wayland](docs/wayland.md) and [graphics](docs/graphics.md)
 - [Automation](docs/automation.md) and [desktop entries](docs/desktop-entries.md)
 - [Architecture](docs/architecture.md) and [compatibility](docs/compatibility.md)
-- [Device coverage](docs/testing-backlog.md) and [Shroot matrix](native/shroot/tests/validation-matrix.md)
+- [Device coverage](docs/testing-backlog.md) and [Shroot matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md)
 
 ## Project
 

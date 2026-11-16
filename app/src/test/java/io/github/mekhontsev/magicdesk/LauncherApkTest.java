@@ -69,6 +69,43 @@ public final class LauncherApkTest {
         }
     }
 
+    @Test public void runtimePayloadIsAlignedAndStreamingSignatureCoversAllChunks() throws Exception {
+        Path root=temporary.getRoot().toPath(), keys=root.resolve("runtime.p12");
+        run(true,Path.of(System.getProperty("java.home"),"bin","keytool").toString(),"-genkeypair","-keystore",keys.toString(),
+                "-storetype","PKCS12","-storepass","password","-keypass","password","-alias","test","-keyalg","RSA",
+                "-keysize","2048","-dname","CN=RuntimeTest","-validity","1");
+        var store=KeyStore.getInstance("PKCS12");
+        try (var input=Files.newInputStream(keys)) { store.load(input,"password".toCharArray()); }
+        Path template=Path.of(System.getProperty("magicdesk.guestTemplate")), library=root.resolve("runtime.so");
+        byte[] payload=new byte[3*1024*1024+357]; new java.util.Random(7).nextBytes(payload); Files.write(library,payload);
+        byte[] icon;
+        try (var zip=new ZipFile(template.toFile())) {
+            var entry=zip.stream().filter(item -> item.getName().endsWith(".png")).findFirst().orElseThrow();
+            icon=zip.getInputStream(entry).readAllBytes();
+        }
+        Path unsigned=root.resolve("runtime-unsigned.apk"), signed=root.resolve("runtime.apk");
+        try (var input=Files.newInputStream(template)) {
+            LauncherApk.assemble(input,Map.of("io.github.mekhontsev.magicdesk.guesttemplate","example.linux.e"+"b".repeat(32),
+                    "MAGICDESK_LINUX_LABEL","Alpine"),icon,Map.of("libtest.so",library),"{}".getBytes(),unsigned);
+        }
+        try (var zip=new ZipFile(unsigned.toFile())) {
+            assertArrayEquals(payload,zip.getInputStream(zip.getEntry("lib/arm64-v8a/libtest.so")).readAllBytes());
+        }
+        var bytes=ByteBuffer.wrap(Files.readAllBytes(unsigned)).order(ByteOrder.LITTLE_ENDIAN);
+        for (int at=0;bytes.getInt(at)==0x04034b50;) {
+            int size=bytes.getInt(at+18), name=Short.toUnsignedInt(bytes.getShort(at+26)), extra=Short.toUnsignedInt(bytes.getShort(at+28));
+            int start=at+30+name+extra;
+            String path=new String(bytes.array(),at+30,name,java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(path,0,start & (path.startsWith("lib/") ? 16383 : 3)); at=start+size;
+        }
+        LauncherApk.sign(unsigned,signed,(PrivateKey)store.getKey("test","password".toCharArray()),(X509Certificate)store.getCertificate("test"));
+        verify(true,signed);
+        try (var file=new java.io.RandomAccessFile(signed.toFile(),"rw")) {
+            long at=2*1024*1024; file.seek(at); int value=file.read(); file.seek(at); file.write(value^1);
+        }
+        verify(false,signed);
+    }
+
     @Test public void malformedOrUnexpectedTemplatesAreRejected() throws Exception {
         assertThrows(java.io.IOException.class, () -> LauncherManifest.replace(new byte[7], Map.of()));
         try (var zip = new ZipFile(template().toFile())) {

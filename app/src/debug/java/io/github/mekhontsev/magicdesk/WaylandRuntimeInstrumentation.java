@@ -222,6 +222,13 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                             output.setSurface(images.getSurface(), new WaylandViewport(0, 0, frameWidth, frameHeight)).get(15, TimeUnit.SECONDS);
                             output.focus(true);
                             output.pointer(.25, .25);
+                            output.button(3, true);
+                            output.button(3, true);
+                            output.button(3, false);
+                            output.button(3, false);
+                            // Keep Forward pressed to verify release when focus is revoked.
+                            output.button(4, true);
+                            output.button(4, true);
                             output.button(0, true);
                             output.key(30, true);
                             output.focus(false);

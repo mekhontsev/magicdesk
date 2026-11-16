@@ -69,7 +69,7 @@ final class CommandExecution {
             requireCurrent();
             if (targetUid != uid) throw new SecurityException("Wrong executor identity");
             return backend == DesktopExecBackend.APP
-                    ? new ShellUnixEndpoint(name, uid, timeout, receiver, java.nio.file.Path.of(temporaryDirectory()))
+                    ? new UnixSocketEndpoint(name, uid, timeout, receiver, java.nio.file.Path.of(temporaryDirectory()))
                     : ShellAccess.openUnixEndpoint(name, uid, timeout, receiver);
         };
     }

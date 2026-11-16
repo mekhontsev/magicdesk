@@ -144,6 +144,8 @@ do not own desktop UI or session state. Runtime composition occurs only in the
 | Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Terminal emulator | `terminal-emulator/` | Local byte-stream parser, screen buffers and terminal graphics |
+| Terminal Android runtime | `terminal-runtime/` | Shared renderer/input interface, native PTY framing and process ownership |
+| Connection runtime | `connection-runtime/` | Explicit executor-owned Unix endpoints, Binder FD admission and revocable streams |
 | Shared graphical runtime | `hosted-runtime/` | Server lifecycle, Vulkan/software composition, buffer transport and Android frame presentation |
 | Linux audio runtime | `audio-runtime/` | PipeWire protocols, mixing and AAudio output in the private audio process |
 | X11 Android runtime | `x11-runtime/` | Server entry point, Binder connection, JNI and Android renderer adapters |
@@ -152,6 +154,7 @@ do not own desktop UI or session state. Runtime composition occurs only in the
 | Shroot native runtime | `native/shroot/` | Optional ARM64 Linux execution, supervision, inode namespace and OCI image tools under the selected command identity |
 | Linux environment manager | Native Shroot catalog/API; `GuestEnvironmentLibrary` adapter | Native named stores, verified public OCI acquisition and shared image dependencies; existing PTY/graphics services own launch presentation |
 | Launcher template | `launcher-template/` | Build-time unsigned Activity APK used to export launcher entries; not a standalone product |
+| Linux application template | `guest-template/` | Independent Android UID, private Shroot runtime/store, retained terminal and optional host connections |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 

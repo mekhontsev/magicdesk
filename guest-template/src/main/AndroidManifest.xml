@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <queries>
+        <intent><action android:name="io.github.mekhontsev.magicdesk.CONNECT_LINUX" /></intent>
+    </queries>
+    <application android:allowBackup="false" android:label="MAGICDESK_LINUX_LABEL"
+        android:icon="@drawable/launcher_icon" android:extractNativeLibs="true"
+        android:resizeableActivity="true" android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name="io.github.mekhontsev.magicdesk.guestapp.EnvironmentActivity"
+            android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name="io.github.mekhontsev.magicdesk.guestapp.EnvironmentService"
+            android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started Linux environment and interactive terminal" />
+        </service>
+    </application>
+</manifest>

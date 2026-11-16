@@ -64,6 +64,18 @@ public final class GeneratedContentProvider extends ContentProvider {
                 .appendPath(id).appendPath(displayName).build();
     }
 
+    static Uri publishArchive(Context context, String name, GeneratedContentStore.Writer writer) throws IOException {
+        String displayName=ShellFileNamePolicy.validate(name);
+        // Explicit environment copies are disk-sized, not ordinary clipboard exports.
+        // A separate bounded namespace retains the same expiry and URI-grant policy.
+        File directory=new File(context.getCacheDir(),"environment-exports");
+        java.nio.file.Files.createDirectories(directory.toPath());
+        long quota=directory.getUsableSpace()/2;
+        String id=GeneratedContentStore.publish(directory,writer,System.currentTimeMillis(),quota);
+        return new Uri.Builder().scheme("content").authority(context.getPackageName()+SUFFIX)
+                .appendPath("archive-"+id).appendPath(displayName).build();
+    }
+
     private static File directory(Context context) { return new File(context.getCacheDir(), "generated-content"); }
 
     private File resolve(Uri uri) throws FileNotFoundException {
@@ -79,6 +91,8 @@ public final class GeneratedContentProvider extends ContentProvider {
             if (file == null) throw new FileNotFoundException("Camera output closed");
             return file;
         }
+        if (path.get(0).startsWith("archive-")) return GeneratedContentStore.resolve(
+                new File(getContext().getCacheDir(),"environment-exports"),path.get(0).substring(8),System.currentTimeMillis());
         return GeneratedContentStore.resolve(directory(getContext()), path.get(0), System.currentTimeMillis());
     }
 

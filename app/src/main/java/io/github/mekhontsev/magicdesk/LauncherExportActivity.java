@@ -19,6 +19,17 @@ public final class LauncherExportActivity extends Activity {
     private AlertDialog dialog;
     private boolean waiting;
 
+    static void openEnvironment(Activity activity,GuestEnvironmentCatalog.Entry entry) {
+        try {
+            var target=GuestApplicationExports.capture(activity,entry);
+            activity.startActivity(new Intent(activity,LauncherExportActivity.class).putExtra("target",target.json().toString()),
+                    android.app.ActivityOptions.makeBasic().setLaunchDisplayId(activity.getDisplay().getDisplayId()).toBundle());
+        } catch (Exception error) {
+            UiDialogs.builder(activity).setTitle(R.string.guest_install_application).setMessage(ShellAccess.usefulMessage(error))
+                    .setPositiveButton(android.R.string.ok,null).show();
+        }
+    }
+
     static void open(Activity activity, DesktopApplicationRepository.Entry entry, String termuxPackage) {
         try {
             var target = LauncherExports.capture(activity, entry, termuxPackage);
@@ -42,10 +53,11 @@ public final class LauncherExportActivity extends Activity {
                 if (model.uri == null && state.getString("uri") != null) {
                     model.uri = Uri.parse(state.getString("uri"));
                     model.id = state.getString("id");
+                    if (state.getString("archive")!=null) model.archive=Uri.parse(state.getString("archive"));
                 }
             }
             model.changed = this::render;
-            dialog = UiDialogs.builder(this).setTitle(R.string.launcher_export_title)
+            dialog = UiDialogs.builder(this).setTitle(model.environment() ? R.string.guest_install_application : R.string.launcher_export_title)
                     .setMessage(R.string.launcher_export_preparing)
                     .setPositiveButton(R.string.launcher_export_install, null)
                     .setNeutralButton(R.string.launcher_export_remove, null)
@@ -71,9 +83,13 @@ public final class LauncherExportActivity extends Activity {
         super.onSaveInstanceState(state);
         state.putBoolean("waiting", waiting);
         if (model != null && model.uri != null) { state.putString("uri", model.uri.toString()); state.putString("id", model.id); }
+        if (model!=null && model.archive!=null) state.putString("archive",model.archive.toString());
     }
     @Override protected void onDestroy() {
-        if (model != null) model.changed = null;
+        if (model != null) {
+            model.changed = null;
+            if (isFinishing()) model.resources.close();
+        }
         if (dialog != null) dialog.dismiss();
         super.onDestroy();
     }
@@ -136,6 +152,16 @@ public final class LauncherExportActivity extends Activity {
         if (request == INSTALL_PERMISSION && getPackageManager().canRequestPackageInstalls()) { install(); return; }
         if (request == REMOVE && model.entry != null && !LauncherExports.installed(this, model.entry)) { forget(); return; }
         if (request == INSTALL && result == RESULT_OK && model.entry != null && LauncherExports.signedByUs(this, model.entry)) {
+            if (model.environment()) {
+                Intent open=new Intent(Intent.ACTION_MAIN).setComponent(new android.content.ComponentName(
+                        model.entry.packageName(getPackageName()),"io.github.mekhontsev.magicdesk.guestapp.EnvironmentActivity"));
+                if (model.archive!=null) {
+                    open.setData(model.archive).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    open.setClipData(android.content.ClipData.newRawUri("Linux backup",model.archive));
+                }
+                try { startActivity(open); }
+                catch (RuntimeException error) { model.error=error; render(); return; }
+            }
             finish(); return;
         }
         if (request == INSTALL && result != RESULT_CANCELED && result != RESULT_OK)
@@ -147,13 +173,16 @@ public final class LauncherExportActivity extends Activity {
         final android.content.Context context;
         final LauncherExportStore.Target target;
         final Handler main = new Handler(Looper.getMainLooper());
+        final OperationResources resources = new OperationResources();
         Runnable changed;
         LauncherExportStore.Entry entry;
         Uri uri;
+        Uri archive;
         String id;
         Throwable error;
         boolean started;
         Model(android.content.Context context, LauncherExportStore.Target target) { this.context = context; this.target = target; }
+        boolean environment() { return target.source().equals("environment"); }
 
         void prepare() {
             if (started) return;
@@ -169,6 +198,11 @@ public final class LauncherExportActivity extends Activity {
                     var previous = LauncherExports.store(context).read().stream()
                             .filter(export -> export.target().equals(target)).findFirst().orElse(null);
                     if (previous != null) main.post(() -> { entry = previous; notifyChanged(); });
+                    if (environment()) {
+                        var prepared=GuestApplicationExports.prepare(context,target,resources);
+                        main.post(() -> { entry=prepared.entry(); id=entry.id(); uri=prepared.apk(); archive=prepared.archive(); notifyChanged(); });
+                        return;
+                    }
                     var shortcut = LauncherExports.resolve(context, target);
                     main.post(() -> ApplicationIcons.get(context).request(ApplicationIcons.key(shortcut, target.termuxPackage()),
                             icon -> packageApk(shortcut, icon)));

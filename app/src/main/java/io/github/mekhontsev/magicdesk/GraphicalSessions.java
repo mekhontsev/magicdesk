@@ -30,6 +30,7 @@ final class GraphicalSessions {
         boolean ready();
         boolean stopped();
         boolean canExecute();
+        GraphicalConnection connect(int uid, ExecutorSocketEndpoint.Factory factory, Runnable ended) throws java.io.IOException;
         List<Window> windows();
         List<HostedWindowPresentation.Observation> hosts();
         void closeWindow(long window, boolean force);
@@ -175,6 +176,9 @@ final class GraphicalSessions {
         public boolean ready() { return session.ready(); }
         public boolean stopped() { return session.stopped(); }
         public boolean canExecute() { return session.canExecuteHostCommand(); }
+        public GraphicalConnection connect(int uid, ExecutorSocketEndpoint.Factory factory, Runnable ended) throws java.io.IOException {
+            return session.connect(uid, factory, ended);
+        }
         public boolean desktop() { return true; }
         public boolean application() { return session.application; }
         public boolean canIntegrateShell() { return !session.application; }
@@ -243,6 +247,9 @@ final class GraphicalSessions {
         public boolean ready() { return session.ready(); }
         public boolean stopped() { return session.stopped(); }
         public boolean canExecute() { return session.execution.canExecuteHostCommand(); }
+        public GraphicalConnection connect(int uid, ExecutorSocketEndpoint.Factory factory, Runnable ended) throws java.io.IOException {
+            return session.connect(uid, factory, ended);
+        }
         public boolean desktop() { return session.desktop; }
         public boolean canIntegrateShell() { return session.canIntegrateShell(); }
         public AutoCloseable bindShell(DesktopShellActivity host, java.util.function.Consumer<String> ended) {

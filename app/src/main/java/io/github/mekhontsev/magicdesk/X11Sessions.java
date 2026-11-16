@@ -216,6 +216,17 @@ final class X11Sessions {
         int scalePercent() { return scalePercent; }
         String fileEnvironment() { return launch.fileEnvironment; }
         boolean canExecuteHostCommand() { return launch.fileEnvironment.isEmpty(); }
+        GraphicalConnection connect(int uid, ExecutorSocketEndpoint.Factory factory, Runnable ended) throws java.io.IOException {
+            IX11Server current;
+            synchronized (this) {
+                if (!ready() || server==null) throw new java.io.IOException("X11 session is not ready");
+                current=server;
+            }
+            var description=new Bundle(); description.putString("graphicsProtocol","x11");
+            description.putString("display",display);
+            description.putByteArray("xauthority",java.util.Base64.getDecoder().decode(launch.stdin.trim()));
+            return GraphicalConnection.acquire(resources,uid,factory,current::acceptClient,description,ended);
+        }
         synchronized void host(int taskId, long window, boolean focused) {
             if (focused) hosts.remove(taskId);
             hosts.put(taskId, window);
