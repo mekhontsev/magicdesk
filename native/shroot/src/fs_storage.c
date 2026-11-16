@@ -4,6 +4,7 @@
 #include "inode_internal.h"
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 
 struct md_fs_storage_connections {
     struct md_fs_storage_connections *next;
@@ -93,9 +94,28 @@ int md_fs_storage_enter(struct md_filesystem *fs, const struct md_view_mount *mo
     if (r) return r;
     *scope=(struct md_fs_storage_scope){.store=md_inode_store_retain(store),.identity=store->identity,
         .root=store->root_id,.boundary=store->boundary,.mask=store->creation_mask,
-        .landlock=store->landlock,.image_open=store->image_open};
+        .landlock=store->landlock,.previous_landlock_scope=store->landlock_scope,
+        .image_open=store->image_open};
+    if (fs->store->landlock && mount && mount->parent) {
+        scope->landlock_scope=calloc(1,sizeof(*scope->landlock_scope));
+        r=scope->landlock_scope ? md_fs_landlock_scope(fs,mount,scope->landlock_scope) : -ENOMEM;
+        if (!r) {
+            r=mdi_begin(store,0);
+            if (!r) {
+                struct mdi_node root;
+                r=mdi_fd(store,mount->source,&root);
+                if (!r) memcpy(scope->landlock_scope->root,root.id,sizeof(root.id));
+                r=mdi_finish(store,r);
+            }
+        }
+        if (r) {
+            free(scope->landlock_scope); md_inode_store_close(scope->store);
+            *scope=(struct md_fs_storage_scope){0}; return r;
+        }
+    }
     store->identity=fs->store->identity; store->creation_mask=fs->store->creation_mask;
     store->landlock=fs->store->landlock;
+    store->landlock_scope=scope->landlock_scope;
     store->image_open=fs->store->image_open;
     /* Pivoted roots retain their providers. Ordinary bind aliases still expose
      * real dentries until selected as roots, rather than inventing proc/dev. */
@@ -109,6 +129,8 @@ void md_fs_storage_leave(struct md_fs_storage_scope *scope) {
     scope->store->identity=scope->identity; scope->store->root_id=scope->root;
     scope->store->boundary=scope->boundary; scope->store->creation_mask=scope->mask;
     scope->store->landlock=scope->landlock;
+    scope->store->landlock_scope=scope->previous_landlock_scope;
+    free(scope->landlock_scope);
     scope->store->image_open=scope->image_open;
     md_inode_store_close(scope->store);
     scope->store=NULL;

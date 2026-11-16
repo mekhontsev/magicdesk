@@ -214,7 +214,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
         return item.get('exitCode') == 0
 
     def exercise_ports():
-        from docker_network_fixture import observe, wait_service
+        from docker_network_fixture import observe, port_binding_conflict, wait_service
         names = (base.name + '-first', base.name + '-second')
         network = base.name + '-network'
         conflict = base.name + '-conflict'
@@ -256,8 +256,10 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
             report['localOutboundPassed'] = True
             assert not client('run', '--rm', '--name', conflict, '--network', network,
                               '-p', f'{host}:{ports[0]}:8080', image, '/bin/true')
-            assert 'already allocated' in report['commands'][-1]['output'] \
-                or 'address already in use' in report['commands'][-1]['output'], report['commands'][-1]
+            assert port_binding_conflict(report['commands'][-1]), report['commands'][-1]
+            for name, port in zip(names, ports):
+                report['portChecks'].append(external(operation='exchange', port=port,
+                    token=name, repeats=network_repeats))
             report['portPublicationTested'] = True
             if internet:
                 report['internetResults'] = [client('exec', name, 'python3', '/fixture.py', '--internet') for name in names]

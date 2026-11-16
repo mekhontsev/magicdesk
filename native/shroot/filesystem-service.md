@@ -74,6 +74,14 @@ the request's retained identity. `file_permissions.h` supplies common mode-bit
 and DAC capability rules for inode storage, virtual providers and descriptor
 metadata. Inode ACLs and provider-specific restrictions remain with their owners.
 
+Landlock's inode matcher owns local dentry ancestry. `fs_landlock` supplies
+operation-scoped ancestor grants across retained mount placements, one catalogue
+transaction at a time; `fs_storage` installs and restores that scope around the
+selected inode engine. Grants stay separate per policy layer, and a bind source
+root bounds local ancestry. Detached mounts cannot inherit their former parent's
+grants. Scope allocation and ancestor queries require an active Landlock policy;
+unconfined calls and ordinary data IO do not acquire this work.
+
 Both transports accept the same operation set from `fs_operation.h`. Path and
 descriptor dispatch use one ordered virtual-provider selection. `fs_control`
 prepares the carrier before publishing typed behavior and origin: a failed open
@@ -99,6 +107,21 @@ signal is harmless. Cross-owner resource wakeups retain both pipe ends, so a lat
 retirement after loop shutdown cannot signal a reused FD or raise SIGPIPE.
 Startup/shutdown controls remain eventfds. Socket payloads and semaphore counters
 do not use this contract.
+
+Deferred open completion retains one request owner. If a helper result is
+already queued while task admission is held, an intervening task checkpoint
+only requests result delivery; it cannot bypass that queue and retire its
+request. Queue dispatch publishes the result once, or discards it after
+cancellation. Unqueued completions retain their direct delivery path.
+
+Private-memory repair drains an in-flight guest-output copy, not the filesystem
+worker. Notification validation and `process_vm_writev` share one copy interval
+for file results and inotify, including `FIONREAD`. After participant stops have
+cancelled their notifications and drained admitted cooperative operations, the
+supervisor waits only for the interval observed by its fence. Later copies into
+other address spaces cannot prolong it. Disk synchronization, namespace queues
+and idle worker polling remain independent; native guest IO and detached
+cooperative metadata output do not acquire this fence.
 
 The abstract Unix SOCK_SEQPACKET endpoint has no filesystem path to translate.
 Both ends check SO_PEERCRED against their effective UID. Device fixtures retain

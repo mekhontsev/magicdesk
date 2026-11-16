@@ -127,7 +127,7 @@ def boot_script(system, python, target, dhcp):
     from init_fixture import prepare_init
     from test_os_boot import SYSTEMD
     path = system + '/sw/bin:/bin'
-    boot = prepare_init().replace('export PATH=/usr/sbin:/usr/bin:/sbin:/bin', 'export PATH=' + shlex.quote(path))
+    boot = prepare_init(system)
     detach = '''
 # The fixture owns these handles outside PID1. Detach only the private copies
 # before covering /run, so systemd does not inherit inaccessible mount targets.
@@ -135,7 +135,6 @@ umount /run/netns/md-nixos-client
 umount /run/netns
 ''' if dhcp else ''
     boot = boot.replace('test "$$" = 1', 'test "$$" = 1\n' + detach + 'mkdir -p /run /tmp /var/tmp')
-    boot += '\n' + shlex.quote(system + '/activate') + '\n'
     observer = SYSTEMD.replace('set -ux\n', 'set -ux\nexport PATH=' + shlex.quote(path) + '\n', 1)
     if dhcp:
         observer = observer.replace('mkdir -p /run/systemd/system/default.target.wants',

@@ -11,6 +11,7 @@ import time
 
 from graphical_recipe import compile_recipe
 from installed_desktop import stop_owned_resources
+from init_fixture import launch_with_completion
 from test_oci_services import Suite
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -88,12 +89,15 @@ try:
         keyboardDirectory='guest:' + info['store']))['sessionId']
     wait('graphics_ready')
     launcher = out / 'launch-module.sh'
-    launcher.write_text('#!/system/bin/sh\nenv PATH=' + shlex.quote(suite.base + ':/system/bin') +
-        ' /system/bin/sh -c ' + shlex.quote(recipe) + ' >' + shlex.quote(work + '/desktop.log') + ' 2>&1\n'
-        'status=$?\nprintf "%s\\n" "$status" > ' + shlex.quote(work + '/exit-status') + '\nexit "$status"\n')
+    completion = work + '/exit-status'
+    launcher.write_text('#!/system/bin/sh\n' + launch_with_completion(
+        'env PATH=' + shlex.quote(suite.base + ':/system/bin') +
+        ' /system/bin/sh -c ' + shlex.quote(recipe) + ' >' + shlex.quote(work + '/desktop.log') + ' 2>&1',
+        completion) + '\n')
     suite.upload(launcher, suite.base + '/launch.sh')
     client.call('graphics.execute', dict(sessionId=state['sessionId'],
         command=shlex.join(['/system/bin/sh', suite.base + '/launch.sh'])))
+    state['launchCompletion'] = completion
     (out / 'desktop-state.json').write_text(json.dumps(state, indent=2))
     observation = wait('graphics_window_present')
     window = next(w['windowId'] for w in observation['session']['windows'] if w['mapped'] and not w['parentWindowId'])

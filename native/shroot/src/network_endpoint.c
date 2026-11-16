@@ -392,14 +392,31 @@ int md_network_endpoint_listen(struct md_fd_object *o,int fd,int backlog) {
     md_network_forward_bound(reservation,!error);
     pthread_mutex_unlock(&e->space->fabric->lock); return error;
 }
+int md_network_endpoint_publishes(const void *endpoint,struct md_network_namespace *n,int type,
+        const struct md_inet_address *address) {
+    const struct md_network_endpoint *e=endpoint;
+    return e && e->space==n && e->type==type && e->bound && e->published
+        && (md_inet_equal(&e->local,address) || (type==SOCK_DGRAM
+            && e->local.port==address->port && e->local.ip.family==address->ip.family
+            && md_ip_unspecified(address->ip)));
+}
 const void *md_network_endpoint_publication(struct md_network_namespace *n,const void *except,int type,
         const struct md_inet_address *address) {
     for (const struct md_network_endpoint *e=n->fabric->endpoints;e;e=e->next)
-        if (e!=except && e->space==n && e->type==type && e->bound && e->published
-                && (md_inet_equal(&e->local,address) || (type==SOCK_DGRAM
-                    && e->local.port==address->port && e->local.ip.family==address->ip.family
-                    && md_ip_unspecified(address->ip)))) return e;
+        if (e!=except && md_network_endpoint_publishes(e,n,type,address)) return e;
     return NULL;
+}
+int md_network_endpoint_publication_reuse(struct md_network_namespace *n,const struct md_inet_address *address,
+        const void *include,const void *except) {
+    const struct md_network_endpoint *pending=include;
+    int owned=pending!=NULL;
+    if (pending && !pending->reuse_address) return 0;
+    for (const struct md_network_endpoint *e=n->fabric->endpoints;e;e=e->next)
+        if (e!=except && md_network_endpoint_publishes(e,n,SOCK_DGRAM,address)) {
+            if (!e->reuse_address) return 0;
+            owned=1;
+        }
+    return owned;
 }
 static uint64_t reuse_score(const struct md_network_endpoint *e,const struct md_filter_packet *p) {
     uint64_t value=e->inode ^ ((uint64_t)p->source_port<<32) ^ p->destination_port;
@@ -662,7 +679,17 @@ int md_network_endpoint_sockopt(struct md_fd_object *o,int fd,const struct md_id
             else {
                 int value; memcpy(&value,buffer,sizeof(value));
                 error=setsockopt(fd,SOL_SOCKET,option,&value,sizeof(value)) ? -errno : 0;
-                if (!error) { *setting=!!value; endpoint_changed(e); }
+                if (!error) {
+                    int previous=*setting;
+                    *setting=!!value;
+                    if (option==SO_REUSEADDR && e->type==SOCK_DGRAM && e->published && *setting!=previous)
+                        error=md_network_forward_reuse(e->space,e);
+                    if (error) {
+                        *setting=previous;
+                        setsockopt(fd,SOL_SOCKET,option,&previous,sizeof(previous));
+                        md_network_forward_reuse(e->space,e);
+                    } else endpoint_changed(e);
+                }
             }
         } else { if (*size>sizeof(int)) *size=sizeof(int); memcpy(buffer,setting,*size); }
     } else if (writing) {

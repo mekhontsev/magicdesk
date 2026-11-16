@@ -11,7 +11,7 @@
 struct participant {
     struct participant *next, *indexed;
     pid_t pid;
-    int stopped, resume, interrupted, synthetic, borrowed;
+    int stopped, resume, interrupted, synthetic, borrowed, unavailable;
 };
 struct deferred {
     struct deferred *next;
@@ -86,7 +86,14 @@ int md_task_quiesce_stop(struct md_task_quiesce *q) {
     for (struct deferred *d=q->first;d;d=d->next)
         if (!find(q,d->pid)) { int e=md_task_quiesce_add(q,d->pid,1,0); if (e) return e; }
     for (struct participant *p=q->participants;p;p=p->next) if (!p->stopped && p->resume) {
-        if (q->trace(PTRACE_INTERRUPT,p->pid,NULL,NULL)<0 && errno!=ESRCH) return -errno;
+        if (q->trace(PTRACE_INTERRUPT,p->pid,NULL,NULL)<0) {
+            if (errno!=ESRCH) return -errno;
+            /* A dead leader is not waitable until its peers exit. They may
+             * themselves need this barrier released for terminal cleanup.
+             * Retire stop acquisition, not lifecycle observation: no caller
+             * may borrow or resume this unavailable continuation. */
+            p->unavailable=1; stopped(q,p,1); continue;
+        }
         p->interrupted=1;
     }
     return 0;
@@ -106,6 +113,7 @@ int md_task_quiesce_event(struct md_task_quiesce *q,int retain_interrupt,pid_t p
     struct participant *p=find(q,pid);
     if (p && p->borrowed) return -EBUSY;
     if (!p) { int e=md_task_quiesce_add(q,pid,0,0); if (e) return e; p=find(q,pid); }
+    p->unavailable=0;
     unsigned event=(unsigned)status>>16;
     int interrupt=!p->stopped && p->interrupted && event==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP;
     if (!retain_interrupt && interrupt) {
@@ -132,6 +140,7 @@ int md_task_quiesce_borrow(struct md_task_quiesce *q,pid_t pid,struct md_task_qu
     struct participant *p=find(q,pid);
     if (!p || !out) return -EINVAL;
     if (!md_task_quiesce_ready(q)) return -EBUSY;
+    if (p->unavailable) return -ESRCH;
     struct md_task_quiesce_stop boundary={.kind=p->synthetic
         ? MD_TASK_QUIESCE_SYNTHETIC : MD_TASK_QUIESCE_HELD};
     for (struct deferred *d=q->first;d;d=d->next) if (d->pid==pid) {

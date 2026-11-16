@@ -30,6 +30,14 @@ func grow(n int, seed uint64) uint64 {
 }
 var foreignWork = func(string) {}
 
+func pipeDisposition() [4]uintptr {
+	var action [4]uintptr
+	_, _, errno := syscall.RawSyscall6(syscall.SYS_RT_SIGACTION, uintptr(syscall.SIGPIPE), 0,
+		uintptr(unsafe.Pointer(&action)), 8, 0, 0)
+	if errno != 0 { panic(errno) }
+	return action
+}
+
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "--child" { return }
 	if len(os.Args) < 2 || len(os.Args) > 3 { panic("directory and optional sandbox mode required") }
@@ -50,11 +58,32 @@ func main() {
 		for { select { case <-ch: signals.Add(1); case <-done: return } }
 	}()
 	var group sync.WaitGroup
+	pipeAction := pipeDisposition()
+	// Retain enough native threads to exercise client-table overflow while
+	// fork/exec borrows the address space and resets child signal dispositions.
+	var parked, registered sync.WaitGroup
+	release := make(chan struct{})
+	for i := 0; i < 144; i++ {
+		parked.Add(1)
+		registered.Add(1)
+		go func() {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			defer parked.Done()
+			if _, err := os.Stat(path); err != nil { panic(err) }
+			registered.Done()
+			<-release
+		}()
+	}
+	registered.Wait()
 	group.Add(1)
 	go func() {
 		defer group.Done()
 		for i := 0; i < 128; i++ {
 			if err := exec.Command(os.Args[0], "--child").Run(); err != nil { panic(err) }
+			if action := pipeDisposition(); action != pipeAction {
+				panic(fmt.Sprintf("exec changed parent SIGPIPE action: before=%#v after=%#v", pipeAction, action))
+			}
 		}
 	}()
 	for worker := 0; worker < 8; worker++ {
@@ -92,6 +121,8 @@ func main() {
 		if value==0 { panic("checksum") }
 	}()
 	group.Wait()
+	close(release)
+	parked.Wait()
 	pprof.StopCPUProfile()
 	close(done)
 	reader, err := gzip.NewReader(bytes.NewReader(profile.Bytes())); if err != nil { panic(err) }

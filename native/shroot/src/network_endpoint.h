@@ -53,6 +53,10 @@ const struct md_network_multicast *md_network_endpoint_multicast(const void *,un
 const void *md_network_endpoint_group_next(struct md_network_namespace *,struct md_network_interface *,
     const struct md_filter_packet *,int,const void *,struct md_inet_address *);
 const void *md_network_endpoint_publication(struct md_network_namespace *,const void *,int,const struct md_inet_address *);
+int md_network_endpoint_publishes(const void *,struct md_network_namespace *,int,const struct md_inet_address *);
+/* Under the fabric lock: all owners must permit native UDP address reuse.
+ * Include admits a not-yet-bound endpoint; except retires an existing owner. */
+int md_network_endpoint_publication_reuse(struct md_network_namespace *,const struct md_inet_address *,const void *,const void *);
 int md_network_endpoint_source(struct md_fd_object *,struct sockaddr_storage *,socklen_t *);
 int md_network_endpoint_source_info(struct md_fd_object *,struct sockaddr_storage *,socklen_t *,struct md_network_packet_info *);
 int md_network_endpoint_accept(struct md_fd_object *,int,struct md_fd_object **);

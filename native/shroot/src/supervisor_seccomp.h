@@ -35,7 +35,7 @@ extern struct md_task_quiesce *policy_barrier;
 extern struct thread *policy_installer;
 
 struct md_seccomp_policy *admission_policy(const struct thread *t);
-enum { FILTER_SERVICE_GATES=4 };
+enum { FILTER_REQUIRED_GATES=5, FILTER_SERVICE_GATES=FILTER_REQUIRED_GATES+1 };
 void filter_service_gates(struct md_seccomp_gate gates[FILTER_SERVICE_GATES]);
 
 int guest_trace_rejected(struct thread *t,const struct seccomp_data *call);
@@ -50,8 +50,9 @@ int host_policy_signal(struct thread *t,struct md_task_signal_stop *stop);
 int filter_revoke_entry(struct thread *t,const struct seccomp_data *call);
 int filter_entry_eligible(const struct thread *t);
 void filter_entry_rearm(struct thread *t);
-void filter_entry_complete(struct thread *t,const struct user_pt_regs *regs);
-int filter_entry_map(struct thread *t,const struct user_pt_regs *regs);
+void filter_entry_complete(struct thread *t);
+int filter_entry_map(struct thread *t,const struct user_pt_regs *regs,
+        void (*complete)(struct thread *,const struct user_pt_regs *));
 void filter_install_discard(struct thread *t);
 void filter_install_fail(struct thread *t,int error);
 

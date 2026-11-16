@@ -48,11 +48,15 @@ class Client:
         self.sequence = 0
         self.opener = urllib.request.build_opener(NoRedirect())
 
-    def call(self, name, arguments=None, retry=False, deadline=None):
-        return self.call_result(name, arguments, retry, deadline)["structuredContent"]["data"]
+    def call(self, name, arguments=None, retry=False, deadline=None, *, request_timeout=None):
+        return self.call_result(name, arguments, retry, deadline,
+                                request_timeout=request_timeout)["structuredContent"]["data"]
 
-    def call_result(self, name, arguments=None, retry=False, deadline=None):
+    def call_result(self, name, arguments=None, retry=False, deadline=None, *, request_timeout=None):
         """Validated MCP result including image/resource content, without replay by default."""
+        request_timeout = self.request_timeout if request_timeout is None else request_timeout
+        if not math.isfinite(request_timeout) or request_timeout <= 0:
+            raise ToolError("Request timeout must be finite and positive")
         deadline = deadline or time.monotonic() + self.timeout
         backoff = 0.25
         while True:
@@ -66,7 +70,7 @@ class Client:
             if remaining <= 0:
                 raise TimeoutError("MCP reconnect deadline expired; operation outcome may still be pending")
             try:
-                with self.opener.open(request, timeout=min(self.request_timeout, remaining)) as response:
+                with self.opener.open(request, timeout=min(request_timeout, remaining)) as response:
                     payload = response.read(2 * 1024 * 1024 + 1)
                 if len(payload) > 2 * 1024 * 1024:
                     raise ToolError("MCP response exceeds client limit")

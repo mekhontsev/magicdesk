@@ -470,6 +470,12 @@ static void task_action_call_start(struct task_action *owner) {
     struct user_pt_regs saved=owner->continuation;
     enum md_task_call_boundary boundary=owner->boundary;
     if (owner->remote) {
+        /* An exiting leader may acknowledge INTERRUPT only after its peers
+         * finish robust cleanup. Before borrowing or changing registers, yield
+         * this barrier to that lifecycle owner and retain the exact request. */
+        if (!owner->outer_barrier && retained_cleanup_pending(actor)) {
+            task_action_call_complete(0,1); return;
+        }
         struct md_task_quiesce *barrier=owner->outer_barrier ? owner->outer_barrier : task_action_barrier;
         if (!md_task_quiesce_ready(barrier)) return;
         struct md_task_quiesce_stop stop;
@@ -618,7 +624,8 @@ int task_completion_available(pid_t pid) {
 }
 
 int task_action_borrowable(struct thread *p,struct thread *requester) {
-    if (retained_task_held(p) || quiescence_pending(p->pid)) return 0;
+    if (retained_task_held(p) || (!p->kernel_stopped && retained_cleanup_pending(p))
+            || quiescence_pending(p->pid)) return 0;
     /* A queued table user is parked before its operation, through either
      * transport. Other candidates retain their exact kernel continuation.
      * Never borrow an active worker,
@@ -653,7 +660,8 @@ int task_action_borrowable(struct thread *p,struct thread *requester) {
 }
 
 static int task_action_native_borrow(struct task_action *owner,struct thread *actor,int *stopped) {
-    if (retained_task_held(actor) || quiescence_pending(actor->pid)) return -EBUSY;
+    if (retained_task_held(actor) || (!actor->kernel_stopped && retained_cleanup_pending(actor))
+            || quiescence_pending(actor->pid)) return -EBUSY;
     *stopped=actor->kernel_stopped;
     int borrowed=md_broker_native_borrow(broker,actor->pid,stopped);
     if (borrowed<0) return borrowed;
@@ -961,6 +969,18 @@ void task_group_stop(struct thread *t) {
 
 int task_call_signal(struct thread *t,struct md_task_call *call,int status) {
     if (WIFSTOPPED(status) && !((unsigned)status>>16) && WSTOPSIG(status)==SIGSTOP) {
+        if (md_debugger_traced(debugger,t->pid)) {
+            siginfo_t info;
+            if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"task-call-debugger-stop")) return 1;
+            CHECK(md_debugger_defer_stop(debugger,t->pid,&info));
+            /* Restore the application boundary before exposing this stop.
+             * Injecting it would group-stop peers that GDB needs to collect. */
+            if (call->arguments.flags&MD_TASK_CALL_INTERRUPTIBLE) {
+                int error=md_task_call_interrupt(call);
+                if (error) { CHECK(error==-ESRCH); t->resume_lost=1; return 1; }
+            }
+            task_call_resume(t,call,0); return 1;
+        }
         task_call_resume(t,call,SIGSTOP); return 1;
     }
     if (WIFSTOPPED(status) && (unsigned)status>>16==PTRACE_EVENT_STOP && WSTOPSIG(status)!=SIGTRAP) {

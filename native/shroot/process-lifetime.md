@@ -25,8 +25,12 @@ an application's group-wide shutdown does not cancel supervision. A controlling
 PTY retains the caller's foreground group and ordinary shell job control.
 
 The supervisor retains the namespace worker until tracees have been reaped.
-Shutdown signals its stop eventfd and joins it before freeing request storage;
-a ten-second failure bound terminates the supervisor instead of freeing live
+Shutdown first cancels task-owned continuations while their shared services and
+peer records remain live. It signals the worker's stop eventfd and joins it before
+destroying broker operations, request storage or mapped task channels. Ordinary
+per-task retirement is not used to discard an unfinished broker request during
+whole-launch teardown. Completion and shutdown share operation-resource disposal.
+A ten-second failure bound terminates the supervisor instead of freeing live
 worker memory. Supervisors close unrelated inherited descriptors before starting
 the worker; only the guest retains caller-supplied application FDs.
 
@@ -70,15 +74,18 @@ Readiness snapshots are consumed before their callbacks retire descriptor owners
 The supervisor rebuilds its wait set after dispatch, so bootstrap socket HUP
 cannot leave a closed descriptor in the next wait for child exit.
 
-Cancellation sends SIGTERM followed by SIGCONT to owned children. After a
+Cancellation sends SIGTERM followed by SIGCONT to owned guest processes. After a
 two-second grace bound it escalates to SIGKILL, with ten seconds for reaping.
-Adoption and exit events drive further passes. Double-fork, setsid and changed
-process groups do not remove ancestry.
+The supervisor selects its explicit guest membership, including births published
+during cancellation. Private memory and IO helpers remain under their respective
+owners until guest exit cleanup releases them. Double-fork, setsid and changed
+process groups do not remove guest membership.
 
-Only cancellation enumerates `/proc`. `waitid(P_PIDFD)` proves direct-child
-ownership before signalling each candidate; a matching UID or name is never
-sufficient. Pidfds exclude PID reuse. The optional `/proc/.../children` interface
-is not used. A scan never proves quiescence; only the final wait result does.
+Only guardian cancellation enumerates `/proc`, discovering descendants adopted
+after supervisor failure. `waitid(P_PIDFD)` proves direct-child ownership before
+signalling each candidate; a matching UID or name is never sufficient. Pidfds
+exclude PID reuse. The optional `/proc/.../children` interface is not used.
+A scan never proves quiescence; only the final wait result does.
 
 The frontend returns the root application's status after normal completion,
 `128 + signal` for requested cancellation, and 125 for supervision/service failure.
@@ -114,6 +121,15 @@ the guest continuation. The shared task-action admission excludes that task
 from filter installation, FD capture and temporary-FD retirement, even when
 it originated the request. Its files remain live until normal exit processing;
 another eligible table holder may still retire the descriptor.
+Pending cleanup in the same address space also excludes acquiring a new
+running actor. An uncommitted task action releases its own interrupt barrier
+when that cleanup becomes pending, retaining the exact request and FD custody
+for retry. A mapping's already-stopped continuation remains usable to retire
+its temporary FD before releasing the outer barrier. Committed effects are
+not retried through this admission path.
+An interrupt rejected with ESRCH makes that continuation unavailable for
+borrowing, not a synthetic exit. Quiescence does not wait for an impossible
+acknowledgement; real lifecycle events still reach their ordinary owner once.
 Resource retries and filesystem completions use the same continuation gate;
 terminal replay reopens completion dispatch only after normal lifecycle handling.
 Deferred FIFO-open children also publish through that completion gate. Reaping

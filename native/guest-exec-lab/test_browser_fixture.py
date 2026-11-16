@@ -206,6 +206,33 @@ class BrowserBenchmark(unittest.TestCase):
 
 
 class BrowserFixture(unittest.TestCase):
+    def test_gpu_report_requires_sandbox_composition_and_no_crashes(self):
+        checks = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                   'sandbox-browser-gui.py'))['chromium_gpu_checks']
+        report = '*   Compositing: Hardware accelerated\nSandboxed : true\nGPU process crash count: 0\n'
+        self.assertTrue(all(checks(report).values()))
+        for invalid in ('', report.replace('true', 'false'), report.replace('count: 0', 'count: 1'),
+                        report.replace('Hardware accelerated', 'Software only'),
+                        report.replace('Sandboxed : true\n', ''), report + 'Sandboxed: false\n'):
+            with self.subTest(report=invalid):
+                self.assertFalse(all(checks(invalid).values()))
+
+    def test_gpu_report_snapshot_rejects_reused_evidence(self):
+        snapshot = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                     'sandbox-browser-gui.py'))['gpu_reports']
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            report = work / 'about-gpu.txt'
+            report.write_text('previous report')
+            before = snapshot(work)
+            self.assertEqual(before, snapshot(work))
+            report.write_text('new report with different size')
+            self.assertNotEqual(before[report], snapshot(work)[report])
+            other = work / 'about-gpu (1).txt'
+            other.write_text('new export')
+            self.assertNotIn(other, before)
+            self.assertIn(other, snapshot(work))
+
     def test_webgl_requires_readback_and_retained_context(self):
         checks = runpy.run_path(str(Path(__file__).with_name('fixtures') /
                                    'sandbox-browser-gui.py'))['webgl_checks']

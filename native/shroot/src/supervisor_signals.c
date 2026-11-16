@@ -64,7 +64,7 @@ static void signal_entry_complete(struct thread *t,int failed);
 static void signal_wait_info(void *context,siginfo_t *info);
 static void signal_descriptor_retired(struct thread *t,long error);
 static void signal_control_finish(struct thread *t,int ready);
-static int signal_return_snapshot(struct thread *t);
+static int signal_return_snapshot(struct thread *t,const struct user_pt_regs *observed);
 static int signal_native_mask_commit(struct thread *t,uint64_t mask);
 
 struct signal_selection {
@@ -74,6 +74,12 @@ struct signal_selection {
 };
 
 struct signal_control *signal_entries;
+
+static void signal_mask_record(struct thread *t,uint64_t mask) {
+    t->signals.host_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
+    t->signals.handler_mask=mask&md_signal_blockable_mask();
+    t->signals.handler_mask_known=1;
+}
 
 uid_t process_signal_uid(struct thread *observer,pid_t sender,uid_t fallback) {
     const struct md_identity *identity=proc_owner(sender).identity;
@@ -220,7 +226,21 @@ int signal_ignored(struct thread *t,int signal,struct md_task_signal_stop *stop)
     return ignored_delivery;
 }
 
-void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *stop) {
+static int signal_debugger_admit(struct thread *t,int sig,struct md_task_signal_stop *stop) {
+    if (!sig || !md_debugger_traced(debugger,t->pid)) return 0;
+    if (debugger_at_boundary(t)) {
+        if (!signal_observe(t,stop,0)) return 1;
+        return md_debugger_stop(debugger,t->pid,(sig<<8)|0x7f,&stop->info,0);
+    }
+    if (sig!=SIGSTOP) return 0;
+    if (!signal_observe(t,stop,0)) return 1;
+    CHECK(md_debugger_defer_stop(debugger,t->pid,&stop->info));
+    /* EVENT_WAIT: the operation's cancellation/completion restores the guest
+     * boundary. Native delivery here would group-stop its resource owners. */
+    resume(t->pid,0); return 1;
+}
+
+static void signal_deliver(pid_t pid,int sig,int restored,struct md_task_signal_stop *stop) {
     struct thread *t=thread(pid);
     struct md_task_signal_stop local;
     if (!stop) { md_task_signal_stop_init(&local,native_trace); stop=&local; }
@@ -269,11 +289,17 @@ void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *s
     resume(pid,sig);
 }
 
+void deliver_signal(pid_t pid,int sig,int restored,struct md_task_signal_stop *stop) {
+    struct md_task_signal_stop local;
+    if (!stop) { md_task_signal_stop_init(&local,native_trace); stop=&local; }
+    if (!signal_debugger_admit(thread(pid),sig,stop)) signal_deliver(pid,sig,restored,stop);
+}
+
 void resume_signal(pid_t pid,int sig,const struct md_signal_origin *origin) {
     /* Debugger release has already passed ordinary signal admission. */
     struct thread *t=thread(pid);
     if (origin && origin->valid) t->signals.origin=*origin;
-    deliver_signal(pid,sig,1,NULL);
+    signal_deliver(pid,sig,1,NULL);
     t->signals.origin.valid=0;
 }
 
@@ -433,6 +459,11 @@ static void signal_entry_complete(struct thread *t,int failed) {
     signal_control_discard(t); t->phase=IDLE;
 }
 
+int signal_entry_published(const struct thread *t) {
+    const struct signal_control *owner=t->signals.control;
+    return t->phase==SIGNAL_ENTRY && owner && owner->started && !owner->returning && owner->entry_packet;
+}
+
 int signal_entry_committed(struct thread *t) {
     struct signal_control *owner=t->signals.control;
     if (!owner || owner->returning || !owner->entry_packet
@@ -492,7 +523,7 @@ static void signal_wait_info(void *context,siginfo_t *info) {
 
 static int signal_query_native(const struct thread *t) {
     return !t->signals.host_blocked && !t->signals.shielded && !t->signals.delivery.active
-        && (t->phase==IDLE || (t->phase==SIGNAL_ENTRY && t->signals.control && t->signals.control->entry_packet))
+        && (t->phase==IDLE || signal_entry_published(t))
         && !md_seccomp_policy_may_trace(t->seccomp.policy) && !md_seccomp_policy_may_notify(t->seccomp.policy)
         && !t->debug.options && !t->debug.call_active;
 }
@@ -547,6 +578,7 @@ void signal_query_publish(struct thread *t) {
     if (native!=t->signals.native_query) {
         md_broker_signal_query(broker,t->pid,native);
         t->signals.native_query=native;
+        cooperative_routes_publish(t);
     }
 }
 
@@ -816,7 +848,7 @@ void signal_control_progress(struct thread *t) {
              * kernel must select that new action at the retained delivery stop. */
             int signal=owner->signal;
             signal_control_discard(t); t->phase=IDLE;
-            deliver_signal(t->pid,signal,1,NULL); return;
+            signal_deliver(t->pid,signal,1,NULL); return;
         }
         t->phase=SIGNAL_ENTRY;
         if (wrapped) {
@@ -834,16 +866,16 @@ void signal_control_progress(struct thread *t) {
             if (!tracee_request(t,PTRACE_SETSIGINFO,NULL,&transport,"signal-entry-packet")) return;
             owner->entry_blocked=t->signals.host_blocked;
             owner->entry_wait_view=t->signals.wait_view;
-            t->signals.host_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
-            t->signals.handler_mask=mask;
-            t->signals.handler_mask_known=1;
+            signal_mask_record(t,mask);
             t->signals.wait_view.active=0;
             owner->entry_packet=packet; owner->entry_thread=t;
             owner->entry_next=signal_entries; owner->entry_previous=&signal_entries;
             if (signal_entries) signal_entries->entry_previous=&owner->entry_next;
             signal_entries=owner;
-            if (broker) CHECK(!md_broker_task(broker,t->pid,0,RAW_GATE,abi.watch_return,NULL,0));
-            signal_query_publish(t);
+            /* The veneer commits before any handler instruction. Keep its
+             * ordinary execution channel available; the first shared request
+             * retires this packet without requiring an unrelated kernel stop. */
+            execution_publish(t,1);
             t->kernel_resume=PTRACE_CONT;
             if (native_trace(PTRACE_CONT,t->pid,NULL,(void *)(uintptr_t)owner->signal)<0) {
                 CHECK(errno==ESRCH); t->resume_lost=1;
@@ -898,7 +930,7 @@ void signal_control_progress(struct thread *t) {
     signal_control_finish(t,ready);
 }
 
-static int signal_return_snapshot(struct thread *t) {
+static int signal_return_snapshot(struct thread *t,const struct user_pt_regs *observed) {
     if (statistics) ++statistics->signal_frames[0];
     uintptr_t base=md_memory_readonly_base(t->memory);
     if (!base || t->signals.control || t->signals.return_pending || t->metadata_restart || t->signals.delivery.active
@@ -912,7 +944,8 @@ static int signal_return_snapshot(struct thread *t) {
             || md_signal_pending_has(t->signals.pending,MD_SIGNAL_SHARED)) return 0;
     if (statistics) ++statistics->signal_frames[1];
     struct user_pt_regs regs;
-    if (!registers(t->pid,&regs)) return 1;
+    if (observed) regs=*observed;
+    else if (!registers(t->pid,&regs)) return 1;
     if (regs.sp%16) return 0;
     struct signal_control *owner=calloc(1,sizeof(*owner));
     if (!owner) return 0;
@@ -931,9 +964,7 @@ static int signal_return_snapshot(struct thread *t) {
             if (statistics) ++statistics->signal_frames[4];
             uint64_t mask;
             memcpy(&mask,&frame->context.uc_sigmask,sizeof(mask));
-            t->signals.host_blocked=!!(mask&MD_SIGNAL_SYS_BIT);
-            t->signals.handler_mask=mask&md_signal_blockable_mask();
-            t->signals.handler_mask_known=1;
+            signal_mask_record(t,mask);
             mask&=~MD_SIGNAL_SYS_BIT;
             memcpy(&frame->context.uc_sigmask,&mask,sizeof(mask));
             regs.sp=base+span.offset;
@@ -955,10 +986,11 @@ static int signal_return_snapshot(struct thread *t) {
     return 0;
 }
 
-int signal_native_call(struct thread *t,uint64_t number,uint64_t input,uint64_t output,uint64_t size) {
+int signal_native_call(struct thread *t,uint64_t number,uint64_t input,uint64_t output,uint64_t size,
+        const struct user_pt_regs *observed) {
     if (number==SYS_rt_sigreturn) {
         t->signals.handler_mask_known=0;
-        if (signal_return_snapshot(t)) return 1;
+        if (signal_return_snapshot(t,observed)) return 1;
         if (t->signals.delivery.active && !signal_mask(t,t->signals.delivery.mask,"signal-return-carrier-mask")) return 1;
         t->phase=SIGNAL_NATIVE_EXIT; resume(t->pid,0); return 1;
     }
@@ -1069,7 +1101,7 @@ static int signal_control_delivery(struct thread *t,int signal,struct md_task_si
         struct md_kernel_action entered;
         CHECK(!md_signal_actions_enter(t->signals.actions,signal,&entered));
         uint64_t saved=mask;
-        t->signals.host_blocked=!!(md_signal_view_enter(signal,&entered,0,NULL,&saved)&MD_SIGNAL_SYS_BIT);
+        signal_mask_record(t,md_signal_view_enter(signal,&entered,0,NULL,&saved));
         resume(t->pid,signal); return 1;
     }
     int error=signal_control_begin(t,NULL,NULL,signal,&action,mask,stop && stop->has_info ? &stop->info : NULL);
@@ -1146,7 +1178,7 @@ int signal_control_event(struct thread *t,int status) {
         uint64_t next=md_signal_view_enter(owner->signal,&owner->action,t->signals.host_blocked,NULL,&saved);
         if (t->signals.host_blocked
                 && !signal_mask(t,next&~MD_SIGNAL_SYS_BIT,"handler-frame-native-mask")) return 1;
-        t->signals.host_blocked=!!(next&MD_SIGNAL_SYS_BIT);
+        signal_mask_record(t,next);
         signal_control_discard(t); t->phase=IDLE; resume(t->pid,0); return 1;
     }
     struct user_pt_regs regs;
@@ -1239,7 +1271,7 @@ void signals_buffer_control(struct thread *t,const struct supervisor_control_req
     buffer_reply(t,result); adapter_progress();
 }
 
-void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_signal_stop *signal_stop,int restored_signal) {
+void signals_event(struct thread *t,pid_t pid,int sig,struct md_task_signal_stop *signal_stop,int restored_signal) {
     SUPERVISOR_TRACE("PROBE signal stop pid=%d signal=%d phase=%d\n",pid,sig,t->phase);
     if (sig==SIGSYS && !restored_signal) {
         int error=md_svc_machine_seccomp(md_memory_svc(t->memory),pid,signal_stop);
@@ -1247,17 +1279,7 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
         CHECK(!error);
     }
     if (sig==SIGSYS && !restored_signal && host_policy_signal(t,signal_stop)) return;
-    if (sig==SIGSTOP && md_debugger_traced(debugger,pid) && !debugger_at_boundary(t)
-            && signal_observe(t,signal_stop,0)
-            && md_debugger_defer_stop(debugger,pid,&signal_stop->info)) {
-        /* EVENT_WAIT: finish the internal operation before publishing
-         * the debugger stop; task exit/cancellation releases its owner.
-         * Delivering SIGSTOP now would group-stop shared resource owners. */
-        resume(pid,0); return;
-    }
-    if (md_debugger_traced(debugger,pid) && debugger_at_boundary(t)
-            && signal_observe(t,signal_stop,0)
-            && md_debugger_stop(debugger,pid,status,&signal_stop->info,0)) return;
+    if (signal_debugger_admit(t,sig,signal_stop)) return;
     struct user_pt_regs regs={0};
     if (sig == SIGSYS || sig == SIGSEGV || sig == SIGBUS || sig == SIGABRT || sig == SIGILL
                 || ((diagnostics || signal_diagnostics) && sig == SIGTRAP)) {
@@ -1292,7 +1314,7 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
                 }
             }
             if (i == 64 || denials[i].count > 4) {
-                deliver_signal(pid,sig,restored_signal,signal_stop); return;
+                signal_deliver(pid,sig,restored_signal,signal_stop); return;
             }
         }
         SUPERVISOR_SIGNAL_TRACE("PROBE signal pid=%d signal=%d code=%d pc=%#llx nr=%llu phase=%d adapted=%d address=%p\n",
@@ -1307,5 +1329,5 @@ void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_
         if (sig == SIGSYS)
             SUPERVISOR_SIGNAL_TRACE("PROBE application SIGSYS syscall=%d cookie=%d call=%p\n", info.si_syscall, info.si_errno, info.si_call_addr);
     }
-    deliver_signal(pid,sig,restored_signal,signal_stop);
+    signal_deliver(pid,sig,restored_signal,signal_stop);
 }

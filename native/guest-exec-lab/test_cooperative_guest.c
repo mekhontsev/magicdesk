@@ -48,6 +48,7 @@ static const struct md_entry_api *api;
 static struct md_entry_client client;
 static const char *path="/tmp/cooperative-file";
 static unsigned direct_calls, fallback_calls;
+static int machine_entry;
 extern char entry_test_kernel_return[];
 static long caller_kernel(long number,const uint64_t *args);
 static struct md_entry_call caller_request(int number,const uint64_t args[6]) {
@@ -634,7 +635,7 @@ static void *filtered_peer(void *unused) {
     barrier(&filter_barrier); barrier(&filter_barrier);
     assert(stat_try(&local,&st,&result)==MD_ENTRY_COMPLETED && result==-EACCES);
     assert(stat_try(&fresh,&st,&result)==MD_ENTRY_COMPLETED && result==-EACCES);
-    assert(fresh.opaque[MD_ENTRY_CLIENT_CHANNEL]);
+    assert(!!fresh.opaque[MD_ENTRY_CLIENT_CHANNEL]==machine_entry);
     assert(syscall(SYS_newfstatat,AT_FDCWD,path,&st,0)==-1 && errno==EACCES);
     return NULL;
 }
@@ -653,7 +654,7 @@ static void filters(void) {
         assert(!pthread_join(peer,NULL));
         _exit(0);
     }
-    reap(child); puts("PASS cooperative entry: TSYNC peer/fresh clients use kernel admission without forbidden helper syscalls");
+    reap(child); puts("PASS cooperative entry: TSYNC peer/fresh clients retain policy and mode-specific admission");
 }
 static long required_call(struct md_entry_client *local,int nr,const uint64_t args[6]) {
     struct md_entry_call call=caller_request(nr,args);
@@ -1291,7 +1292,12 @@ static void *capacity_peer(void *unused) {
     assert(outcome!=MD_ENTRY_UNKNOWN);
     assert(outcome==MD_ENTRY_COMPLETED && !result);
     if (local.opaque[MD_ENTRY_CLIENT_CHANNEL]) atomic_fetch_add(&capacity_completed,1);
-    else atomic_fetch_add(&capacity_declined,1);
+    else {
+        atomic_fetch_add(&capacity_declined,1);
+        fprintf(stderr,"capacity admission: owner=%lu control=%#lx\n",
+            (unsigned long)local.opaque[MD_ENTRY_CLIENT_OWNER],
+            (unsigned long)local.opaque[MD_ENTRY_CLIENT_CONTROL]);
+    }
     barrier(&capacity_barrier); return NULL;
 }
 static void capacity(void) {
@@ -1335,7 +1341,7 @@ static void *burst_reader(void *argument) {
     barrier(&burst->ready);
     struct md_entry_client local={0}; struct stat st; long result;
     assert(stat_try(&local,&st,&result)==MD_ENTRY_COMPLETED && !result);
-    assert(local.opaque[MD_ENTRY_CLIENT_CHANNEL]);
+    assert(!!local.opaque[MD_ENTRY_CLIENT_CHANNEL]==(!burst->filtered || machine_entry));
     barrier(&burst->ready);
     unsigned calls=0;
     do {
@@ -1358,8 +1364,10 @@ static void reader_writer_bursts(void) {
         if (filtered) {
             struct md_entry_client fresh={0}; struct stat st; long result;
             assert(stat_try(&fresh,&st,&result)==MD_ENTRY_COMPLETED && !result);
-            assert(fresh.opaque[MD_ENTRY_CLIENT_CHANNEL]);
+            assert(!!fresh.opaque[MD_ENTRY_CLIENT_CHANNEL]==machine_entry);
             struct md_entry_channel *registered=(void *)client.opaque[MD_ENTRY_CLIENT_CHANNEL];
+            /* The writer itself is unfiltered; its existing channel must
+             * remain usable even when Base cannot enroll a fresh client. */
             assert(registered && atomic_load(&registered->enabled));
         }
         for (unsigned i=0;i<128;++i) {
@@ -2007,6 +2015,8 @@ static void initial_stack(int argc,char **argv,int empty) {
 }
 int main(int argc,char **argv) {
     alarm(60); setbuf(stdout,NULL);
+    const char *entry_mode=getenv("SHROOT_MACHINE_ENTRY");
+    machine_entry=!entry_mode || strcmp(entry_mode,"0");
     struct sigaction action={.sa_handler=native_signal}; sigemptyset(&action.sa_mask);
     assert(!sigaction(SIGUSR2,&action,NULL));
     api=(void *)getauxval(MD_AT_COOPERATIVE);
@@ -2017,7 +2027,7 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"--filtered-exec")) {
         struct stat st; long result;
         assert(stat_try(&client,&st,&result)==MD_ENTRY_COMPLETED && !result);
-        assert(client.opaque[MD_ENTRY_CLIENT_CHANNEL]);
+        assert(!!client.opaque[MD_ENTRY_CLIENT_CHANNEL]==machine_entry);
         pid_t child=fork(); assert(child>=0);
         if (!child) { syscall(SYS_gettid,MD_ENTRY_BIND); _exit(99); }
         int status; assert(waitpid(child,&status,0)==child);
@@ -2065,9 +2075,11 @@ int main(int argc,char **argv) {
         int fd=open(path,O_CREAT|O_RDWR,0600); assert(fd>=0 && write(fd,"payload",7)==7 && !close(fd));
         abandoned_memory(); return 0;
     }
-    if (argc>1 && (!strcmp(argv[1],"--birth-retirement") || !strcmp(argv[1],"--bursts"))) {
+    if (argc>1 && (!strcmp(argv[1],"--birth-retirement") || !strcmp(argv[1],"--bursts")
+            || !strcmp(argv[1],"--capacity"))) {
         int fd=open(path,O_CREAT|O_RDWR,0600); assert(fd>=0 && write(fd,"payload",7)==7 && !close(fd));
         if (!strcmp(argv[1],"--birth-retirement")) birth_retirement();
+        else if (!strcmp(argv[1],"--capacity")) capacity();
         else reader_writer_bursts();
         return 0;
     }

@@ -33,7 +33,7 @@ SIGNALS = ('signal-entry', 'signal-entry-filtered', 'signal-views', 'signal-wait
            'signal-wait-pressure', 'signal-wait-pressure-filtered', 'signal-epoll',
            'signal-epoll-filtered', 'signal-epoll-pressure', 'signal-epoll-pressure-filtered',
            'signal-epoll-domains', 'signal-epoll-fault', 'signal-epoll-fault-filtered',
-           'socket-signals', 'socket-child-signals')
+           'socket-signals', 'socket-child-signals', 'pipe-signals')
 GROUPS = dict(policy=POLICY, sync=SYNC, notifications=NOTIFICATIONS, signals=SIGNALS)
 
 

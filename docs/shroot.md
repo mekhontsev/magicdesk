@@ -1357,8 +1357,11 @@ does not acquire another thread's restrictions. Closing or adding rules to the
 original descriptor cannot remove or widen an installed domain.
 
 Rules retain logical object identity and store lifetime. File operations check
-the selected dentry and its ancestry within the same namespace transaction,
-before mutation or writable-open publication. Directory rename and backing
+the selected dentry and its mount ancestry before mutation or writable-open
+publication. Inode ancestry is read under each store's transaction; mounted
+stores inherit grants through their retained mountpoints, separately per policy
+layer. Bind aliases stop at their selected source root and cannot borrow grants
+from unrelated source ancestors. Directory rename and backing
 copy-up do not retarget the grant. ABI 1 rejects cross-directory rename/link.
 Already opened data descriptions retain their authority; proc-FD reopening and
 executable preparation recheck it. Ordinary data IO adds no policy RPC, and
@@ -1367,16 +1370,19 @@ tasks without a domain allocate no Landlock state.
 Explicit rules currently require inode-backed targets. Native providers can
 inherit grants through retained guest mountpoints; unsupported native rule
 targets/mutations fail explicitly. Ambiguous descriptor hardlink ancestry is
-denied rather than selecting a permissive alias. Cross-store mount ancestry and
-full native-provider rules are not established. This is filesystem policy within
+denied rather than selecting a permissive alias. Full native-provider rules
+remain unsupported. This is filesystem policy within
 Shroot's compatibility model, not native LSM isolation: Landlock ptrace-domain
 confinement is not implemented. Network/scoping and newer filesystem rights are
 not advertised; existing network and debugger behavior is unchanged.
 
 The ABI 1 fixture checks positive and negative access, attribute/FD validation,
 hardlinks, symlinks, retained directory identity, policy stacking, preopened FDs,
-proc reads, thread sharing and fork/exec including descriptor execution. A native
-Linux VM runs the same assertions independently of the Android kernel.
+proc reads, thread sharing and fork/exec including descriptor execution. The
+mount variant also checks nested tmpfs/ramfs, bind aliases, directory-relative
+and proc-FD reopening, and stacked-policy intersection in User and Shell.
+The basic filesystem assertions additionally have native Linux VM coverage;
+that earlier control does not qualify the mount variant.
 
 ## Application Filters And Browsers
 

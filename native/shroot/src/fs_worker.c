@@ -21,9 +21,12 @@
 #include <stdio.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <linux/seccomp.h>
 #include <sys/eventfd.h>
+#include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 struct md_fs_worker {
@@ -53,6 +56,9 @@ struct md_fs_worker {
     int (*prepare_wait)(void *);
     struct md_fs_worker_pause *pause;
     atomic_int pause_requested;
+    atomic_uint_fast64_t copy_sequence;
+    atomic_int copy_waiting;
+    struct md_fs_worker_copy_fence *copy_fence;
     atomic_int tid;
     struct md_cost queued, execution, delivery, completion;
 };
@@ -165,39 +171,45 @@ struct worker_runtime {
 static int runtime_open(struct md_fs_worker *w,struct worker_runtime *runtime) {
     *runtime=(struct worker_runtime){.listener=-1};
     struct md_filesystem *fs=&runtime->fs;
+    const char *stage="inode store";
     int error=md_inode_store_open(w->store,0,&fs->store);
-    if (!error) error=md_inode_runtime_prepare(fs->store);
-    if (!error && w->admit) error=md_image_catalogue_open(fs->store,w->admit,&fs->images);
+    if (!error) { stage="runtime directories"; error=md_inode_runtime_prepare(fs->store); }
+    if (!error && w->admit) { stage="image catalogue"; error=md_image_catalogue_open(fs->store,w->admit,&fs->images); }
     fs->storage=&runtime->storage; fs->tasks=w->tasks; fs->exchanges=w->exchanges;
     fs->cursors=w->cursors; fs->ipc_store=w->store;
-    if (!error) error = md_fs_mounts_open(fs, w->attachments, w->attachment_count);
+    if (!error) { stage="mount attachments"; error=md_fs_mounts_open(fs,w->attachments,w->attachment_count); }
     if (!error) {
+        stage="resolver";
         error=md_network_resolver_prepare(fs,w->network);
         if (error) fprintf(stderr,"Shroot resolver: %s; supply --dns IP or prepare /etc/resolv.conf\n",strerror(-error));
     }
     w->network=NULL;
     if (!error) md_fs_render_prepare(fs);
-    if (!error) error=md_fs_sysfs_prepare(fs,&runtime->sysfs);
-    if (!error) error=md_fs_devices_prepare(fs,w->input && w->input->endpoint,&runtime->devices);
+    if (!error) { stage="sysfs"; error=md_fs_sysfs_prepare(fs,&runtime->sysfs); }
+    if (!error) { stage="devices"; error=md_fs_devices_prepare(fs,w->input && w->input->endpoint,&runtime->devices); }
     fs->devices=runtime->devices;
-    if (!error) error=md_fs_proc_prepare(fs);
+    if (!error) { stage="procfs"; error=md_fs_proc_prepare(fs); }
     if (!error) {
+        stage="device events";
         w->device_events=md_device_events_new();
         if (!w->device_events) error=-errno;
     }
     fs->device_events=w->device_events;
-    if (!error) error=md_input_session_start(fs,w->input,w->device_events,runtime->sysfs,&runtime->input);
+    if (!error) { stage="input"; error=md_input_session_start(fs,w->input,w->device_events,runtime->sysfs,&runtime->input); }
     w->input=NULL;
     if (!error && w->inherited && w->inherited->count) {
+        stage="inherited IPC";
         struct md_ipc_credentials *authority=NULL;
         error=md_fs_ipc_authority(fs,&authority);
         if (!error) error=md_ipc_credentials_inherit(authority,w->inherited);
     }
     w->inherited=NULL;
     if (!error) {
+        stage="filesystem listener";
         runtime->listener=md_fs_listen(w->endpoint);
         if (runtime->listener<0) error=runtime->listener;
     }
+    if (error) fprintf(stderr,"Shroot filesystem startup (%s): %s\n",stage,strerror(-error));
     return error;
 }
 static void retire_work(struct md_fs_worker *w,int error) {
@@ -290,6 +302,8 @@ int md_fs_worker_start(const char *store, const char *endpoint, const char *admi
     w->stop = w->ready = -1;
     w->notification_fd = -1;
     atomic_init(&w->pause_requested,0);
+    atomic_init(&w->copy_sequence,0);
+    atomic_init(&w->copy_waiting,0);
     atomic_init(&w->tid,0);
     w->store = store; w->endpoint = endpoint; w->admit = admit;
     w->tasks = tasks;
@@ -396,6 +410,44 @@ int md_fs_worker_error(struct md_fs_worker *w) {
     pthread_mutex_lock(&w->lock); int error = w->error; pthread_mutex_unlock(&w->lock);
     return error;
 }
+void md_fs_worker_copy_begin(struct md_fs_worker *w) {
+    atomic_fetch_add(&w->copy_sequence,1);
+}
+void md_fs_worker_copy_end(struct md_fs_worker *w) {
+    atomic_fetch_add(&w->copy_sequence,1);
+    if (atomic_load(&w->copy_waiting)) md_fs_worker_notify(w);
+}
+ssize_t md_fs_worker_copy_to_task(struct md_fs_worker *w,pid_t pid,int listener,uint64_t id,
+        uintptr_t destination,const void *data,size_t size) {
+    md_fs_worker_copy_begin(w);
+    ssize_t result=-ECANCELED;
+    if (listener<0 || !ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&id)) {
+        struct iovec local={(void *)data,size},remote={(void *)destination,size};
+        result=process_vm_writev(pid,&local,1,&remote,1,0);
+        if (result<0) result=-errno;
+    }
+    md_fs_worker_copy_end(w);
+    return result;
+}
+int md_fs_worker_copy_fence_begin(struct md_fs_worker *w,struct md_fs_worker_copy_fence *fence) {
+    if (!w || !fence || fence->owner) return -EINVAL;
+    if (w->copy_fence) return -EBUSY;
+    w->copy_fence=fence;
+    atomic_store(&w->copy_waiting,1);
+    *fence=(struct md_fs_worker_copy_fence){w,atomic_load(&w->copy_sequence)};
+    return 0;
+}
+int md_fs_worker_copy_fence_ready(const struct md_fs_worker_copy_fence *fence) {
+    return !fence->owner || !(fence->sequence&1)
+        || atomic_load(&fence->owner->copy_sequence)!=fence->sequence;
+}
+void md_fs_worker_copy_fence_end(struct md_fs_worker_copy_fence *fence) {
+    if (!fence->owner) return;
+    struct md_fs_worker *w=fence->owner;
+    w->copy_fence=NULL;
+    atomic_store(&w->copy_waiting,0);
+    *fence=(struct md_fs_worker_copy_fence){0};
+}
 void md_fs_worker_notifications(struct md_fs_worker *w, int fd, void *context,
         int (*ready)(void *, struct md_filesystem *, short),int (*prepare)(void *)) {
     pthread_mutex_lock(&w->lock);
@@ -476,6 +528,7 @@ int md_fs_worker_stop(struct md_fs_worker *w) {
     }
     if (!error && w->error != -ESHUTDOWN) error = -w->error;
     if (w->pause) *w->pause=(struct md_fs_worker_pause){0};
+    if (w->copy_fence) md_fs_worker_copy_fence_end(w->copy_fence);
     while (w->completed) {
         struct md_fs_work *work=w->completed;
         w->completed=work->next;

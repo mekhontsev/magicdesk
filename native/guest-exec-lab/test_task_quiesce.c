@@ -10,7 +10,7 @@
 #include <sys/uio.h>
 #include <sys/wait.h>
 
-static int interrupts, resumes, request;
+static int interrupts, resumes, request, interrupt_error;
 static pid_t resumed, newborn;
 static unsigned birth_event=PTRACE_EVENT_CLONE;
 static long birth_number=SYS_clone;
@@ -30,7 +30,11 @@ static long trace(int op,pid_t pid,void *address,void *data) {
         *(struct user_pt_regs *)io->iov_base=(struct user_pt_regs){.regs={[0]=newborn,[8]=birth_number}};
         return 0;
     }
-    if (op==PTRACE_INTERRUPT) { ++interrupts; return 0; }
+    if (op==PTRACE_INTERRUPT) {
+        ++interrupts;
+        if (interrupt_error) { errno=interrupt_error; return -1; }
+        return 0;
+    }
     assert(op==PTRACE_CONT || op==PTRACE_SYSCALL || op==PTRACE_SINGLESTEP);
     ++resumes; resumed=pid; request=op; return 0;
 }
@@ -48,8 +52,26 @@ int main(void) {
     assert(!md_task_quiesce_interrupting(q,1));
     assert(md_task_quiesce_ready(q));
     assert(!md_task_quiesce_release(q) && resumes==1 && resumed==1 && request==PTRACE_SYSCALL);
-    int status; struct rusage usage;
+    int status; struct rusage usage={0};
     assert(!md_task_quiesce_take(q,&status,&usage));
+
+    /* No synthetic exit: the leader's real wait event can follow its peers.
+     * Failed stop acquisition must neither block them nor authorize execution. */
+    assert(!md_task_quiesce_add(q,90,0,PTRACE_CONT));
+    interrupt_error=ESRCH;
+    assert(!md_task_quiesce_stop(q));
+    interrupt_error=0;
+    struct md_task_quiesce_stop unavailable;
+    assert(md_task_quiesce_ready(q) && !md_task_quiesce_waiting(q,90));
+    assert(!md_task_quiesce_interrupting(q,90));
+    assert(md_task_quiesce_borrow(q,90,&unavailable)==-ESRCH);
+    assert(!md_task_quiesce_take(q,&status,NULL));
+    assert(!md_task_quiesce_release(q) && resumes==1);
+    assert(!md_task_quiesce_event(q,0,90,7<<8,&usage));
+    assert(md_task_quiesce_borrow(q,90,&unavailable)==-ESRCH);
+    assert(!md_task_quiesce_release(q) && resumes==1);
+    assert(md_task_quiesce_take(q,&status,NULL)==90 && status==(7<<8));
+    assert(!md_task_quiesce_take(q,&status,NULL));
 
     assert(!md_task_quiesce_add(q,12,0,PTRACE_CONT));
     assert(!md_task_quiesce_stop(q));

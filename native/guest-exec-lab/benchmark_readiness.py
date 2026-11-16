@@ -76,17 +76,27 @@ def main():
             for mode, enabled in (('base', '0'), ('lazy', '1')):
                 if args.entry_mode in ('both', mode):
                     modes[name + '-' + mode] = [runner, *base, '--env', 'SHROOT_MACHINE_ENTRY=' + enabled]
-        for name, prefix in modes.items():
-            output = suite.command([*prefix, '--statistics', '--', target + '/benchmark', 'file-stat', '1024'])
-            counts = re.findall(r'cooperativeCompleted=(\d+)', output)
-            assert counts and (sum(map(int, counts)) > 0 if name.endswith('-lazy')
-                               else sum(map(int, counts)) == 0), (name, output)
         if args.application_filter:
             for prefix in modes.values():
                 prefix.extend(['--env', 'MD_BENCH_FILTER=1'])
         if args.pid_namespace:
             for prefix in modes.values():
                 prefix.extend(['--env', 'MD_BENCH_PID_NAMESPACE=1'])
+        control = [target + '/benchmark', 'file-stat', '1024']
+        if args.pid_namespace:
+            control = ['/usr/bin/unshare', '--pid', '--fork', '--', *control]
+        suite.report['entryEvidence'] = {}
+        for name, prefix in modes.items():
+            output = suite.command([*prefix, '--statistics', '--', *control])
+            counts = re.findall(r'cooperativeCompleted=(\d+)', output)
+            assert counts and (sum(map(int, counts)) >= 1024 if name.endswith('-lazy')
+                               else sum(map(int, counts)) == 0), (name, output)
+            entries = [json.loads(line.removeprefix('SVC_RUNTIME_STATS '))
+                       for line in output.splitlines() if line.startswith('SVC_RUNTIME_STATS ')]
+            if args.application_filter and name.endswith('-lazy'):
+                assert any(row['filteredCompleted'] >= 1024 for row in entries), (name, output)
+            suite.report['entryEvidence'][name] = dict(
+                cooperativeCompleted=sum(map(int, counts)), entries=entries)
         if args.statistics:
             for prefix in modes.values():
                 prefix.append('--statistics')

@@ -3,7 +3,8 @@
 #include <linux/seccomp.h>
 struct md_inode_store;
 struct md_watch_broker;
-struct md_watch_broker *md_watch_broker_create(void);
+struct md_fs_worker;
+struct md_watch_broker *md_watch_broker_create(struct md_fs_worker *);
 /* Takes the retained reader, including on failure. Worker-thread only. */
 int md_watch_broker_submit(struct md_watch_broker *, struct md_inode_store *, int listener,
         const struct seccomp_notif *, int reader);

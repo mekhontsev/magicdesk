@@ -168,6 +168,10 @@ final release belong to the same endpoint/forwarding owners.
 Reusable UDP wildcard and address-specific endpoints share the existing physical
 listener. Closing the wildcard retains that listener while a matching endpoint
 still owns it; ingress must resolve a live logical receiver before delivery.
+The native UDP publication permits `SO_REUSEADDR` only when every guest owner
+permits it. Bind rollback, option changes and owner retirement update the same
+publication. A NAT rule retains an exclusive host reservation until removal;
+removing it restores any remaining guest owners' reuse policy.
 This admission does not add interception to ordinary payload read/write.
 Local OUTPUT uses loopback interface metadata, independently of the FIB owner
 used for source selection and scoped endpoint binding. DNAT reroutes the

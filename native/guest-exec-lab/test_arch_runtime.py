@@ -54,7 +54,8 @@ def main():
         suite.report['nativeLandlockProbe'] = observe(suite, [native_fixture, '--probe'])
         suite.command(base + ['/bin/mkdir', guest_dir])
         guest_created = True
-        # Copy once into the inode store; Landlock tests do not depend on bind mounts.
+        # Keep the executable in the inode store; the mount variant creates its
+        # own private topology, separate from the fixture's transport binding.
         suite.command([suite.runner, '--store', args.store, '--user', '0:0',
                        '--bind-ro', suite.base, guest_dir, '--', '/bin/cp',
                        guest_dir + '/landlock-contract', '/tmp/md-landlock-' + suite.report['id']])
@@ -65,6 +66,9 @@ def main():
         contract = observe(suite, base + [guest_fixture, guest_dir])
         suite.report['cases'].append({'name': 'landlock-filesystem-contract',
                                       'passed': contract['exitCode'] == 0, 'result': contract})
+        mounts = observe(suite, base + [guest_fixture, '--mounts', guest_dir])
+        suite.report['cases'].append({'name': 'landlock-mount-contract',
+                                      'passed': mounts['exitCode'] == 0, 'result': mounts})
         sync = observe(suite, base + ['/usr/bin/pacman', '-Syy', '--noconfirm'], timeout=200)
         suite.report['cases'].append({'name': 'stock-pacman-sync',
                                       'passed': sync['exitCode'] == 0, 'result': sync})

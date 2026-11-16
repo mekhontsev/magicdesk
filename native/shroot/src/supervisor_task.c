@@ -274,6 +274,12 @@ static int image_identity_prepare(struct thread *t,int fd,struct md_exec_identit
     return error ? error : matched;
 }
 
+void image_entry_complete(struct thread *t,const struct user_pt_regs *regs) {
+    struct user_pt_regs continuation=*regs;
+    if (!set_registers(t->pid,&continuation)) return;
+    if (!md_debugger_exec(debugger,t->pid,t->debug.exec_old ? t->debug.exec_old : t->pid)) resume(t->pid,0);
+}
+
 int image_enter(struct thread *t,uintptr_t image,uintptr_t address,size_t count,unsigned long machine) {
     if (!t->ready || t->entered || !t->image.mapped || count>128 || machine>1) return -EPERM;
     if (!image || image>UINTPTR_MAX-sizeof(struct md_process_image)) return -EFAULT;

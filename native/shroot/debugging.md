@@ -37,6 +37,8 @@ The supervisor retains interception, image admission and process lifetime.
 Guest stops and kernel stops are distinct: bootstrap setup and adapter instructions
 are not presented as application breakpoints. The image-entry event publishes the
 guest ELF entry, stack and process-image snapshot before debugger notification.
+Inherited-filter view mapping returns to this same image-entry owner before
+publishing the exec stop; completing a mapping is not permission to run the ELF.
 `process_image_view` supplies another guest's executable, initial argv and auxv
 through the same authority check; arbitrary foreign proc paths are not exposed.
 Executable readlink returns bounded bytes in the existing mapped response slot,
@@ -67,6 +69,10 @@ An inferior's unmaskable SIGSTOP also waits for that boundary, after its interna
 file-table and filesystem turns finish. Its original siginfo belongs to the
 debugger relationship; suppressing the stop does not group-stop the application
 or expose adapter registers. Untraced processes retain kernel job control.
+Borrowed interruptible calls cancel through their call owner before publishing
+that stop. Signals recovered from native or provider waits pass the same debugger
+admission as ordinary delivery. Debugger continuation and an already-admitted
+handler retry skip that admission, so they cannot report the same signal twice.
 Stop siginfo remains native while the debugger owns the stop. Both ordinary
 continuation and debugger continuation use the same final-delivery owner for
 recipient PID/UID translation and PID-1 signal policy. Debugger observation uses
@@ -236,6 +242,9 @@ restoration, protected targets, restart boundaries and rejected seccomp operatio
 The `syscall-exec` case requires paired entry/exit stops with the exec event
 between them and a successful exec result. The strace workflow checks decoded
 open arguments and child creation, and rejects stray exec-event recovery.
+The `exec` case checks both the initial TRACEME trap and requested exec events.
+The `filtered-*` variants repeat exec, syscall-exec and nonleader exec with an
+inherited allow filter, preserving stop ordering through policy-view admission.
 The `strace-detach` case attaches to 41 idle threads, observes a stable wait,
 sends SIGINT and requires prompt tracer exit without killing the target. The
 target must then accept input, release its workers and exit normally.

@@ -27,6 +27,35 @@ static uint64_t requested(const struct md_fs_request *q,mode_t kind,int exists) 
     default: return 0;
     }
 }
+struct ancestry { struct md_inode_store *store; struct mdi_node node; char root[33]; };
+static int ancestor_matches(void *data,const struct md_landlock_key *key) {
+    struct ancestry *a=data;
+    return mdi_landlock_matches(a->store,&a->node,NULL,a->root,key);
+}
+int md_fs_landlock_scope(struct md_filesystem *fs,const struct md_view_mount *mount,
+        struct md_landlock_scope *scope) {
+    const struct md_landlock_policy *policy=fs->store->landlock;
+    /* Visit one catalogue at a time, before the selected inode transaction.
+     * A detached tree retains local grants, not its former parent's authority. */
+    for (const struct md_view_mount *m=mount;m && m->parent && !m->detached;m=m->parent) {
+        if (!md_view_inode(m->parent)) continue;
+        struct ancestry a={0};
+        int r=md_fs_storage_get(fs,m->parent,&a.store);
+        if (r) return r;
+        r=mdi_begin(a.store,0);
+        if (r) return r;
+        if (m->parent->parent) {
+            struct mdi_node root;
+            r=mdi_fd(a.store,m->parent->source,&root);
+            if (!r) memcpy(a.root,root.id,sizeof(a.root));
+        }
+        if (!r) r=mdi_fd(a.store,m->target,&a.node);
+        if (!r) r=md_landlock_collect(policy,ancestor_matches,&a,scope->inherited);
+        r=mdi_finish(a.store,r);
+        if (r) return r;
+    }
+    return 0;
+}
 int md_fs_landlock_native(struct md_filesystem *fs,const struct md_fs_request *q,
         struct md_view_mount *mount,int fd) {
     if (!fs->store->landlock) return 0;

@@ -29,7 +29,7 @@ struct listener {
     struct listener *next;
     uint64_t id, space;
     const void *endpoint;
-    int fd, reserved, type, active, external, published, listening, endpoint_listening, v6only;
+    int fd, reserved, type, active, external, published, listening, endpoint_listening, v6only, reuse;
     int upstream_fd, upstream_connecting;
     struct md_stack_channel *packet_channel;
     struct md_inet_address address, client, target;
@@ -89,9 +89,15 @@ struct md_network_forward_update {
     uint64_t space;
     struct listener *ports[512];
     unsigned char created[512];
+    unsigned char reuse[512];
     size_t count;
 };
-struct md_network_port_reservation { struct md_network_forward *owner; struct listener *listener; int created; };
+struct md_network_port_reservation {
+    struct md_network_forward *owner;
+    struct listener *listener;
+    const void *previous;
+    int created, reuse;
+};
 static int64_t now_ms(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC,&ts);
     return (int64_t)ts.tv_sec*1000+ts.tv_nsec/1000000;
@@ -261,16 +267,21 @@ void md_network_forward_forget(struct md_network_namespace *n,uint64_t *ids,size
     }
     wake(f);
 }
-static int socket_bound(int type,struct md_inet_address *address,int v6only) {
+static int socket_bound_reuse(int type,struct md_inet_address *address,int v6only,int reuse) {
     int fd=socket(address->ip.family,type|SOCK_CLOEXEC|SOCK_NONBLOCK,0);
     if (fd<0) return -errno;
-    if (type==SOCK_STREAM) { int one=1; setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one)); }
+    if (reuse && setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse))) {
+        int error=-errno; close(fd); return error;
+    }
     if (address->ip.family==AF_INET6 && setsockopt(fd,IPPROTO_IPV6,IPV6_V6ONLY,&v6only,sizeof(v6only))) {
         int error=-errno; close(fd); return error;
     }
     if (md_inet_bind(fd,address,0)) { int error=-errno; close(fd); return error; }
     if (md_inet_name(fd,0,address)) { int error=-errno; close(fd); return error; }
     return fd;
+}
+static int socket_bound(int type,struct md_inet_address *address,int v6only) {
+    return socket_bound_reuse(type,address,v6only,type==SOCK_STREAM);
 }
 static int connect_target(const void *endpoint,int type,struct md_network_transport_policy policy,
         const struct md_inet_address *target,struct md_inet_address *local,int *connecting,int unconnected) {
@@ -930,7 +941,7 @@ void md_network_event_remove(struct md_network_event_source *s) {
     epoll_ctl(s->owner->epoll,EPOLL_CTL_DEL,s->fd,NULL); free(s);
 }
 static int publish_reserved(struct md_network_forward *,struct listener *,int);
-static struct listener *new_listener(struct md_network_forward *f,uint64_t space,int type,struct md_inet_address address,int external,int listening,int v6only) {
+static struct listener *new_listener(struct md_network_forward *f,uint64_t space,int type,struct md_inet_address address,int external,int listening,int v6only,int reuse) {
     if (f->listeners==512 || f->next_id>UINT64_MAX/4) { errno=ENOSPC; return NULL; }
     struct listener *l=calloc(1,sizeof(*l)); if (!l) return NULL;
     l->reserved=l->upstream_fd=-1;
@@ -939,7 +950,8 @@ static struct listener *new_listener(struct md_network_forward *f,uint64_t space
     l->v6only=v6only;
     if (external && !md_ip_unspecified(address.ip) && !md_ip_is_loopback(address.ip))
         address.ip=md_ip_any(address.ip.family);
-    l->fd=socket_bound(type,&address,v6only);
+    l->reuse=type==SOCK_STREAM || reuse;
+    l->fd=socket_bound_reuse(type,&address,v6only,l->reuse);
     l->address.port=address.port;
     if (l->fd<0) { errno=-l->fd; free(l); return NULL; }
     int error=0;
@@ -959,6 +971,21 @@ static struct listener *new_listener(struct md_network_forward *f,uint64_t space
     l->deadline=external ? INT64_MAX : now_ms()+30000;
     l->next=f->ports; f->ports=l; ++f->listeners; return l;
 }
+static int listener_reuse(struct listener *l,int reuse) {
+    if (l->reuse==reuse) return 0;
+    if (setsockopt(l->fd,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse))) return -errno;
+    l->reuse=reuse; return 0;
+}
+int md_network_forward_reuse(struct md_network_namespace *n,const void *endpoint) {
+    struct md_network_forward *f=n->fabric->forward;
+    for (struct listener *l=f ? f->ports : NULL;l;l=l->next)
+        if (l->external && l->space==n->inode && l->type==SOCK_DGRAM && !l->published
+                && md_network_endpoint_publishes(endpoint,n,SOCK_DGRAM,&l->address)) {
+            int error=listener_reuse(l,md_network_endpoint_publication_reuse(n,&l->address,NULL,NULL));
+            if (error) return error;
+        }
+    return 0;
+}
 int md_network_forward_bind(struct md_network_namespace *n,const void *endpoint,int type,
         const struct md_inet_address *address,int v6only,struct md_network_port_reservation **out) {
     *out=NULL;
@@ -971,21 +998,28 @@ int md_network_forward_bind(struct md_network_namespace *n,const void *endpoint,
             && (same(&l->address,address) || (type==SOCK_DGRAM
                 && l->address.port==address->port && l->address.ip.family==address->ip.family
                 && md_ip_unspecified(l->address.ip))))) l=l->next;
-    if (l && (l->endpoint==endpoint || (l->endpoint && type==SOCK_DGRAM))) { free(r); return 0; }
-    if (l && l->endpoint) { free(r); return -EADDRINUSE; }
+    if (l && l->endpoint==endpoint) { free(r); return 0; }
+    if (l && l->endpoint && type!=SOCK_DGRAM) { free(r); return -EADDRINUSE; }
+    int reuse=type==SOCK_STREAM || ((!l || !l->published)
+        && md_network_endpoint_publication_reuse(n,l ? &l->address : address,endpoint,NULL));
     if (!l) {
-        l=new_listener(r->owner,n->inode,type,*address,1,0,v6only);
+        l=new_listener(r->owner,n->inode,type,*address,1,0,v6only,reuse);
         if (!l) { error=-errno; free(r); return error; }
         r->created=1;
     }
+    r->reuse=l->reuse;
+    error=listener_reuse(l,reuse);
+    if (error) { free(r); return error; }
+    r->previous=l->endpoint;
     r->listener=l; l->endpoint=endpoint; *out=r; return 0;
 }
 void md_network_forward_bound(struct md_network_port_reservation *r,int success) {
     if (!r) return;
     if (success) r->listener->active=r->listener->listening;
     else {
-        r->listener->endpoint=NULL;
+        r->listener->endpoint=r->previous;
         if (r->created) drop_listener(r->owner,r->listener);
+        else listener_reuse(r->listener,r->reuse);
     }
     wake(r->owner); free(r);
 }
@@ -1038,7 +1072,7 @@ int md_network_forward_prepare(struct md_network_namespace *n,struct md_network_
         struct listener *l=u->owner->ports;
         while (l && !(l->external && l->space==n->inode && l->type==type && same(&l->address,&address))) l=l->next;
         if (!l) {
-            l=new_listener(u->owner,n->inode,type,address,1,1,1);
+            l=new_listener(u->owner,n->inode,type,address,1,1,1,0);
             if (!l) { error=-errno; break; }
             u->created[u->count]=1;
         } else if (!l->listening) {
@@ -1046,7 +1080,9 @@ int md_network_forward_prepare(struct md_network_namespace *n,struct md_network_
             if (error) break;
             u->created[u->count]=2;
         }
+        u->reuse[u->count]=l->reuse;
         u->ports[u->count++]=l;
+        if (type==SOCK_DGRAM) error=listener_reuse(l,0);
     }
     if (error) { md_network_forward_abort(u); return error; }
     *out=u; return 0;
@@ -1056,11 +1092,13 @@ void md_network_forward_abort(struct md_network_forward_update *u) {
     for (size_t i=0;i<u->count;++i) {
         if (u->created[i]==1) drop_listener(u->owner,u->ports[i]);
         else if (u->created[i]==2) restore_reserved(u->owner,u->ports[i]);
+        else listener_reuse(u->ports[i],u->reuse[i]);
     }
     free(u);
 }
 void md_network_forward_commit(struct md_network_forward_update *u) {
     if (!u) return;
+    struct md_network_namespace *n=md_network_space_find(u->owner->fabric,u->space);
     struct listener *l=u->owner->ports;
     while (l) {
         struct listener *next=l->next;
@@ -1070,6 +1108,8 @@ void md_network_forward_commit(struct md_network_forward_update *u) {
             if (!l->published && !l->endpoint) drop_listener(u->owner,l);
             else {
                 if (!l->published && !l->endpoint_listening && l->reserved>=0) restore_reserved(u->owner,l);
+                if (!l->published && l->type==SOCK_DGRAM)
+                    listener_reuse(l,md_network_endpoint_publication_reuse(n,&l->address,NULL,NULL));
                 l->active=l->listening;
             }
         }
@@ -1092,7 +1132,7 @@ int md_network_forward_route(struct md_network_namespace *n,const void *endpoint
     int error=ensure(n->fabric); if (error) return error;
     struct md_network_forward *f=n->fabric->forward;
     struct md_inet_address address={.ip=md_ip_loopback(path->original.source.family)};
-    struct listener *l=new_listener(f,n->inode,type,address,0,1,1);
+    struct listener *l=new_listener(f,n->inode,type,address,0,1,1,0);
     if (!l) return -errno;
     if (type==SOCK_STREAM) {
         error=md_network_endpoint_connect_begin(endpoint);
@@ -1217,7 +1257,7 @@ int md_network_forward_group(struct md_network_namespace *n,const void *endpoint
             *destination=l->address; return 0;
         }
     struct md_inet_address address={.ip=md_ip_loopback(packet->source.family)};
-    struct listener *l=new_listener(f,n->inode,SOCK_DGRAM,address,0,1,1);
+    struct listener *l=new_listener(f,n->inode,SOCK_DGRAM,address,0,1,1,0);
     if (!l) return -errno;
     l->endpoint=endpoint; l->client=*client; l->client.ip=address.ip;
     l->group_output=link->info.index; l->group_policy=link->policy_id; l->group_hops=hops;
@@ -1283,6 +1323,9 @@ void md_network_forward_endpoint_disconnected(struct md_network_namespace *n,con
     struct listener *l=f->ports;
     while (l) {
         struct listener *next=l->next;
+        if (unbound && l->external && !l->published && l->type==SOCK_DGRAM && l->space==n->inode
+                && (l->endpoint==endpoint || md_network_endpoint_publishes(endpoint,n,SOCK_DGRAM,&l->address)))
+            listener_reuse(l,md_network_endpoint_publication_reuse(n,&l->address,NULL,endpoint));
         if (l->endpoint==endpoint && (unbound || !l->external)) {
             l->endpoint=l->external && l->type==SOCK_DGRAM ? md_network_endpoint_publication(n,endpoint,l->type,&l->address) : NULL;
             if (l->endpoint) { l=next; continue; }

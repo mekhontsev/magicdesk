@@ -103,14 +103,14 @@ try:
         capture_output=True, text=True, timeout=20)
     print(result.stdout, result.stderr)
     assert result.returncode == 0
-    if target in ('gdb-poll-target', 'gdb-epoll-target'):
+    if target in ('gdb-poll-target', 'gdb-epoll-target', 'gdb-socket-target'):
         assert target.replace('-', '_') in result.stdout, result.stdout
         assert 'corrupt stack' not in result.stdout, result.stdout
     output, _ = child.communicate('x', timeout=10)
     assert child.returncode == 0 and 'PASS '+target in output
     assert all(stage in result.stdout for stage in ('MD_ATTACHED', 'MD_BACKTRACE', 'MD_DETACHED'))
     suffix = {'gdb-thread-target': '-threads', 'gdb-poll-target': '-poll',
-              'gdb-epoll-target': '-epoll'}.get(target, '')
+              'gdb-epoll-target': '-epoll', 'gdb-socket-target': '-socket'}.get(target, '')
     print('PASS gdb-attach' + suffix)
 except subprocess.TimeoutExpired as error:
     print(error.stdout, error.stderr, flush=True)
@@ -139,7 +139,9 @@ print('PASS lldb')
 '''
 GDB_IO = r'''
 import subprocess
-child = subprocess.Popen(['/tmp/md-debugger-tests', 'gdb-io-target'],
+import sys
+target = sys.argv[1] if len(sys.argv) > 1 else 'gdb-io-target'
+child = subprocess.Popen(['/tmp/md-debugger-tests', target],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 debugger = None
 try:
@@ -164,11 +166,11 @@ try:
     assert debugger.wait(timeout=10) == 0
     remaining, _ = child.communicate(timeout=10)
     print(remaining)
-    assert child.returncode == 0 and 'PASS gdb-io-target' in remaining
+    assert child.returncode == 0 and 'PASS '+target in remaining
     output = ''.join(output)
     assert output.count('MD_IO_BREAK') == 16 and 'MD_DETACHED' in output
     assert 'Error while executing Python code' not in output
-    print('PASS gdb-active-io')
+    print('PASS ' + ('gdb-active-waits' if target == 'gdb-wait-target' else 'gdb-active-io'))
 finally:
     if debugger is not None:
         if debugger.poll() is None: debugger.kill()
@@ -286,15 +288,19 @@ print('PASS gdb-jit')
 
 
 def commands(*, proot=False):
-    cases = [(name, [TARGET, name]) for name in ('attach', 'seize', 'trace-exit', 'syscall', 'syscall-edit-close', 'syscall-exec', 'syscall-signal', 'credential-transition', 'mixed', 'wait-signal',
+    cases = [(name, [TARGET, name]) for name in ('attach', 'seize', 'trace-exit', 'syscall', 'syscall-edit-close', 'exec', 'syscall-exec', 'syscall-signal', 'credential-transition', 'mixed', 'wait-signal',
                                                'kill-stopped', 'owner-exit', 'exitkill', 'thread-exec', 'syscall-thread-exec', 'clone-untraced', 'shared-files-debugger', 'self-dump-threads', 'self-dump-io', 'perf-event')]
+    cases += [('filtered-' + name, [TARGET, 'filtered-' + name])
+              for name in ('exec', 'syscall-exec', 'thread-exec', 'syscall-thread-exec')]
     cases.append(('strace-detach', ['python3', '-c', STRACE_DETACH]))
     cases.append(('strace-detach-socket', ['python3', '-c', STRACE_DETACH, '--socket']))
     cases.append(('gdb-attach', ['python3', '-c', GDB_ATTACH]))
     cases.append(('gdb-attach-threads', ['python3', '-c', GDB_ATTACH, 'gdb-thread-target']))
     cases.append(('gdb-attach-poll', ['python3', '-c', GDB_ATTACH, 'gdb-poll-target']))
     cases.append(('gdb-attach-epoll', ['python3', '-c', GDB_ATTACH, 'gdb-epoll-target']))
+    cases.append(('gdb-attach-socket', ['python3', '-c', GDB_ATTACH, 'gdb-socket-target']))
     cases.append(('gdb-active-io', ['python3', '-c', GDB_IO]))
+    cases.append(('gdb-active-waits', ['python3', '-c', GDB_IO, 'gdb-wait-target']))
     cases.append(('gdb-attach-fork', ['python3', '-c', GDB_FORK, *([] if proot else ['--selector'])]))
     cases.append(('gdb-shm', ['python3', '-c', GDB_SHM]))
     cases.append(('gdb-jit', ['python3', '-c', GDB_JIT]))

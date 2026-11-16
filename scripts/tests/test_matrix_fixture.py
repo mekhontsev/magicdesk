@@ -24,6 +24,7 @@ with patch.object(sys, 'path', [str(LAB), str(LAB / 'fixtures'), *sys.path]):
     import fixture_app
     import test_booted_containers
     import probe_podman_runtime
+    from docker_network_fixture import port_binding_conflict
     from probe_docker_runtime import ensure_image
     import probe_packet_runtime
     from fixture_executor import FixtureExecutor
@@ -37,6 +38,46 @@ with patch.object(sys, 'path', [str(LAB), str(LAB / 'fixtures'), *sys.path]):
 
 
 class MatrixFixtureTest(unittest.TestCase):
+    @unittest.skipUnless(sys.platform != 'win32' and shutil.which('bash'), 'POSIX guest command execution')
+    def test_session_commands_have_stdin_without_inheriting_controller_input(self):
+        driver = '''
+import os, runpy, shlex, sys
+from unittest.mock import patch
+fixture, directory, close_input = sys.argv[1:]
+with patch.object(sys, 'argv', [fixture, directory, '12345', 'test-token']), \\
+        patch('http.server.ThreadingHTTPServer'):
+    controller = runpy.run_path(fixture)
+if close_input == 'yes':
+    os.close(0)
+command = shlex.join([sys.executable, '-c',
+    'import fcntl,os; fcntl.fcntl(0,fcntl.F_GETFD); '
+    'assert os.read(0,1)==b""; print("INPUT_EOF"); raise SystemExit(7)'])
+assert controller['execute']('probe', command) == 7
+'''
+        for close_input in ('no', 'yes'):
+            with self.subTest(close_input=close_input), tempfile.TemporaryDirectory() as directory:
+                subprocess.run([sys.executable, '-c', driver,
+                                str(LAB / 'fixtures/session-controller.py'), directory, close_input],
+                               input=b'unrelated controller input', capture_output=True,
+                               check=True, timeout=15)
+                self.assertEqual('INPUT_EOF\n', (Path(directory) / 'probe.log').read_text())
+                self.assertEqual('7\n', (Path(directory) / 'probe.exit').read_text())
+
+    def test_container_port_conflict_requires_failed_bind_not_timeout_or_crash(self):
+        messages = (
+            'Bind for 127.0.0.1:8080 failed: port is already allocated',
+            'listen tcp 127.0.0.1:8080: bind: address already in use',
+            'Failed to bind port 8080 (Address in use) for option -t',
+        )
+        for message in messages:
+            for status in (0, 1, 125, 126, -9, None):
+                with self.subTest(message=message, status=status):
+                    self.assertEqual(status in (1, 125, 126),
+                        port_binding_conflict(dict(exitCode=status, output=message)))
+        for message in ('Permission denied', 'OCI runtime failed', '', 'address not available'):
+            self.assertFalse(port_binding_conflict(dict(exitCode=125, output=message)))
+        self.assertFalse(port_binding_conflict(dict(timeout=True, output=messages[0])))
+
     def test_packet_vm_rejects_minimal_contract_initramfs(self):
         with tempfile.TemporaryDirectory() as directory, \
                 patch.object(probe_packet_runtime.subprocess, 'Popen') as decompress, \

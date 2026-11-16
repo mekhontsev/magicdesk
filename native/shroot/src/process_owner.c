@@ -96,9 +96,9 @@ long md_process_signal_child(int pid, int signal) {
     RAW1(close,fd);
     return r;
 }
-/* Only cancellation scans proc. Known tracees are signalled separately because
- * Android can hide non-dumpable children here. Quiescence is established by
- * wait4(ECHILD), never by this best-effort discovery snapshot. */
+/* Guardian cancellation discovers adopted children, not the supervisor's
+ * guest/private-helper membership. Quiescence is established by wait4(ECHILD),
+ * never by this best-effort discovery snapshot. */
 long md_process_signal_children(int signal) {
     long dir = RAW4(openat, AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0);
     if (dir < 0) return dir;

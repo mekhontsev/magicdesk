@@ -42,6 +42,23 @@ struct md_fs_worker_pause { struct md_fs_worker *owner; int acknowledged; int64_
 int md_fs_worker_pause_begin(struct md_fs_worker *, struct md_fs_worker_pause *);
 int md_fs_worker_pause_state(const struct md_fs_worker_pause *);
 int md_fs_worker_pause_end(struct md_fs_worker_pause *);
+/* Single-worker guest-output interval. Begin before validating notification
+ * custody; end after the last possible guest write, including failed copies.
+ * No filesystem operation or wait for the guest may be inside this interval. */
+void md_fs_worker_copy_begin(struct md_fs_worker *);
+void md_fs_worker_copy_end(struct md_fs_worker *);
+/* Notification validation and checked write share the same copy interval.
+ * listener<0 is reserved for an already retained cooperative operation. */
+ssize_t md_fs_worker_copy_to_task(struct md_fs_worker *,pid_t,int listener,uint64_t id,
+    uintptr_t destination,const void *,size_t);
+/* After stopping all target writers, drain only the copy already in flight.
+ * New copies must revalidate their notification; cancelled targets cannot be
+ * written. This is not a worker pause and never waits for unrelated disk IO.
+ * One supervisor-owned fence, retained until end or worker_stop. */
+struct md_fs_worker_copy_fence { struct md_fs_worker *owner; uint64_t sequence; };
+int md_fs_worker_copy_fence_begin(struct md_fs_worker *,struct md_fs_worker_copy_fence *);
+int md_fs_worker_copy_fence_ready(const struct md_fs_worker_copy_fence *);
+void md_fs_worker_copy_fence_end(struct md_fs_worker_copy_fence *);
 /* One worker owns the namespace, image catalogue and both request transports.
  * Published work transfers to the supervisor. Queue locks never cover IO. */
 struct md_fs_worker_launch {

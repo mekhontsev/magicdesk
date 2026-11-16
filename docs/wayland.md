@@ -176,6 +176,11 @@ remains explicit, without a different UID or system-policy fallback.
   admit each output separately. Once scene output selection is established,
   frame callbacks are flushed before composition so clients can prepare their
   next frame concurrently. Clock changes retain pending damage.
+- Presentation feedback includes unchanged visible content and borrowed family
+  outputs. The shared output commit binds pending requests through wlroots;
+  feedback-only commits reuse retained pixels without rendering or exporting a
+  new buffer. Timestamps describe software presentation, not physical scanout.
+  Output visibility, frame credit and GPU readiness still gate admission.
 - A presentation generation identifies an output viewport and its retained
   Android Surface. Stale frames are acknowledged without presentation, and stale
   viewport failures cannot reject a newer request. `FramePresentation` completes
@@ -631,7 +636,9 @@ render admission without consuming frame credit. The window fixture covers
 minimum-size coordinate mapping, unchanged metadata, rendering backpressure and
 hidden-output suspend/resume.
 It also checks scaled single-pixel buffer colors and presentation feedback,
-including the absence of hardware timing flags.
+including the absence of hardware timing flags. Chained feedback-only commits
+must advance presentation timestamps in ordinary and borrowed-family output
+paths without exporting a pixel buffer for each request.
 The shell fixture checks explicit admission, separate application/shell catalogs,
 logical output discovery, resizing, scale and removal without exposing render-only targets,
 initial configure delivery before the client's sync roundtrip and asynchronous

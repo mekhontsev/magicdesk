@@ -334,6 +334,9 @@ int md_fs_buffer_open_interrupted(const struct md_fs_buffer_request *r) {
 int md_fs_buffer_open_resume(struct md_fs_buffer_request *r) {
     if (!md_fs_buffer_open_ready(r)) return -EINVAL;
     r->opening_wait=0;
+    /* A task checkpoint can precede delivery of a deferred child event.
+     * Its queued completion still owns both the reply and request lifetime. */
+    if (r->submitted) return 0;
     return complete(&r->work);
 }
 int md_fs_buffer_child(struct md_fs_buffer_service *s, pid_t pid, int status) {

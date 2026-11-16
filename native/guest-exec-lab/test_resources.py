@@ -317,11 +317,7 @@ def main():
             check("guest buffered paths" + suffix, guest_run + " --store " + root
                   + "/store --deadline-seconds 90 -- /bin/test buffer-paths" + suffix + " /tmp", "PASS buffered paths")
         for suffix in ("", "-dirfd", "-nofollow"):
-            check("native buffered custody control" + suffix,
-                  executable("resource_guest") + " custody-native" + suffix + " " + root + "/native",
-                  "PASS terminal RPC custody")
-            check("guest buffered custody" + suffix, guest_run + " --store " + root
-                  + "/store --deadline-seconds 90 -- /bin/test custody" + suffix + " /tmp", "PASS terminal RPC custody")
+            check_custody(suffix)
         check_exec_custody()
         check_proc_custody()
         check("native buffered group exit", executable("resource_guest") + " buffer-exit " + root + "/native",
@@ -338,6 +334,17 @@ def main():
                                args.build / "buffer-exit.log", overwrite=True)
         check_cancellation()
 
+    def check_custody(suffix):
+        check("native buffered custody control" + suffix,
+              executable("resource_guest") + " custody-native" + suffix + " " + root + "/native",
+              "PASS terminal RPC custody")
+        for entry in (0, 1):
+            check(f"guest buffered custody{suffix} entry={entry}", guest_run
+                  + (" --diagnostics" if args.diagnostics else "")
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --store " + root
+                  + "/store --deadline-seconds 90 -- /bin/test custody" + suffix + " /tmp",
+                  "PASS terminal RPC custody")
+
     def check_cancellation():
         for workload in ("park", "busy"):
             for suffix in ("", "-protected"):
@@ -349,7 +356,8 @@ def main():
                               + "/store --deadline-seconds 2 -- /bin/test buffer-" + workload + suffix + " /tmp",
                               "READY buffered parked group",
                               patterns=(r"guest-runtime: launch deadline expired",), exit_code=125,
-                              absent_patterns=(r"supervisor failure", r"cleanup deadline expired"))
+                              absent_patterns=(r"supervisor failure", r"cleanup deadline expired",
+                                               r"lost retained memory executor"))
                 match = re.search(r"^TRACEES (\d+(?: \d+){8})$", value["output"], re.MULTILINE)
                 if not match:
                     raise RuntimeError("Missing exact tracee identities")
@@ -1059,13 +1067,7 @@ def main():
             if args.case == "fs-directory":
                 check_directories()
                 return
-            custody = args.case.removeprefix("fd-")
-            native_custody = custody.replace("custody", "custody-native", 1)
-            check("native terminal custody", executable("resource_guest") + " " + native_custody + " " + root + "/native",
-                  "PASS terminal RPC custody")
-            check("guest terminal RPC custody", guest_run + " --store " + root
-                  + "/store --deadline-seconds 60 -- /bin/test "
-                  + custody + " /tmp", "PASS terminal RPC custody")
+            check_custody(args.case.removeprefix("fd-custody"))
             return
         if args.case == "mapping-task":
             check("native private mapping task", executable("mapping_task"),

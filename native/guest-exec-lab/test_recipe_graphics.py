@@ -16,6 +16,7 @@ import time
 
 from test_oci_services import Suite, add_machine_entry_argument
 from graphical_recipe import compile_recipe
+from init_fixture import launch_with_completion, wait_launch_completion
 
 
 def main():
@@ -35,7 +36,7 @@ def main():
     client = suite.client
     suite.report['store'] = args.store
     suite.report['connectionSourceHashes'] = hashes
-    display = session = lease = None
+    display = session = lease = completion = None
     owned = False
     document = '/tmp/md-gui-' + suite.report['id'] + '.txt'
     probe_script = document + '.probe'
@@ -61,12 +62,17 @@ def main():
         raise AssertionError(label)
 
     def close_case():
-        nonlocal owned, session
+        nonlocal owned, session, completion
+        status = None
         if owned:
             for launch in launches():
                 suite.command(suite.image_command('stop', args.store, launch['launchId']))
             until(launches, lambda values: not values, 'guest launch cleanup')
             owned = False
+        if completion:
+            status = wait_launch_completion(lambda command: suite.command(
+                ['/system/bin/sh', '-c', command], quiet=True), completion, time.monotonic() + 30)
+            completion = None
         if session:
             if any(s['sessionId'] == session for s in client.call('graphics.list')['sessions']):
                 try:
@@ -76,6 +82,7 @@ def main():
                         raise
             wait('graphics_session_absent', sessionId=session)
             session = None
+        return status
 
     try:
         before = client.call('get_state')
@@ -137,9 +144,9 @@ def main():
                 recipe = subprocess.check_output(['java', '-cp', str(classes),
                     'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'routed', protocol, args.store,
                     args.home, guest_command, args.user], text=True, timeout=20)
-                command = ('{ env PATH=' + shlex.quote(suite.base + ':/system/bin') + ' timeout -k 15 180 /system/bin/sh -c '
-                           + shlex.quote(recipe) + '; r=$?; printf "%s\\n" "$r" > ' + shlex.quote(receipt)
-                           + '; } > ' + shlex.quote(log) + ' 2>&1')
+                command = launch_with_completion('env PATH=' + shlex.quote(suite.base + ':/system/bin')
+                    + ' timeout -k 15 180 /system/bin/sh -c ' + shlex.quote(recipe)
+                    + ' > ' + shlex.quote(log) + ' 2>&1', receipt)
                 # The generated recipe can exceed the desktop Exec size limit.
                 launcher = args.output / (suite.report['id'] + '-' + entry_name + '.sh')
                 launcher.write_text('#!/system/bin/sh\n' + command + '\n')
@@ -153,6 +160,7 @@ def main():
                 owned = True
                 client.call('graphics.execute', {'sessionId': session,
                     'command': shlex.join(['/system/bin/sh', remote_launcher])})
+                completion = receipt
                 if desktop and protocol == 'x11':
                     window = 0
                 else:
@@ -205,7 +213,11 @@ def main():
                 check['error'] = repr(error)
                 print(check['error'], flush=True)
             finally:
-                close_case()
+                status = close_case()
+                if status is not None:
+                    check['launchExitCode'] = status
+                    if status not in (0, 143):
+                        check.update(passed=False, error='Guest launcher failed: ' + str(status))
                 check['log'] = suite.command(['/system/bin/sh', '-c', 'test ! -f "$1" || cat "$1"', 'sh', log], quiet=True)
                 if 'Authorization required, but no authorization protocol specified' in check['log']:
                     check.update(passed=False, error='A client or activated service lost X11 authorization')

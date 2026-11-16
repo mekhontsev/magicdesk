@@ -137,6 +137,7 @@ int md_poll_wait_task(struct md_poll_wait *p,struct md_epoll_wait *wait,struct m
     wait->virtual_count=ready;
     int64_t remaining=wait->blocking ? wait->deadline==INT64_MAX ? INT64_MAX : wait->deadline-md_event_now() : 0;
     if (remaining<0) remaining=0;
+    wait->blocking=remaining!=0;
     f->wait.timeout=(struct timespec){remaining/1000000000LL,remaining%1000000000LL};
     uintptr_t timeout=remaining==INT64_MAX ? 0 : address+offsetof(struct md_poll_frame,wait.timeout);
     uintptr_t mask=f->wait.masked ? address+offsetof(struct md_poll_frame,wait.mask) : 0;

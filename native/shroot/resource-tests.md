@@ -138,15 +138,33 @@ replay, unrelated progress, and accounting across debugger changes. Real ptraced
 children verify single standard/realtime signal delivery after exhausted buffers,
 failed result adoption and successful adoption. The private-memory suite includes
 this fixture alongside its concurrent guest workloads.
+Fatal-cleanup coverage retains a real broker request behind a descriptor-table
+turn while its ptraced caller is killed. The shared channel and task records must
+survive worker join; cleanup must return without a signal or abandoned tracee.
+Worker-copy coverage holds real worker callbacks at explicit gates: unrelated
+IO cannot delay a memory fence, an in-flight copy must drain, and a later copy
+cannot extend the old fence. It also checks cancellation/reuse, shutdown,
+checked output faults and invalid notification custody without touching output.
 The same suite verifies execution retirement independently of register delivery,
 the Base argument ABI, and exact-image checkpoint admission across filter
-ancestry. Signal-delivery controls cover standard carriers coalescing with
+ancestry. Routed-policy checks retain exact descriptor-capture and watch-return
+carriers in Base, resident and size-fallback filters, while original guest calls
+and unrelated instruction addresses keep their denial decisions.
+Signal-delivery controls cover standard carriers coalescing with
 pending kernel SIGALRM, SIGCHLD and SIGIO, retaining siginfo and the original mask.
+Entry-publication checks distinguish an acknowledged handler veneer from an
+unstarted or returning control operation. Exclusive and frame-adapted handlers
+must replace a previously known logical mask, including NODEFER, RESETHAND and
+SIGSYS action masks. Original-context classification is shared by both frontends.
 Temporary-FD retirement checks resident execution without ptrace, borrowed and
 owned table turns, cancelled versus completed effects, close-range fallback and
 terminal uncertainty. Queued descriptor, memory, metadata, transfer and readiness
 owners admit the same borrowed continuation whether parked through a resident
-channel or a kernel stop. `test_epoll_runtime.py` exercises these owners with
+channel or a kernel stop. Pending or active robust cleanup tests exclude new
+running actors, release uncommitted interrupt barriers and retain already-held
+mapping continuations. Quiescence tests reject borrowing after an ESRCH
+interrupt without inventing an exit or losing its later wait event.
+`test_epoll_runtime.py` exercises these owners with
 shared-table replacement, killed waiters and concurrent cold admission.
 
 `test_resources.py BUILD --case fs-results` additionally exercises ready-result
@@ -158,7 +176,10 @@ counters. The existing result tests retain O_PATH, exhausted tables, FIFO and
 protected-caller assertions. A separate 32-thread workload checks 128,000 regular
 file open/nonblocking-read/close cycles, exact data/EOF and descriptor balance
 under native, Base and lazy entry. `--case launch-cancel` separately verifies exact
-process-tree reaping for idle/busy and ordinary/protected callers.
+process-tree reaping for idle/busy and ordinary/protected callers with registered
+robust lists, rejecting private-executor loss during terminal cleanup.
+Supervisor-state coverage separately checks that TERM/CONT and KILL select guest
+members without signalling private helpers needed to complete that cleanup.
 `--case fd-handoff` exercises the shared atomic installer with interrupted and
 restarted notifications, blocked table turns, dead recipients and exact FD
 balance. The real-application counterpart is `browser/test_browser.py`, retaining
@@ -212,19 +233,24 @@ still succeed, both in ordinary and nondumpable callers.
 ## Descriptor Custody
 
 `test_resources.py --case fd-custody` checks the production buffered O_PATH path.
-A CLONE_FILES caller opens successfully with KILL_THREAD filters on connect or
-recvmsg, and dies if the filter targets the result-delivery openat instead.
-After waitpid its peer checks the entire low-FD baseline; none of the six guest
-cases leaves a private descriptor, with or without dumpability. Native controls
-do not enter the internal delivery gate. These checks also run in the default suite.
+A CLONE_FILES caller opens and closes successfully with KILL_THREAD filters on
+connect, recvmsg or an openat argument marker. Internal transport is not an
+application call; the caller then executes the explicitly denied guest operation
+and must die with SIGSYS. Its peer observes the table after the successful open
+and again after waitpid. No transient descriptor may survive termination, and
+all existing descriptor flags remain unchanged. Native, Base and lazy controls
+run with both guest dumpability settings, also in the default suite.
 
 `--case fd-custody-dirfd` repeats the production custody checks with an explicit
-known dirfd, including protected input capture and death at native delivery.
-All six guest cases leave the surviving table unchanged; these also run in the
+known dirfd, including protected input capture and death after guest denial.
+All six cases leave the surviving table unchanged; these also run in the
 default suite and `--case fs-buffer`. `--case fd-custody-nofollow` checks the
-same terminal paths through stable backing-name delivery, preserving O_NOFOLLOW.
-All six guest cases pass without a private socket, and run in the default suite.
-This covers inode-owned objects, not arbitrary native or anonymous sources.
+same terminal paths in a newly created directory, covering native-leaf delivery
+independently of preceding filesystem tests. The successful open may admit one
+table-owned FD channel. Its socket type, flags and cookie are checked; subsequent
+children must reuse that exact channel, and termination cannot add descriptors.
+Stable backing-name delivery remains covered by `fs_anchor` and `fs_dispatch`;
+arbitrary native and anonymous sources retain their separate delivery tests.
 
 `--case fd-lifecycle` measures alternatives natively under UID 2000, outside
 the default suite. Redirecting registers invokes cleanup at a live ptrace stop,
@@ -533,6 +559,9 @@ metadata-only replies and retained/installed descriptor counts.
 Removing task/resource owners cannot recycle a pinned slot before worker
 completion or deliver a late callback to that task; the cancelled result closes
 and final FD counts match baseline.
+Broker continuation checks cover both normal completion and worker shutdown,
+including two pathname operands and retained xattr input. Continuations are
+destroyed exactly once and all captured descriptors return to baseline.
 Results use `resource-fs-dispatch-results.json` separately from runtime regressions.
 Unannotated dirfds are captured as real kernel descriptions, then replaced before
 worker execution to verify that the accepted input cannot change. Watch delivery
@@ -633,6 +662,9 @@ FDs before waiting; only the completed endpoint is delivered to the application.
 Application signals request interruption; an already admitted endpoint retains
 its result, while an unpaired open retains kernel restart handling. Abandoning
 the request cancels and reaps the exact child, discarding unreceived rights.
+Coverage includes a task checkpoint before an already queued child completion,
+cancellation before and after that checkpoint, and repeated dispatch with no
+duplicate reply or retained endpoint.
 Guest-root changes retain the CLONE_FS turn through worker publication. The guest
 adapter uses mapped requests; native host clients use RPC. Reexec image
 preparation and proc-image snapshot construction are

@@ -12,7 +12,7 @@ def main():
     parser.add_argument('--entry-only', action='store_true')
     parser.add_argument('--diagnostics', action='store_true')
     add_machine_entry_argument(parser)
-    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'socket-discovery', 'cursor-lease', 'object-queries', 'xattr-pins', 'signal-abandon', 'native-payload', 'jit-resume', 'jit-busy'), default='all')
+    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'capacity', 'fd-discovery', 'site-discovery', 'proc-discovery', 'socket-discovery', 'cursor-lease', 'object-queries', 'xattr-pins', 'signal-abandon', 'native-payload', 'jit-resume', 'jit-busy'), default='all')
     args = parser.parse_args()
     # Focused runtime cases share no state with the standalone unit fixtures.
     # The default full run retains both layers of coverage.
@@ -182,6 +182,7 @@ def main():
                                     '--statistics', '--store', suite.base + '/store',
                                     '--user', '0:0', '--', '/bin/probe', '--' + args.case])
             assert ('PASS native birth retirement:' if args.case == 'birth-retirement'
+                    else 'PASS cooperative entry: concurrent channels' if args.case == 'capacity'
                     else 'PASS native cursor lease:' if args.case == 'cursor-lease'
                     else 'PASS native xattr pins:' if args.case == 'xattr-pins'
                     else 'PASS cooperative entry: signal longjmp' if args.case == 'signal-abandon'

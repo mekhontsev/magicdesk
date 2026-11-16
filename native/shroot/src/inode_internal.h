@@ -77,6 +77,7 @@ struct md_inode_store {
     struct md_inode_lifetime *lifetime;
     const struct md_identity *identity;
     const struct md_landlock_policy *landlock;
+    const struct md_landlock_scope *landlock_scope;
     int image_open;
     const char *root_id;
     unsigned creation_mask;
@@ -180,6 +181,8 @@ int mdi_path_prefix_get(struct md_inode_store *,const char *,struct mdi_path_pre
 void mdi_path_prefix_put(struct md_inode_store *,const char *,size_t,const struct mdi_path_prefix *);
 void mdi_path_cache_destroy(struct md_inode_store *);
 int mdi_landlock(struct md_inode_store *,const struct mdi_node *,const struct mdi_node *,uint64_t);
+int mdi_landlock_matches(struct md_inode_store *,const struct mdi_node *,const struct mdi_node *,
+    const char *root,const struct md_landlock_key *);
 int mdi_landlock_object(struct md_inode_store *,const struct mdi_node *,uint64_t);
 /* ENTRY retains the final directory entry (unlink/rename/create). NOFOLLOW
  * retains a final symlink except when a trailing slash requires traversal. */

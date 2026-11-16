@@ -38,6 +38,16 @@ def accept_editor(listener, child, deadline):
         os.close(process_fd)
 
 
+def verify_gpu(info, require_gpu):
+    assert isinstance(info, dict), 'Missing Electron GPU information'
+    attributes = info.get('auxAttributes', {})
+    assert attributes.get('sandboxed') is True, 'GPU sandbox not active'
+    crashes = attributes.get('processCrashCount')
+    assert type(crashes) is int and crashes == 0, f'GPU process crash count: {crashes!r}'
+    if require_gpu:
+        assert info.get('featureStatus', {}).get('gpu_compositing') == 'enabled', info
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
@@ -120,14 +130,23 @@ def main():
                         assert len(editors) == 1, record['processes']
                         editor_fd = os.pidfd_open(editors[0])
                         report['editorPid'] = editors[0]
+                        verify_gpu(record.get('gpu'), args.require_gpu)
                         status = subprocess.check_output([args.code, '--status',
                             '--user-data-dir=' + str(work / 'data')], env=env, text=True,
                             stderr=subprocess.STDOUT, timeout=max(1, deadline - time.monotonic()))
                         (args.output / 'status.txt').write_text(status)
                         features = dict(re.findall(r'^\s*(\w+):\s*(\w+)\s*$', status, re.MULTILINE))
                         report['gpuFeatures'] = features
+                        if not status.strip():
+                            diagnostic = subprocess.run([args.code, '--verbose', '--status',
+                                '--user-data-dir=' + str(work / 'data')], env=env, text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                timeout=max(1, deadline - time.monotonic()))
+                            (args.output / 'status-diagnostic.txt').write_text(diagnostic.stdout)
+                            report['statusDiagnosticExitCode'] = diagnostic.returncode
                         if args.require_gpu:
-                            assert features.get('gpu_compositing') == 'enabled', status
+                            assert features.get('gpu_compositing') == 'enabled', \
+                                status or 'Empty Code status; see status-diagnostic.txt'
                         renderers = [p['id'] for p in record['processes'] if p['type'] == 'renderer']
                         assert renderers, 'No live editor renderer in Electron process information'
                         report['rendererSandboxes'] = []
@@ -143,6 +162,7 @@ def main():
                     if record['stage'] == 'breakpoint':
                         connection.sendall(b'continue\n')
                     if record['stage'] == 'passed':
+                        verify_gpu(record.get('gpu'), args.require_gpu)
                         connection.sendall(b'close\n')
                         break
                 else:
@@ -162,28 +182,39 @@ def main():
         report['failure'] = repr(error)
         raise
     finally:
-        if editor_fd is not None:
-            if not report['passed']:
-                # Electron can outlive the CLI's process group. The pidfd
-                # identifies only the editor launched by this fixture.
+        try:
+            if editor_fd is not None:
                 try:
-                    signal.pidfd_send_signal(editor_fd, signal.SIGTERM)
-                    closed = select.poll()
-                    closed.register(editor_fd, select.POLLIN)
-                    # EVENT_WAIT: exact failed editor exit, then forced cleanup.
-                    if not closed.poll(10000):
-                        signal.pidfd_send_signal(editor_fd, signal.SIGKILL)
-                        if not closed.poll(10000):
-                            report['cleanupFailure'] = 'Editor did not exit after SIGKILL'
-                except ProcessLookupError:
-                    pass
-            os.close(editor_fd)
-        if child and child.poll() is None:
-            # The CLI owns an Electron child; terminate this fixture's process
-            # group on failure rather than leaving its editor window running.
-            os.killpg(child.pid, signal.SIGTERM)
-            child.wait(timeout=10)
-        (args.output / 'gui-report.json').write_text(json.dumps(report, indent=2))
+                    if not report['passed']:
+                        # Electron can outlive the CLI's process group. The pidfd
+                        # identifies only the editor launched by this fixture.
+                        try:
+                            signal.pidfd_send_signal(editor_fd, signal.SIGTERM)
+                            closed = select.poll()
+                            closed.register(editor_fd, select.POLLIN)
+                            # EVENT_WAIT: exact failed editor exit, then forced cleanup.
+                            if not closed.poll(10000):
+                                signal.pidfd_send_signal(editor_fd, signal.SIGKILL)
+                                if not closed.poll(10000):
+                                    raise TimeoutError('Editor did not exit after SIGKILL')
+                        except ProcessLookupError:
+                            pass
+                finally:
+                    os.close(editor_fd)
+            if child and child.poll() is None:
+                # The CLI owns an Electron child; terminate this fixture's process
+                # group on failure rather than leaving its editor window running.
+                os.killpg(child.pid, signal.SIGTERM)
+                child.wait(timeout=10)
+            if report['passed']:
+                shutil.rmtree(work)
+                report['workRemoved'] = True
+        except Exception as error:
+            report['passed'] = False
+            report['cleanupFailure'] = repr(error)
+            raise
+        finally:
+            (args.output / 'gui-report.json').write_text(json.dumps(report, indent=2))
 
 
 if __name__ == '__main__':

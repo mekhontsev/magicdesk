@@ -49,6 +49,25 @@ def webgl_checks(receipts):
     }
 
 
+def chromium_gpu_checks(report):
+    fields = {}
+    for line in report.splitlines():
+        name, separator, value = line.partition(':')
+        if separator:
+            fields.setdefault(name.strip().removeprefix('*').strip(), []).append(value.strip())
+    return {
+        'gpuSandbox': fields.get('Sandboxed') == ['true'],
+        'gpuCrashFree': fields.get('GPU process crash count') == ['0'],
+        'gpuComposition': fields.get('Compositing') == ['Hardware accelerated'],
+    }
+
+
+def gpu_reports(work):
+    return {path: (st.st_ino, st.st_size, st.st_mtime_ns)
+            for path in work.glob('about-gpu*.txt') if path.is_file()
+            for st in [path.stat()]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
@@ -58,11 +77,15 @@ def main():
     parser.add_argument('--reuse-work', type=Path, help='Relaunch the existing fixture profile without rewriting preferences')
     parser.add_argument('--port', type=int, default=0)
     parser.add_argument('--require-webgl', action='store_true')
+    parser.add_argument('--require-gpu', action='store_true',
+                        help='Chromium: require WebGL and a fresh chrome://gpu report with hardware composition, sandbox and no GPU crashes')
     parser.add_argument('--entry', choices=('default', 'base', 'lazy'), default='default')
     parser.add_argument('--net-log', action='store_true', help='Record Chromium network diagnostics in the fixture directory')
     args = parser.parse_args()
     if args.net_log and args.browser != 'chromium':
         parser.error('--net-log requires Chromium')
+    if args.require_gpu and args.browser != 'chromium':
+        parser.error('--require-gpu requires Chromium; use --require-webgl for Firefox')
     app_id = {'firefox': 'org.mozilla.firefox', 'chromium': 'org.chromium.Chromium'}[args.browser]
     if args.common is None:
         args.common = (Path.home() / 'snap' / args.browser / 'common' if args.package == 'snap'
@@ -82,6 +105,7 @@ def main():
         assert downloaded.read_bytes() == DATA, 'Only reuse a completed fixture directory'
     else:
         profile.mkdir()
+    previous_gpu_reports = gpu_reports(work) if args.require_gpu else {}
     if args.browser == 'firefox':
         if not args.reuse_work:
             (profile / 'user.js').write_text(
@@ -150,6 +174,8 @@ def main():
     try:
         print('Type shroot, click Click, download, then select: ' + str(work / 'shroot-snap.txt'), flush=True)
         print('Close the browser normally to finish. Profile: ' + str(profile), flush=True)
+        if args.require_gpu:
+            print('Before closing, open chrome://gpu and Download Report to File.', flush=True)
         command = launcher + options + ['http://127.0.0.1:' + str(server.server_address[1]) + '/']
         print('Command: ' + json.dumps(command), flush=True)
         result = subprocess.run(command, env=environment)
@@ -166,8 +192,16 @@ def main():
         'chooser': {'type': 'upload', 'value': DATA.decode()} in receipts,
     }
     gpu = [r['value'] for r in receipts if r.get('type') == 'gpu']
-    if args.require_webgl:
+    if args.require_webgl or args.require_gpu:
         checks.update(webgl_checks(receipts))
+    if args.require_gpu:
+        reports = [path for path, state in gpu_reports(work).items()
+                   if previous_gpu_reports.get(path) != state]
+        checks['gpuReport'] = len(reports) == 1
+        text = reports[0].read_text() if checks['gpuReport'] else ''
+        checks.update(chromium_gpu_checks(text))
+        if checks['gpuReport']:
+            (args.output / 'gpu.txt').write_text(text)
     report = dict(passed=all(checks.values()), browser=args.browser, package=args.package,
                   entry=args.entry,
                   command=command, checks=checks, gpu=gpu, work=str(work), reusedProfile=bool(args.reuse_work),

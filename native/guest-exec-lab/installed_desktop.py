@@ -22,7 +22,7 @@ import urllib.request
 import uuid
 
 from graphical_recipe import compile_recipe
-from init_fixture import installed_boot
+from init_fixture import installed_boot, launch_with_completion, wait_launch_completion
 from fixture_executor import FixtureExecutor
 from test_oci_services import Suite, port
 
@@ -153,9 +153,12 @@ def stop_owned_resources(client, shell, state, timeout=30):
     while launches():
         remaining = deadline - time.monotonic()
         assert remaining > 0, 'Owned guest launch did not stop'
-        # STATE_POLL: image stop only sends SIGTERM. Require registry disappearance
-        # before collecting logs; the deadline fails cleanup rather than claiming exit.
+        # STATE_POLL: image stop only sends SIGTERM. Registry disappearance
+        # retires discovery, not the launcher's final output or process lifetime.
         threading.Event().wait(min(0.1, remaining))
+    completion = state.get('launchCompletion')
+    if completion:
+        state['launchExitCode'] = wait_launch_completion(shell, completion, deadline)
     session = state.get('sessionId')
     if session:
         if any(item['sessionId'] == session for item in client.call('graphics.list')['sessions']):
@@ -286,10 +289,13 @@ def main():
                                 '--bind', suite.base, target, '--', binary + '/script', '-q', '-e', '-c', command, '/dev/null'])
             state['launch'] = launch
             statefile.write_text(json.dumps(state, indent=2))
+            completion = suite.base + '/launch.exit'
             result = client.call('console.execute', dict(sessionId=state['commandConsoleId'], command=
-                launch + ' >' + shlex.quote(suite.base + '/boot.log') + ' 2>&1 </dev/null & echo $!'))
+                launch_with_completion(launch + ' >' + shlex.quote(suite.base + '/boot.log')
+                                       + ' 2>&1 </dev/null', completion) + ' & echo $!'))
             assert result['exitCode'] == 0, result
-            state['supervisorPid'] = int(result['output'].strip())
+            state['launcherPid'] = int(result['output'].strip())
+            state['launchCompletion'] = completion
             statefile.write_text(json.dumps(state, indent=2))
             wait_controller(state)
             state['ready'] = True
@@ -388,12 +394,15 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         # The fixture carries the exact production session payload, not a
         # desktop Exec entry. Keep that payload in a file, outside Exec's limit.
         launcher = out / 'launch.sh'
-        launcher.write_text('#!/system/bin/sh\n' + launch + '\n')
+        completion = suite.base + '/launch.exit'
+        launcher.write_text('#!/system/bin/sh\n' + launch_with_completion(launch, completion) + '\n')
         suite.upload(launcher, suite.base + '/launch.sh')
         state['launch'] = launch
         statefile.write_text(json.dumps(state, indent=2))
         client.call('graphics.execute', dict(sessionId=state['sessionId'],
                     command=shlex.join(['/system/bin/sh', suite.base + '/launch.sh'])))
+        state['launchCompletion'] = completion
+        statefile.write_text(json.dumps(state, indent=2))
         attach_window(client, state, statefile)
         wait_controller(state)
         wait_controller(state, user=True)
@@ -482,6 +491,8 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         state['closed'] = True
         state['homeLeaseAfter'] = after['homeLease']
         statefile.write_text(json.dumps(state, indent=2))
+        assert state.get('launchExitCode', 0) in (0, 143), (
+            'Owned guest launcher failed during shutdown: ' + str(state.get('launchExitCode')))
         assert after['homeLease'] == state['homeLeaseBefore']
         if not state.get('headless'):
             assert not after['workspaces']

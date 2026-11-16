@@ -75,7 +75,19 @@ void filter_service_gates(struct md_seccomp_gate gates[FILTER_SERVICE_GATES]) {
     gates[1]=(struct md_seccomp_gate){abi.buffer_admit,abi.buffer_admit,SYS_gettid,
         SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
     gates[2]=(struct md_seccomp_gate){abi.task_return,abi.task_return,-1,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
-    gates[3]=(struct md_seccomp_gate){abi.code_begin,abi.code_end,-1,SECCOMP_RET_ALLOW};
+    /* These carriers already have owners in the original interception filter.
+     * Keep their cookies/listener, including without a resident SVC image. */
+    gates[3]=(struct md_seccomp_gate){abi.capture_gate,abi.capture_gate,SYS_openat,SECCOMP_RET_ALLOW};
+    gates[4]=(struct md_seccomp_gate){abi.watch_return,abi.watch_return,-1,SECCOMP_RET_ALLOW};
+    gates[FILTER_REQUIRED_GATES]=(struct md_seccomp_gate){abi.code_begin,abi.code_end,-1,SECCOMP_RET_ALLOW};
+}
+
+static struct md_seccomp_route filter_service_route(const struct md_seccomp_gate *gates,size_t count,uint64_t image) {
+    /* Size fallback removes resident ranges, never admission before guest BPF:
+     * an implicit BPF exit cannot be intercepted by a return epilogue. */
+    return (struct md_seccomp_route){.delegation_pc=abi.task_return,.notify_cookie=MD_INTERCEPT_NOTIFY,
+        .gates=gates,.gate_count=count,.entry_first=1,.entry_image=image,
+        .internal_gate_count=image ? FILTER_SERVICE_GATES : 0};
 }
 
 struct md_seccomp_policy *admission_policy(const struct thread *t) {
@@ -426,20 +438,27 @@ void filter_entry_rearm(struct thread *t) {
     SUPERVISOR_TRACE("PROBE filter-entry-ready pid=%d\n",t->pid);
 }
 
-void filter_entry_complete(struct thread *t,const struct user_pt_regs *regs) {
+void filter_entry_complete(struct thread *t) {
     filter_entry_rearm(t);
     filter_install_discard(t); t->phase=IDLE;
+}
+
+static void filter_install_resume(struct thread *t,const struct user_pt_regs *regs) {
     struct user_pt_regs continuation=*regs;
     if (set_registers(t->pid,&continuation)) resume(t->pid,0);
 }
 
-int filter_entry_map(struct thread *t,const struct user_pt_regs *regs) {
+int filter_entry_map(struct thread *t,const struct user_pt_regs *regs,
+        void (*complete)(struct thread *,const struct user_pt_regs *)) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
     if (!registry || !(registry->pause_reasons&MD_SVC_PAUSE_FILTER) || !t->seccomp.policy
             || !md_seccomp_policy_entry_compatible(t->seccomp.policy,registry->image)
             || !md_memory_snapshots_valid(t->memory)) return 0;
     struct buffer_mapping *owner=calloc(1,sizeof(*owner));
     if (!owner) return 0;
+    /* Mapping completion returns to its owner: installing a filter and
+     * entering a new ELF image have different debugger boundaries. */
+    owner->policy_resume=complete;
     for (const struct md_seccomp_policy *p=md_seccomp_policy_parent(t->seccomp.policy);p;p=md_seccomp_policy_parent(p)) {
         owner->parent_view=md_memory_snapshot_address(t->memory,md_seccomp_policy_identity(p));
         if (owner->parent_view) { owner->ancestor=md_seccomp_policy_identity(p); break; }
@@ -702,23 +721,20 @@ void filter_install_progress(struct thread *t) {
         struct md_seccomp_gate *gates=calloc(capacity,sizeof(*gates));
         if (!gates) { filter_install_fail(t,-ENOMEM); return; }
         filter_service_gates(gates);
-        size_t gate_count=3;
+        size_t gate_count=FILTER_REQUIRED_GATES;
         if (registry) {
             gate_count=FILTER_SERVICE_GATES;
             for (unsigned i=0;i<registry->pool_count;++i)
                 gates[gate_count++]=(struct md_seccomp_gate){registry->pools[i].address,
                     registry->pools[i].address+MD_SVC_CODE_BYTES,-1,SECCOMP_RET_TRACE|MD_INTERCEPT_TASK};
         }
-        const struct md_seccomp_route route={.delegation_pc=abi.task_return,.notify_cookie=MD_INTERCEPT_NOTIFY,
-            .gates=gates,.gate_count=gate_count,.entry_first=1,.entry_image=registry ? registry->image : 0,
-            .internal_gate_count=registry ? FILTER_SERVICE_GATES : 0};
+        const struct md_seccomp_route route=filter_service_route(gates,gate_count,registry ? registry->image : 0);
         int error=md_seccomp_capture_prepare(&install->capture,md_memory_readonly_buffers(t->memory),
             md_memory_readonly_base(t->memory),t->seccomp.policy,&program,
             delegated,t->signals.host ? sizeof(delegated)/sizeof(*delegated) : 3,
             MD_INTERCEPT_TASK,&route);
         if (error==-E2BIG && registry) {
-            struct md_seccomp_route fallback=route;
-            fallback.gate_count=3; fallback.entry_first=0; fallback.entry_image=0; fallback.internal_gate_count=0;
+            const struct md_seccomp_route fallback=filter_service_route(gates,FILTER_REQUIRED_GATES,0);
             error=md_seccomp_capture_prepare(&install->capture,md_memory_readonly_buffers(t->memory),
                 md_memory_readonly_base(t->memory),t->seccomp.policy,&program,
                 delegated,t->signals.host ? sizeof(delegated)/sizeof(*delegated) : 3,
@@ -829,7 +845,7 @@ int filter_observed(struct thread *t,const struct user_pt_regs *regs) {
         for (struct thread *peer=threads;peer;peer=peer->next)
             if (peer->pid && peer->tgid==t->tgid) peer->seccomp.application_filter=1;
     SUPERVISOR_TRACE("PROBE installed-filter pid=%d instructions=%u\n",t->pid,length);
-    if (filter_entry_map(t,regs)) return 1;
+    if (filter_entry_map(t,regs,filter_install_resume)) return 1;
     filter_install_discard(t);
     return 0;
 }

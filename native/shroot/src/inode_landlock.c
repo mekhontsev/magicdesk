@@ -3,20 +3,31 @@
 #include <string.h>
 
 struct selection { struct md_inode_store *store; const struct mdi_node *node, *parent; };
-static int matches(void *data,const struct md_landlock_key *key) {
-    struct selection *s=data;
-    if (!md_inode_lifetime_same(key->store,s->store->lifetime)) return 0;
-    if (s->node && !strcmp(key->object,s->node->id)) return 1;
+int mdi_landlock_matches(struct md_inode_store *s,const struct mdi_node *node,
+        const struct mdi_node *parent,const char *root,const struct md_landlock_key *key) {
+    if (!md_inode_lifetime_same(key->store,s->lifetime)) return 0;
+    if (node && !strcmp(key->object,node->id)) return 1;
     /* File hardlinks have multiple parents. Only the resolved dentry's parent
      * participates; a grant through another alias must not authorize this one. */
-    const struct mdi_node *dir=s->node && s->node->kind==S_IFDIR ? s->node : s->parent;
-    return dir ? mdi_ancestor(s->store,key->object,dir->id) : 0;
+    const struct mdi_node *dir=node && node->kind==S_IFDIR ? node : parent;
+    if (!dir) return 0;
+    if (root && *root) {
+        int inside=mdi_ancestor(s,root,key->object);
+        if (inside<=0) return inside;
+    }
+    return mdi_ancestor(s,key->object,dir->id);
+}
+static int matches(void *data,const struct md_landlock_key *key) {
+    struct selection *s=data;
+    return mdi_landlock_matches(s->store,s->node,s->parent,
+        s->store->landlock_scope ? s->store->landlock_scope->root : NULL,key);
 }
 int mdi_landlock(struct md_inode_store *s,const struct mdi_node *node,
         const struct mdi_node *parent,uint64_t access) {
     if (!s->landlock || !access) return 0;
     struct selection selected={s,node,parent};
-    return md_landlock_check(s->landlock,access,matches,&selected);
+    return md_landlock_check(s->landlock,access,matches,&selected,
+        s->landlock_scope ? s->landlock_scope->inherited : NULL);
 }
 int mdi_landlock_object(struct md_inode_store *s,const struct mdi_node *node,uint64_t access) {
     if (!s->landlock || !access) return 0;

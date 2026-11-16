@@ -3,6 +3,8 @@ import shlex
 import json
 from pathlib import Path
 import subprocess
+import threading
+import time
 
 GUEST_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/nix/var/nix/profiles/system/sw/bin'
 
@@ -78,10 +80,17 @@ def start_service(init, service):
                 ' /etc/runit/runsvdir/default/' + name)
     raise ValueError('Unsupported init: ' + init)
 
-def prepare_init():
+def prepare_init(system=None):
     """Read the installer-owned preparation on the host, never on guest import."""
-    return subprocess.check_output(['sh', str(Path(__file__).resolve().parents[2] /
+    program = subprocess.check_output(['sh', str(Path(__file__).resolve().parents[2] /
         'scripts/install_linux.sh'), '--print-init-prepare'], text=True)
+    if system is not None:
+        if not system.startswith('/nix/store/') or '\n' in system:
+            raise ValueError('Expected an installed NixOS system generation')
+        # Resolve the installer's one profile reference consistently for PATH
+        # and activation; callers must not activate a second generation later.
+        program = program.replace('/nix/var/nix/profiles/system', shlex.quote(system))
+    return program
 
 
 def stop_init_launch(suite, store, label):
@@ -94,6 +103,28 @@ def stop_init_launch(suite, store, label):
         suite.command(suite.image_command('stop', store, launch['launchId']))
 
 
+def launch_with_completion(command, path):
+    """Publish exit only after the command and its redirected output close."""
+    return ('(\nmd_launch_status=0\n(\n' + command + '\n) || md_launch_status=$?\n'
+            'printf "%s\\n" "$md_launch_status" > ' + shlex.quote(path) + '\n'
+            'exit "$md_launch_status"\n)')
+
+
+def wait_launch_completion(shell, path, deadline):
+    path = shlex.quote(path)
+    while True:
+        status = shell(f'if test -s {path}; then cat {path}; fi').strip()
+        if status:
+            value = int(status)
+            assert 0 <= value <= 255, status
+            return value
+        remaining = deadline - time.monotonic()
+        assert remaining > 0, 'Owned guest launcher did not exit'
+        # STATE_POLL: the launcher's exit receipt has no MCP event. Expiry
+        # fails cleanup; neither registry absence nor a delay proves exit.
+        threading.Event().wait(min(0.1, remaining))
+
+
 def installed_boot(target, port, token, init, desktop_user=None, system=None, control_address='127.0.0.1'):
     """One init/control owner; a desktop driver is an optional dependent service."""
     control_args = f'{target}/session-controller.py {target} {port} {token} {control_address}'
@@ -102,7 +133,7 @@ def installed_boot(target, port, token, init, desktop_user=None, system=None, co
     services = [('control', binary + '/python3', control_args)]
     if desktop_user is not None:
         services.append(('desktop', bash, f'{target}/driver.sh'))
-    boot = prepare_init() + '''
+    boot = prepare_init(system) + '''
 mount --make-rshared /
 unset XDG_DATA_DIRS XDG_CONFIG_DIRS XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 '''

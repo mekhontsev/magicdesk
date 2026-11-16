@@ -81,8 +81,12 @@ The resident driver indexes these handles by native TID. A small inline table
 uses bounded probing; collisions spill into demand-mapped bucket blocks rather
 than disabling entry at a fixed thread count. Blocks are private to the address
 space, so fork copies their data while `CLONE_VM` shares it. Existing handles
-never move. The supervisor inventories mappings and retires dead-thread records
-through the same owner-last publication as inline records. The private-frame
+never move. The supervisor inventories mappings and validates a bound handle
+against the live task's exact channel lease, not only its numeric TID. Exit,
+exec and channel release schedule collection; internal adapters require the
+same retirement even while lazy admission is paused. Inline and overflow records
+use owner-last publication. Collection is event-driven, not a per-call scan.
+The private-frame
 pool still bounds simultaneous entries, not the number of registered threads.
 
 `syscall_catalog.h` and `entry_route.h` remain runtime-private. Bootstrap builds
@@ -226,8 +230,11 @@ Ordinary calls retain a direct pointer; neither allocation nor block lookup
 occurs per syscall. The private helper owns asynchronous signal shielding when
 its caller has none, and restores the caller's registers before restoring that
 mask. This applies to channel/client expansion and the other helper consumers,
-not to each ordinary channel request. Allocation failure, a busy mapping turn and interrupted
-registration retain the kernel route with bounded retry backoff; unsupported
+not to each ordinary channel request. Channel and client expansion queue behind
+an occupied address-space turn through the shared resource wakeup. They recheck
+available space before allocating, and caller teardown cancels a queued turn
+without creating a helper. Allocation failure and interrupted registration
+retain the kernel route with bounded retry backoff; unsupported
 admission is remembered by that client. The original syscall has not run yet.
 No guest socket or persistent helper thread is created. Fork cannot reuse an inherited client;
 a fresh client registers separately. Thread exit returns its slot, and exec
@@ -253,7 +260,9 @@ owner's final result, not the value that originally started the wait.
 | Signals and debugger | Mask mutations, disposition exchange, timed signal waits and existing signalfd operations share a register-independent operation model. Resident execution services its typed copy/native actions; Base supplies the stopped transport. Native queues remain native. Actual handler delivery, sigreturn, private-queue priority inspection and debugger events retain their kernel context. A pending operation is completed or cancelled before that context is exposed. |
 | Policy | Guest cBPF admission runs before effects. Filter installation/TSYNC retains its commit barrier. An inherited policy without admitted helper gates requests context before entering a potentially native blocking adapter. |
 
-The C dispatcher requires original context only for image replacement. Its
+Image replacement and signal return consume original architectural context.
+The resident frontend selects these known boundaries after policy admission,
+without a supervisor exchange merely to ask for the same native continuation. The
 contract test checks the whole syscall-number table: new C handlers enter the
 common protocol by default. Resource owners request the explicit boundaries
 above; a native `WAIT` classification selects the journal, not ptrace transport.
@@ -266,6 +275,12 @@ machine registers. Direct process-memory copies remain the fast path when
 permitted. Handler acknowledgements and consumed sigreturn snapshots retire at
 the next admitted execution checkpoint, whether it arrives through ptrace,
 user notification or the shared channel.
+Published handler entry retains ordinary channel admission: the veneer
+acknowledges its packet before application code runs. Native mask queries use
+the existing native-effect gate when the signal owner proves the native and
+logical masks coincide, after original-site guest policy admission. Logical
+mask changes and borrowed delivery masks revoke that permission through the
+same owner; unsupported or original-stack operations retain their kernel path.
 Every result publication also refreshes native signal-query admission from that
 same logical mask, including short operations which never enter the C adapter.
 
@@ -1232,6 +1247,12 @@ when the entire installed chain covers its exact service-gate contract. Context 
 unproven inherited gates retain their original-site continuation. This does not
 intercept every native read/write or remove Android's inherited filters.
 
+Base and size-limited mirrors retain the required exact service sites even
+without a resident image. Descriptor capture and watch return keep the original
+interception filter's cookie or listener; the guest mirror admits those carriers
+without replacing their owner. This does not authorize the whole bootstrap
+range or alter admission of the original application call.
+
 All ancestors must cover the current entry image or be portable across exec
 before rearming. Portability requires IP-independent policies and a provably
 unconditional-ALLOW inert checkpoint. New images publish new policy views and
@@ -1250,6 +1271,12 @@ mapping retirement or permanent memory exposure is not undone.
 Resident completion publishes a pending signal or debugger boundary with its
 response, including a response that delegates a native wait. A preparation stop
 cannot consume that demand and allow the subsequent wait to block ahead of it.
+Attach and seized-thread interrupt cancel an existing shared wait through its
+completion owner. A newly begun shared or native wait checks that same pending
+stop; a native effect already running is reconciled through its journal at the
+kernel interruption. Completed effects retain their result, while cancelled
+operations retain their own restart policy. No private adapter frame is exposed
+to the debugger, and ordinary calls acquire no additional kernel stops.
 All context restoration uses the common continuation decoder; its service scope
 and stop observations are invalidated with the register mutation.
 Restricted native roots decline worker path

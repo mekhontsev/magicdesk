@@ -74,6 +74,8 @@ static void fd_entry_complete(struct thread *t,long result);
 static void close_event_complete(struct thread *t);
 static void close_return(struct thread *t);
 static int close_begin(struct thread *t,const struct user_pt_regs *returned,int errors);
+static int close_entry_begin(struct thread *t,long result,int errors,void (*complete)(struct thread *,long));
+static void close_control_reply(struct thread *t,long result);
 static int network_namespace_capture(void *context,struct md_network_target_reference reference,
         struct md_network_namespace **out);
 static void control_capture_step(struct thread *t,unsigned command,long value);
@@ -679,6 +681,17 @@ void fd_control(struct thread *t,const struct supervisor_control_request *contro
     } else if (operation==MD_FD_DUPLICATE_END) {
         if (id || control->args[1] || control->args[2] || t->descriptors.job!=MD_FD_DUPLICATE_BEGIN || t->descriptors.running
                 || md_fd_order_state(&t->descriptors.order)!=MD_RESOURCE_ORDER_RUNNING) result=-EINVAL;
+        else if (!r && !t->entry.execution && t->close.closed.first) {
+            /* Base shields its C adapter. Provider waits need that adapter's
+             * actual stop to restore the application mask, not registers from
+             * a running channel caller. Decline before releasing its turn;
+             * the exact control then arrives through the kernel continuation. */
+            struct md_entry_channel *channel=t->entry.control;
+            CHECK(channel && !t->entry.admission && !t->entry.effect);
+            t->entry.control=NULL;
+            md_broker_entry_reply(broker,channel,MD_ENTRY_DECLINED,0);
+            return;
+        }
         else {
             CHECK(!md_fd_order_complete(&t->descriptors.order)); t->descriptors.job=0;
             t->descriptors.duplicate_attempted=0; t->descriptors.duplicate_result=-1;
@@ -759,7 +772,8 @@ void fd_control(struct thread *t,const struct supervisor_control_request *contro
     if (result<0) SUPERVISOR_TRACE("PROBE fd-control pid=%d op=%u id=%llu result=%ld\n",t->pid,operation,
         (unsigned long long)id,result);
     if (r) r->regs[0]=result;
-    if (operation==MD_FD_DUPLICATE_END && !result && close_begin(t,r,0)) return;
+    if (operation==MD_FD_DUPLICATE_END && !result
+            && (t->entry.control ? close_entry_begin(t,0,0,close_control_reply) : close_begin(t,r,0))) return;
     control_return(t,r,result,extra);
 }
 
@@ -791,20 +805,34 @@ static void fd_entry_reply(struct thread *t,long result) {
     else entry_complete(t,result);
 }
 
+static void close_control_reply(struct thread *t,long result) {
+    control_return(t,NULL,result,0);
+}
+
+static int close_entry_begin(struct thread *t,long result,int errors,void (*complete)(struct thread *,long)) {
+    if (!t->close.closed.first) return 0;
+    CHECK(!t->close.complete && t->entry.control);
+    t->close.result=result; t->close.errors=errors;
+    t->close.complete=complete;
+    close_progress(t);
+    /* EVENT_WAIT: provider completion or signal releases the retained reply;
+     * the native mutation is committed and its table turn has already ended. */
+    if (t->close.complete) CHECK(entry_wait_begin(t,INT64_MAX,close_entry_ready));
+    return 1;
+}
+
 static void fd_entry_complete(struct thread *t,long result) {
     long nr=t->descriptors.call.nr;
     /* A cancelled effect never entered the kernel. In particular, it is not
      * close(EINTR), which commits slot removal on Linux. */
     fd_finish(t,t->entry.effect_cancelled ? -ECANCELED : result);
     if (t->entry.effect_cancelled && t->entry.execution) result=RESTART_SIGNAL;
-    if (!t->close.closed.first) { fd_entry_reply(t,result); return; }
-    CHECK(!t->close.complete);
-    t->close.result=result; t->close.errors=nr==SYS_close;
-    t->close.complete=fd_entry_reply;
-    close_progress(t);
-    /* EVENT_WAIT: provider completion or signal releases the retained reply;
-     * the actual close is committed and its table turn has already ended. */
-    if (t->close.complete) CHECK(entry_wait_begin(t,INT64_MAX,close_entry_ready));
+    /* C duplication retains its mutation turn until selector publication.
+     * END owns provider retirement after releasing that turn, in both entry
+     * transports; waiting here could block the provider's own FD operation. */
+    if (t->descriptors.job!=MD_FD_DUPLICATE_BEGIN
+            && close_entry_begin(t,result,nr==SYS_close,fd_entry_reply)) return;
+    fd_entry_reply(t,result);
 }
 
 static void close_event_complete(struct thread *t) {

@@ -56,6 +56,10 @@ int retained_task_held(const struct thread *t) {
     return t->robust.registering || t->robust.terminal || t->robust.replay;
 }
 
+int retained_cleanup_pending(const struct thread *t) {
+    return t->memory_actor && (t->memory_actor->pending || t->memory_actor->cleaning);
+}
+
 struct retained_memory *retained_actor(pid_t pid) {
     for (struct retained_memory *m=retained_actors[(unsigned)pid%RETAINED_ACTOR_BUCKETS];m;m=m->indexed)
         if (m->retained.actor==pid) return m;

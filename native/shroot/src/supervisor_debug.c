@@ -182,6 +182,7 @@ int debugger_attachable(pid_t caller, pid_t pid) {
 int debugger_interrupt(pid_t pid) {
     struct thread *t=find_thread(pid);
     if (!t) return -ESRCH;
+    entry_wait_complete(t,-EINTR);
     /* An owned stop already queued by clone is itself the interruption boundary. */
     if (t->kernel_stopped || birth_stop_pending(t)) return 0;
     if (native_trace(PTRACE_INTERRUPT,pid,NULL,NULL)) return -errno;

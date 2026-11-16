@@ -50,7 +50,8 @@ struct md_entry_call {
 struct md_entry_client {
     uintptr_t opaque[3];
 };
-enum { MD_ENTRY_ORDINARY = 1, MD_ENTRY_CANCELLATION = 2, MD_ENTRY_NATIVE_MEMORY = 4 };
+enum { MD_ENTRY_ORDINARY = 1, MD_ENTRY_CANCELLATION = 2, MD_ENTRY_NATIVE_MEMORY = 4,
+    MD_ENTRY_ORIGINAL_CONTEXT = 8 };
 struct md_entry_api {
     uint32_t version, size;
     md_entry_step_fn try_syscall;

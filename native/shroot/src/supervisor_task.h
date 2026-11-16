@@ -19,6 +19,7 @@ void pid_birth_release(struct thread *child);
 void pid_store_add(struct thread *t, uintptr_t address, pid_t value);
 void release_thread(struct thread *t);
 int image_enter(struct thread *t,uintptr_t image,uintptr_t address,size_t count,unsigned long machine);
+void image_entry_complete(struct thread *t,const struct user_pt_regs *regs);
 void image_request(struct thread *t, const struct seccomp_notif *q);
 int birth_stop_pending(const struct thread *t);
 void task_buffer_control(struct thread *t,const struct supervisor_control_request *control);

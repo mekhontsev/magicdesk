@@ -13,12 +13,14 @@ struct buffer_mapping {
     struct md_interception_buffer scratch;
     struct md_interception_buffers *buffers;
     struct md_seccomp_policy *policy;
+    void (*policy_resume)(struct thread *,const struct user_pt_regs *);
     uint64_t ancestor;
     uintptr_t parent_view;
     struct md_interception_memory *memory;
     struct md_resource_order turn;
     int channels;
     int clients;
+    int started;
     unsigned client_bucket;
 };
 
@@ -73,7 +75,7 @@ struct memory_execution {
     struct md_private_memory_scan *scan;
     size_t copied;
     struct md_interception_buffer buffer;
-    struct md_fs_worker_pause pause;
+    struct md_fs_worker_copy_fence copies;
     struct md_memory_replace replacement;
     struct md_memory_replace_call call;
     struct md_task_helper_result result;
@@ -103,6 +105,7 @@ void memory_buffers_discard(struct thread *t);
 void memory_operation_discard(struct thread *t);
 int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
         struct buffer_mapping *owner);
+void entry_mapping_progress(struct thread *t);
 void memory_buffer_control(struct thread *t,const struct supervisor_control_request *control,const struct user_pt_regs *r);
 int svc_revoke_entry(struct thread *t);
 int svc_entry_observe(struct thread *t);

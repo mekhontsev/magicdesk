@@ -183,6 +183,7 @@ static void cleanup_resume_tracees(void) {
 
 void cleanup(void) {
     report_statistics();
+    cancelling=1;
     if (cancellation_timer>=0) { close(cancellation_timer); cancellation_timer=-1; }
     retained_cancel();
     for (struct thread *t = threads; t; t = t->next) if (t->pid) {
@@ -204,26 +205,37 @@ void cleanup(void) {
             ptrace(PTRACE_CONT,pid,NULL,NULL);
         }
     }
+    /* Reaped tasks cannot complete borrowed effects. Cancel their service
+     * requests while worker wakeups, channels and all peer records are live. */
+    for (struct thread *t=threads;t;t=t->next) {
+        fd_discard(t);
+        adapter_discard(t);
+        signal_control_discard(t);
+        filter_install_discard(t);
+        guest_notification_discard(t);
+    }
     md_task_helpers_destroy(helpers); helpers=NULL;
     retained_destroy();
-    md_task_checkpoints_clear(&checkpoints);
     memory_discard();
     task_action_cleanup();
+    md_task_checkpoints_clear(&checkpoints);
     policy_installer=NULL;
     md_task_quiesce_destroy(policy_barrier); policy_barrier=NULL;
+    /* The worker can still hold a queued operation or a channel pointer after
+     * its caller dies. Join before destroying either side of that ownership. */
+    if (md_fs_worker_stop(filesystem)) _Exit(125);
+    filesystem=NULL;
+    md_mount_copy_service_destroy(mount_copy_service); mount_copy_service=NULL;
+    md_fs_buffer_service_destroy(buffer_service); buffer_service=NULL;
+    md_ipc_origins_destroy(origin_service); origin_service=NULL;
+    md_broker_destroy(broker); broker=NULL;
     while (threads) {
         struct thread *next = threads->next;
         md_task_wait_untrack(&task_wait,&threads->wait_member);
         exec_images_release(threads);
         md_process_executable_release(threads->image.executable);
         md_fs_anchor_release(threads->image.executable_origin);
-        fd_discard(threads);
-        adapter_discard(threads);
-        md_broker_forget(broker,threads->pid);
         cooperative_buffer_release(threads);
-        signal_control_discard(threads);
-        filter_install_discard(threads);
-        guest_notification_discard(threads);
         md_signal_pending_release(threads->signals.pending);
         md_signal_actions_release(threads->signals.actions);
         md_seccomp_policy_release(threads->seccomp.admission_policy);
@@ -250,7 +262,6 @@ void cleanup(void) {
         md_task_descriptor_release(&threads->descriptor_process);
         free(threads); threads = next;
     }
-    task_action_cleanup();
     md_admission_close(&admission);
     md_network_launch_close(&launch_network);
     md_debugger_destroy(debugger); debugger = NULL;
@@ -258,13 +269,7 @@ void cleanup(void) {
     ipc_events=-1;
     if (socket_events>=0) close(socket_events);
     socket_events=-1;
-    if (md_fs_worker_stop(filesystem)) _Exit(125);
-    md_mount_copy_service_destroy(mount_copy_service); mount_copy_service=NULL;
-    md_fs_buffer_service_destroy(buffer_service); buffer_service=NULL;
-    md_ipc_origins_destroy(origin_service); origin_service=NULL;
-    filesystem = NULL;
     md_launch_unregister(&registration);
-    md_broker_destroy(broker); broker = NULL;
     md_task_quiesce_destroy(memory_barrier); memory_barrier=NULL;
     md_task_quiesce_destroy(task_action_barrier); task_action_barrier=NULL;
     md_task_quiesce_destroy(mapping_barrier); mapping_barrier=NULL;
@@ -325,6 +330,7 @@ static void retry_progress(struct md_pending_node *node,void *context) {
     RETRY(RETRY_TRANSFER,transfer_progress);
     RETRY(RETRY_DEBUG_WAIT,debugger_wait_retry);
     RETRY(RETRY_MEMORY_ACCESS,memory_access_retry);
+    RETRY(RETRY_ENTRY_MAPPING,entry_mapping_progress);
 #undef RETRY
     CHECK(!!owner->mask==!!owner->node.list);
 }
@@ -359,10 +365,12 @@ static void cancellation_arm(unsigned seconds) {
 }
 
 void cancel_children(int signal) {
+    /* Native ancestry also contains private helpers needed by terminal cleanup.
+     * Guest birth publication repeats cancellation before a newborn resumes;
+     * the outer guardian owns orphan discovery after supervisor failure. */
     for (struct thread *t=threads;t;t=t->next)
         if (t->pid && t->born && t->pid==t->tgid)
             CHECK(!md_process_signal_child(t->pid,signal));
-    CHECK(!md_process_signal_children(signal));
 }
 
 void cancel_tree(int status) {
@@ -1065,7 +1073,7 @@ int main(int argc, char **argv) {
         }
         if (!event && sig!=(SIGTRAP|0x80)) notification_interrupted(t);
         if (event==PTRACE_EVENT_EXIT) { task_exit_event(t,pid,event); } else if (event==PTRACE_EVENT_VFORK_DONE) { task_vfork_done_event(t,pid,event); } else if (event == PTRACE_EVENT_EXEC) { task_exec_event(t,pid,event); } else if (event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE) { task_birth_event(t,pid,event); } else if (event == PTRACE_EVENT_STOP) { task_stop_event(t,pid,status,sig); }
-        else if (event == PTRACE_EVENT_SECCOMP) { execution_seccomp_event(t,pid,status,&usage); } else if (!event && sig == (SIGTRAP | 0x80)) { execution_syscall_event(t,pid,status,&usage); } else if (event==MD_TASK_CHECKPOINT_EVENT) { execution_checkpoint_event(t,pid); } else { signals_event(t,pid,status,sig,&signal_stop,restored_signal); }
+        else if (event == PTRACE_EVENT_SECCOMP) { execution_seccomp_event(t,pid,status,&usage); } else if (!event && sig == (SIGTRAP | 0x80)) { execution_syscall_event(t,pid,status,&usage); } else if (event==MD_TASK_CHECKPOINT_EVENT) { execution_checkpoint_event(t,pid); } else { signals_event(t,pid,sig,&signal_stop,restored_signal); }
     }
     for (unsigned i = 0; i < 64 && denials[i].count; i++)
         SUPERVISOR_TRACE("PROBE SIGSYS summary nr=%u phase=%d adapted=%u count=%u\n",

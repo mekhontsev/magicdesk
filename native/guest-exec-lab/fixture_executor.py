@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from fixture_app import PRIVATE_DIRECTORY, deadline_seconds
 
@@ -122,6 +123,7 @@ class FixtureExecutor:
                     output=(directory / (report['runId'] + '-shell.log')).read_text(errors='replace'))
 
     def execute(self, command, timeout=120, *, capture=False):
+        timeout = deadline_seconds(timeout)
         if getattr(self, 'directory', None):
             command = 'cd ' + shlex.quote(self.directory) + ' || exit\n' + command
         if self.mode == 'app':
@@ -132,16 +134,21 @@ class FixtureExecutor:
             name = 'command-' + uuid.uuid4().hex + '.log'
             remote, local = self.root + '/' + name, self.output / name
             try:
-                value = self.client.call('console.execute', dict(sessionId=self.console,
-                    command='(\n' + command + '\n) > ' + shlex.quote(remote) + ' 2>&1'))
+                value = self._shell_command(
+                    '(\n' + command + '\n) > ' + shlex.quote(remote) + ' 2>&1', timeout)
                 self.download(remote, local)
                 return dict(value, output=local.read_text(errors='replace'))
             finally:
                 self._transport_command(shlex.join(['rm', '-f', '--', remote]))
-        return self.client.call('console.execute', dict(sessionId=self.console, command=command))
+        return self._shell_command(command, timeout)
+
+    def _shell_command(self, command, timeout=120):
+        timeout = deadline_seconds(timeout)
+        return self.client.call('console.execute', dict(sessionId=self.console, command=command),
+                                deadline=time.monotonic() + timeout, request_timeout=timeout)
 
     def _transport_command(self, command):
-        result = self.client.call('console.execute', dict(sessionId=self.console, command=command))
+        result = self._shell_command(command)
         assert result['exitCode'] == 0, result
         return result['output']
 
@@ -195,7 +202,8 @@ class FixtureExecutor:
     def close(self):
         if not self.closed:
             self.cancel()
-            self.client.call('console.close', dict(sessionId=self.console))
+            self.client.call('console.close', dict(sessionId=self.console),
+                             deadline=time.monotonic() + 30, request_timeout=30)
             self.closed = True
 
     def cancel(self):

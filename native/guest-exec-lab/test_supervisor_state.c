@@ -106,6 +106,68 @@ static void terminal_cleanup_custody(void) {
     assert(!task_wait.cursor);
     puts("PASS fatal cleanup custody: held child and consumed TRACEEXIT retire without another kernel stop");
 }
+static void terminal_cleanup_broker(void) {
+    assert(!threads && !filesystem && !broker && !tasks);
+    pid_t owner=fork(); assert(owner>=0);
+    if (!owner) {
+        alarm(15);
+        char temporary[]="./cleanup-broker-XXXXXX",store[PATH_MAX];
+        assert(mkdtemp(temporary) && realpath(temporary,store));
+        assert(strlcat(store,"/store",sizeof(store))<sizeof(store));
+        struct md_inode_store *inodes=NULL;
+        assert(!md_inode_store_open(store,1,&inodes)); md_inode_store_close(inodes);
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            assert(!ptrace(PTRACE_TRACEME,0,NULL,NULL));
+            raise(SIGSTOP);
+            for (;;) pause();
+        }
+        int status;
+        assert(waitpid(child,&status,0)==child && WIFSTOPPED(status));
+        struct thread *t=thread(child);
+        tasks=md_task_registry_create(); assert(tasks);
+        char endpoint[80]; snprintf(endpoint,sizeof(endpoint),"md-cleanup-broker-%d",getpid());
+        assert(!md_fs_worker_start(store,endpoint,NULL,tasks,NULL,NULL,&filesystem));
+        assert(!md_resources_init(&t->resources,md_fs_worker_mounts(filesystem)));
+        assert(!md_task_registry_publish(tasks,child,child,&t->identity,&t->resources));
+        broker=md_broker_create(filesystem,0,NULL); assert(broker);
+        assert(!md_broker_task(broker,child,MD_BROKER_COOPERATIVE,0,0,NULL,1));
+        struct md_interception_buffers *pool=NULL;
+        assert(!md_buffers_create(1,sizeof(struct md_entry_channel),sizeof(struct md_entry_channel),0,&pool));
+        assert(!md_buffers_take(pool,&t->entry.buffer)); md_buffers_release(pool);
+        struct md_buffer_span span; assert(!md_buffer_span(&t->entry.buffer,&span));
+        struct md_entry_channel *channel=span.data;
+        assert(!md_broker_cooperative_bind(broker,child,channel,1));
+        struct md_fd_order held={0};
+        assert(md_fd_order_begin(t->resources.files,&held,NULL)==1 && !md_fd_order_start(&held));
+        channel->sequence=1; channel->call.number=SYS_close; channel->call.args[0]=123;
+        atomic_store_explicit(&channel->state,MD_ENTRY_REQUEST,memory_order_release);
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_reboot,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        listener=syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_NEW_LISTENER,&program);
+        assert(listener>=0);
+        md_broker_listen(broker,listener); md_broker_resumed(broker,child);
+        /* EVENT_WAIT: admitted work remains blocked by the fixture's table
+         * turn throughout shutdown; the alarm fails missing admission. */
+        while (atomic_load_explicit(&channel->state,memory_order_acquire)==MD_ENTRY_REQUEST) sched_yield();
+        assert(atomic_load(&channel->state)==MD_ENTRY_RUNNING && md_broker_task_active(broker,child));
+        cleanup();
+        assert(!threads && !filesystem && !broker && !tasks);
+        assert(!md_fd_order_complete(&held));
+        _exit(0);
+    }
+    int status;
+    assert(waitpid(owner,&status,0)==owner);
+    if (!WIFEXITED(status) || WEXITSTATUS(status))
+        fprintf(stderr,"cleanup broker child status=%#x\n",status);
+    assert(WIFEXITED(status) && !WEXITSTATUS(status));
+    puts("PASS fatal cleanup broker: pending worker request outlives tracee, shared channel retained through join");
+}
 static unsigned observation_updates;
 static int observation_error;
 static long observation_trace(int request,pid_t pid,void *address,void *data) {
@@ -412,6 +474,45 @@ static void cancel_stopped_child(void) {
     close(fd); close(channel[1]);
     assert(ready>=0 && WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL);
     puts("PASS child cancellation: retained ptrace stop does not hide a live owned process");
+}
+static void cancellation_owner_boundary(void) {
+    assert(!threads);
+    const int signals[]={SIGTERM,SIGKILL};
+    for (unsigned i=0;i<sizeof(signals)/sizeof(*signals);++i) {
+        int channel[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC,0,channel));
+        pid_t helper=fork(); assert(helper>=0);
+        if (!helper) {
+            assert(!prctl(PR_SET_PDEATHSIG,SIGKILL,0,0,0));
+            close(channel[0]);
+            sigset_t mask; sigemptyset(&mask); sigaddset(&mask,SIGTERM); sigaddset(&mask,SIGCONT);
+            assert(!sigprocmask(SIG_BLOCK,&mask,NULL));
+            assert(write(channel[1],"r",1)==1);
+            char byte;
+            /* EVENT_WAIT: guest cancellation completes before inspecting the
+             * helper's pending signals; the suite alarm bounds a missing peer. */
+            assert(read(channel[1],&byte,1)==1);
+            assert(!sigpending(&mask));
+            _exit(sigismember(&mask,SIGTERM) || sigismember(&mask,SIGCONT));
+        }
+        close(channel[1]); char byte;
+        assert(read(channel[0],&byte,1)==1);
+        pid_t guest=fork(); assert(guest>=0);
+        if (!guest) {
+            assert(!prctl(PR_SET_PDEATHSIG,SIGKILL,0,0,0));
+            close(channel[0]);
+            for (;;) pause();
+        }
+        struct thread task={.pid=guest,.tgid=guest,.born=1};
+        threads=&task;
+        cancel_children(signals[i]);
+        threads=NULL;
+        int status;
+        assert(waitpid(guest,&status,0)==guest && WIFSIGNALED(status) && WTERMSIG(status)==signals[i]);
+        assert(send(channel[0],"g",1,MSG_NOSIGNAL)==1);
+        assert(waitpid(helper,&status,0)==helper && WIFEXITED(status) && !WEXITSTATUS(status));
+        close(channel[0]);
+    }
+    puts("PASS cancellation ownership: TERM/CONT and KILL target guest membership, not private helpers");
 }
 static void borrowed_interrupt(void) {
     struct md_task_call call={0};
@@ -1616,7 +1717,8 @@ static void execution_context_contract(void) {
     /* The C owner has selected the adapter. Adding another syscall must not
      * require adding it to a transport allow-list as well. */
     for (long nr=0;nr<512;++nr) {
-        enum md_execution_context expected=nr==SYS_execve || nr==SYS_execveat ? MD_CONTEXT_EXEC : MD_CONTEXT_COUNT;
+        enum md_execution_context expected=nr==SYS_execve || nr==SYS_execveat ? MD_CONTEXT_EXEC
+            : nr==SYS_rt_sigreturn ? MD_CONTEXT_SIGNAL : MD_CONTEXT_COUNT;
         assert(dispatch_context(nr,args,-1)==expected);
     }
     const unsigned queries[]={FIONREAD,TIOCGWINSZ,TCGETS,TCGETS2};
@@ -1661,20 +1763,54 @@ static void processor_controls(void) {
     puts("PASS service call result: exact return/marker positions, saved number, reject unrelated state");
 }
 static void svc_client_lifetime(void) {
-    struct md_interception_memory *memory=md_memory_new(); assert(memory);
-    struct md_interception_memory *other=md_memory_new(); assert(other);
-    struct thread t={.pid=111,.memory=memory};
-    unsigned bucket=(unsigned)t.pid%THREAD_BUCKETS;
-    assert(!thread_index[bucket]); thread_index[bucket]=&t;
-    assert(svc_client_alive(t.pid,memory) && !svc_client_alive(t.pid,other));
-    t.resume_lost=1;
-    assert(svc_client_alive(t.pid,memory));
-    t.terminal_stop=1;
-    assert(!svc_client_alive(t.pid,memory));
-    thread_index[bucket]=NULL;
-    assert(!svc_client_alive(t.pid,memory));
-    md_memory_release(other); md_memory_release(memory);
-    puts("PASS SVC client lifetime: exact mm, lost stop retains owner, terminal event and reap retire it");
+    for (unsigned expanded=0;expanded<2;++expanded) {
+        struct md_interception_memory *memory=md_memory_new(); assert(memory);
+        struct md_interception_memory *other=md_memory_new(); assert(other);
+        struct md_svc_registry *registry=md_svc_registry_new(0x1000000,0x4000,0x5000);
+        assert(registry && !md_memory_svc_set(memory,registry));
+        registry->disabled=expanded;
+        struct md_interception_buffers *pool;
+        if (expanded) {
+            assert(!md_buffers_create(2,sizeof(struct md_entry_channel),0,0,&pool));
+            assert(!md_memory_channels_publish(memory,pool,0x100000));
+            md_buffers_release(pool);
+        } else {
+            assert(!md_memory_buffers_prepare(memory,2,sizeof(struct md_entry_channel),0,0));
+            pool=md_memory_buffers(memory);
+            assert(!md_memory_buffers_mapped(memory,0x100000,md_buffers_size(pool)));
+        }
+        struct thread t={.pid=111,.memory=memory};
+        unsigned bucket=(unsigned)t.pid%THREAD_BUCKETS;
+        assert(!thread_index[bucket]); thread_index[bucket]=&t;
+        assert(svc_client_alive(t.pid,0,memory) && !svc_client_alive(t.pid,0,other));
+        assert(!md_buffers_take(pool,&t.entry.buffer));
+        uintptr_t channel=md_memory_buffer_address(memory,&t.entry.buffer);
+        assert(channel && svc_client_alive(t.pid,channel,memory));
+        t.resume_lost=1;
+        assert(svc_client_alive(t.pid,channel,memory));
+        t.terminal_stop=1;
+        assert(!svc_client_alive(t.pid,channel,memory));
+        struct md_interception_buffer peer={0};
+        assert(!md_buffer_pin(&t.entry.buffer,&peer));
+        cooperative_buffer_release(&t);
+        assert(!t.entry.buffer.pool && !registry->clients_dirty);
+        /* Model vfork reusing a departed thread's TID in the same mm after
+         * its old channel was retained by a different owner. */
+        assert(md_memory_buffer_address(memory,&peer)==channel);
+        t=(struct thread){.pid=111,.memory=memory};
+        assert(svc_client_alive(t.pid,0,memory) && !svc_client_alive(t.pid,channel,memory));
+        assert(!md_buffers_take(pool,&t.entry.buffer));
+        uintptr_t rebound=md_memory_buffer_address(memory,&t.entry.buffer);
+        assert(rebound && rebound!=channel && svc_client_alive(t.pid,rebound,memory));
+        assert(!svc_client_alive(t.pid,channel,memory));
+        assert(!md_buffer_release(&peer));
+        cooperative_buffer_release(&t);
+        assert(!t.entry.buffer.pool && registry->clients_dirty);
+        thread_index[bucket]=NULL;
+        assert(!svc_client_alive(t.pid,0,memory));
+        md_memory_release(other); md_memory_release(memory);
+    }
+    puts("PASS SVC client lifetime: exact mm/lease, lost stop, reused TID, bootstrap and expanded channels");
 }
 static void receive_error_queue(void) {
     const int families[]={AF_INET,AF_INET6};
@@ -2085,6 +2221,26 @@ static void readiness_wait_retirement(void) {
     close(socket_events); socket_events=previous;
     puts("PASS readiness retirement: unwatch precedes helper event closure after completion or cancellation");
 }
+static void readiness_expired_observer(void) {
+    const long numbers[]={SYS_epoll_pwait,SYS_epoll_pwait2};
+    struct md_control_epoll *queue=md_control_epoll_new(); assert(queue);
+    assert(md_control_epoll_admit_begin(queue)==1 && !md_control_epoll_admit_finish(queue,1));
+    for (unsigned n=0;n<2;++n) for (unsigned expired=0;expired<2;++expired) {
+        struct md_epoll_wait wait={.initialized=1,.task_started=1,.blocking=1,
+            .deadline=expired ? 0 : INT64_MAX};
+        struct md_epoll_frame frame={.capacity=1};
+        struct md_task_call_arguments call={0};
+        long result=-1;
+        assert(md_epoll_wait_task(&wait,queue,&frame,0x1000,numbers[n],5,0,0,&call,&result)==1);
+        assert(call.number==numbers[n]);
+        assert(wait.blocking==!expired && wait.job.started==!expired);
+        if (expired && numbers[n]==SYS_epoll_pwait) assert(!call.value[3]);
+        if (expired) assert(!frame.timeout.tv_sec && !frame.timeout.tv_nsec);
+        md_epoll_wait_cancel(&wait);
+    }
+    md_control_epoll_release(queue);
+    puts("PASS readiness deadlines: expired waits still sample native IO without starting a wake observer");
+}
 static unsigned readiness_ignored_reads,readiness_ignored_writes,readiness_ignored_resumes;
 static struct md_task_call_arguments wait_admitted_call;
 static unsigned wait_admitted_skips,wait_admitted_resumes;
@@ -2107,6 +2263,8 @@ static long wait_admitted_trace(int request,pid_t pid,void *address,void *data) 
     return 0;
 }
 static void wait_admission_wakeup(void) {
+    int previous=socket_events;
+    socket_events=epoll_create1(EPOLL_CLOEXEC); assert(socket_events>=0);
     const long calls[]={SYS_ppoll,SYS_epoll_pwait,SYS_epoll_pwait2};
     const enum phase phases[]={IPC_WAITING,SOCKET_WAITING,FILE_WAITING,CONTROL_WAITING,CLOSE_WAITING,DEBUG_PARK_EXIT};
     for (unsigned host=0;host<2;++host) {
@@ -2117,6 +2275,11 @@ static void wait_admission_wakeup(void) {
                 .readiness=&owner,.signals={.host=host,.wait_view={.active=1,.saved=MD_SIGNAL_SYS_BIT}}};
             thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=wait_admitted_trace;
             wait_admitted_call=owner.native_call; wait_admitted_skips=wait_admitted_resumes=0;
+            if (blocking) {
+                long args[5]={0};
+                assert(!md_ipc_io_job_start(&owner.wait.job,SYS_ppoll,args));
+                assert(!socket_watch(&t) && owner.io_waiting);
+            }
             assert(readiness_native_event(&t,(PTRACE_EVENT_SECCOMP<<16)|(SIGTRAP<<8)|0x7f));
             if (!blocking) {
                 assert(t.phase==EPOLL_WAIT && !owner.resample && t.io.socket_waking);
@@ -2125,6 +2288,8 @@ static void wait_admission_wakeup(void) {
             }
             assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==EPOLL_CALL);
             assert(owner.resample && !t.io.socket_waking && !t.signals.wait_view.active && t.signals.shielded);
+            assert(!owner.io_waiting && !owner.wait.job.started);
+            socket_events_ready();
             assert(wait_admitted_skips==1 && wait_admitted_resumes==1);
         }
         for (unsigned i=0;i<sizeof(phases)/sizeof(*phases);++i) {
@@ -2132,14 +2297,27 @@ static void wait_admission_wakeup(void) {
             assert(!wait_service_ready(&t));
             t.io.waking=t.io.socket_waking=t.control.done=t.close.done=t.debug.wait_waking=1;
             assert(wait_service_ready(&t)==(phases[i]!=FILE_WAITING));
+            struct readiness_owner owner={0};
+            if (phases[i]==SOCKET_WAITING) {
+                t.readiness=&owner;
+                long args[5]={0};
+                assert(!md_ipc_io_job_start(&owner.wait.job,SYS_ppoll,args));
+                assert(!socket_watch(&t) && owner.io_waiting);
+            }
             thread_index[t.pid%THREAD_BUCKETS]=&t;
             wait_admitted_skips=wait_admitted_resumes=0;
             wait_cancel_admitted(&t,phases[i]);
             assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==phases[i] && t.signals.shielded);
             assert(wait_admitted_skips==1 && wait_admitted_resumes==1);
+            if (t.readiness) {
+                assert(!owner.io_waiting && owner.wait.job.started);
+                socket_events_ready();
+                readiness_wait_cancel(&t);
+            }
         }
     }
     thread_index[123%THREAD_BUCKETS]=NULL; checkpoints.trace=checkpoint_native_trace;
+    close(socket_events); socket_events=previous;
     puts("PASS service wait admission: seccomp-coalesced wakes cancel before effect for readiness, IPC, sockets, FIFO, providers and debugger");
 }
 static long readiness_ignored_trace(int request,pid_t pid,void *address,void *data) {
@@ -2301,6 +2479,24 @@ static void retained_continuation_custody(void) {
         }
     t.robust.registering=t.robust.terminal=t.robust.replay=0;
     assert(task_continuation_available(&t));
+    struct retained_memory memory={0}; t.memory_actor=&memory;
+    for (unsigned cleaning=0;cleaning<3;++cleaning) {
+        t.kernel_stopped=0;
+        memory.pending=!cleaning; memory.cleaning=cleaning;
+        assert(retained_cleanup_pending(&t));
+        assert(!task_action_borrowable(&t,NULL));
+        int boundary=7;
+        assert(task_action_native_borrow(&owner,&t,&boundary)==-EBUSY && boundary==7);
+        /* The peer's cleanup does not own this task's ordinary continuation. */
+        assert(task_continuation_available(&t));
+        /* A mapping already holding this boundary must still retire its FD
+         * before releasing the outer barrier to the peer's cleanup. */
+        t.kernel_stopped=1; t.action=&owner;
+        assert(task_action_borrowable(&t,NULL));
+        assert(!task_action_native_borrow(&owner,&t,&boundary) && boundary==1);
+        t.action=NULL;
+    }
+    t.memory_actor=NULL;
     md_fd_origins_release(files);
     puts("PASS retained continuation custody: registration, terminal cleanup and replay exclude every borrowed actor role");
 }
@@ -2452,6 +2648,61 @@ static void readiness_cancel_entry(void) {
     checkpoints.trace=checkpoint_native_trace;
     thread_index[t.pid%THREAD_BUCKETS]=NULL;
     puts("PASS epoll loan revocation: skipped entry drains before descriptor retirement or adapter reply");
+}
+static unsigned readiness_pending_resumes;
+static long readiness_pending_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123);
+    struct thread *t=find_thread(pid);
+    if (request==PTRACE_GETREGSET) {
+        assert((uintptr_t)address==NT_PRSTATUS);
+        *(struct user_pt_regs *)((struct iovec *)data)->iov_base=(struct user_pt_regs){.pc=abi.task_return};
+    } else if (request==PTRACE_GET_SYSCALL_INFO) {
+        *(struct ptrace_syscall_info *)data=(struct ptrace_syscall_info){.op=PTRACE_SYSCALL_INFO_ENTRY,
+            .instruction_pointer=abi.task_return,.entry={.nr=t->readiness->native_call.number}};
+    } else if (request==PTRACE_SETREGSET) {
+        assert(!t->readiness->io_waiting && !t->readiness->wait.job.started);
+        if ((uintptr_t)address==NT_PRSTATUS)
+            assert(((struct user_pt_regs *)((struct iovec *)data)->iov_base)->regs[8]==SYS_gettid);
+        else {
+            assert((uintptr_t)address==NT_ARM_SYSTEM_CALL);
+            assert(*(int *)((struct iovec *)data)->iov_base==SYS_gettid);
+        }
+    } else {
+        assert(request==PTRACE_SYSCALL && !address && !data);
+        ++readiness_pending_resumes;
+    }
+    return 0;
+}
+static void readiness_pending_signal_cancel(void) {
+    int previous=socket_events;
+    socket_events=epoll_create1(EPOLL_CLOEXEC); assert(socket_events>=0);
+    uintptr_t returned=abi.task_return; abi.task_return=0x1004;
+    const long numbers[]={SYS_ppoll,SYS_epoll_pwait,SYS_epoll_pwait2};
+    for (unsigned n=0;n<3;++n) for (unsigned shared=0;shared<2;++shared) {
+        struct md_control_epoll *queue=md_control_epoll_new(); assert(queue);
+        assert(md_control_epoll_admit_begin(queue)==1 && !md_control_epoll_admit_finish(queue,1));
+        struct md_epoll_frame frame={.masked=1};
+        struct readiness_owner owner={.native_call={.number=numbers[n]},.wait={.blocking=1},
+            .queue=md_control_epoll_object(queue),.detached=&frame};
+        struct thread t={.pid=123,.phase=EPOLL_CALL,.kernel_stopped=1,.readiness=&owner,
+            .signals={.host=1,.host_blocked=1,.pending=md_signal_pending_new()}};
+        assert(t.signals.pending);
+        siginfo_t info={.si_signo=SIGSYS,.si_code=SI_USER};
+        assert(md_signal_pending_put(t.signals.pending,shared ? MD_SIGNAL_SHARED : MD_SIGNAL_PRIVATE,&info)==1);
+        thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=readiness_pending_trace;
+        readiness_pending_resumes=0;
+        assert(readiness_native_event(&t,((SIGTRAP|0x80)<<8)|0x7f));
+        assert(owner.signal_ready && !owner.io_waiting && !owner.wait.job.started);
+        assert(t.phase==WAIT_CANCEL_EXIT && t.execution.wait_resume==EPOLL_CALL);
+        assert(t.signals.wait_view.active && !t.signals.host_blocked && readiness_pending_resumes==1);
+        struct md_signal_pending_value pending;
+        assert(md_signal_pending_peek(t.signals.pending,&pending));
+        socket_events_ready();
+        md_signal_pending_release(t.signals.pending); md_control_epoll_release(queue);
+    }
+    checkpoints.trace=checkpoint_native_trace; thread_index[123%THREAD_BUCKETS]=NULL;
+    abi.task_return=returned; close(socket_events); socket_events=previous;
+    puts("PASS readiness signal cancellation: private/shared pending signals retire observers before leaving entry");
 }
 static long duplicate_reply;
 static long duplicate_return_trace(int request,pid_t pid,void *address,void *data) {
@@ -2714,11 +2965,15 @@ static void exclusive_signal_entry(void) {
         t.signals.host_blocked=0; t.signals.wait_view.active=1;
         assert(!signal_frame_native(&t));
         t.signals.wait_view.active=0;
+        t.signals.handler_mask=UINT64_MAX; t.signals.handler_mask_known=1;
         signal_delivery_queries=signal_delivery_resumes=0;
         checkpoints.trace=signal_delivery_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
         assert(signal_control_delivery(&t,signal_delivery_number,NULL));
         assert(signal_delivery_queries==1 && signal_delivery_resumes==1 && !t.signals.control
             && t.phase==IDLE && !t.kernel_stopped && t.signals.host_blocked==!!(blocked || (sys && !nodefer)));
+        uint64_t saved=UINT64_C(1)<<(SIGUSR2-1);
+        uint64_t expected=md_signal_view_enter(signal_delivery_number,&action,0,NULL,&saved);
+        assert(t.signals.handler_mask_known && t.signals.handler_mask==expected);
         assert(!md_signal_actions_read(t.signals.actions,signal_delivery_number,&action));
         assert(action.handler==(reset ? (uintptr_t)SIG_DFL : 0x1234));
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
@@ -2761,7 +3016,7 @@ static void native_signal_query(void) {
         signal_query_mask=before;
         signal_query_reads=signal_query_writes=signal_query_calls=signal_query_returns=0;
         checkpoints.trace=signal_query_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
-        assert(signal_native_call(&t,SYS_rt_sigprocmask,input,output,8));
+        assert(signal_native_call(&t,SYS_rt_sigprocmask,input,output,8,NULL));
         unsigned expected_blocked=blocked;
         if (input || (blocked && output)) {
             assert(t.phase==SIGNAL_NATIVE_EXIT && signal_query_mask==(before|(blocked ? MD_SIGNAL_SYS_BIT : 0))
@@ -2830,7 +3085,7 @@ static void direct_signal_query(void) {
     for (unsigned fault=0;fault<2;++fault) {
         if (fault) assert(!mprotect(output,getpagesize(),PROT_READ));
         query_register_reads=query_register_writes=query_resumes=0; t.kernel_stopped=1;
-        assert(signal_native_call(&t,SYS_rt_sigprocmask,0,(uintptr_t)output,8));
+        assert(signal_native_call(&t,SYS_rt_sigprocmask,0,(uintptr_t)output,8,NULL));
         assert(t.phase==IDLE && !t.signals.query_active && !t.kernel_stopped && t.signals.host_blocked);
         assert(query_register_reads==0 && query_register_writes==2 && query_resumes==1);
         assert((long)query_completed.regs[0]==(fault ? -EFAULT : 0));
@@ -2877,6 +3132,8 @@ static void logical_signal_frame(void) {
             && signal_query_mask==(before|(UINT64_C(1)<<(SIGALRM-1)))
             && signal_query_reads==1 && signal_query_writes==2*blocked
             && !signal_query_calls && signal_query_returns==1);
+        assert(t.signals.handler_mask_known && t.signals.handler_mask
+            ==(before|(UINT64_C(1)<<(SIGALRM-1))|((blocked|action_bit) ? MD_SIGNAL_SYS_BIT : 0)));
         checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
         md_signal_actions_release(peer); md_signal_actions_release(t.signals.actions); md_memory_release(t.memory);
     }
@@ -2969,6 +3226,10 @@ static void signal_execution_admission(void) {
         struct md_signal_entry packet={.pending=1};
         t.signals.control=owner; owner->signal=SIGALRM; owner->started=1;
         owner->entry_packet=&packet; owner->entry_thread=&t;
+        assert(signal_entry_published(&t));
+        owner->started=0; assert(!signal_entry_published(&t)); owner->started=1;
+        owner->returning=1; assert(!signal_entry_published(&t)); owner->returning=0;
+        t.phase=SIGNAL_CONTROL; assert(!signal_entry_published(&t)); t.phase=SIGNAL_ENTRY;
         owner->entry_previous=&signal_entries; signal_entries=owner;
         struct md_kernel_action action={.handler=0x1234,.flags=reset ? SA_RESETHAND : 0};
         assert(!md_signal_actions_commit(t.signals.actions,SIGALRM,&action));
@@ -2980,6 +3241,7 @@ static void signal_execution_admission(void) {
         owner->returning=1; assert(!signal_entry_committed(&t)); owner->returning=0;
         signal_execution_checkpoint(&t);
         assert(!t.signals.control && t.phase==IDLE && !signal_entries);
+        assert(!signal_entry_published(&t));
         signal_execution_checkpoint(&t);
         assert(!md_signal_actions_read(t.signals.actions,SIGALRM,&action));
         assert(action.handler==(reset ? (uintptr_t)SIG_DFL : 0x1234));
@@ -3554,6 +3816,16 @@ static void duplicate_entry_receipts(void) {
         struct md_fd_origins *files=md_fd_origins_new(); assert(files);
         struct md_entry_channel channel={0};
         struct thread t={.pid=123,.phase=DISPATCHING,.resources.files=files,.entry.execution=&channel};
+        if (numbers[i]==SYS_dup3) {
+            struct stat st={.st_mode=S_IFCHR|0666};
+            struct md_control_file device=md_full_device_new(&st,NULL); assert(device.ops);
+            struct md_proc_file *file=md_proc_file_open_control(device.ops,device.context,
+                &(struct md_control_opener){.identity=&t.identity},O_RDWR); assert(file);
+            md_control_file_release(device);
+            struct md_fd_origin_update update;
+            assert(!md_fd_origins_prepare_object(files,md_proc_file_object(file),0,&update));
+            md_fd_origins_finish(&update,9); md_proc_file_release(file);
+        }
         t.execution.request=(struct seccomp_data){.nr=(int)numbers[i],.arch=AUDIT_ARCH_AARCH64,
             .args={5,i==1 ? 9 : i==2 ? F_DUPFD_CLOEXEC : 0,i==1 ? O_CLOEXEC : 0}};
         memset(&t.execution.registers,0xa5,sizeof(t.execution.registers));
@@ -3581,10 +3853,12 @@ static void duplicate_entry_receipts(void) {
         assert(!debug_stop_reply && !t.descriptors.running && !t.entry.control && !t.entry.effect);
         assert(t.descriptors.duplicate_result==(cancel ? -1 : 9));
         assert(md_fd_order_state(&t.descriptors.order)==MD_RESOURCE_ORDER_RUNNING);
+        assert(!!t.close.closed.first==(numbers[i]==SYS_dup3 && !cancel));
         channel.call=(struct md_entry_request){.number=MD_FD_DUPLICATE_END,.reserved=MD_ENTRY_FD_CONTROL};
         debug_stop_reply=&channel; debug_reply_value=0;
         entry_control(t.pid,&channel);
         assert(!debug_stop_reply && !t.descriptors.job && !t.descriptors.order.table);
+        assert(!t.close.closed.first);
         assert(!channel.adapter_native_managed);
         assert(!memcmp(&original,&t.execution.registers,sizeof(original)));
         assert(!memcmp(&internal,&t.descriptors.registers,sizeof(internal)));
@@ -3594,6 +3868,80 @@ static void duplicate_entry_receipts(void) {
     checkpoints.trace=checkpoint_native_trace;
     debug_reply_outcome=MD_ENTRY_NEEDS_STOP; debug_reply_value=RESTART_SIGNAL;
     puts("PASS shared duplicate: exact table turn, typed effect, cancellation and unchanged registers");
+}
+static struct thread *duplicate_close_owner;
+static unsigned duplicate_close_flushes,duplicate_close_disposals;
+static long duplicate_close_result;
+static long duplicate_close_resume(struct md_control_pending *pending,void *data,size_t size) {
+    assert(pending && !data && !size);
+    assert(!duplicate_close_owner->descriptors.order.table && !duplicate_close_owner->descriptors.job);
+    return duplicate_close_result;
+}
+static void duplicate_close_dispose(struct md_control_pending *pending) {
+    assert(pending); ++duplicate_close_disposals;
+}
+static long duplicate_close_flush(void *context,const struct md_control_actor *actor,
+        struct md_control_pending **pending) {
+    (void)context;
+    static struct md_control_pending completion={.resume=duplicate_close_resume,.dispose=duplicate_close_dispose};
+    assert(actor->pid==123 && !duplicate_close_owner->descriptors.order.table);
+    ++duplicate_close_flushes;
+    if (duplicate_close_result==-EINPROGRESS) *pending=&completion;
+    return duplicate_close_result;
+}
+static void duplicate_close_transport(void) {
+    for (unsigned resident=0;resident<2;++resident) for (unsigned deferred=0;deferred<3;++deferred) {
+        struct md_fd_origins *files=md_fd_origins_new(); assert(files);
+        struct md_entry_channel channel={.call={.number=MD_FD_DUPLICATE_END,.reserved=MD_ENTRY_FD_CONTROL}};
+        struct thread t={.pid=123,.phase=DISPATCHING,.resources.files=files,
+            .entry.execution=resident ? &channel : NULL,.descriptors.job=MD_FD_DUPLICATE_BEGIN};
+        struct stat st={.st_mode=S_IFCHR|0666};
+        struct md_control_file device=md_full_device_new(&st,NULL); assert(device.ops);
+        struct md_control_file_ops ops=*device.ops; ops.flush=duplicate_close_flush;
+        struct md_proc_file *file=md_proc_file_open_control(&ops,device.context,
+            &(struct md_control_opener){.identity=&t.identity},O_RDWR); assert(file);
+        md_control_file_release(device);
+        struct md_fd_origin_update update;
+        assert(!md_fd_origins_prepare_object(files,md_proc_file_object(file),0,&update));
+        md_fd_origins_finish(&update,9);
+        md_proc_file_release(file);
+        assert(md_fd_order_begin(files,&t.descriptors.order,NULL)==1);
+        assert(!md_fd_order_start(&t.descriptors.order));
+        assert(!md_fd_origins_close_collect(files,9,9,0,&t.close.closed));
+        assert(t.close.closed.first);
+        duplicate_close_owner=&t; duplicate_close_flushes=duplicate_close_disposals=0;
+        duplicate_close_result=deferred ? -EINPROGRESS : 0;
+        thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=no_trace;
+        debug_stop_reply=&channel; debug_reply_value=0;
+        debug_reply_outcome=resident ? MD_ENTRY_COMPLETED : MD_ENTRY_DECLINED;
+        entry_control(t.pid,&channel);
+        if (resident && deferred) {
+            assert(debug_stop_reply && t.entry.control==&channel && t.entry.wait.complete);
+            assert(!t.descriptors.order.table && !t.descriptors.job && t.close.pending);
+            assert(duplicate_close_flushes==1 && !duplicate_close_disposals);
+            if (deferred==2) entry_wait_complete(&t,-EINTR);
+            else { duplicate_close_result=-EIO; close_progress(&t); }
+        }
+        assert(!debug_stop_reply && !t.entry.control && !t.resume_lost);
+        assert(t.phase==DISPATCHING && t.entry.execution==(resident ? &channel : NULL));
+        if (resident) {
+            assert(!t.descriptors.job && !t.descriptors.order.table && !t.close.closed.first);
+            assert(duplicate_close_flushes==1 && duplicate_close_disposals==!!deferred);
+            assert(!t.close.pending && !t.close.complete && !t.entry.wait.complete);
+        }
+        else {
+            assert(t.descriptors.job==MD_FD_DUPLICATE_BEGIN && t.close.closed.first);
+            assert(!duplicate_close_flushes);
+            assert(md_fd_order_state(&t.descriptors.order)==MD_RESOURCE_ORDER_RUNNING);
+            assert(!md_fd_order_complete(&t.descriptors.order));
+            close_detach(&t);
+        }
+        thread_index[t.pid%THREAD_BUCKETS]=NULL; md_fd_origins_release(files);
+    }
+    duplicate_close_owner=NULL;
+    checkpoints.trace=checkpoint_native_trace;
+    debug_reply_outcome=MD_ENTRY_NEEDS_STOP; debug_reply_value=RESTART_SIGNAL;
+    puts("PASS duplicate close transport: released table turn, provider completion/interruption and Base context admission without reading a running task");
 }
 static long mapping_unexpected(void *context,const struct md_control_actor *actor,
         unsigned protection,unsigned flags,struct md_control_pending **pending) {
@@ -5124,6 +5472,34 @@ static long debugger_quiesce_trace(int request,pid_t pid,void *address,void *dat
     return 0;
 }
 static unsigned terminal_capture_completions;
+static void borrowed_action_cleanup_race(void) {
+    int saved_fd=fd_ready; fd_ready=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd_ready>=0);
+    for (unsigned stopped=0;stopped<2;++stopped) for (unsigned pending=0;pending<3;++pending) {
+        struct retained_memory memory={.pending=pending==0,.cleaning=pending};
+        struct thread actor={.pid=123,.tgid=123,.memory_actor=&memory,.kernel_resume=PTRACE_CONT};
+        struct md_fd_origins *files=md_fd_origins_new(); assert(files);
+        struct md_fd_loan *loan=md_fd_loan_new(files); assert(loan);
+        struct task_action owner={.actor=&actor,.remote=1,.loan=loan,.loan_table=files};
+        assert(!task_action_execution && !task_action_barrier);
+        task_action_barrier=md_task_quiesce_new(debugger_quiesce_trace); assert(task_action_barrier);
+        debugger_interrupts=debugger_continuations=0;
+        assert(!quiesce_task_add(task_action_barrier,&actor,0));
+        assert(!md_task_quiesce_stop(task_action_barrier));
+        if (stopped) assert(!md_task_quiesce_event(task_action_barrier,0,actor.pid,
+            (PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
+        task_action_execution=&owner;
+        task_action_call_start(&owner);
+        assert(!task_action_execution && !owner.actor && !owner.native.stage);
+        assert(owner.loan==loan && owner.loan_table==files);
+        assert(memory.pending==(pending==0) && memory.cleaning==(int)pending);
+        assert(md_task_quiesce_ready(task_action_barrier));
+        assert(debugger_interrupts==1 && debugger_continuations==stopped);
+        md_task_quiesce_destroy(task_action_barrier); task_action_barrier=NULL;
+        md_fd_loan_release(loan); md_fd_origins_release(files);
+    }
+    close(fd_ready); fd_ready=saved_fd;
+    puts("PASS borrowed cleanup race: pending/active peer cleanup releases uncommitted barrier without losing FD custody");
+}
 static void terminal_capture_complete(struct thread *t,struct md_task_helper_result result) {
     assert(t->pid==456 && result.value==-ECANCELED && result.descriptor==-1);
     ++terminal_capture_completions;
@@ -5444,6 +5820,108 @@ static void debugger_provider_wait(void) {
     }
     puts("PASS debugger provider wait: attach/seize interrupt poll and epoll without readiness or interrupt loops");
 }
+static unsigned debugger_shared_completions;
+static void debugger_shared_cancelled(struct thread *t,long result) {
+    assert(result==-EINTR && !t->entry.wait.complete && !t->entry.effect);
+    ++debugger_shared_completions;
+}
+static void debugger_resident_wait(void) {
+    struct md_debugger_host host={.trace=native_trace,.group=debugger_test_group,.parent=debugger_test_parent,
+        .attachable=debugger_test_attachable,.observe=debugger_test_observe,
+        .options=debugger_test_options,.interrupt=debugger_interrupt,.complete=debugger_test_complete,
+        .uid=debugger_test_uid,.usage=debugger_test_usage};
+    for (unsigned seized=0;seized<2;++seized) for (unsigned before=0;before<2;++before) {
+        struct md_entry_channel channel={0};
+        struct thread t={.pid=123,.phase=DISPATCHING,.kernel_stopped=1,
+            .entry={.control=&channel,.execution=&channel}};
+        thread_index[t.pid%THREAD_BUCKETS]=&t;
+        debugger=md_debugger_create(&host); assert(debugger);
+        debugger_shared_completions=0;
+        if (before) assert(entry_wait_begin(&t,INT64_MAX,debugger_shared_cancelled));
+        struct seccomp_data call={.nr=SYS_ptrace,.args={seized ? PTRACE_SEIZE : PTRACE_ATTACH,t.pid}};
+        assert(md_debugger_call(debugger,getpid(),call) && !debugger_result);
+        if (seized) {
+            call.args[0]=PTRACE_INTERRUPT;
+            assert(md_debugger_call(debugger,getpid(),call) && !debugger_result);
+        }
+        if (!before) assert(entry_wait_begin(&t,INT64_MAX,debugger_shared_cancelled));
+        assert(debugger_shared_completions==1 && !t.entry.wait.complete);
+        uint64_t args[6]={0};
+        entry_effect(&t,SYS_ppoll,args,debugger_shared_cancelled);
+        assert(debugger_shared_completions==2 && t.entry.effect_cancelled);
+        md_debugger_destroy(debugger); debugger=NULL;
+        thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    puts("PASS debugger resident waits: attach/seize cancel existing and future shared/native waits through their owner");
+}
+static int debugger_borrowed_signal,debugger_borrowed_interrupts;
+static void debugger_signal_delivery(void) {
+    struct md_debugger_host host={.trace=native_trace,.group=debugger_test_group,.parent=debugger_test_parent,
+        .attachable=debugger_test_attachable,.observe=debugger_test_observe,
+        .options=debugger_test_options,.interrupt=debugger_interrupt,.complete=debugger_test_complete,
+        .uid=debugger_test_uid,.usage=debugger_test_usage};
+    const int signals[]={SIGSTOP,SIGUSR1,SIGTRAP};
+    for (unsigned direct=0;direct<2;++direct) for (unsigned i=0;i<sizeof(signals)/sizeof(*signals);++i) {
+        struct thread t={.pid=123,.phase=IDLE,.kernel_stopped=1};
+        thread_index[t.pid%THREAD_BUCKETS]=&t;
+        debugger=md_debugger_create(&host); assert(debugger);
+        struct seccomp_data attach={.nr=SYS_ptrace,.args={PTRACE_SEIZE,t.pid}};
+        assert(md_debugger_call(debugger,getpid(),attach) && !debugger_result);
+        struct md_task_signal_stop stop;
+        md_task_signal_stop_init(&stop,native_trace);
+        stop.info=(siginfo_t){.si_signo=signals[i],.si_code=SI_TKILL,.si_pid=getpid()};
+        stop.has_info=1;
+        if (direct) deliver_signal(t.pid,signals[i],0,&stop);
+        else signals_event(&t,t.pid,signals[i],&stop,0);
+        assert(md_debugger_stopped_by(debugger,t.pid,getpid()) && t.kernel_stopped);
+        md_debugger_destroy(debugger); debugger=NULL;
+        thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    puts("PASS debugger delivery: ordinary and restored wait signals share debugger admission before native delivery");
+}
+static long debugger_borrowed_trace(int request,pid_t pid,void *address,void *data) {
+    if (request==PTRACE_GETSIGINFO) {
+        *(siginfo_t *)data=(siginfo_t){.si_signo=SIGSTOP,.si_code=SI_TKILL,.si_pid=getpid()};
+        return 0;
+    }
+    if (request==PTRACE_INTERRUPT) { ++debugger_borrowed_interrupts; return 0; }
+    if (request==PTRACE_SYSCALL) { debugger_borrowed_signal=(int)(intptr_t)data; data=NULL; }
+    return borrowed_trace(request,pid,address,data);
+}
+static void debugger_borrowed_stop(void) {
+    struct md_debugger_host host={.trace=native_trace,.group=debugger_test_group,.parent=debugger_test_parent,
+        .attachable=debugger_test_attachable,.observe=debugger_test_observe,
+        .options=debugger_test_options,.interrupt=debugger_interrupt,.complete=debugger_test_complete,
+        .uid=debugger_test_uid,.usage=debugger_test_usage};
+    for (unsigned traced=0;traced<2;++traced) for (unsigned interruptible=0;interruptible<2;++interruptible) {
+        struct thread t={.pid=123,.phase=WATCH_READ,.kernel_stopped=1};
+        thread_index[t.pid%THREAD_BUCKETS]=&t;
+        debugger=md_debugger_create(&host); assert(debugger);
+        if (traced) {
+            struct seccomp_data attach={.nr=SYS_ptrace,.args={PTRACE_SEIZE,t.pid}};
+            assert(md_debugger_call(debugger,getpid(),attach) && !debugger_result);
+        }
+        struct md_task_call call={0};
+        struct user_pt_regs original={.pc=0x2004};
+        struct md_task_call_arguments args={.number=SYS_read,
+            .flags=interruptible ? MD_TASK_CALL_INTERRUPTIBLE : 0};
+        assert(!md_task_call_begin(&call,debugger_borrowed_trace,t.pid,MD_TASK_CALL_EXIT,&original,0x1000,0x1004,&args));
+        checkpoints.trace=debugger_borrowed_trace;
+        debugger_borrowed_signal=-1; debugger_borrowed_interrupts=0;
+        assert(task_call_signal(&t,&call,(SIGSTOP<<8)|0x7f));
+        assert(debugger_borrowed_signal==(traced ? 0 : SIGSTOP));
+        assert(debugger_borrowed_interrupts==(int)(traced && interruptible));
+        assert(call.interrupt_requested==(int)(traced && interruptible));
+        assert(md_debugger_stop_pending(debugger,t.pid)==(int)traced);
+        if (traced) {
+            assert(md_debugger_boundary(debugger,t.pid));
+            assert(md_debugger_stopped_by(debugger,t.pid,getpid()));
+        }
+        md_debugger_destroy(debugger); debugger=NULL;
+        checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    puts("PASS borrowed SIGSTOP: debugger owns delivery; interruptible calls cancel, ordinary job control stays native");
+}
 static void event_completion(void) {
     int previous=signal_fd,status=0x1234;
     signal_fd=-1;
@@ -5667,6 +6145,47 @@ static void debugger_wait_cancellation(void) {
     md_debugger_destroy(debugger); debugger=NULL;
     checkpoints.trace=checkpoint_native_trace;
     puts("PASS debugger wait cancellation: exact acknowledgement ignores carrier result and reprobes once");
+}
+static void service_gate_admission(void) {
+    struct md_interception_abi saved=abi;
+    abi.adapter_native_return=0x1004; abi.buffer_admit=0x1104; abi.task_return=0x1204;
+    abi.capture_gate=0x1304; abi.watch_return=0x1404; abi.code_begin=0x1000; abi.code_end=0x2000;
+    struct md_seccomp_gate gates[FILTER_SERVICE_GATES];
+    filter_service_gates(gates);
+    struct sock_filter deny[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_KILL_THREAD)};
+    struct sock_filter implicit[]={BPF_STMT(BPF_LD|BPF_W|BPF_IMM,1),
+        BPF_STMT(BPF_LDX|BPF_W|BPF_IMM,0),BPF_STMT(BPF_ALU|BPF_DIV|BPF_X,0),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+    struct sock_fprog sources[]={{1,deny},{sizeof(implicit)/sizeof(*implicit),implicit}};
+    for (unsigned source=0;source<2;++source) for (unsigned resident=0;resident<2;++resident) {
+        struct md_seccomp_policy *policy=NULL;
+        assert(!md_seccomp_policy_capture(NULL,&sources[source],&policy));
+        struct md_seccomp_route route=filter_service_route(gates,
+            resident ? FILTER_SERVICE_GATES : FILTER_REQUIRED_GATES,resident ? 7 : 0);
+        struct sock_filter code[256];
+        int size=md_seccomp_policy_route(policy,NULL,0,MD_INTERCEPT_TASK,code,256,&route);
+        assert(size>0);
+        struct sock_fprog routed={size,code};
+        for (unsigned capture=0;capture<2;++capture) {
+            struct seccomp_data call={.arch=AUDIT_ARCH_AARCH64,
+                .nr=capture ? SYS_openat : SYS_read,
+                .instruction_pointer=capture ? abi.capture_gate : abi.watch_return};
+            uint32_t value;
+            assert(!md_seccomp_program_eval(&routed,&call,&value) && value==SECCOMP_RET_ALLOW);
+            call.instruction_pointer+=4;
+            assert(!md_seccomp_program_eval(&routed,&call,&value)
+                && value==(resident ? SECCOMP_RET_ALLOW : SECCOMP_RET_KILL_THREAD));
+            call.instruction_pointer=0x3004;
+            assert(!md_seccomp_program_eval(&routed,&call,&value) && value==SECCOMP_RET_KILL_THREAD);
+        }
+        struct seccomp_data wrong={.arch=AUDIT_ARCH_AARCH64,.nr=SYS_read,.instruction_pointer=abi.capture_gate};
+        uint32_t value;
+        assert(!md_seccomp_program_eval(&routed,&wrong,&value)
+            && value==(resident ? SECCOMP_RET_ALLOW : SECCOMP_RET_KILL_THREAD));
+        md_seccomp_policy_release(policy);
+    }
+    abi=saved;
+    puts("PASS service gate admission: Base, resident and fallback retain exact FD/watch carriers before explicit/implicit guest denials");
 }
 static void checkpoint_admission(void) {
     struct thread t={.pid=123,.memory=md_memory_new()}; assert(t.memory);
@@ -6716,10 +7235,40 @@ static void deferred_continuations(void) {
     threads=saved; close(fd_ready); fd_ready=saved_fd;
     puts("PASS deferred continuations: queued owners only, deduplication, nested release and terminal cancellation");
 }
+static void entry_mapping_cancellation(void) {
+    for (unsigned clients=0;clients<2;++clients) for (unsigned ready=0;ready<2;++ready) {
+        struct thread t={.pid=123,.memory=md_memory_new()}; assert(t.memory);
+        struct md_resource_order preceding={0},following={0};
+        assert(md_memory_order_begin(t.memory,&preceding,NULL)==1);
+        assert(!md_resource_order_start(&preceding));
+        struct buffer_mapping *owner=calloc(1,sizeof(*owner)); assert(owner);
+        owner->caller=t.pid; owner->clients=clients; owner->channels=!clients;
+        owner->memory=md_memory_fork(t.memory,1); assert(owner->memory);
+        assert(!md_memory_order_begin(t.memory,&owner->turn,NULL));
+        t.memory_op.buffer_mapping=owner;
+        entry_mapping_progress(&t);
+        assert(!owner->started && t.retries[1].mask==RETRY_ENTRY_MAPPING && t.retries[1].node.list);
+        assert(!md_memory_order_begin(t.memory,&following,NULL));
+        if (ready) assert(!md_resource_order_complete(&preceding));
+        memory_buffers_discard(&t);
+        assert(!t.memory_op.buffer_mapping && !t.retries[1].mask && !t.retries[1].node.list);
+        if (!ready) {
+            assert(md_resource_order_state(&following)==MD_RESOURCE_ORDER_QUEUED);
+            assert(!md_resource_order_complete(&preceding));
+        }
+        assert(md_resource_order_state(&following)==MD_RESOURCE_ORDER_READY);
+        assert(!md_resource_order_cancel(&following));
+        memory_buffers_discard(&t);
+        md_memory_release(t.memory);
+    }
+    puts("PASS entry mapping: queued channel/client expansion, ready cancellation and successor progress without a helper");
+}
 int main(void) {
     setvbuf(stdout,NULL,_IOLBF,0);
     md_page_size=(size_t)sysconf(_SC_PAGESIZE);
+    terminal_cleanup_broker();
     deferred_continuations();
+    entry_mapping_cancellation();
     execution_request_boundary();
     filter_registration_ownership();
     svc_debugger_ownership();
@@ -6727,6 +7276,7 @@ int main(void) {
     execution_register_boundary();
     descriptor_capture_admission();
     retained_continuation_custody();
+    borrowed_action_cleanup_race();
     resident_file_waiter_custody();
     repair_late_terminal();
     socket_wait_selection();
@@ -6757,6 +7307,7 @@ int main(void) {
     pending_queue_scan(); pending_signal_ownership(); signalfd_information();
     debug_host_exit();
     cancel_stopped_child();
+    cancellation_owner_boundary();
     filter_publication();
     filter_listener_ownership();
     trace_policy_admission();
@@ -6798,14 +7349,15 @@ int main(void) {
     fd_native_retirement();
     duplicate_prepared_admission();
     fd_shared_mutations(); pidfd_shared_birth(); process_shared_waits(); process_remote_repair(); close_shared_completion();
+    duplicate_close_transport();
     native_ioctl_route();
     readiness_ignored_effect();
     queued_actions();
-    barrier_admission(); readiness_admission_order(); readiness_entry_interrupt(); readiness_signal_return(); readiness_parked_signal_return(); readiness_cancel_entry(); readiness_admission_identity(); entry_fence_ownership(); control_deadlines(); pid_collection_waiters(); terminal_buffer_completion(); ioctl_publication_completion(); notification_queue(); virtual_listener_lifetime(); notification_policy_binding(); md_test_seccomp_notify(); buffered_io_pressure(); prepared_input(); captured_writes(); repair_events(); repair_retirement(); quiescent_birth(); event_accounting();
+    barrier_admission(); readiness_admission_order(); readiness_entry_interrupt(); readiness_signal_return(); readiness_parked_signal_return(); readiness_cancel_entry(); readiness_pending_signal_cancel(); readiness_admission_identity(); entry_fence_ownership(); control_deadlines(); pid_collection_waiters(); terminal_buffer_completion(); ioctl_publication_completion(); notification_queue(); virtual_listener_lifetime(); notification_policy_binding(); md_test_seccomp_notify(); buffered_io_pressure(); prepared_input(); captured_writes(); repair_events(); repair_retirement(); quiescent_birth(); event_accounting();
     for (unsigned mode=0;mode<4;++mode) {
         completed_open(mode,SIGUSR1); completed_open(mode,SIGRTMAX);
     }
-    provider_wait_restarts(); provider_wait_boundaries(); wait_admission_wakeup(); readiness_wait_retirement(); debugger_wait_cancellation(); debugger_shared_waits();
+    provider_wait_restarts(); provider_wait_boundaries(); wait_admission_wakeup(); readiness_wait_retirement(); readiness_expired_observer(); debugger_wait_cancellation(); debugger_shared_waits();
     process_wait_signal_receipts();
     memory_shared_detach();
     adapter_native_receipts();
@@ -6830,11 +7382,15 @@ int main(void) {
     retirement_preparation_terminal();
     retirement_preparation_blocked();
     admission_quiescence();
+    service_gate_admission();
     checkpoint_admission();
     checkpoint_quiescence();
     quiescent_task_ownership(); quiescent_event_custody(); quiescent_service_waits();
     debugger_quiescence();
     debugger_provider_wait();
+    debugger_resident_wait();
+    debugger_signal_delivery();
+    debugger_borrowed_stop();
     md_task_checkpoints_clear(&checkpoints);
     puts("PASS supervisor completed open: exhausted buffer, failed adoption and single standard/realtime delivery");
     return 0;

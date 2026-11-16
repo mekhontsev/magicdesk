@@ -190,7 +190,7 @@ Inside the prepared Wayland/user-bus session, with the fixtures bound into the g
 ```sh
 python3 fixtures/sandbox-browser-gui.py --output /tmp/snap-gui-results
 python3 fixtures/sandbox-browser-gui.py --browser chromium --package snap \
-    --output /tmp/chromium-snap-gui --require-webgl
+    --output /tmp/chromium-snap-gui --require-gpu
 python3 fixtures/sandbox-browser-gui.py --browser firefox --package flatpak \
     --output /tmp/firefox-flatpak-gui --require-webgl
 ```
@@ -200,6 +200,12 @@ download path through Browse. Close normally. Acceptance requires all receipts,
 exact bytes and exit status zero, followed by a same-profile relaunch. Verify
 document export/read/write/revocation and portal shutdown/FUSE mount cleanup
 separately; a chooser can succeed through a toolkit fallback without document grants.
+
+When automating a guest chooser with `wl-copy`, prepare the clipboard before
+opening Browse, then inspect the active dialog before sending location keys.
+Without data-control support, wl-clipboard briefly maps a transparent window to
+obtain focus; running it over an open chooser can change the active window.
+This also applies to editor dialogs and nested compositors.
 
 On a fresh Plasma account, complete the ordinary KDE Wallet setup/unlock dialog
 before judging a browser's first navigation. The dialog can be behind the browser;
@@ -213,6 +219,12 @@ evidence, not a performance run.
 
 `--require-webgl` requires the known pixel and no reported WebGL context loss
 during the workflow, not a particular hardware renderer.
+Chromium's `--require-gpu` additionally requires a fresh **Download Report to
+File** export from `chrome://gpu` before normal closure. The fixture checks GPU
+sandbox admission, hardware composition and zero GPU-process crashes, retaining
+the export as `gpu.txt`. A previous profile's report cannot satisfy a new run.
+The editor fixture independently checks Electron's GPU sandbox and crash count;
+a sandboxed renderer does not prove that the GPU process entered its sandbox.
 Inspect Firefox's support report for hardware WebRender and content sandbox
 level; its renderer name may be privacy-masked. For Chromium, inspect hardware
 composition separately from ANGLE/Zink WebGL. The
@@ -766,7 +778,9 @@ Current stock-library application acceptance and exact receipts are in the
 [evidence ledger](distribution-evidence.md).
 The automated `vscode-gui.py` fixture enables an ephemeral DevTools inspection
 port to identify renderers through `SystemInfo.getProcessInfo`, then independently
-checks their proc credentials and filters. A Flatpak portal can parent those
+checks their proc credentials and filters. `SystemInfo.getInfo` also records GPU
+state before and after the debugger workflow; missing evidence or a nonzero GPU
+process crash count fails even if composition recovered. A Flatpak portal can parent those
 renderers outside the CLI's process tree. This inspection option belongs only
 to the lab fixture, not the recipe or application launcher.
 The controller and editor must share a PID namespace. For Flatpak, run Python

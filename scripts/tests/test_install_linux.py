@@ -690,8 +690,20 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                           lambda match: str(root) + match[0], fragment)
         source = root / 'usr/lib/sysctl.d/60-libvirtd.conf'
         source.parent.mkdir(parents=True)
-        original = '# Vendor tuning\n fs.aio-max-nr = 1048576\nfs/aio-max-nr=2097152\n' \
-                   '-fs.aio-max-nr = 8\nfs.aio-nr = 9\nnet.ipv4.ip_forward = 1\n'
+        lines = (
+            ('# Vendor tuning', '# Vendor tuning'),
+            (' fs.aio-max-nr = 1048576', '-fs.aio-max-nr = 1048576'),
+            ('fs/aio-max-nr=2097152', '-fs/aio-max-nr=2097152'),
+            ('\tfs.aio-max-nr\t= 32 # tuning', '-fs.aio-max-nr\t= 32 # tuning'),
+            ('-fs.aio-max-nr = 8', '-fs.aio-max-nr = 8'),
+            ('\t-fs/aio-max-nr=16', '\t-fs/aio-max-nr=16'),
+            ('fs.aio-nr = 9', 'fs.aio-nr = 9'),
+            ('fsXaio-max-nr = 10', 'fsXaio-max-nr = 10'),
+            ('# fs.aio-max-nr = 11', '# fs.aio-max-nr = 11'),
+            ('net.ipv4.ip_forward = 1', 'net.ipv4.ip_forward = 1'),
+        )
+        original = ''.join(before + '\n' for before, _ in lines)
+        expected = ''.join(after + '\n' for _, after in lines)
         source.write_text(original)
         administrator = root / 'etc/sysctl.d/60-libvirtd.conf'
         administrator.parent.mkdir(parents=True)
@@ -699,8 +711,7 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         output = root / 'run/sysctl.d/60-libvirtd.conf'
         for _ in range(2):
             subprocess.run(['sh', '-eu', '-c', fragment], check=True, timeout=5)
-            self.assertEqual(original.replace(' fs.aio', '-fs.aio').replace('\nfs/aio', '\n-fs/aio'),
-                             output.read_text())
+            self.assertEqual(expected, output.read_text())
             self.assertEqual(original, source.read_text())
             self.assertEqual('fs.aio-max-nr = 4096\n', administrator.read_text())
 

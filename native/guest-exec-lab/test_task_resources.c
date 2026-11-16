@@ -561,8 +561,8 @@ static void landlock_resources(void) {
     }
     errno=0; assert(!md_landlock_restrict(parent.landlock,rules) && errno==E2BIG);
     md_landlock_ruleset_release(rules);
-    assert(md_landlock_check(parent.landlock,MD_LL_WRITE_FILE,no_landlock_rule,NULL)==-EACCES);
-    assert(!md_landlock_check(parent.landlock,MD_LL_READ_FILE,no_landlock_rule,NULL));
+    assert(md_landlock_check(parent.landlock,MD_LL_WRITE_FILE,no_landlock_rule,NULL,NULL)==-EACCES);
+    assert(!md_landlock_check(parent.landlock,MD_LL_READ_FILE,no_landlock_rule,NULL,NULL));
     assert(!md_resources_fork(&parent,CLONE_FILES|CLONE_FS,NULL,&child));
     assert(child.landlock==parent.landlock);
     struct md_task_registry *registry=md_task_registry_create(); assert(registry);
@@ -575,7 +575,7 @@ static void landlock_resources(void) {
     assert(!md_resources_release(&parent));
     md_task_registry_forget(registry,getpid()); md_task_registry_destroy(registry);
     assert(!md_resources_release(&child));
-    assert(md_landlock_check(snapshot.landlock,MD_LL_WRITE_FILE,no_landlock_rule,NULL)==-EACCES);
+    assert(md_landlock_check(snapshot.landlock,MD_LL_WRITE_FILE,no_landlock_rule,NULL,NULL)==-EACCES);
     md_task_snapshot_release(&snapshot); md_identity_release(&id);
     puts("PASS Landlock immutable domains, layer bounds, fork/exec and worker snapshot custody");
 }

@@ -531,7 +531,19 @@ static void path_request(const char *store, unsigned kind, int protected, int sl
         assert(!md_inode_unlink(s,-1,q.path,kind==1 ? AT_REMOVEDIR : 0));
         md_inode_store_close(s);
     }
-    assert(all_fds()==initial);
+    unsigned remaining=all_fds();
+    if (remaining!=initial) {
+        fprintf(stderr,"O_PATH descriptor balance kind=%u protected=%d slots=%d cancelled=%d shared=%d exec=%d unsigned=%d before=%u after=%u\n",
+            kind,protected,slots,cancelled,shared,exec_image,unsigned_argument,initial,remaining);
+        DIR *directory=opendir("/proc/self/fd"); assert(directory);
+        for (struct dirent *entry;(entry=readdir(directory));) if (entry->d_name[0]!='.') {
+            char target[PATH_MAX];
+            ssize_t n=readlinkat(dirfd(directory),entry->d_name,target,sizeof(target)-1);
+            if (n>=0) { target[n]=0; fprintf(stderr,"FD %s %s\n",entry->d_name,target); }
+        }
+        assert(!closedir(directory));
+    }
+    assert(remaining==initial);
     printf("PASS filesystem worker O_PATH kind=%u protected=%d slots=%d cancelled=%d sharedFiles=%d exec=%d unsignedArgument=%d originPublished=%d noPrivateFD=1 sharedPayload=1 bootstrapProcError=%d\n",
         kind,protected,slots,cancelled,shared,exec_image,unsigned_argument,published,reopen_error);
 }
@@ -639,6 +651,64 @@ static void worker_start_failure(const char *store) {
     assert(!md_fs_worker_stop(worker) && all_fds()==before);
     puts("PASS worker runtime lifecycle: early/late startup failure, borrowed listener and clean restart");
 }
+struct copy_job { struct md_fs_work work; struct md_fs_worker *worker; int started,gate,completed; };
+static void copy_job_run(struct md_fs_work *work,struct md_filesystem *fs,int error) {
+    struct copy_job *job=(void *)work;
+    assert(fs && !error);
+    for (unsigned i=0;i<2;++i) {
+        md_fs_worker_copy_begin(job->worker);
+        uint64_t one=1;
+        assert(write(job->started,&one,sizeof(one))==sizeof(one));
+        /* EVENT_WAIT: the fixture releases this exact copy interval. */
+        assert(md_event_wait_fd(job->gate,POLLIN,md_event_now()+5000000000LL)>=0);
+        assert(read(job->gate,&one,sizeof(one))==sizeof(one));
+        md_fs_worker_copy_end(job->worker);
+    }
+    int source=42,target=0;
+    assert(md_fs_worker_copy_to_task(job->worker,getpid(),-1,0,(uintptr_t)&target,
+        &source,sizeof(source))==sizeof(source) && target==42);
+    assert(md_fs_worker_copy_to_task(job->worker,getpid(),-1,0,1,&source,sizeof(source))==-EFAULT);
+    target=0;
+    assert(md_fs_worker_copy_to_task(job->worker,getpid(),job->gate,0,(uintptr_t)&target,
+        &source,sizeof(source))==-ECANCELED && !target);
+}
+static int copy_job_complete(struct md_fs_work *work) {
+    ++((struct copy_job *)work)->completed; return 0;
+}
+static void worker_copy_fence(struct md_fs_worker *worker) {
+    struct copy_job job={.work={.run=copy_job_run,.complete=copy_job_complete},.worker=worker,
+        .started=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK),.gate=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK)};
+    assert(job.started>=0 && job.gate>=0);
+    assert(!md_fs_worker_submit(worker,&job.work));
+    struct md_fs_worker_copy_fence fence={0},other={0};
+    for (unsigned i=0;i<2;++i) {
+        assert(md_event_wait_fd(job.started,POLLIN,md_event_now()+5000000000LL)>=0);
+        uint64_t one; assert(read(job.started,&one,sizeof(one))==sizeof(one));
+        if (i) {
+            /* A later in-flight copy cannot prolong the old fence. */
+            assert(md_fs_worker_copy_fence_ready(&fence));
+            md_fs_worker_copy_fence_end(&fence);
+        }
+        assert(!md_fs_worker_copy_fence_begin(worker,&fence));
+        assert(!md_fs_worker_copy_fence_ready(&fence));
+        assert(md_fs_worker_copy_fence_begin(worker,&other)==-EBUSY && !other.owner);
+        if (i) {
+            md_fs_worker_copy_fence_end(&fence);
+            assert(!fence.owner && md_fs_worker_copy_fence_ready(&fence));
+            assert(!md_fs_worker_copy_fence_begin(worker,&fence));
+            assert(!md_fs_worker_copy_fence_ready(&fence));
+        }
+        one=1; assert(write(job.gate,&one,sizeof(one))==sizeof(one));
+    }
+    while (!job.completed) {
+        assert(md_event_wait_fd(md_fs_worker_fd(worker),POLLIN,md_event_now()+5000000000LL)>=0);
+        assert(!md_fs_worker_dispatch(worker));
+    }
+    assert(md_fs_worker_copy_fence_ready(&fence));
+    md_fs_worker_copy_fence_end(&fence);
+    assert(!close(job.started) && !close(job.gate));
+    puts("PASS worker copy fence: in-flight drain, later-copy independence, cancellation, checked output and rejected custody");
+}
 static void worker_pause(const char *store) {
     unsigned before=all_fds();
     for (int stop=0;stop<2;++stop) {
@@ -712,6 +782,10 @@ static void worker_pause(const char *store) {
             assert(md_event_wait_fd(started,POLLIN,md_event_now()+5000000000LL)>=0);
             assert(!md_fs_worker_pause_begin(worker,&pause));
             assert(!md_fs_worker_pause_state(&pause));
+            struct md_fs_worker_copy_fence copies={0};
+            assert(!md_fs_worker_copy_fence_begin(worker,&copies));
+            assert(md_fs_worker_copy_fence_ready(&copies));
+            md_fs_worker_copy_fence_end(&copies);
             assert(!md_fs_worker_pause_end(&pause));
             uint64_t one=1; assert(write(gate,&one,sizeof(one))==sizeof(one));
             deadline=md_event_now()+5000000000LL;
@@ -719,7 +793,10 @@ static void worker_pause(const char *store) {
                 assert(md_event_wait_fd(md_fs_worker_fd(worker),POLLIN,deadline)>=0);
                 assert(!md_fs_worker_dispatch(worker));
             }
-            assert(!blocked.error && !md_fs_worker_stop(worker));
+            assert(!blocked.error);
+            worker_copy_fence(worker);
+            assert(!md_fs_worker_copy_fence_begin(worker,&copies));
+            assert(!md_fs_worker_stop(worker) && !copies.owner);
             assert(!close(gate) && !close(started));
         }
         assert(all_fds()==before);
@@ -1675,7 +1752,7 @@ static void buffer_child_admission(struct md_fs_buffer_service *service,struct m
         .length={sizeof(path),0},.path={"/completion-fifo"}}};
     assert(!buffer_request(service,worker,fs,buffer,MD_FS_MKNOD));
     assert(!frame->reply.result.error);
-    for (int cancel=0;cancel<3;++cancel) {
+    for (int cancel=0;cancel<5;++cancel) {
         open_completion_admitted=1;
         md_fs_buffer_admission(service,open_completion_admit);
         *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},.flags=O_RDWR|O_CLOEXEC,
@@ -1691,25 +1768,41 @@ static void buffer_child_admission(struct md_fs_buffer_service *service,struct m
         assert(buffer_callbacks==callbacks && buffered_open.fd==-1);
         assert(!md_fs_worker_dispatch(worker) && buffer_callbacks==callbacks);
         if (cancel==2) md_fs_buffer_cancel(&request);
-        if (cancel) {
+        if (cancel==1 || cancel==2) {
             assert(!request && !md_fs_worker_dispatch(worker) && buffer_callbacks==callbacks);
         } else {
             open_completion_admitted=1;
-            assert(!md_fs_worker_dispatch(worker));
-            assert(buffer_callbacks==callbacks+1 && buffer_pending==request
-                && md_fs_buffer_open_ready(request) && buffered_open.fd==-1);
-            assert(!md_fs_buffer_open_resume(request)); request=NULL;
-            assert(buffer_callbacks==callbacks+2 && !buffer_pending && !buffer_error
-                && !frame->reply.result.error && buffered_open.fd>=0);
-            struct stat st; assert(!fstat(buffered_open.fd,&st) && S_ISFIFO(st.st_mode));
-            md_fs_buffer_open_release(&buffered_open);
+            if (cancel>=3) {
+                /* A checkpoint can consume a ready helper before the queued
+                 * completion is dispatched. The queue still owns retirement. */
+                assert(md_fs_buffer_open_ready(request));
+                assert(!md_fs_buffer_open_resume(request));
+                assert(buffer_callbacks==callbacks && buffered_open.fd==-1);
+                if (cancel==4) md_fs_buffer_cancel(&request);
+                assert(!md_fs_worker_dispatch(worker));
+            } else {
+                assert(!md_fs_worker_dispatch(worker));
+                assert(buffer_callbacks==callbacks+1 && buffer_pending==request
+                    && md_fs_buffer_open_ready(request) && buffered_open.fd==-1);
+                assert(!md_fs_buffer_open_resume(request));
+            }
+            request=NULL;
+            if (cancel==4) assert(buffer_callbacks==callbacks && buffered_open.fd==-1);
+            else {
+                assert(buffer_callbacks==callbacks+(cancel==3 ? 1 : 2) && !buffer_pending && !buffer_error
+                    && !frame->reply.result.error && buffered_open.fd>=0);
+                struct stat st; assert(!fstat(buffered_open.fd,&st) && S_ISFIFO(st.st_mode));
+                md_fs_buffer_open_release(&buffered_open);
+            }
         }
+        int completed=buffer_callbacks;
+        assert(!md_fs_worker_dispatch(worker) && buffer_callbacks==completed);
         buffer_pending=NULL;
         md_fs_buffer_admission(service,NULL);
     }
     struct md_fs_request unlink={.operation=MD_FS_UNLINK,.directory={-1,-1},.path={path}};
     assert(!status_call(service,worker,fs,&unlink));
-    puts("PASS asynchronous open admission: retained child result, exact wakeup and cancellation before/after publication");
+    puts("PASS asynchronous open admission: retained child result, checkpoint before queued completion, cancellation and exact retirement");
 }
 static void buffer_service_lifetime(const char *store, unsigned cancelled_operation) {
     unsigned before=all_fds();

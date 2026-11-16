@@ -5,10 +5,12 @@
 #include <limits.h>
 #include <linux/landlock.h>
 #include <pthread.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
@@ -231,6 +233,52 @@ static void run(void (*fn)(void)) {
     if (!pid) { fn(); _exit(0); }
     reaped(pid, 0);
 }
+static void readable(const char *path,int allowed) {
+    int fd=open(path,O_RDONLY|O_CLOEXEC);
+    if (!allowed) { expect_error(fd,EACCES); return; }
+    assert(fd>=0); assert(!close(fd));
+}
+static void mount_paths(void) {
+    assert(!unshare(CLONE_NEWNS));
+    assert(!mount(NULL,"/",NULL,MS_REC|MS_PRIVATE,NULL));
+    assert(!mkdir("denied/mount",0700) && !mkdir("allowed/mount",0700));
+    assert(!mount("tmpfs","denied/mount","tmpfs",0,NULL));
+    assert(!mkdir("denied/mount/nested",0700));
+    assert(!mount("ramfs","denied/mount/nested","ramfs",0,NULL));
+    const char *paths[]={"denied/mount/file","denied/mount/nested/file"};
+    for (unsigned i=0;i<2;++i) {
+        int fd=open(paths[i],O_CREAT|O_EXCL|O_RDWR,0600); assert(fd>=0); close(fd);
+    }
+    assert(!mount("denied/mount","allowed/mount",NULL,MS_BIND|MS_REC,NULL));
+    for (unsigned variant=0;variant<5;++variant) {
+        pid_t pid=fork(); assert(pid>=0);
+        if (!pid) {
+            int set=ruleset();
+            const char *grant=variant==0 || variant==4 ? "/" : variant==1 ? "allowed"
+                : variant==2 ? "denied" : "denied/mount";
+            add(set,grant,READ_RIGHTS); restrict_to(set); close(set);
+            if (variant==4) {
+                set=ruleset(); add(set,"allowed",READ_RIGHTS); restrict_to(set); close(set);
+            }
+            readable("denied/mount/file",variant==0 || variant==2 || variant==3);
+            readable("allowed/mount/file",variant!=2);
+            readable("denied/mount/nested/file",variant==0 || variant==2 || variant==3);
+            readable("allowed/mount/nested/file",variant!=2);
+            denied("allowed/mount/file"); denied("denied/mount/nested/file");
+            int dir=open("allowed/mount",O_PATH|O_DIRECTORY); assert(dir>=0);
+            int fd=openat(dir,"file",O_RDONLY);
+            if (variant==2) expect_error(fd,EACCES); else { assert(fd>=0); close(fd); }
+            char path[64]; snprintf(path,sizeof(path),"/proc/self/fd/%d/file",dir);
+            readable(path,variant!=2); close(dir);
+            _exit(0);
+        }
+        reaped(pid,0);
+    }
+    assert(!umount("allowed/mount/nested") && !umount("allowed/mount"));
+    assert(!umount("denied/mount/nested") && !umount("denied/mount"));
+    assert(!rmdir("allowed/mount") && !rmdir("denied/mount"));
+    puts("PASS landlock mount ancestry, nested stores, bind aliases, dirfd, proc reopen and policy intersection");
+}
 static const char *files[] = {"allowed/file", "allowed/sub/file-existing", "denied/file"};
 static void prepare(void) {
     assert(!mkdir("allowed", 0700)); assert(!mkdir("allowed/sub", 0700));
@@ -256,6 +304,7 @@ int main(int argc, char **argv) {
         puts("PASS landlock restrictions survive exec"); return 0;
     }
     int setup_only = argc == 3 && !strcmp(argv[1], "--setup-only");
+    int mounts = argc == 3 && !strcmp(argv[1], "--mounts");
     if (!setup_only) {
         errno = 0;
         long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
@@ -264,11 +313,12 @@ int main(int argc, char **argv) {
         if (abi < 1) return 77;
         if (argc == 2 && !strcmp(argv[1], "--probe")) return 0;
     }
-    if (argc != 2 && !setup_only) { fprintf(stderr, "Usage: %s [--setup-only] DIRECTORY | --probe\n", argv[0]); return 2; }
-    assert(!chdir(argv[setup_only ? 2 : 1]));
+    if (argc != 2 && !setup_only && !mounts) { fprintf(stderr, "Usage: %s [--setup-only|--mounts] DIRECTORY | --probe\n", argv[0]); return 2; }
+    assert(!chdir(argv[setup_only || mounts ? 2 : 1]));
     char directory[] = "landlock-XXXXXX"; assert(mkdtemp(directory));
     int parent = open(".", O_PATH | O_DIRECTORY); assert(parent >= 0);
     assert(!chdir(directory)); prepare();
+    if (mounts) run(mount_paths);
     if (!setup_only) {
         run(validation); run(basic); run(exec_descriptor); run(exec_native_descriptor); run(read_denial);
         run(stacking); run(threads); run(exec_inheritance); run(object_identity);

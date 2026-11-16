@@ -5,9 +5,10 @@
 
 enum md_execution_context md_execution_dispatch_context(const struct md_guest_execution *call) {
     long nr=call->number;
-    /* Replacing the process image needs its kernel exec boundary. Other
-     * operations acquire context explicitly through their resource owner. */
+    /* These operations consume architectural state rather than six syscall
+     * arguments. Both frontends can select that boundary before an exchange. */
     if (nr==SYS_execve || nr==SYS_execveat) return MD_CONTEXT_EXEC;
+    if (nr==SYS_rt_sigreturn) return MD_CONTEXT_SIGNAL;
     return MD_CONTEXT_COUNT;
 }
 

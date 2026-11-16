@@ -63,6 +63,7 @@ void execution_begin(struct thread *t,const struct seccomp_data *call,const stru
  * native effect. This cannot decline/replay or acquire initial-call context. */
 void entry_execution_begin(struct thread *);
 void entry_control(pid_t pid,struct md_entry_channel *channel);
+void execution_publish(struct thread *t,int resuming);
 void resume(pid_t pid, int sig);
 int shield(struct thread *t);
 int save_signal_mask(struct thread *t,uint64_t *mask,const char *reason);

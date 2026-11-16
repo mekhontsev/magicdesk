@@ -13,6 +13,22 @@ spec.loader.exec_module(mcp)
 
 
 class ClientTest(unittest.TestCase):
+    def test_per_call_request_bound_does_not_mutate_client(self):
+        client = mcp.Client("http://127.0.0.1:8765/mcp", "token", timeout=270, request_timeout=240)
+        client.opener = Mock()
+        payload = {"result": {"structuredContent": {"success": True, "data": {}}}}
+        client.opener.open.side_effect = lambda *args, **kwargs: io.BytesIO(json.dumps(payload).encode())
+        client.call("console.execute", deadline=mcp.time.monotonic() + 1245, request_timeout=1245)
+        self.assertGreater(client.opener.open.call_args.kwargs["timeout"], 1240)
+        self.assertEqual((client.timeout, client.request_timeout), (270, 240))
+        client.call("console.status")
+        self.assertEqual(client.opener.open.call_args.kwargs["timeout"], 240)
+        client.call("console.execute", deadline=mcp.time.monotonic() + 10, request_timeout=1245)
+        self.assertLessEqual(client.opener.open.call_args.kwargs["timeout"], 10)
+        for value in (0, -1, float("inf"), float("nan")):
+            with self.assertRaises(mcp.ToolError):
+                client.call("console.execute", request_timeout=value)
+
     def test_long_request_keeps_deadline_and_does_not_replay(self):
         client = mcp.Client("http://127.0.0.1:8765/mcp", "token", timeout=600, request_timeout=400)
         client.opener = Mock()

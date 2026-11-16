@@ -329,10 +329,36 @@ static void reserved_publication(void) {
     port_state(&address,0);
     md_network_forward_endpoint_closed(n,&token);
     pthread_mutex_unlock(&n->fabric->lock);
+    struct md_identity root=md_identity_new(0,0);
+    struct md_fd_object *endpoint=NULL; int udp=-1,one=1;
+    assert(!md_network_endpoint_open(n,0,AF_INET,SOCK_DGRAM,0,&endpoint,&udp));
+    socklen_t size=sizeof(one);
+    assert(!md_network_endpoint_sockopt(endpoint,udp,&root,1,SOL_SOCKET,SO_REUSEADDR,&one,&size));
+    assert(!md_network_endpoint_bind(endpoint,udp,&root,(void *)&address,sizeof(address)));
+    e[3].value[0]=IPPROTO_UDP;
+    for (unsigned stage=0;stage<5;++stage) {
+        pthread_mutex_lock(&n->fabric->lock);
+        if (stage==1 || stage==3) {
+            assert(!md_network_forward_prepare(n,&f,&update));
+            if (stage==1) md_network_forward_abort(update);
+            else md_network_forward_commit(update);
+        } else if (stage==4) {
+            assert(!md_network_forward_prepare(n,NULL,&update));
+            md_network_forward_commit(update);
+        }
+        pthread_mutex_unlock(&n->fabric->lock);
+        int probe=socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,0);
+        assert(probe>=0 && !setsockopt(probe,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one)));
+        int result=bind(probe,(void *)&address,sizeof(address));
+        assert(stage==3 ? result==-1 && errno==EADDRINUSE : !result);
+        close(probe);
+    }
+    close(udp); md_fd_object_release(endpoint); md_identity_release(&root);
     md_network_namespace_release(n);
     held=socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0); assert(held>=0);
     assert(!bind(held,(const void *)&address,sizeof(address))); close(held);
     puts("PASS bound-only TCP: NAT admission, abort, removal, guest listen, late bind and port release");
+    puts("PASS UDP publication: NAT exclusively reserves a reusable guest port, abort/removal restores guest ownership");
 }
 static void loopback_origin(void) {
     for (unsigned udp=0;udp<2;++udp) {

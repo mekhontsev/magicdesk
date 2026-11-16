@@ -46,10 +46,12 @@ static inline int md_view_policy_walk(const struct md_filesystem *fs,const struc
         || ((flags&MD_MOUNT_NOEXEC) && q->operation==MD_FS_ACCESS && (q->mode&X_OK));
 }
 struct md_view_location;
+struct md_landlock_scope;
 void md_fs_bpf(struct md_filesystem *,const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);
 void md_fs_landlock(struct md_filesystem *,const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);
 int md_fs_landlock_native(struct md_filesystem *,const struct md_fs_request *,struct md_view_mount *,int fd);
 int md_fs_landlock_delegate(struct md_filesystem *,const struct md_fs_request *,const char *);
+int md_fs_landlock_scope(struct md_filesystem *,const struct md_view_mount *,struct md_landlock_scope *);
 int md_fs_proc_operation(struct md_filesystem *,struct md_mount_namespace *,struct md_view_mount *,
     int,const struct stat *,const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);
 int md_fs_proc_capture_open(struct md_filesystem *,struct md_mount_namespace *,struct md_view_mount *,

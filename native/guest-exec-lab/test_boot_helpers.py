@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 import urllib.error
 
-from init_fixture import installed_boot, start_service, enable_runit_service, RUNIT_START, GUEST_PATH
+from init_fixture import installed_boot, start_service, enable_runit_service, launch_with_completion, RUNIT_START, GUEST_PATH
 from installed_desktop import attach_window, keep_display_awake, stop_owned_resources, wait_controller
 from test_os_boot import check_runit_boot, check_systemd_boot
 from test_nixos_boot import boot_script
@@ -410,6 +410,27 @@ class BootHelpers(unittest.TestCase):
                         suite.assert_not_called()
                         observer.assert_not_called()
 
+    def test_editor_gpu_rejects_recovery_and_missing_evidence(self):
+        verify = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                   'vscode-gui.py'))['verify_gpu']
+        hardware = dict(auxAttributes=dict(sandboxed=True, processCrashCount=0),
+                        featureStatus=dict(gpu_compositing='enabled'))
+        verify(hardware, True)
+        software = dict(auxAttributes=dict(sandboxed=True, processCrashCount=0),
+                        featureStatus=dict(gpu_compositing='disabled_software'))
+        verify(software, False)
+        with self.assertRaises(AssertionError):
+            verify(software, True)
+        for count in (None, False, '0', -1, 1, 3):
+            with self.subTest(count=count), self.assertRaises(AssertionError):
+                verify(dict(hardware, auxAttributes=dict(sandboxed=True, processCrashCount=count)), False)
+        for sandboxed in (False, None, 'true', 1):
+            with self.subTest(sandboxed=sandboxed), self.assertRaisesRegex(AssertionError, 'GPU sandbox'):
+                verify(dict(hardware, auxAttributes=dict(sandboxed=sandboxed, processCrashCount=0)), False)
+        for info in (None, {}, dict(featureStatus=hardware['featureStatus'])):
+            with self.subTest(info=info), self.assertRaises(AssertionError):
+                verify(info, False)
+
     @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Requires Python Linux pidfd support')
     def test_editor_readiness_observes_exact_launcher_exit(self):
         accept = runpy.run_path(str(Path(__file__).with_name('fixtures') /
@@ -542,6 +563,32 @@ class BootHelpers(unittest.TestCase):
                     launch.assert_not_called()
                 self.assertFalse(json.loads((root / 'result/gui-report.json').read_text())['passed'])
 
+    def test_editor_fixture_retains_failure_report_when_cleanup_times_out(self):
+        main = runpy.run_path(str(Path(__file__).with_name('fixtures') / 'vscode-gui.py'))['main']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '.cache').mkdir()
+            driver = root / 'driver.js'
+            driver.touch()
+            child = Mock(pid=12345)
+            child.poll.return_value = None
+            child.wait.side_effect = subprocess.TimeoutExpired('fixture-code', 10)
+            args = ['vscode-gui.py', '--output', str(root / 'result'), '--driver', str(driver)]
+            with patch.object(sys, 'argv', args), patch.object(Path, 'home', return_value=root), \
+                    patch('shutil.which', return_value='/fixture/gdb'), \
+                    patch('subprocess.check_output', return_value='ms-vscode.cpptools\n'), \
+                    patch('subprocess.run'), patch('subprocess.Popen', return_value=child), \
+                    patch('os.readlink', return_value='pid:[1]'), patch('os.killpg') as terminate, \
+                    patch.dict(main.__globals__, accept_editor=Mock(side_effect=RuntimeError('readiness failed'))):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    main()
+            terminate.assert_called_once_with(child.pid, signal.SIGTERM)
+            report = json.loads((root / 'result/gui-report.json').read_text())
+            self.assertFalse(report['passed'])
+            self.assertIn('readiness failed', report['failure'])
+            self.assertIn('TimeoutExpired', report['cleanupFailure'])
+            self.assertTrue(Path(report['work']).is_dir())
+
     def test_graphical_fixture_holds_its_display_and_renews_exact_lease(self):
         client, statefile = Mock(), Mock()
         client.call.return_value = dict(held=True, displayId=7, leaseId='fixture-lease')
@@ -622,6 +669,9 @@ class BootHelpers(unittest.TestCase):
             boot, driver = installed_boot('/opt/fixture', 12345, 'token', 'systemd', user, system)
             self.assertIn(system + '/sw/bin/python3', boot)
             self.assertIn(system + '/activate', boot)
+            self.assertIn(system + '/sw/bin', boot.split('export PATH=', 1)[1].split('\n', 1)[0])
+            self.assertNotIn('/nix/var/nix/profiles/system', boot)
+            self.assertEqual(boot.count('\n    ' + system + '/activate\n'), 1)
             self.assertIn(system + '/systemd/lib/systemd/systemd', boot)
             self.assertLess(boot.index(system + '/activate'), boot.index('exec ' + system + '/sw/bin/setpriv'))
             for script in (boot, driver):
@@ -671,6 +721,9 @@ class BootHelpers(unittest.TestCase):
             with self.subTest(dhcp=dhcp):
                 boot = boot_script('/nix/store/system', '/nix/store/python/bin/python3', '/mnt/fixture', dhcp)
                 self.assertLess(boot.index('/nix/store/system/activate'), boot.index('exec /sbin/init'))
+                self.assertNotIn('/nix/var/nix/profiles/system', boot)
+                self.assertEqual(boot.count('\n    /nix/store/system/activate\n'), 1)
+                self.assertNotIn('\n/nix/store/system/activate\n', boot)
                 self.assertIn('systemctl is-system-running --wait', boot)
                 self.assertIn('PASS boot service IO and restart', boot)
                 self.assertEqual('umount /run/netns/md-nixos-client' in boot, dhcp)
@@ -819,6 +872,40 @@ class BootHelpers(unittest.TestCase):
         self.assertEqual([call.args[0] for call in client.call.call_args_list], [
             'graphics.list', 'wait_for_state', 'list_displays', 'wait_for_state'])
         event.return_value.wait.assert_called_once()
+
+    def test_launch_completion_retains_exec_status_and_final_output(self):
+        import shlex
+        for status in (0, 37, 125, 143):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                log, receipt = Path(directory) / 'final output', Path(directory) / 'exit status'
+                command = shlex.join(['sh', '-c', 'printf final; exit ' + str(status)])
+                result = subprocess.run(['sh', '-ec', launch_with_completion(
+                    'exec ' + command + ' >' + shlex.quote(str(log)), str(receipt))], timeout=5)
+                self.assertEqual(status, result.returncode)
+                self.assertEqual(str(status) + '\n', receipt.read_text())
+                self.assertEqual('final', log.read_text())
+
+    def test_stop_waits_for_launcher_after_registry_disappears(self):
+        state = dict(id='owned', environment=dict(store='/store'), runner='/runner',
+                     launchCompletion='/fixture/launch.exit')
+        shell, client = Mock(side_effect=['', '', '', '143\n']), Mock()
+        with patch('installed_desktop.threading.Event') as event:
+            stop_owned_resources(client, shell, state)
+        self.assertEqual(143, state['launchExitCode'])
+        self.assertEqual([call('/runner image launches /store')] * 2 + [
+            call('if test -s /fixture/launch.exit; then cat /fixture/launch.exit; fi')] * 2,
+            shell.call_args_list)
+        event.return_value.wait.assert_called_once()
+        client.call.assert_not_called()
+
+    def test_stop_requires_completion_even_without_registered_launches(self):
+        state = dict(id='owned', environment=dict(store='/store'), runner='/runner',
+                     launchCompletion='/fixture/launch.exit', sessionId='graphics')
+        shell, client = Mock(return_value=''), Mock()
+        with patch('installed_desktop.time.monotonic', side_effect=[0, 31]):
+            with self.assertRaisesRegex(AssertionError, 'launcher did not exit'):
+                stop_owned_resources(client, shell, state)
+        client.call.assert_not_called()
 
     def test_stop_timeout_keeps_graphics_for_diagnosis(self):
         state = dict(id='owned', environment=dict(store='/store'), runner='/runner')

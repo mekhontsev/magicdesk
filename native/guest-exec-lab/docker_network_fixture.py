@@ -1,4 +1,4 @@
-"""External port observer and a tiny container service for Docker networking tests."""
+"""External port observer and a tiny service for container networking tests."""
 from contextlib import ExitStack
 import http.client
 import errno
@@ -20,6 +20,15 @@ import tempfile
 import threading
 import time
 import urllib.request
+
+
+def port_binding_conflict(result):
+    code = result.get('exitCode')
+    if type(code) is not int or code <= 0:
+        return False
+    output = result.get('output', '').lower()
+    return any(message in output for message in (
+        'port is already allocated', 'address already in use', 'address in use'))
 
 
 def wait_service(command):
@@ -322,7 +331,7 @@ class Observer:
             except OSError as error:
                 remaining = deadline - time.monotonic()
                 if error.errno != errno.EADDRINUSE or remaining <= 0:
-                    raise
+                    raise OSError(error.errno, f'{kind.name} {host}:{port}: {error.strerror}') from error
                 select.select([], [], [], min(.05, remaining))
 
     def close(self):

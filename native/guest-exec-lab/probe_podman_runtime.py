@@ -131,7 +131,7 @@ def guest(options):
         raise AssertionError('DNS service not found')
 
     def exercise_ports():
-        from docker_network_fixture import observe, wait_service
+        from docker_network_fixture import observe, port_binding_conflict, wait_service
         managed_network = options['network'] == 'bridge'
         network = 'md-podman-ports' if managed_network else options['network']
         names = ('md-podman-first', 'md-podman-second')
@@ -190,8 +190,9 @@ def guest(options):
                     run(prefix + ['exec', source, 'python3', '/fixture.py', '--client', target, '8080', target, '20', *family])
             conflict = run(prefix + ['run', '--rm', '--name', 'md-podman-conflict', *network_arguments(network),
                                     *limits, '-p', f'{host}:{ports[0]}:8080', image, '/bin/true'], required=False)
-            assert conflict.get('exitCode') != 0 and ('already allocated' in conflict['output']
-                    or 'address already in use' in conflict['output'].lower()), conflict
+            assert port_binding_conflict(conflict), conflict
+            for name, port in zip(names, ports):
+                report['portChecks'].append(external(operation='exchange', port=port, token=name, repeats=20))
             if options['internet']:
                 report['internetResults'] = [run(prefix + ['exec', name, 'python3', '/fixture.py', '--internet'],
                                                    required=False) for name in names]

@@ -28,6 +28,51 @@ static unsigned entries(int parent) {
         if (strcmp(entry->d_name,".") && strcmp(entry->d_name,"..")) ++count;
     assert(!closedir(d)); return count;
 }
+static void temporary_recovery(int parent) {
+    assert(!mkdirat(parent,"unrelated",0700));
+    assert(!mkdirat(parent,".md-transient-not-owned",0700));
+    for (unsigned i=0;i<10;++i) {
+        unsigned variant=i%5;
+        int root=md_temporary_directory_new(parent); assert(root>=0);
+        assert(!symlinkat("../unrelated",root,"outside"));
+        assert(!fchmodat(root,MD_TEMPORARY_DIRECTORY_MARKER,0600,0));
+        int marker=openat(root,MD_TEMPORARY_DIRECTORY_MARKER,O_RDWR|O_CLOEXEC);
+        assert(marker>=0);
+        unsigned char saved[64];
+        ssize_t size=pread(marker,saved,sizeof(saved),0);
+        assert(size>1 && size<(ssize_t)sizeof(saved));
+        if (!variant) assert(!unlinkat(root,MD_TEMPORARY_DIRECTORY_MARKER,0));
+        else if (variant==1) assert(!ftruncate(marker,0));
+        else if (variant==2) assert(!ftruncate(marker,size-1));
+        else {
+            if (variant==3) memset(saved,0,(size_t)size);
+            else saved[size-1]^=1;
+            assert(pwrite(marker,saved,(size_t)size,0)==size);
+        }
+        assert(!fchmod(marker,0400) && !close(marker));
+        assert(md_temporary_directory_check(root)==(!variant ? -ENOENT : -ESTALE));
+        /* A damaged marker never revokes a live lease, including one retained
+         * while admitting a different provider. Final close models lost owners. */
+        assert(!md_temporary_directory_collect(parent) && entries(parent)==3);
+        int other=md_temporary_directory_new(parent); assert(other>=0 && entries(parent)==4);
+        md_temporary_directory_release(other);
+        assert(entries(parent)==3);
+        if (i<5) assert(!close(root));
+        else { md_temporary_directory_release(root); assert(entries(parent)==2); }
+        assert(!md_temporary_directory_collect(parent) && entries(parent)==2);
+        assert(!faccessat(parent,"unrelated",F_OK,0));
+        assert(!faccessat(parent,".md-transient-not-owned",F_OK,0));
+    }
+    int root=md_temporary_directory_new(parent); assert(root>=0);
+    assert(!fchmod(root,0755));
+    assert(md_temporary_directory_collect(parent)==-EACCES && entries(parent)==3);
+    assert(!fchmod(root,0700));
+    md_temporary_directory_release(root);
+    assert(entries(parent)==2);
+    assert(!unlinkat(parent,"unrelated",AT_REMOVEDIR));
+    assert(!unlinkat(parent,".md-transient-not-owned",AT_REMOVEDIR));
+    puts("PASS transient recovery: missing, torn, zero and stale markers; live leases and unrelated trees retained");
+}
 static void content(struct md_inode_store *store) {
     sqlite3_stmt *q=NULL;
     assert(sqlite3_prepare_v2(store->db,"PRAGMA synchronous",-1,&q,NULL)==SQLITE_OK);
@@ -194,6 +239,7 @@ void test_transient_store(const char *base) {
     assert(!mkdir(path,0700));
     int parent=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(parent>=0);
     unsigned before=descriptors();
+    temporary_recovery(parent);
     recovery(parent);
     reconfiguration(parent);
     assert(descriptors()==before);

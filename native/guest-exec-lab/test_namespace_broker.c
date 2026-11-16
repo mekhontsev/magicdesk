@@ -3,6 +3,7 @@
 #include "fs_mounts.h"
 #include "task_resources.h"
 #include "fs_native.h"
+#include "fs_continuation.h"
 #include "inode_internal.h"
 #include "../shroot/src/cooperative_channel.h"
 #include "../shroot/src/cooperative_exchange.h"
@@ -25,6 +26,7 @@
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
 #include <sys/ioctl.h>
@@ -39,6 +41,39 @@
 
 static atomic_int cancel_pid;
 static atomic_int queued_admission;
+static atomic_int deferred_operation, deferred_ready, deferred_created, deferred_destroyed;
+static int deferred_can_resume(struct md_fs_continuation *continuation) {
+    (void)continuation;
+    return atomic_load_explicit(&deferred_ready,memory_order_acquire);
+}
+static void deferred_resume(struct md_fs_continuation *continuation,struct md_filesystem *fs,
+        struct md_fs_result *result,const struct md_fs_output *output) {
+    (void)continuation; (void)fs;
+    *output->continuation=NULL;
+    *result=(struct md_fs_result){.fd=-1,.error=-EINTR};
+}
+static void deferred_destroy(struct md_fs_continuation *continuation) {
+    md_fs_continuation_clear(continuation); free(continuation);
+    atomic_fetch_add_explicit(&deferred_destroyed,1,memory_order_release);
+}
+void __real_md_fs_context_execute(struct md_fs_context *,const struct md_fs_request *,
+    struct md_fs_result *,const struct md_fs_output *);
+void __wrap_md_fs_context_execute(struct md_fs_context *context,const struct md_fs_request *request,
+        struct md_fs_result *result,const struct md_fs_output *output) {
+    int operation=atomic_load_explicit(&deferred_operation,memory_order_acquire);
+    if (!operation || request->operation!=(unsigned)operation || request->actor!=getpid()) {
+        __real_md_fs_context_execute(context,request,result,output); return;
+    }
+    atomic_store(&deferred_operation,0);
+    assert(output && output->continuation && !*output->continuation);
+    struct md_fs_continuation *continuation=calloc(1,sizeof(*continuation)); assert(continuation);
+    assert(!md_fs_continuation_capture(continuation,request));
+    continuation->ready=deferred_can_resume; continuation->resume=deferred_resume;
+    continuation->destroy=deferred_destroy;
+    *output->continuation=continuation;
+    *result=(struct md_fs_result){.fd=-1,.error=-EINPROGRESS};
+    atomic_store_explicit(&deferred_created,1,memory_order_release);
+}
 static struct md_fd_origins *queued_table;
 static pid_t queued_owner;
 int __real_md_fd_order_begin(struct md_fd_origins *,struct md_fd_order *,struct md_resource_wakeup *);
@@ -480,6 +515,53 @@ static void managed_proc_reads(const char *store) {
     assert(descriptors()==before);
     puts("PASS managed proc observations: socket identity, descriptor reuse, credentials, busy table and typed provider fallback, no FD leak");
 }
+static void deferred_operation_lifetime(const char *store,int xattr,int shutdown) {
+    unsigned before=descriptors();
+    pid_t pid=getpid();
+    struct md_task_registry *tasks=md_task_registry_create(); assert(tasks);
+    struct md_fs_worker *worker=NULL;
+    char endpoint[80]; snprintf(endpoint,sizeof(endpoint),"md-deferred-entry-%d",pid);
+    assert(!md_fs_worker_start(store,endpoint,NULL,tasks,NULL,NULL,&worker));
+    struct md_task_resources resources={.fs=md_domain_new(),.files=md_fd_origins_new(),
+        .mounts=md_fs_worker_mounts(worker)};
+    assert(resources.fs && resources.files);
+    struct md_identity id=md_identity_new(0,0);
+    assert(!md_task_registry_publish(tasks,pid,pid,&id,&resources));
+    struct md_namespace_broker *broker=md_broker_create(worker,0,unexpected_delegate); assert(broker);
+    assert(!md_broker_task(broker,pid,MD_BROKER_COOPERATIVE,0,0,NULL,1));
+    struct md_entry_channel channel;
+    assert(!md_broker_cooperative_bind(broker,pid,&channel,1));
+    int notification=listener(SYS_reboot);
+    md_broker_listen(broker,notification);
+    atomic_store(&deferred_ready,0); atomic_store(&deferred_created,0); atomic_store(&deferred_destroyed,0);
+    atomic_store(&deferred_operation,xattr ? MD_FS_XATTR : MD_FS_RENAME);
+    channel.sequence=1;
+    channel.call.number=xattr ? SYS_setxattr : SYS_renameat;
+    uint64_t rename_args[6]={(unsigned long)AT_FDCWD,(uintptr_t)"old",(unsigned long)AT_FDCWD,(uintptr_t)"new"};
+    uint64_t xattr_args[6]={(uintptr_t)"file",(uintptr_t)"user.test",(uintptr_t)"value",5};
+    memcpy(channel.call.args,xattr ? xattr_args : rename_args,sizeof(channel.call.args));
+    atomic_store_explicit(&channel.state,MD_ENTRY_REQUEST,memory_order_release);
+    md_broker_resumed(broker,pid);
+    /* EVENT_WAIT: the provider retains both operands before shutdown; the
+     * fixture alarm fails missing admission or an abandoned completion. */
+    while (!atomic_load_explicit(&deferred_created,memory_order_acquire)) sched_yield();
+    assert(md_broker_task_active(broker,pid) && !atomic_load(&deferred_destroyed));
+    if (!shutdown) {
+        atomic_store_explicit(&deferred_ready,1,memory_order_release);
+        md_fs_worker_wake(worker);
+        while (md_broker_task_active(broker,pid)) sched_yield();
+        assert(atomic_load(&channel.state)==MD_ENTRY_RESPONSE && channel.receipt==1
+            && channel.outcome==MD_ENTRY_COMPLETED && channel.result==-EINTR);
+        md_broker_forget(broker,pid);
+    }
+    assert(!md_fs_worker_stop(worker)); md_broker_destroy(broker);
+    assert(atomic_load(&deferred_destroyed)==1);
+    assert(!close(notification));
+    md_task_registry_destroy(tasks); md_domain_release(resources.fs);
+    md_fd_origins_release(resources.files); md_identity_release(&id);
+    assert(descriptors()==before);
+    printf("PASS broker deferred lifetime: xattr=%d shutdown=%d continuation and both operand FDs released\n",xattr,shutdown);
+}
 static void stopped_queued_entry(const char *store,int status,int admission) {
     unsigned before=descriptors();
     pid_t pid=getpid();
@@ -896,6 +978,8 @@ void md_test_namespace_broker(const char *root) {
     assert(!close(directory) && !close(attached));
     completed_result(store,SYS_fstat); completed_result(store,SYS_gettid);
     managed_proc_reads(store);
+    for (int shutdown=0;shutdown<2;++shutdown)
+        for (int xattr=0;xattr<2;++xattr) deferred_operation_lifetime(store,xattr,shutdown);
     stopped_queued_entry(store,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,1);
     stopped_queued_entry(store,(PTRACE_EVENT_SECCOMP<<16)|(SIGTRAP<<8)|0x7f,1);
     stopped_queued_entry(store,((SIGTRAP|0x80)<<8)|0x7f,1);

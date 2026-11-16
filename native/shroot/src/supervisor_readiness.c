@@ -989,7 +989,6 @@ int readiness_native_event(struct thread *t,int status) {
             t->io.socket_waking=0;
             t->readiness->resample=1;
             signal_wait_restore(t);
-            readiness_wait_cancel(t);
             wait_cancel_admitted(t,EPOLL_CALL); return 1;
         }
         resume(t->pid,0); return 1;
@@ -1013,25 +1012,22 @@ int readiness_native_event(struct thread *t,int status) {
         }
         CHECK(entry);
         if (o->evicting) {
-            readiness_wait_cancel(t);
             wait_cancel_entry(t,EPOLL_CALL);
             return 1;
         }
         struct md_control_actor actor={.pid=t->pid,.signals=t->signals.pending};
         if (md_poll_wait_task_ready(o->poll,&actor)>0) {
             o->finishing=1; o->finish_result=md_poll_wait_interrupted(o->poll,&actor);
-            readiness_wait_cancel(t);
             wait_cancel_entry(t,EPOLL_CALL); return 1;
         }
         if (o->wait.blocking && md_control_epoll_task_ready(md_control_epoll_from_object(o->queue),&actor)>0) {
             o->resample=1;
-            readiness_wait_cancel(t); wait_cancel_entry(t,EPOLL_CALL); return 1;
+            wait_cancel_entry(t,EPOLL_CALL); return 1;
         }
         int error=o->poll ? 0 : md_epoll_wait_observe(&o->wait,md_control_epoll_from_object(o->queue));
         if (!error && o->wait.job.started) error=socket_watch(t);
         if (error) {
             o->finishing=1; o->finish_result=error;
-            readiness_wait_cancel(t);
             wait_cancel_entry(t,EPOLL_CALL);
             return 1;
         }

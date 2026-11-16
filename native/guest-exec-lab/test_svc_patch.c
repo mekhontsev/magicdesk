@@ -68,8 +68,8 @@ long __wrap_ptrace(int request,pid_t pid,void *address,void *value) {
     }
     uint64_t word=(uintptr_t)value; memcpy(address,&word,8); return 0;
 }
-static int alive(pid_t pid,void *context) {
-    assert(context==&payload); return pid==222;
+static int alive(pid_t pid,uintptr_t channel,void *context) {
+    assert(context==&payload); return pid==222 && (!channel || channel==21);
 }
 static void client_retirement(void) {
     struct md_svc_registry r={.frames=(uintptr_t)&payload-MD_SVC_POOL_SIZE};
@@ -98,14 +98,24 @@ static void client_retirement(void) {
     assert(!payload.clients[0].tid && !payload.clients[0].client.opaque[0]);
     assert(payload.clients[1].tid==222 && payload.clients[1].client.opaque[0]==21);
     close(fd); fail_read=0; fail_write=-1;
+    payload.clients[2]=(struct md_svc_client_slot){.tid=222,.client.opaque={22,222,1}};
+    payload.clients[3]=(struct md_svc_client_slot){.tid=222};
+    r.clients_dirty=1;
+    assert(!md_svc_registry_collect_clients(&r,222,-1,alive,&payload));
+    assert(!payload.clients[2].tid && !payload.clients[2].client.opaque[0]);
+    assert(payload.clients[1].tid==222 && payload.clients[3].tid==222);
     struct md_svc_registry *copy=md_svc_registry_copy(&r);
     assert(copy && copy->clients_dirty && !r.clients_dirty); md_svc_registry_free(copy);
-    r.disabled=1; r.clients_dirty=1; fail_read=1; fail_write=writes;
+    r.disabled=1; r.clients_dirty=1;
+    payload.clients[2]=(struct md_svc_client_slot){.tid=222,.client.opaque={22,222,1}};
+    assert(!md_svc_registry_collect_clients(&r,222,-1,alive,&payload));
+    assert(!r.clients_dirty && !payload.clients[2].tid && payload.clients[1].tid==222);
+    fail_read=1; fail_write=writes;
     int previous=reads+writes;
     assert(!md_svc_registry_collect_clients(&r,111,-1,alive,&payload));
-    assert(previous==reads+writes && r.clients_dirty);
+    assert(previous==reads+writes && !r.clients_dirty);
     fail_read=0; fail_write=-1;
-    puts("PASS SVC client retirement: lost stop, live peer, owner-last publication and idle fast path");
+    puts("PASS SVC client retirement: reused TID, unbound claim, lost stop, owner-last publication and idle fast path");
 }
 
 static void client_expansion(void) {
@@ -125,7 +135,8 @@ static void client_expansion(void) {
         assert(block->next==previous && payload.client_buckets[bucket]==(uintptr_t)block);
         assert(md_svc_registry_client_space(&r,getpid(),fd,bucket)==(long)block);
         for (unsigned j=0;j<MD_SVC_CLIENT_BLOCK;++j)
-            block->slots[j]=(struct md_svc_client_slot){.tid=j ? 111 : 222,.client.opaque={1,2,3}};
+            block->slots[j]=(struct md_svc_client_slot){.tid=j>1 ? 111 : 222,
+                .client.opaque={j ? 22 : 21,222,3}};
         assert(md_svc_registry_client_space(&r,getpid(),fd,bucket)==-EAGAIN);
     }
     struct md_svc_registry *copy=md_svc_registry_copy(&r);

@@ -96,9 +96,9 @@ struct md_landlock_policy *md_landlock_restrict(const struct md_landlock_policy 
     return p;
 }
 int md_landlock_check(const struct md_landlock_policy *p,uint64_t access,
-        int (*matches)(void *,const struct md_landlock_key *),void *context) {
-    for (;p;p=p->parent) {
-        uint64_t missing=access&p->rules->handled;
+        int (*matches)(void *,const struct md_landlock_key *),void *context,const uint64_t *inherited) {
+    for (unsigned layer=0;p;p=p->parent,++layer) {
+        uint64_t missing=access&p->rules->handled&~(inherited ? inherited[layer] : 0);
         for (size_t i=0;missing && i<p->rules->count;++i) {
             const struct rule *r=&p->rules->rules[i];
             if (!(missing&r->allowed)) continue;
@@ -107,6 +107,19 @@ int md_landlock_check(const struct md_landlock_policy *p,uint64_t access,
             if (match) missing&=~r->allowed;
         }
         if (missing) return -EACCES;
+    }
+    return 0;
+}
+int md_landlock_collect(const struct md_landlock_policy *p,
+        int (*matches)(void *,const struct md_landlock_key *),void *context,uint64_t *grants) {
+    for (unsigned layer=0;p;p=p->parent,++layer) {
+        for (size_t i=0;i<p->rules->count;++i) {
+            const struct rule *r=&p->rules->rules[i];
+            if (!(r->allowed&~grants[layer])) continue;
+            int match=matches(context,&r->key);
+            if (match<0) return match;
+            if (match) grants[layer]|=r->allowed;
+        }
     }
     return 0;
 }

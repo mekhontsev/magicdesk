@@ -35,9 +35,11 @@ void md_cooperative_revoke(void) {
 void md_cooperative_init(void) {
     for (unsigned i=0;i<sizeof(offers);++i) {
         enum md_entry_route route=md_entry_route(i);
+        struct md_guest_execution call={.number=i};
         offers[i]=MD_ENTRY_ORDINARY
             |(route==MD_ENTRY_FD ? MD_ENTRY_CANCELLATION : 0)
-            |(route==MD_ENTRY_MEMORY ? MD_ENTRY_NATIVE_MEMORY : 0);
+            |(route==MD_ENTRY_MEMORY ? MD_ENTRY_NATIVE_MEMORY : 0)
+            |(md_execution_dispatch_context(&call)!=MD_CONTEXT_COUNT ? MD_ENTRY_ORIGINAL_CONTEXT : 0);
         strings[i]=(unsigned char)md_fs_syscall_strings(i);
     }
 }
@@ -261,6 +263,16 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
         if (policy==POLICY_FALLBACK) goto kernel;
         if (policy==POLICY_RESULT) return finish(client,call,MD_ENTRY_COMPLETED);
         admitted=1;
+    }
+    if ((unsigned)call->number<sizeof(offers) && (offers[call->number]&MD_ENTRY_ORIGINAL_CONTEXT)) goto kernel;
+    if (c && tid>0 && call->number==SYS_rt_sigprocmask && !call->args[1]
+            && (atomic_load_explicit(&c->routes.flags,memory_order_acquire)
+                &(MD_ROUTE_ADMITTED_KERNEL|MD_ROUTE_NATIVE_SIGNAL_QUERY))
+                ==(MD_ROUTE_ADMITTED_KERNEL|MD_ROUTE_NATIVE_SIGNAL_QUERY)) {
+        /* The signal owner proved the native mask is the logical one. The
+         * original policy was checked above; execute only this read-only query
+         * through the admitted effect gate, without a second notification. */
+        call->effect=native_effect; outcome=MD_ENTRY_NATIVE_CALL; goto done;
     }
     if (c && md_identity_view_read(&c->identity,call->number,&call->result))
         return finish(client,call,MD_ENTRY_COMPLETED);

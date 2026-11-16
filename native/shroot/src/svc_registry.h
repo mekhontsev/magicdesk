@@ -89,9 +89,10 @@ int md_svc_registry_intersects(const struct md_svc_registry *,uintptr_t,size_t);
 int md_svc_registry_deferred(const struct md_svc_registry *,uintptr_t,size_t);
 void md_svc_registry_mapping_changed(struct md_svc_registry *,uintptr_t,size_t);
 /* Retry incomplete retirement through any stopped member of this same mm.
- * Liveness comes from the supervisor, never from a guest-writable handle. */
+ * The supervisor validates both task identity and its current channel lease;
+ * a live numeric TID alone can belong to a new task after reuse. */
 int md_svc_registry_collect_clients(struct md_svc_registry *,pid_t,int memory_fd,
-    int (*alive)(pid_t,void *),void *);
+    int (*alive)(pid_t,uintptr_t channel,void *),void *);
 /* Private per-mm client blocks: publish only under the mapping turn. The
  * supervisor owns the mapping inventory; guest links are not trusted metadata. */
 long md_svc_registry_client_space(const struct md_svc_registry *,pid_t,int memory_fd,unsigned bucket);

@@ -44,7 +44,6 @@ class Server:
         self.listener.listen(1)
         self.listener.settimeout(20)
         self.timeout = timeout
-        self.client.request_timeout = timeout + 30
         self.command = 'set -o pipefail\n' + shlex.join(['timeout', str(timeout), *argv])
         self.command += ' 2>&1 | /system/bin/toybox nc -w 10 127.0.0.1 '
         self.command += str(self.listener.getsockname()[1])
@@ -232,7 +231,6 @@ class Suite:
         # Built-in shell functions retain their selected identity and FPATH.
         text += ' "$MAGICDESK_ANDROID_SHELL" -c ' + shlex.quote(shlex.join(list(map(str, argv))))
         text = self.kernel_profile.shell(text)
-        self.client.request_timeout = timeout + 30
         result = self.executor.execute(text, timeout + 15)
         self.report['commands'].append({'command': text, **result})
         self.record_entry(result['output'])
@@ -314,7 +312,6 @@ class Suite:
     def finish(self):
         coverage_error = None
         try:
-            self.client.request_timeout = 30
             self.executor.close()
         except Exception as error:
             self.report['passed'] = False

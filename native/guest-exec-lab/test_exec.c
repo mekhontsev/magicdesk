@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -26,14 +27,43 @@ static int filters(void) {
     assert(count > 0);
     return count;
 }
-static int mappings(void) {
+struct resource_snapshot { unsigned long mapped; unsigned descriptors; };
+static struct resource_snapshot resources(void) {
     FILE *f = fopen("/proc/self/maps", "r");
     assert(f);
-    int count = 0, c;
-    while ((c = fgetc(f)) != EOF) if (c == '\n') ++count;
-    assert(!ferror(f));
+    struct resource_snapshot result = {0};
+    int beginning = 1;
+    char line[1024];
+    int diagnostic = getenv("MD_TEST_EXEC_MAPS") != NULL;
+    if (diagnostic) fputs("EXEC_MAPS_BEGIN\n", stderr);
+    while (fgets(line, sizeof(line), f)) {
+        if (beginning) {
+            unsigned long start, end;
+            assert(sscanf(line, "%lx-%lx", &start, &end) == 2 && end > start);
+            result.mapped += end - start;
+        }
+        beginning = strchr(line, '\n') != NULL;
+        if (diagnostic) fputs(line, stderr);
+    }
+    if (diagnostic) fprintf(stderr, "EXEC_MAPS_END bytes=%lu\n", result.mapped);
+    assert(!ferror(f) && beginning);
     fclose(f);
-    return count;
+    DIR *directory = opendir("/proc/self/fd");
+    assert(directory);
+    struct dirent *entry;
+    errno = 0;
+    while ((entry = readdir(directory)))
+        if (entry->d_name[0] != '.') ++result.descriptors;
+    assert(!errno);
+    assert(!closedir(directory));
+    return result;
+}
+static void resources_unchanged(struct resource_snapshot before) {
+    struct resource_snapshot after = resources();
+    if (before.mapped != after.mapped || before.descriptors != after.descriptors)
+        fprintf(stderr, "resource leak: mapped=%lu->%lu descriptors=%u->%u\n",
+            before.mapped, after.mapped, before.descriptors, after.descriptors);
+    assert(before.mapped == after.mapped && before.descriptors == after.descriptors);
 }
 static void wait_child(pid_t pid, int code) {
     int status;
@@ -113,11 +143,12 @@ int main(int argc, char **argv) {
     assert(execve("/not-installed", bad_args, environ) == -1 && errno == ENOENT);
     pid_t pid;
     assert(posix_spawn(&pid, "/not-installed", NULL, NULL, bad_args, environ) == ENOENT);
-    // Failed preparation must retain neither descriptors nor mappings.
-    int before = mappings();
+    // Guard protection can split existing VMAs without allocating memory.
+    // Failed preparation must retain neither address space nor descriptors.
+    struct resource_snapshot before = resources();
     for (int i = 0; i < 64; ++i)
         assert(execve("/not-installed", bad_args, environ) == -1 && errno == ENOENT);
-    assert(mappings() == before);
+    resources_unchanged(before);
     assert(syscall(SYS_execveat, -1, "", bad_args, environ, 0) == -1 && errno == ENOENT);
     assert(syscall(SYS_openat2, AT_FDCWD, "/etc/md-guest-fixture", NULL, 0) == -1 && errno == EINVAL);
     struct sigaction application = {.sa_handler = SIG_DFL}, previous;
@@ -125,7 +156,7 @@ int main(int argc, char **argv) {
     assert(!sigaction(SIGSYS, &previous, NULL));
     puts("PASS failed exec/spawn preserve caller/errno/mappings; unsupported entry points are explicit");
 
-    before = mappings();
+    before = resources();
     for (int i = 0; i < 8; ++i) {
         pid = vfork();
         assert(pid >= 0);
@@ -134,14 +165,14 @@ int main(int argc, char **argv) {
             _exit(errno == ENOENT ? 37 : 38);
         }
         wait_child(pid, 37);
-        assert(mappings() == before);
+        resources_unchanged(before);
     }
     char *true_args[] = {"true", NULL};
     pid = vfork();
     assert(pid >= 0);
     if (!pid) { execve("/bin/true", true_args, environ); _exit(39); }
     wait_child(pid, 0);
-    assert(mappings() == before);
+    resources_unchanged(before);
     puts("PASS vfork with inherited guest stack: failed exec, exit and successful exec");
 
     pthread_attr_t attr;
@@ -158,14 +189,14 @@ int main(int argc, char **argv) {
 
     assert(!pthread_attr_init(&attr));
     assert(!pthread_attr_setstacksize(&attr, (size_t)minimum_stack));
-    before = mappings();
+    before = resources();
     for (int i = 0; i < 32; ++i) {
         assert(!pthread_create(&thread, &attr, small_stack, NULL));
         // EVENT_WAIT: exact thread termination; the runner's deadline fails a hang.
         assert(!pthread_join(thread, NULL));
-        assert(mappings() == before);
+        resources_unchanged(before);
         assert(posix_spawn(&pid, "/not-installed", NULL, NULL, bad_args, environ) == ENOENT);
-        assert(mappings() == before);
+        resources_unchanged(before);
     }
     assert(!pthread_attr_destroy(&attr));
     puts("PASS thread and failed-spawn syscall stacks have bounded lifetimes");

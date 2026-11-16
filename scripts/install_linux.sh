@@ -5664,10 +5664,8 @@ fi
 for directory in /usr/local/lib/sysctl.d /usr/lib/sysctl.d /lib/sysctl.d; do
     [ -f "$directory/60-libvirtd.conf" ] || continue
     mkdir -p /run/sysctl.d
-    awk '
-        /^[ \t]*fs[./]aio-max-nr[ \t]*=/ { sub(/^[ \t]*/, "-") }
-        { print }
-    ' "$directory/60-libvirtd.conf" > /run/sysctl.d/60-libvirtd.conf
+    sed 's|^[[:blank:]]*\(fs[./]aio-max-nr[[:blank:]]*=\)|-\1|' \
+        "$directory/60-libvirtd.conf" > /run/sysctl.d/60-libvirtd.conf
     break
 done
 # The launch configures eth0 without DHCP. Preserve that uplink when networkd

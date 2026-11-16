@@ -50,6 +50,9 @@ fixtures do not define a separate runtime or installation interface.
 - Wait for the exact operation's completion and cleanup. A deadline is a failure
   bound, not evidence of readiness. Retain bounded logs and reproducible inputs
   in test artifacts rather than adding each run to this guide.
+  `FixtureExecutor` carries each command's deadline through its selected
+  transport, including full-output capture. Long commands do not change the
+  shared client's defaults; a transport timeout never replays the command.
 - Run destructive or failure-injection cases in disposable stores. Preserve the
   user's active sessions and use the agreed display for graphical checks.
 - Unsupported hardware, unavailable native authority and an implementation
@@ -186,6 +189,14 @@ qualifying offscreen graphics or timing results.
 either session type; `stop` retains their shutdown output in `boot.log`.
 Leave it off for ordinary timing comparisons and use `--diagnostics` separately
 when a full transition trace is needed.
+
+Retained and recipe graphics fixtures wait for the launcher exit receipt before
+collecting logs or releasing their outputs. An empty launch registry alone is
+not process-exit evidence. The same completion owner covers User and Shell,
+headless and graphical launches, including cancellation and failed exits.
+The authenticated command controller supplies `/dev/null` as stdin for its
+noninteractive commands, independently of the init/compositor's inherited
+descriptors. Interactive programs use the PTY fixtures instead.
 
 ## Network Fixtures
 
@@ -499,6 +510,8 @@ taskset mask to both runtime process trees for a controlled follow-up; reports
 retain that mask and CPU-frequency observations. This changes neither governor
 nor host frequency limits, and pinned results do not certify unpinned performance.
 `--application-filter` measures the same workloads after guest seccomp admission.
+The separate instrumented entry control uses the selected filter/PID-namespace
+configuration and requires post-filter completions when a filter is requested.
 Focused `--workload` selections include `identity` (four UID/GID reads), `uname`,
 `ipc-nowait` (a SysV send/receive pair) and `socket-nowait` (a datagram pair).
 `socket-rights` sends an eventfd through SCM_RIGHTS, receives it with

@@ -494,8 +494,14 @@ static void pinned_rule(struct md_inode_store *s,int dir) {
     assert(!md_inode_unlink(s,dir,"pinned",0)); close(fd);
     fd=md_inode_create(s,dir,"pinned",0644); assert(fd>=0);
     char replacement[33]; assert(!md_inode_object_id(s,fd,replacement) && strcmp(key.object,replacement));
-    assert(md_landlock_check(child,MD_LL_READ_FILE,match_key,replacement)==-EACCES);
-    assert(!md_landlock_check(child,MD_LL_READ_FILE,match_key,key.object));
+    assert(md_landlock_check(child,MD_LL_READ_FILE,match_key,replacement,NULL)==-EACCES);
+    assert(!md_landlock_check(child,MD_LL_READ_FILE,match_key,key.object,NULL));
+    uint64_t inherited[MD_LANDLOCK_LAYERS]={0};
+    assert(!md_landlock_collect(child,match_key,key.object,inherited));
+    assert(!md_landlock_check(child,MD_LL_READ_FILE|MD_LL_WRITE_FILE,match_key,replacement,inherited));
+    inherited[1]=MD_LL_READ_FILE;
+    assert(md_landlock_check(child,MD_LL_WRITE_FILE,match_key,replacement,inherited)==-EACCES);
+    assert(!md_landlock_check(child,MD_LL_WRITE_FILE,match_key,key.object,inherited));
     md_landlock_ruleset_release(rules); md_landlock_release(policy);
     assert(descriptors()==before+1);
     md_landlock_release(child); assert(descriptors()==before);

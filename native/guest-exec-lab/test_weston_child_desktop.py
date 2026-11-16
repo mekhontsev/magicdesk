@@ -10,6 +10,7 @@ import threading
 import time
 from graphical_recipe import compile_recipe
 from installed_desktop import stop_owned_resources
+from init_fixture import launch_with_completion
 from test_oci_services import Suite
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -96,11 +97,14 @@ exec /usr/bin/weston --backend=wayland --renderer=gl --width=960 --height=640 --
         keyboardDirectory='guest:' + info['store']))['sessionId']
     wait('graphics_ready', sessionId=state['sessionId'])
     launch = out / 'launch.sh'
-    launch.write_text('#!/system/bin/sh\nenv PATH=' + shlex.quote(suite.base + ':/system/bin') +
-        ' /system/bin/sh -c ' + shlex.quote(recipe) + ' >' + shlex.quote(suite.base + '/desktop.log') + ' 2>&1\n'
-        'status=$?\nprintf "%s\\n" "$status" > ' + shlex.quote(suite.base + '/exit-status') + '\nexit "$status"\n')
+    completion = suite.base + '/exit-status'
+    launch.write_text('#!/system/bin/sh\n' + launch_with_completion(
+        'env PATH=' + shlex.quote(suite.base + ':/system/bin') +
+        ' /system/bin/sh -c ' + shlex.quote(recipe) + ' >' + shlex.quote(suite.base + '/desktop.log') + ' 2>&1',
+        completion) + '\n')
     suite.upload(launch, suite.base + '/launch.sh')
     client.call('graphics.execute', dict(sessionId=state['sessionId'], command=shlex.join(['/system/bin/sh', suite.base + '/launch.sh'])))
+    state['launchCompletion'] = completion
     deadline = time.monotonic() + 45
     def exists(name):
         return bool(shell('test ! -f ' + shlex.quote(suite.base + '/' + name) + ' || printf present'))

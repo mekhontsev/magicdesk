@@ -39,6 +39,7 @@ extern struct retained_retirement *retained_retirement;
 extern struct md_task_quiesce *retained_barrier;
 
 int retained_task_held(const struct thread *t);
+int retained_cleanup_pending(const struct thread *t);
 struct retained_memory *retained_actor(pid_t pid);
 int retained_child_identity(const struct retained_memory *,pid_t *parent,pid_t *group,int *signal);
 struct retained_memory *retained_memory_get(struct thread *t);

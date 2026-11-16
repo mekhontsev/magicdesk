@@ -190,6 +190,15 @@ rollback, source cancellation and stock
 Debian util-linux mounts. The native transient-store suite additionally checks
 namespace copy, detached graph import/export and exact final FD counts.
 
+Private provider trees and tmpfs/ramfs backing stores share `temporary_directory`.
+Live import validates their identity marker. Retirement instead requires the
+reserved directory name, executor ownership, private permissions and an exclusive
+kernel lease. Missing, torn or zeroed markers after a host reboot cannot block
+the next launch; no live tree or queued descriptor is retired. This requires no
+fsync on temporary creation and does not alter persistent inode-store recovery.
+The transient-store suite covers both final release and admission-time recovery,
+strict live validation, unrelated paths and symlinks out of the discarded tree.
+
 Exec preparation retains the selected executable's mount origin, independently
 of the construction FD and its CLOEXEC flag. Commit transfers that origin to the
 process image; fork shares it, replacement/exit releases it, and cancellation

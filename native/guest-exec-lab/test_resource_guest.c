@@ -12,6 +12,7 @@
 #include <linux/close_range.h>
 #include <linux/audit.h>
 #include <linux/filter.h>
+#include <linux/futex.h>
 #include <linux/seccomp.h>
 #include <sched.h>
 #include <pthread.h>
@@ -470,7 +471,16 @@ static void origins(const char *cwd, int protected) {
     assert(!close(fd) && !unlink("origin-file"));
     puts("PASS initial cwd and proc aliases retain native offsets and protected metadata access");
 }
-struct custody_context { pid_t parent; int protected, call, dirfd, flags; };
+struct custody_context { pid_t parent; int protected, call, dirfd, flags, ready, release; };
+struct custody_transport { int fd; uint64_t cookie; };
+static uint64_t custody_cookie(int fd) {
+    int type=0; socklen_t size=sizeof(type);
+    assert(!getsockopt(fd,SOL_SOCKET,SO_TYPE,&type,&size) && type==SOCK_SEQPACKET);
+    assert(fcntl(fd,F_GETFD)==FD_CLOEXEC && fcntl(fd,F_GETFL)==(O_RDWR|O_NONBLOCK));
+    uint64_t cookie=0; size=sizeof(cookie);
+    assert(!getsockopt(fd,SOL_SOCKET,SO_COOKIE,&cookie,&size) && size==sizeof(cookie) && cookie);
+    return cookie;
+}
 static void rpc_cwd(int protected) {
     int base=open(".",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(base>=0);
     if (protected) assert(!prctl(PR_SET_DUMPABLE,0));
@@ -530,31 +540,49 @@ static int custody_child(void *argument) {
      * match the filter. A subsequent guest call must still be denied. */
     int fd=syscall(SYS_openat,c->dirfd,"custody-file",c->flags,0,0,0); assert(fd>=0);
     assert(!close(fd));
+    put(c->ready); get(c->release);
     if (c->call==SYS_openat)
         syscall(SYS_openat,c->dirfd,"custody-file",c->flags,0,MD_FS_BUFFER_SOURCE,0);
     else syscall(c->call,-1,NULL,0);
     assert(!"denied application operation returned"); return 99;
 }
-static unsigned terminal_custody(int protected, int call, int explicit_base, int nofollow) {
+static unsigned terminal_custody(int guest, int protected, int call, int explicit_base, int nofollow,
+        struct custody_transport *transport) {
     int fd=open("custody-file",O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC,0600);
     assert(fd>=0 && fd<256 && !close(fd));
     int base=explicit_base ? open(".",O_PATH|O_DIRECTORY|O_CLOEXEC) : AT_FDCWD;
     assert(base==AT_FDCWD || base>=0);
-    unsigned char before[256];
-    for (unsigned i=0;i<sizeof(before);++i) before[i]=fcntl((int)i,F_GETFD)>=0;
+    int ready[2],release[2]; assert(!pipe2(ready,O_CLOEXEC) && !pipe2(release,O_CLOEXEC));
+    int before[256];
+    for (unsigned i=0;i<256;++i) before[i]=fcntl((int)i,F_GETFD);
+    if (transport->fd>=0) assert(custody_cookie(transport->fd)==transport->cookie);
     void *stack=malloc(1024*1024); assert(stack);
-    struct custody_context context={getpid(),protected,call,base,O_PATH|O_CLOEXEC|(nofollow ? O_NOFOLLOW : 0)};
+    struct custody_context context={getpid(),protected,call,base,
+        O_PATH|O_CLOEXEC|(nofollow ? O_NOFOLLOW : 0),ready[1],release[0]};
     pid_t child=clone(custody_child,(char *)stack+1024*1024,SIGCHLD|CLONE_FILES,&context);
     assert(child>0);
+    /* EVENT_WAIT: successful open/close precedes the denial. A native-leaf
+     * O_PATH result may admit one table-owned channel, not a child-owned FD. */
+    get(ready[0]);
+    for (unsigned i=0;i<256;++i) {
+        int flags=fcntl((int)i,F_GETFD);
+        if (before[i]>=0) assert(flags==before[i]);
+        else if (flags>=0) {
+            assert(guest && nofollow && transport->fd<0);
+            transport->cookie=custody_cookie((int)i); transport->fd=(int)i;
+            before[i]=flags;
+        }
+    }
+    put(release[1]);
     int status;
     /* EVENT_WAIT: exact child termination precedes inspection of its surviving
      * shared FD table. The fixture alarm is a failure bound, not a settling delay. */
     assert(waitpid(child,&status,0)==child);
     assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
     unsigned leaked=0;
-    for (unsigned i=0;i<sizeof(before);++i) {
+    for (unsigned i=0;i<256;++i) {
         int flags=fcntl((int)i,F_GETFD);
-        if (before[i]) assert(flags>=0);
+        if (before[i]>=0) assert(flags==before[i]);
         else if (flags>=0) {
             int type=0; socklen_t size=sizeof(type);
             int result=getsockopt((int)i,SOL_SOCKET,SO_TYPE,&type,&size);
@@ -565,10 +593,12 @@ static unsigned terminal_custody(int protected, int call, int explicit_base, int
             assert(!close((int)i));
         }
     }
+    if (transport->fd>=0) assert(custody_cookie(transport->fd)==transport->cookie);
+    for (unsigned i=0;i<2;++i) assert(!close(ready[i]) && !close(release[i]));
     if (base>=0) assert(!close(base));
     free(stack); assert(!unlink("custody-file"));
-    printf("%s terminal RPC custody protected=%d call=%d explicitBase=%d nofollow=%d leaked=%u\n",
-        leaked ? "FAIL" : "PASS",protected,call,explicit_base,nofollow,leaked);
+    printf("%s terminal RPC custody protected=%d call=%d explicitBase=%d nofollow=%d channel=%d leaked=%u\n",
+        leaked ? "FAIL" : "PASS",protected,call,explicit_base,nofollow,transport->fd>=0,leaked);
     return leaked;
 }
 static void buffer_cwd_calls(const char *expected, int protected) {
@@ -2319,6 +2349,8 @@ static void buffer_exit(void) {
     puts("PASS buffered group exit: 24 groups, 8 active peers, ordinary/protected callers");
 }
 static void buffer_park(int protected,int busy) {
+    struct robust_list_head robust={.list.next=&robust.list};
+    assert(!syscall(SYS_set_robust_list,&robust,sizeof(robust)));
     int ready[2],parked[2]; assert(!pipe(ready) && !pipe(parked));
     struct buffer_exit_peer context={ready[1],busy ? -1 : parked[0]};
     if (busy) assert(signal(SIGTERM,SIG_IGN)!=SIG_ERR);
@@ -2516,12 +2548,17 @@ int main(int argc, char **argv) {
             || !strcmp(argv[1],"custody-native-dirfd") || !strcmp(argv[1],"custody-native-nofollow")) {
         int explicit_base=!strcmp(argv[1],"custody-dirfd") || !strcmp(argv[1],"custody-native-dirfd");
         int nofollow=!strcmp(argv[1],"custody-nofollow") || !strcmp(argv[1],"custody-native-nofollow");
+        int guest=strncmp(argv[1],"custody-native",14)!=0;
+        struct custody_transport transport={.fd=-1};
+        if (nofollow) assert(!mkdir("custody-parent",0700) && !chdir("custody-parent"));
         unsigned leaked=0;
         for (int protected=0;protected<2;++protected) {
-            leaked+=terminal_custody(protected,SYS_connect,explicit_base,nofollow);
-            leaked+=terminal_custody(protected,SYS_recvmsg,explicit_base,nofollow);
-            leaked+=terminal_custody(protected,SYS_openat,explicit_base,nofollow);
+            leaked+=terminal_custody(guest,protected,SYS_connect,explicit_base,nofollow,&transport);
+            leaked+=terminal_custody(guest,protected,SYS_recvmsg,explicit_base,nofollow,&transport);
+            leaked+=terminal_custody(guest,protected,SYS_openat,explicit_base,nofollow,&transport);
         }
+        if (transport.fd>=0) assert(!close(transport.fd));
+        if (nofollow) assert(!chdir("..") && !rmdir("custody-parent"));
         return leaked ? 1 : 0;
     }
     int managed=!strcmp(argv[1],"guest-managed");

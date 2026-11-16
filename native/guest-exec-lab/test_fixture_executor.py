@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Native diagnostic evidence must not inherit console preview truncation."""
+import argparse
 from pathlib import Path
 import tempfile
 import unittest
@@ -45,6 +46,35 @@ class CapturedCommands(unittest.TestCase):
         self.assertEqual(executor.execute('test', 45, capture=True)['output'], 'complete')
         executor._app_command.assert_called_once_with('test', 45)
         executor.client.call.assert_not_called()
+
+    def test_shell_deadline_is_scoped_for_plain_and_captured_commands(self):
+        for capture in (False, True):
+            with self.subTest(capture=capture), tempfile.TemporaryDirectory() as directory:
+                executor = self.executor(Path(directory))
+                executor.client.timeout, executor.client.request_timeout = 270, 240
+                executor.download = mock.Mock(side_effect=lambda remote, local: local.write_text('complete'))
+                with mock.patch('fixture_executor.time.monotonic', return_value=100):
+                    executor.execute('long workload', 1245, capture=capture)
+                self.assertEqual(executor.client.call.call_args.kwargs,
+                                 dict(deadline=1345, request_timeout=1245))
+                self.assertEqual((executor.client.timeout, executor.client.request_timeout), (270, 240))
+                executor.client.call.assert_called_once()
+
+    def test_shell_transport_timeout_does_not_replay(self):
+        executor = self.executor(Path('/unused'))
+        executor.client.call.side_effect = TimeoutError('command outcome unknown')
+        with self.assertRaises(TimeoutError):
+            executor.execute('long workload', 1245)
+        executor.client.call.assert_called_once()
+
+    def test_invalid_shell_deadline_is_rejected_before_launch(self):
+        for capture in (False, True):
+            with self.subTest(capture=capture):
+                executor = self.executor(Path('/unused'))
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    executor.execute('true', 0, capture=capture)
+                executor.client.call.assert_not_called()
+                executor._transport_command.assert_not_called()
 
 
 if __name__ == '__main__':

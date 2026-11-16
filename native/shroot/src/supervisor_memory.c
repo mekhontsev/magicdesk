@@ -72,6 +72,7 @@ int memory_completions_pending;
 struct memory_execution *memory_execution;
 
 static void probe_complete(void *context, struct md_task_helper_result result);
+static void buffer_mapping_release(struct buffer_mapping *owner);
 void memory_capture_discard(struct thread *t) {
     if (t->memory_op.capture) {
         t->memory_op.capture->caller=0; t->memory_op.capture=NULL;
@@ -80,13 +81,16 @@ void memory_capture_discard(struct thread *t) {
 }
 
 void memory_buffers_discard(struct thread *t) {
+    retry_clear(t,RETRY_ENTRY_MAPPING);
     if (t->probe) {
         t->probe->caller=0; t->probe=NULL;
         CHECK(!md_task_helper_detach(helpers,t->pid));
     }
     if (t->memory_op.buffer_mapping) {
-        t->memory_op.buffer_mapping->caller=0; t->memory_op.buffer_mapping=NULL;
-        CHECK(!md_task_helper_detach(helpers,t->pid));
+        struct buffer_mapping *owner=t->memory_op.buffer_mapping;
+        owner->caller=0; t->memory_op.buffer_mapping=NULL;
+        if (owner->started) CHECK(!md_task_helper_detach(helpers,t->pid));
+        else buffer_mapping_release(owner);
     }
 }
 
@@ -214,7 +218,6 @@ int svc_pool_event(pid_t pid,int status) {
 
 static void probe_begin(struct thread *t, const struct user_pt_regs *regs);
 static void buffer_mapping_turn_end(struct buffer_mapping *owner);
-static void buffer_mapping_release(struct buffer_mapping *owner);
 static void buffer_mapping_complete(void *context,struct md_task_helper_result result);
 static void buffer_mapping_begin(struct thread *t,const struct user_pt_regs *regs);
 static void entry_mapping_begin(struct thread *t,const struct user_pt_regs *regs,int clients);
@@ -328,7 +331,8 @@ static void buffer_mapping_complete(void *context,struct md_task_helper_result r
         if (error>=0 && owner->channels) error=cooperative_bind(t);
         if (owner->policy) {
             SUPERVISOR_TRACE("PROBE filter-entry-mapped pid=%d result=%ld\n",t->pid,error);
-            filter_entry_complete(t,&owner->continuation);
+            filter_entry_complete(t);
+            owner->policy_resume(t,&owner->continuation);
         } else {
             buffer_capture(t,&owner->continuation);
             buffer_reply(t,error);
@@ -356,6 +360,7 @@ int buffer_mapping_start(struct thread *t,const struct user_pt_regs *regs,
     if (error) {
         buffer_mapping_release(owner);
     } else {
+        owner->started=1;
         t->memory_op.buffer_mapping=owner; t->kernel_stopped=0;
         if (owner->policy) t->phase=FILTER_MAPPING;
     }
@@ -372,28 +377,53 @@ static void buffer_mapping_begin(struct thread *t,const struct user_pt_regs *reg
     if (error) buffer_reply(t,error);
 }
 
-static void entry_mapping_begin(struct thread *t,const struct user_pt_regs *regs,int clients) {
+static long entry_mapping_space(struct thread *t,int clients,unsigned bucket) {
     const struct md_private_memory_access *access=md_memory_private_access(t->memory);
-    long result=clients ? md_svc_registry_client_space(md_memory_svc(t->memory),t->pid,
-        access ? access->memory : -1,(unsigned)regs->regs[1]) : cooperative_bind(t);
+    return clients ? md_svc_registry_client_space(md_memory_svc(t->memory),t->pid,
+        access ? access->memory : -1,bucket) : cooperative_bind(t);
+}
+
+void entry_mapping_progress(struct thread *t) {
+    retry_clear(t,RETRY_ENTRY_MAPPING);
+    struct buffer_mapping *owner=t->memory_op.buffer_mapping;
+    CHECK(owner && !owner->started && owner->turn.queue);
+    if (md_resource_order_state(&owner->turn)!=MD_RESOURCE_ORDER_READY) {
+        /* EVENT_WAIT: the preceding mapping turn wakes the shared retry queue.
+         * A dying caller cancels this turn without starting a private helper. */
+        retry_wait(t,RETRY_ENTRY_MAPPING); return;
+    }
+    CHECK(!md_resource_order_start(&owner->turn));
+    /* Another expansion or thread exit may already have supplied the space. */
+    long result=entry_mapping_space(t,owner->clients,owner->client_bucket);
+    t->memory_op.buffer_mapping=NULL;
+    if (result!=-EAGAIN) {
+        buffer_mapping_release(owner); buffer_reply(t,result); return;
+    }
+    int error=md_buffers_create(owner->clients ? 1 : 16,
+        owner->clients ? sizeof(struct md_svc_client_block) : sizeof(struct md_entry_channel),0,0,&owner->buffers);
+    if (error) buffer_mapping_release(owner);
+    else error=buffer_mapping_start(t,&owner->continuation,owner);
+    if (error) buffer_reply(t,error);
+}
+
+static void entry_mapping_begin(struct thread *t,const struct user_pt_regs *regs,int clients) {
+    long result=entry_mapping_space(t,clients,(unsigned)regs->regs[1]);
     if (result!=-EAGAIN) { buffer_reply(t,result); return; }
     struct buffer_mapping *owner=calloc(1,sizeof(*owner));
     int error=owner ? 0 : -ENOMEM;
     if (!error) {
         owner->channels=!clients; owner->clients=clients; owner->client_bucket=(unsigned)regs->regs[1];
+        owner->caller=t->pid; owner->continuation=*regs;
         owner->memory=md_memory_fork(t->memory,1);
-        error=owner->memory ? md_memory_order_begin(owner->memory,&owner->turn,NULL) : -ENOMEM;
-        /* A busy mapping owner is not a failed registration. Retry through
-         * the entry's existing bounded backoff, without parking a new helper. */
-        if (!error) error=-EAGAIN;
-        else if (error==1) error=md_resource_order_start(&owner->turn);
-        if (!error) error=md_buffers_create(clients ? 1 : 16,
-            clients ? sizeof(struct md_svc_client_block) : sizeof(struct md_entry_channel),0,0,&owner->buffers);
+        error=owner->memory ? md_memory_order_begin(owner->memory,&owner->turn,fd_wakeup) : -ENOMEM;
     }
-    if (error) {
+    if (error<0) {
         if (owner) buffer_mapping_release(owner);
-    } else error=buffer_mapping_start(t,regs,owner);
-    if (error) buffer_reply(t,error);
+        buffer_reply(t,error);
+    } else {
+        t->memory_op.buffer_mapping=owner;
+        entry_mapping_progress(t);
+    }
 }
 
 static void memory_open_retry(struct thread *t) {
@@ -1337,7 +1367,7 @@ void memory_discard(void) {
      * the tree, or an unmodified repair yielded before MEMORY_MAP. */
     md_buffer_release(&execution->buffer);
     md_private_memory_scan_end(execution->scan);
-    if (execution->pause.owner) md_fs_worker_pause_end(&execution->pause);
+    md_fs_worker_copy_fence_end(&execution->copies);
     memory_execution=NULL;
     free(execution);
 }
@@ -1372,7 +1402,7 @@ int memory_runnable(void) {
     if (!execution) return 0;
     switch (execution->stage) {
     case MEMORY_WRITERS: return md_task_quiesce_ready(memory_barrier);
-    case MEMORY_WORKER: return !execution->pause.owner || md_fs_worker_pause_state(&execution->pause)!=0;
+    case MEMORY_WORKER: return md_fs_worker_copy_fence_ready(&execution->copies);
     case MEMORY_VALIDATE: case MEMORY_COPY: return 1;
     case MEMORY_ACTOR: return execution->executor && !execution->executor->creator;
     case MEMORY_MAP: return execution->complete;
@@ -1410,7 +1440,7 @@ static void memory_finish(struct memory_execution *execution) {
     }
     CHECK(!md_buffer_release(&execution->buffer));
     md_private_memory_scan_end(execution->scan);
-    if (execution->pause.owner) CHECK(!md_fs_worker_pause_end(&execution->pause));
+    md_fs_worker_copy_fence_end(&execution->copies);
     CHECK(!md_task_quiesce_release(memory_barrier));
     execution->timing[6]=md_event_now();
     SUPERVISOR_TRACE("PROBE memory-repair pid=%d address=%#lx size=%zu pages=%zu result=%ld scope=%s otherEvents=%u\n",
@@ -1440,7 +1470,7 @@ static void memory_finish(struct memory_execution *execution) {
 static void memory_replay_unmodified(struct memory_execution *execution,int status,const struct rusage *usage) {
     CHECK(execution->stage<MEMORY_MAP);
     CHECK(!quiesce_event(memory_barrier,execution->actor->pid,status,usage));
-    if (execution->pause.owner) CHECK(!md_fs_worker_pause_end(&execution->pause));
+    md_fs_worker_copy_fence_end(&execution->copies);
     CHECK(!md_task_quiesce_release(memory_barrier));
     memory_discard();
     task_action_unpark();
@@ -1470,13 +1500,12 @@ void memory_progress(void) {
     if (memory_yield_retirement(execution)) return;
     int64_t now=md_event_now();
     if (now>=execution->deadline) {
-        fprintf(stderr,"Shroot: memory repair expired pid=%d stage=%d elapsedUs=%lld writersUs=%lld workerAck=%d otherEvents=%u\n",
+        fprintf(stderr,"Shroot: memory repair expired pid=%d stage=%d elapsedUs=%lld writersUs=%lld copyReady=%d otherEvents=%u\n",
             execution->actor->pid,execution->stage,(long long)(now-execution->timing[0])/1000,
             execution->timing[1] ? (long long)(execution->timing[1]-execution->timing[0])/1000 : -1LL,
-            execution->pause.owner ? md_fs_worker_pause_state(&execution->pause) : -1,execution->other_events);
-        fprintf(stderr,"Shroot: memory progress calls=%u idleUs=%lld workerAckUs=%lld\n",
-            execution->progress_calls,(long long)(now-execution->last_progress)/1000,
-            execution->pause.acknowledged_at ? (long long)(execution->pause.acknowledged_at-execution->timing[0])/1000 : -1LL);
+            md_fs_worker_copy_fence_ready(&execution->copies),execution->other_events);
+        fprintf(stderr,"Shroot: memory progress calls=%u idleUs=%lld\n",
+            execution->progress_calls,(long long)(now-execution->last_progress)/1000);
         fprintf(stderr,"Shroot: memory workerUs=%lld validatedUs=%lld\n",
             execution->timing[2] ? (long long)(execution->timing[2]-execution->timing[0])/1000 : -1LL,
             execution->timing[3] ? (long long)(execution->timing[3]-execution->timing[0])/1000 : -1LL);
@@ -1492,19 +1521,15 @@ void memory_progress(void) {
         if (!md_task_quiesce_ready(memory_barrier)) return;
         execution->timing[1]=md_event_now();
         execution->stage=MEMORY_WORKER;
-        if (filesystem) CHECK(!md_fs_worker_pause_begin(filesystem,&execution->pause));
+        if (filesystem) CHECK(!md_fs_worker_copy_fence_begin(filesystem,&execution->copies));
     }
     if (execution->stage==MEMORY_WORKER) {
-        if (execution->pause.owner) {
-            int ready=md_fs_worker_pause_state(&execution->pause);
-            CHECK(ready>=0);
-            if (!ready) return;
-        }
+        if (!md_fs_worker_copy_fence_ready(&execution->copies)) return;
         execution->timing[2]=md_event_now();
-        /* All participant notifications have been cancelled by their observed
-         * ptrace stops. The acknowledgement drains any copy that raced that
-         * cancellation; subsequent worker work can serve other address spaces. */
-        if (execution->pause.owner) CHECK(!md_fs_worker_pause_end(&execution->pause));
+        /* Participant stops cancel kernel notifications and drain admitted
+         * cooperative operations. The fence covers only the write that raced
+         * cancellation, not unrelated filesystem work or a future copy. */
+        md_fs_worker_copy_fence_end(&execution->copies);
         execution->error=md_private_memory_scan_begin(&execution->mapping,access,&execution->scan);
         if (execution->error) { memory_finish(execution); return; }
         execution->stage=MEMORY_VALIDATE;

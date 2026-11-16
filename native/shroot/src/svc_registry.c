@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "svc_registry.h"
+#include "cooperative_channel.h"
 #include "mapping_reader.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -393,10 +394,11 @@ int md_svc_registry_identity(struct md_svc_registry *r,pid_t pid,int memory_fd,p
 }
 static int collect_client_slots(pid_t pid,int memory_fd,uintptr_t base,
         const struct md_svc_client_slot *slots,unsigned count,
-        int (*alive)(pid_t,void *),void *context,unsigned *retired) {
+        int (*alive)(pid_t,uintptr_t,void *),void *context,unsigned *retired) {
     for (unsigned i=0;i<count;++i) {
         uint64_t owner=slots[i].tid;
-        if (!owner || (owner<=INT32_MAX && alive((pid_t)owner,context))) continue;
+        if (!owner || (owner<=INT32_MAX && alive((pid_t)owner,
+                slots[i].client.opaque[MD_ENTRY_CLIENT_CHANNEL],context))) continue;
         uintptr_t at=base+i*sizeof(*slots);
         uint64_t zero=0;
         /* Publish the empty owner last: another thread can then claim this
@@ -410,8 +412,8 @@ static int collect_client_slots(pid_t pid,int memory_fd,uintptr_t base,
     return 0;
 }
 int md_svc_registry_collect_clients(struct md_svc_registry *r,pid_t pid,int memory_fd,
-        int (*alive)(pid_t,void *),void *context) {
-    if (!r || r->disabled || !r->clients_dirty) return 0;
+        int (*alive)(pid_t,uintptr_t,void *),void *context) {
+    if (!r || !r->clients_dirty) return 0;
     uintptr_t base=r->frames+MD_SVC_POOL_SIZE;
     struct md_svc_payload_state state;
     int error=client_memory(pid,memory_fd,base,&state,sizeof(state),0);

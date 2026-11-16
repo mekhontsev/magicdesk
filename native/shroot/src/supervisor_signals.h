@@ -54,6 +54,9 @@ long signal_logical_send(struct thread *from,const struct seccomp_data *call,con
 long signal_process_next(struct thread *from,pid_t selector,int signal,pid_t after);
 void signal_control_discard(struct thread *t);
 int signal_entry_committed(struct thread *t);
+/* The veneer acknowledges its packet before application code can use the
+ * ordinary channel. Its resource turn is retired at that entry or contention. */
+int signal_entry_published(const struct thread *t);
 void signal_execution_checkpoint(struct thread *t);
 void signal_entries_progress(void);
 void signal_query_publish(struct thread *t);
@@ -61,7 +64,8 @@ int signal_entry_call(struct thread *t,const struct seccomp_data *call,unsigned 
 int signal_descriptor_call(struct thread *t,long number,int descriptor);
 
 void signal_control_progress(struct thread *t);
-int signal_native_call(struct thread *t,uint64_t number,uint64_t input,uint64_t output,uint64_t size);
+int signal_native_call(struct thread *t,uint64_t number,uint64_t input,uint64_t output,uint64_t size,
+    const struct user_pt_regs *observed);
 void signal_native_complete(struct thread *t);
 int signal_control_begin(struct thread *t,const struct seccomp_data *call,const struct user_pt_regs *r,int signal,
         const struct md_kernel_action *action,uint64_t entry_mask,const siginfo_t *info);
@@ -70,6 +74,6 @@ int signal_control_event(struct thread *t,int status);
 void child_signals_observe(struct thread *t,int status);
 
 void signals_buffer_control(struct thread *t,const struct supervisor_control_request *control);
-void signals_event(struct thread *t,pid_t pid,int status,int sig,struct md_task_signal_stop *signal_stop,int restored_signal);
+void signals_event(struct thread *t,pid_t pid,int sig,struct md_task_signal_stop *signal_stop,int restored_signal);
 
 #endif

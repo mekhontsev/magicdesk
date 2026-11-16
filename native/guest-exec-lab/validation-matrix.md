@@ -5,12 +5,13 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-11-07. Current device evidence uses NX809J, Android 16,
-Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
-minimum supported kernel 5.15, other firmware or Android root execution.
-App-UID acceptance is recorded in [host execution](host-execution.md); these
-Shell table cells do not implicitly certify User installations.
+Device evidence uses NX809J, Android 16, Linux 6.12.23 and 4 KiB pages.
+The current release pass records User and Shell separately below; other tables
+use Shell unless explicitly stated. Additional App-UID acceptance is recorded
+in [host execution](host-execution.md). Neither executor's results certify the
+other, the minimum supported kernel 5.15, other firmware or Android root execution.
 
+- [Current Release Qualification](#current-release-qualification)
 - [Reading Results](#reading-results)
 - [Linux 5.15 Capability Profile](#linux-515-capability-profile)
 - [Installation And Init](#installation-and-init)
@@ -20,6 +21,669 @@ Shell table cells do not implicitly certify User installations.
 - [Added System Workloads](#added-system-workloads)
 - [K3s](#k3s)
 - [Evidence And Open Work](#evidence-and-open-work)
+
+## Current Release Qualification
+
+Version 2.3 is in stabilization. The source baseline is
+`1514781fea469b5d3f7302d6a5217bb0dae626f6`; new features are outside this pass.
+The saved non-fixture APK has SHA-256
+`21e764c0e3eded3a96791985c9435411b28adae85d292e8f32d374307a26aef7`.
+Artifacts for this pass live in `build/release-2.3/`. Receipts retain each test's
+APK identity and native hashes. Resource, policy and full machine-entry coverage
+uses the optimized fixture build
+`a7bd2f65418c95082a27a1b5edf5500be5106e94acfdf227eb0520ecbb651ab1`;
+channel-admission follow-up uses
+`f8ec4cb283b49b7c3d9ef3cee45e70fe4887664bef3f4b468965199fb276b0fb`.
+Fixture results do not replace final packaged-APK acceptance or performance
+measurements without test instrumentation.
+
+Channel-lifetime acceptance uses fixture APK build ID
+`e04aab43c2f2f8d532bacd153917748a0a338b05d916c84b286fb821e7107aa1`.
+Its common supervisor-state checks pass under User and Shell. Full machine-entry
+coverage passes under both executors, including overflow registration, native TID reuse,
+paused admission, fork/exec, mappings and stock Go with/without guest seccomp.
+Receipts: `results/client-lease-state-{app,shell}.json` and
+`results/client-lease-svc-{app,shell}.json`. Earlier results below retain their own build
+identities; they are not silently promoted to this runtime.
+
+Stock k3s `v1.37.1+k3s1` passes the complete one-node VXLAN scenario on Alpine
+under User: CoreDNS, cross-pod service traffic, NetworkPolicy updates,
+deployment scaling/rolling update, PVC, Traefik/ServiceLB ingress, server restart,
+workload preservation, deletion and clean shutdown. Receipt:
+`k3s-alpine-app/oci-services-bda35ccb81454ea384111df170176bde.json`.
+Debian User passes the same complete scenario with fixture build ID
+`854f715343a3787749a4a21dd38b83af3a5a273f0e8ae0ab73aa1ac4d4add0f6`:
+`k3s-debian-app/oci-services-3283cb286e1b4603b753356d86c71e6f.json`.
+The shared filesystem transport and supervisor-state suites pass under both
+executors, including queued open-result retirement and cancellation. Filesystem
+result coverage also passes under the Linux 5.15 capability profile for both.
+Receipts: `results/fs-owner-fix-{app,shell}.json`,
+`results/fs-owner-state-{app,shell}.json` and
+`results/fs-owner-kernel515-{app,shell}.json`.
+Current per-distribution k3s coverage is listed below; unrun executor/OS pairs
+and other application workloads remain pending.
+
+- The complete resource suite passes: 461 checks under User and 472 under Shell.
+  Native controls depend on the executor's capabilities; guest assertions are
+  shared. Coverage includes descriptor custody in Base/lazy entry, signal-stress
+  memory operations, namespaces, IPC, storage recovery and supervisor ownership.
+  All 44 shared-memory signal combinations pass under each executor, including
+  guest seccomp with 100-us signals and STOP/CONT, within unchanged deadlines.
+  Receipts: `results/signal-owner-resources-{app,shell}.json`.
+- Guest policy and signal suites pass all 258 cases per executor in Base/lazy
+  entry, including TSYNC, notification listeners and signal-mask virtualization.
+  Supervisor-state checks also pass independently under both identities.
+  Receipts: `signal-owner-policy-{app,shell}/` and
+  `results/signal-owner-state-{app,shell}.json`.
+- Full machine-entry suites pass under User and Shell: original/Base/lazy
+  controls, distant sites, growing channels, debugger rearm, inherited filters,
+  TSYNC, mapping changes, protected process inspection and five Go rounds with
+  and without guest seccomp. Receipts: `results/signal-owner-entry-{app,shell}.json`.
+- Cooperative API and shared model suites pass under User and Shell, with
+  independent Base/lazy runs. Coverage includes channels, TSYNC and inherited
+  filters, FD effects, signal reentry, JIT, cancellation and concurrent mutations.
+  Cold channel growth/reuse also passes three repeats per executor and entry
+  mode; ownership tests cover queued/ready cancellation and successor progress.
+  Receipts: `results/qualified-entry-cooperative-*.json`,
+  `logs/channel-queue-capacity-*.log` and `results/channel-queue-state-*.json`.
+- Watch suites and filesystem-result suites under the Linux 5.15 capability
+  profile pass for User and Shell. They retain selective ordinary-read handling,
+  parallel-read completion, descriptor counts, watch lifetimes and quotas.
+  Receipts: `results/qualified-entry-watch-*.json` and
+  `results/qualified-entry-kernel515-fs-*.json`.
+- Stock-libc ABI suites pass on Alpine/Shell and Debian/User in lazy and Base:
+  dynamic, static and freestanding execution, exec/spawn/vfork, TLS, threads,
+  signals, protected pointers and failed-exec resource lifetimes. Fixtures were
+  rebuilt from the current sources. Receipts: `results/abi-*.json`.
+- Packaged debugger suites pass on Alpine/Shell and Debian/User in lazy and Base:
+  GDB, LLDB, gdbserver, strace, Callgrind and the shared debugger lifecycle
+  assertions. Alpine lacks the toolchain's `gcrt1.o`; User cannot open native
+  perf events. These two explicit unavailable controls are not passes.
+  Receipts: `debugger-alpine-shell/`, `debugger-debian-app-complete/` and
+  `results/debugger-base-*.json`. Broader kernel-profile qualification remains
+  pending.
+  Current debugger-delivery acceptance uses fixture build ID
+  `d2b1187a3a9ed0335bd9edc865f17583264f4553b5d1034a1d2230b0042d5440`:
+  Debian/User passes 38 debugger/tool workflows (native perf remains unavailable).
+  Active multithreaded IO and blocked pipe/socket/poll/epoll targets pass repeated
+  GDB breakpoint/continue/detach in Alpine/Shell and Debian/User, in lazy and Base.
+  Receipts: `debugger-delivery-{alpine-shell,alpine-base,debian-app,debian-base}/`.
+  Shared supervisor-state checks and untraced filesystem/memory signal stress
+  also pass under both executors, including STOP/CONT and guest filters:
+  `results/debugger-delivery-{supervisor-state,fs-signals}-{app,shell}.json`.
+  Inherited-filter image-entry acceptance additionally passes 32 combinations:
+  direct TRACEME exec, syscall exec and both nonleader exec forms, with and
+  without an inherited filter, on Debian/User and Alpine/Shell in Base and lazy.
+  These use ordinary APK build ID
+  `3b8f74366bf0f899233f47531177e22dfa2d04e025e727233e72724228013b6a`.
+  Receipts: `filtered-exec-{debian-app,alpine-shell}-{base,lazy}/`.
+- All 13 recipe distributions require current User and Shell application
+  qualification. Existing cells below describe their recorded builds, not a
+  completed 2.3 pass. Reuse installed stores sequentially; access handoffs are
+  not copies and must retain their restoration journals.
+- Landlock filesystem and mounted-store contracts pass on Arch/User and
+  Alpine/Shell, independently in Base and lazy, on ordinary APK build ID
+  `5f6872198dabcfea56eb3554c6d60c4855766fe43f21edaaab246972b68e2d02`.
+  Coverage includes nested tmpfs/ramfs, bind-source ancestry boundaries,
+  directory-relative/proc-FD reopening and policy-layer intersection, with
+  positive and negative assertions. Receipts:
+  `landlock-after-{arch-app,alpine-shell}-{base,lazy}/`.
+- Default-library installation/resume/discovery and final APK checks are pending.
+- Quiescence and lifecycle follow-up uses optimized fixture APK build ID
+  `a4327dde84609813f7aad05d9effb6e32b5acd1f5819211d503833585f414b62`.
+  Supervisor-state, robust-futex, private-memory and launch-cancellation suites
+  pass under User and Shell: `results/quiesce-*-{app,shell}.json`. This covers
+  unavailable interrupt targets, cleanup admission, retained FD custody,
+  protected mappings and exact process-tree cancellation.
+- Teardown acceptance uses fixture APK build ID
+  `db8f47632bd543c15ec744dd21a68706ef3e4f7641405d01312e786cca4f73c7`.
+  Supervisor-state, filesystem worker transport (504 O_PATH cases) and launch
+  cancellation pass under User and Shell. Pending broker continuations and
+  channels retain their ownership through worker join. Receipts:
+  `supervisor-cleanup-{app,shell}.json`,
+  `supervisor-cleanup-fs-{app,shell}.json` and
+  `supervisor-cleanup-cancel-{app,shell}.json`. Ordinary APK build ID
+  `4a3a98185f48139184853c4a687b720617f57458efdd1cdb9e83e3627340e957`
+  also completes an uninstrumented, approximately 20-minute offscreen SteamOS
+  Shell session with status 143 and full graphics cleanup. Browser, editor and
+  portal workflows complete before shutdown. Receipt:
+  `steamos-reboot-acceptance/session.json`. This is lifecycle evidence, not final
+  APK performance or qualification of every desktop startup service.
+- Temporary-tree recovery and the full transient-store suite pass under Shell
+  and User with fixture build ID
+  `6c792d8433ad8050483534ff8a48fd95a9bdfe0ad3a6032b3029d94d54f22ac7`.
+  Coverage includes damaged markers, final release, admission-time collection,
+  queued rights, live leases, overlay views and descriptor balance. User invokes
+  the same packaged fixture through an App console; its receipt records the
+  untrusted-app identity and matching native hash. Receipts:
+  `results/transient-recovery-shell.json`,
+  `results/transient-recovery-app-direct.json` and
+  `results/transient-custody-shell.json`. These checks do not simulate arbitrary
+  power-loss damage to persistent guest files.
+- Uninstrumented, unpinned Shell timing compares the saved source baseline with
+  the clean runtime below. Eight alternating rounds retain file-stat, open/close,
+  file-cycle, poll and epoll measurements; a separate twelve-round stat/epoll
+  repeat uses longer file blocks. Median paired time changes in that repeat are
+  stat +1.7% and epoll -1.5%; first-series open/close, file-cycle and poll changes
+  are -0.7%, -1.4% and -0.8%. Both series retain all samples, frequency observations
+  and caller CPU endpoints in `results/qualification-performance.json` and
+  `results/qualified-performance-repeat.json`. These are short-loop measurements,
+  not final packaged-APK, User performance or SteamOS video/audio acceptance.
+  Those checks and the supervisor CPU targets remain pending.
+- The non-fixture native build matching APK `5f687219...` passes an eight-round
+  unpinned Shell comparison: median paired loop changes are stat +1.3%,
+  open/close +0.6%, file-cycle -0.5%, poll +6.3% and epoll +4.0%. A separate
+  sixteen-pair poll/epoll repeat gives +0.8%/-6.0%. CPU migration and individual
+  pair variation prevent a speedup claim; there is no consistent slowdown across
+  the repeats. File tests retain sixteen blocks per launch; poll/epoll retain
+  one million iterations. All samples, frequency residency and thermal state
+  remain in `performance-landlock/oci-services-7cd51fac29cc4b9dbbeaf67f15f0ea1c.json`
+  and `performance-readiness-landlock/oci-services-11315e46fbc743209a59db02fa1af124.json`.
+  Both candidates use the same guest binary with verified lazy completions;
+  timing runs have no runtime instrumentation or concurrent GUI workload.
+  A separate counter-only run confirms native poll/epoll loops: both builds
+  retain 38 startup/teardown stops per launch, not per-iteration interception.
+  Receipt: `diagnostic-readiness-landlock/oci-services-8e44465e46274a9fbb62f5455e7dd9c8.json`.
+- The non-fixture native build matching ordinary APK build ID
+  `fc0042a5dd9aee463d2d48ff4d17821df5caa7a4c08349d4f0f44c40d7bf4763`
+  passes an eight-round uninstrumented Shell comparison against the same
+  source baseline. Median paired time changes are stat +5.2%, open/close -0.2%,
+  file-cycle -1.6%, poll +0.8% and epoll +0.1%. The battery stays at 34 C;
+  frequency residency and individual pairs vary substantially. This is a
+  regression screen, not a precision speedup claim. Receipt, including all
+  thermal/frequency observations:
+  `performance-cleanup/oci-services-b44b51dbb8994abdac21ea87d06ef3b3.json`.
+
+Honor changes are limited to fixes driven by remote-device feedback. Changes to
+shared launch, graphics, audio or executor boundaries require affected workflow
+reruns; isolated firmware-window changes do not invalidate native-only receipts.
+Keep confirmed upstream failures and unavailable prerequisites distinct from
+Shroot defects. The Linux 5.15 capability profile is not a physical 5.15 device.
+
+### Current Application Pass
+
+These cells describe the 2.3 qualification receipts, independently of the older
+application tables. Each result is lazy / Base. K3s uses the complete one-node
+VXLAN scenario above, not just API startup. The clean fixture APK build ID is
+`b49ae4d60087cc171466ef3b34a76363c59f76d365094d4a5d1d900c6b0b7330`;
+Alpine User and Debian User retain the explicitly identified builds above.
+
+| Recipe | K3s User | K3s Shell | Receipt under `build/release-2.3/results/` |
+| --- | --- | --- | --- |
+| alpine | P/N | P/N | `k3s-alpine-{app,shell}.json` |
+| debian | P/N | N/N | `k3s-debian-app.json` |
+| arch | P/N | N/N | `k3s-arch-app.json` |
+| fedora | P/N | N/N | `k3s-fedora-app.json` |
+| opensuse | P/N | N/N | `k3s-opensuse-app.json` |
+| ubuntu | P/N | N/N | `k3s-ubuntu-app.json` |
+| armtix | P/N | N/N | `k3s-armtix-app.json` |
+| manjaro | P/N | N/N | `k3s-manjaro-app.json` |
+| nixos | P/N | N/N | `k3s-nixos-app.json` |
+| steamos | N/N | P/N | `k3s-steamos-shell.json` |
+| deepin | N/N | P/N | `k3s-deepin-shell.json` |
+| openkylin | N/N | P/N | `k3s-openkylin-shell.json` |
+| void | N/N | P/N | `k3s-void-shell.json` |
+
+### Current Graphical Applications
+
+These offscreen checks use the ordinary packaged APK, build ID
+`1e277848f87be129bb4067ab084d46c2a2683269d42b7efae0c20ad65962fc97`,
+SHA-256 `7503327efbb6baf0cea78d83e4718dfcff8ed76994ba785a56c2fc9f74857f2e`.
+Later qualifying builds are identified below with their affected workflows.
+The Armtix follow-up explicitly identifies its fixture-enabled APK.
+Cells are lazy / Base; each row qualifies only its stated executor. Other
+executors and missing workflows remain pending; results are not automatically
+promoted to another APK.
+
+| Recipe | Executor | VS Code | Document portal | Firefox | Chromium |
+| --- | --- | --- | --- | --- | --- |
+| alpine | Shell | P/N | P/N | P/N | P/N |
+| debian | User | P/N | P/N | P/N | P/N |
+| arch | User | P/N | P/N | P/N | P/N |
+| fedora | User | P/N | P/N | P/N | P/N |
+| opensuse | User | U/N | P/N | P/N | P/N |
+| ubuntu | User | P/N | P/N | P/N | P/N |
+| armtix | User | P/N | P/N | P/N | P/N |
+| manjaro | User | P/N | P/N | P/N | P/N |
+| nixos | User | P/N | P/N | P/N | P/N |
+| steamos | Shell | P/N | P/N | P/N | P/N |
+| deepin | Shell | P/N | U/N | P/N | P/N |
+| openkylin | Shell | P/N | P/N | P/N | P/N |
+| void | Shell | U/U | P/P | P/P | P/P |
+
+Debian, Fedora and Ubuntu VS Code acceptance covers reload, editor/save, filesystem
+notifications, integrated PTY, GDB breakpoint/step/continue, GPU composition,
+renderer sandbox and normal editor closure. Receipts:
+`results/gui-{debian,fedora,ubuntu}-app-packaged-vscode.json`.
+Fedora and openSUSE portal acceptance covers ordinary-user export/read/write,
+revocation, SIGTERM/SIGKILL cleanup, FUSE helper unmount and systemd
+stop/restart/reactivation. Receipts:
+`results/gui-fedora-app-packaged-portal.json` and
+`gui-opensuse-app-status/portal.json`.
+
+Ubuntu's Snap Firefox and Chromium pass fresh and reused profile launches:
+keyboard, pointer, download, chooser/readback, WebGL pixels/context and normal
+browser closure. Both Snap document-portal workflows pass export/read/write,
+revocation, signal cleanup, helper unmount and systemd restart/reactivation.
+The fixture activates the stock Snap mount/socket/service units; no helper
+timeout or confinement flag is changed. These prepared-namespace runs do not
+qualify cold Snap startup under load. Firefox's privacy-reduced WebGL renderer
+string is not evidence of the physical GPU model. Receipts:
+`gui-ubuntu-app-snap/{firefox,chromium}-snap{,-reuse}/gui-report.json` and
+`gui-ubuntu-app-snap/portal-{firefox,chromium}.json`.
+
+Armtix and Manjaro pass the same complete editor workflow with their installed
+official Microsoft archives (1.140.0 and 1.143.1). Manjaro selects the existing
+`/opt/md-fixture-code-1.143.1/bin/code` launcher explicitly. Their document-portal
+export/read/write/revocation and signal/helper cleanup checks also pass; Manjaro
+additionally passes systemd stop/restart/reactivation. Armtix uses runit, not
+the systemd-specific variant. Receipts:
+`results/gui-armtix-app-packaged-{vscode,portal}.json` and
+`results/gui-manjaro-app-packaged-archive-{vscode,portal}.json`.
+Manjaro retains xdg-desktop-portal 1.18.2-1: this passing run does not establish
+absence of its separately documented upstream signal-handler race.
+
+Deepin Shell passes the complete VS Code 1.143.1 workflow. Its document portal
+passes export/revocation, both SIGTERM rounds and daemon-death helper unmount,
+but whole-service restart/stop hangs with portal 1.22.1 and libfuse 3.14.0.
+The unmount child exits on SIGTERM; the daemon then joins a libfuse loop sleeping
+on its semaphore with workers still in splice. Explicit unmount releases it.
+This matches the [upstream missing-wakeup mechanism](https://github.com/flatpak/xdg-desktop-portal/pull/2083),
+not the older GLib signal-handler deadlock. Systemd's repeated cgroup signal scan
+also covers newly forked children. The classification is based on package source,
+stacks and an untraced unmount/child-status capture; this exact Deepin combination
+has not been repeated under native chroot. No package or production timeout is
+changed. Receipts: `results/gui-deepin-shell-packaged-vscode.json` and
+`gui-deepin-shell-portal/{portal-captured.json,portal-unmount.log}`.
+
+openKylin Shell passes the complete VS Code 1.143.1 workflow and document-portal
+lifecycle, including whole-service restart/stop/reactivation. Receipts:
+`results/gui-openkylin-shell-packaged-{vscode,portal}.json`.
+Void Shell passes the same editor/debugger workflow with VS Code 1.140.0, and
+portal grant/revocation plus signal/helper cleanup under runit. Receipts:
+`results/gui-void-shell-packaged-{vscode,portal}.json`.
+SteamOS Shell passes the editor/debugger and complete systemd portal lifecycle
+workflows inside its installed Plasma Wayland session, with Steam autostart
+left enabled. Receipts: `results/gui-steamos-shell-packaged-{vscode,portal}.json`.
+These editor receipts precede the separate `SystemInfo.getInfo` GPU-crash-count
+and GPU-sandbox assertions; enabled composition and a sandboxed renderer alone
+do not establish GPU sandbox admission or zero recovered GPU crashes.
+Void Shell and Debian User also pass the strengthened editor fixture with GPU
+crash count zero at both checkpoints, hardware composition and a Zink/Turnip
+renderer: `results/gui-{void-shell,debian-app}-gpu-verified-vscode.json`.
+Debian's complete systemd portal lifecycle passes:
+`results/gui-debian-app-gpu-verified-portal.json`.
+Arch User passes the same complete portal lifecycle:
+`results/gui-arch-app-packaged-portal.json`.
+Its stock Flatpak VS Code 1.139.1 also passes the full workflow twice, including
+GDB breakpoint/step/normal exit, renderer sandbox and zero GPU-process crashes
+at both checkpoints. Those editor receipts use the newer ordinary APK build ID
+`3b8f74366bf0f899233f47531177e22dfa2d04e025e727233e72724228013b6a`,
+SHA-256 `a599323451985e3f041ba895b4b0b5299fd7a3bad182fa65bb6d835e594d38c0`:
+`gui-arch-app-filtered-exec/vscode-stock{,-repeat}/gui-report.json`.
+Flatpak 1.18.4 retains unmodified package files; these passing runs do not
+invalidate the separately documented upstream descriptor-collision case.
+Arch's stock Flatpak Firefox and Chromium pass all seven browser checks with
+both fresh and reused profiles on ordinary APK build ID
+`5f6872198dabcfea56eb3554c6d60c4855766fe43f21edaaab246972b68e2d02`,
+SHA-256 `02184b12a3c5d7f81a41667621519553f6f6a3ddaba009decd583eb14c37c842`.
+Chooser input uses ordinary `wl-copy` MIME detection, without a forced text type.
+The complete systemd document-portal lifecycle also passes on that build.
+Receipts: `gui-arch-app-landlock/{firefox,chromium}-flatpak{,-reuse}/gui-report.json`
+and `gui-arch-app-landlock/portal.json`.
+
+Alpine Shell uses the same `5f687219...` APK for stock Flatpak VS Code 1.139.1,
+native Firefox 151.0.3 and native Chromium 149.0.7827.53. The editor passes reload,
+PTY, GDB and normal closure with a sandboxed renderer, hardware composition and
+zero GPU-process crashes at both checkpoints. Both browsers pass all seven
+checks with fresh and reused profiles. Chromium's exported `chrome://gpu` report
+also records `Sandboxed: true`, Zink/Turnip, hardware composition and zero GPU
+crashes. Document export/read/write/revocation, two SIGTERM exits and daemon-death
+helper unmount pass under OpenRC. This does not disprove the separately qualified
+upstream signal-handler race in portal 1.20.3. Receipts:
+`gui-alpine-shell-landlock/vscode-stock/gui-report.json`,
+`gui-alpine-shell-landlock/{firefox,chromium}-native{,-reuse}/gui-report.json`,
+`gui-alpine-shell-landlock/chromium-native/gpu.txt` and
+`gui-alpine-shell-landlock/portal.json`.
+
+Debian User passes the same seven browser checks for stock Flatpak Firefox 159.0
+and Chromium 156.0.8078.47, with both fresh and reused profiles, on the
+`5f687219...` APK. Chromium's exported GPU report confirms hardware composition,
+GPU sandbox admission and zero GPU-process crashes. The complete systemd
+document-portal lifecycle also passes again on this build. Receipts:
+`gui-debian-app-browsers/{firefox,chromium}-flatpak{,-reuse}/gui-report.json`,
+`gui-debian-app-browsers/chromium-flatpak/gpu.txt` and
+`gui-debian-app-browsers/portal.json`.
+
+Fedora User passes all seven checks for stock Flatpak Firefox 159.0 and
+Chromium 156.0.8078.73 with fresh and reused profiles on the same `5f687219...`
+APK. Chromium's GPU report records hardware composition, `Sandboxed: true`,
+Zink/Turnip and zero GPU-process crashes. Receipts:
+`gui-fedora-app-browsers/{firefox,chromium}-flatpak{,-reuse}/gui-report.json` and
+`gui-fedora-app-browsers/chromium-flatpak/gpu.txt`.
+
+openSUSE User passes all seven checks for stock Flatpak Firefox 159.0 and
+Chromium 156.0.8078.47 with fresh and reused profiles on the `5f687219...` APK.
+Chromium retains hardware composition, its GPU sandbox and zero GPU-process
+crashes. This guest lacks `at-spi2-core` and the `org.a11y.Bus` activation file;
+these pointer/key workflows do not certify AT-SPI availability. Receipts:
+`gui-opensuse-app-browsers/{firefox,chromium}-flatpak{,-reuse}/gui-report.json`
+and `gui-opensuse-app-browsers/chromium-flatpak/gpu.txt`.
+
+SteamOS Shell passes all seven checks for stock Flatpak Firefox 158.0.1 and
+Chromium 155.0.8059.39 with fresh and reused profiles on the `5f687219...` APK,
+inside Plasma Wayland with Steam autostart enabled. Chromium retains hardware
+composition, `Sandboxed: true` and zero GPU-process crashes. Document grants,
+revocation, signal/helper cleanup and systemd stop/restart/reactivation also
+pass. Receipts:
+`gui-steamos-shell-browsers/{firefox,chromium}-flatpak{,-reuse}/gui-report.json`,
+`gui-steamos-shell-browsers/chromium-flatpak/gpu.txt` and
+`gui-steamos-shell-browsers/portal.json`.
+The same untraced Plasma session completed cancellation with exit 143 after
+about 20 minutes of browser and portal work; its `session.json` retains the
+completion receipt. Current teardown qualification is recorded in the shared
+mechanism checks above.
+The first pointer event in a fresh Plasma session also passes the strict Chromium
+workflow (11 checks, including exported GPU status) on ordinary APK
+`962ce7ca...`, with the recipe's pointer-enter correction present in installed
+KWin. The tested `libkwin.so.6.2.5` has SHA-256
+`d5015a634a9e5204f0b2483ac4fdd4ac0439a5d52f32d1c0ca647a05c6f68076`.
+Receipt: `steamos-enter-fixed/chromium-enter/gui-report.json`. This validates
+pointer delivery, not installer resume or other KWin versions.
+
+Armtix User passes all seven browser checks for stock Flatpak Chromium
+156.0.8078.47 and Firefox with fresh and reused profiles on the optimized
+`a4327dde...` fixture APK. Both Chromium GPU reports retain hardware composition,
+`Sandboxed: true` and zero GPU-process crashes. The GL extension uses the
+recipe's ABI-checked publisher with the existing verified Flatpak SDK 25.08
+Mesa build; this is not fresh-install acceptance for Armtix's older native Mesa.
+Document grants, revocation, two SIGTERM exits and daemon-death helper cleanup
+pass under runit. The complete session closes with exit 143. Receipts:
+`gui-armtix-app-quiesce/{chromium,firefox}-{current,reuse}/gui-report.json`,
+`gui-armtix-app-quiesce/chromium-{current,reuse}/gpu.txt`,
+`gui-armtix-app-quiesce/portal-current.json` and its `session.json`.
+
+Manjaro User passes fresh/reused-profile checks for stock Flatpak Chromium
+156.0.8078.47 and Firefox 159.0 on ordinary APK build ID
+`962ce7ca91befe148eb97191999e9800de1079af5727edeff1fdde78448f0832`.
+Both Chromium runs retain hardware composition, `Sandboxed: true` and zero GPU
+process crashes. Document grants/read/write/revocation, signal/helper cleanup
+and whole-service systemd stop/restart/reactivation pass. Receipts:
+`gui-manjaro-app-browsers/{chromium,firefox}-{current,reuse}/gui-report.json`,
+`gui-manjaro-app-browsers/chromium-{current,reuse}/gpu.txt` and
+`gui-manjaro-app-browsers/portal-current.json`.
+
+Deepin Shell passes all seven GUI checks for stock Flatpak Chromium 156.0.8078.47
+and Firefox 159.0 with fresh and reused profiles on the `962ce7ca...` ordinary
+APK. Chromium retains hardware composition, `Sandboxed: true` and zero GPU
+process crashes in both runs. Browser/file-chooser acceptance does not change
+the separate whole-service portal U classification above. Receipts:
+`gui-deepin-shell-browsers/{chromium,firefox}-{current,reuse}/gui-report.json`
+and `gui-deepin-shell-browsers/chromium-{current,reuse}/gpu.txt`.
+
+openKylin Shell passes fresh/reused-profile checks for stock Flatpak Chromium
+156.0.8078.47 and Firefox 159.0 on the `962ce7ca...` ordinary APK. Both Chromium
+reports retain hardware composition, `Sandboxed: true` and zero GPU-process
+crashes. The installed GL extension retains its separately qualified SDK driver;
+these runs do not certify a fresh graphics installation. Document grants,
+revocation, signal/helper unmount and systemd stop/restart/reactivation pass.
+Receipts: `gui-openkylin-shell-browsers/{chromium,firefox}-{current,reuse}/gui-report.json`,
+`gui-openkylin-shell-browsers/chromium-{current,reuse}/gpu.txt` and
+`gui-openkylin-shell-browsers/portal-current.json`.
+
+Void Shell passes fresh/reused-profile checks for stock Flatpak Chromium
+156.0.8078.47 and Firefox 158.0.1 on the `962ce7ca...` ordinary APK. Chromium's
+fixture verifies a fresh GPU report per launch: hardware composition, GPU sandbox
+admission and zero crashes. Its GL extension uses the current ABI-checked
+publisher and the existing verified SDK Mesa build, not a fresh native recipe
+build. Base also passes Firefox and Chromium's hardware/sandbox workflow with
+the same SDK driver. The older native driver does not satisfy GPU-sandbox
+acceptance and is not interchangeable with that receipt. Document
+export/read/write/revocation and signal/helper cleanup pass under runit in both
+lazy and Base. Receipts:
+`gui-void-shell-browsers/chromium-gpu{,-reuse}/gui-report.json`,
+`gui-void-shell-browsers/firefox-{current,reuse}/gui-report.json`,
+`gui-void-shell-browsers/portal-current.json` and
+`gui-void-shell-base/portal-base.json`,
+`gui-void-shell-base/firefox-base/gui-report.json` and
+`gui-void-shell-base/chromium-base-sdk/gui-report.json`.
+
+Void's stricter VS Code acceptance is U in both entry modes with Mesa 26.2.3.
+The captured SIGSEGV is in `memcpy` from `zink_buffer_subdata`, called by
+`tc_texture_subdata`: its staging upload copies `layer_stride * box->depth`
+instead of the calculated source span. The inaccessible source address and
+call path match the upstream buffer over-read/thread-race correction listed in
+[Mesa 26.2.5](https://docs.mesa3d.org/relnotes/26.2.5.html).
+Successful repeats with hardware composition and both sandboxes do not close
+this upstream defect; a corrected driver has not been qualified here. These
+are lab-driver checks, not fresh-install acceptance. Receipts:
+`gui-void-shell-browsers/vscode-gpu-qualified/gui-report.json`,
+`gui-void-shell-browsers/vscode-gpu-repeat-{0,1,2}/gui-report.json` and
+`gui-void-shell-base/vscode-gpu-repeat-2/{gui-report.json,electron.log}` and
+`gui-void-shell-base/vscode-gpu-gdb-2/gpu-gdb.log`.
+
+openSUSE VS Code 1.143.1 completes reload, editing, PTY and file notifications,
+but its status command fails before this fixture reaches GDB. Without `which`,
+the package uses `ps.sh`; the script treats a process disappearing during its
+`/proc` enumeration as fatal. The CLI hides that error unless verbose and exits
+zero with no report. Native `/proc` and procps memory counters are coherent;
+the package's status formatter also converts memory percentages to bytes twice.
+These package diagnostics defects are U, not a passing full editor workflow.
+Evidence: `gui-opensuse-app-status/vscode-diagnostic/{gui-report.json,status-diagnostic.txt}`
+and `results/gui-opensuse-app-packaged-vscode.json`.
+
+NixOS User acceptance runs the installed Plasma Wayland session.
+The native Firefox and Flatpak Firefox/Chromium workflows pass fresh-profile and
+reused-profile launches: keyboard, pointer, download, file chooser/readback,
+Turnip WebGL pixels/context and normal browser close. Guest sandboxing and lazy
+entry remain enabled. Chromium's fresh-profile diagnostic run records a netlog;
+the reused-profile run uses the ordinary fixture command. KDE Wallet prompts
+are dismissed through their normal UI, not bypassed by flags or service changes.
+
+Receipts are under `browsers-nixos-app-feedback-packaged/`:
+`firefox-native{,-reuse}/gui-report.json`,
+`firefox-flatpak{,-reuse}/gui-report.json`, and
+`chromium-flatpak-{net,reuse}/gui-report.json`. Session cancellation completes
+without a supervisor crash. These receipts do not certify default-library
+discovery, every document-portal grant, audio continuity or graceful init shutdown.
+NixOS also passes the complete editor and portal lifecycle workflows in Plasma
+on this APK: `results/gui-nixos-app-packaged-{vscode,portal}.json`. The editor
+uses the installed Nixpkgs `vscode-with-extensions` 1.119.0 launcher and its
+packaged debugger extension, without adding an FHS loader alias. The portal is
+Nixpkgs xdg-desktop-portal 1.20.4; both graceful exits, daemon-death unmount and
+systemd stop/restart/reactivation pass within the unchanged deadlines. A passing
+run does not remove the separately qualified upstream signal-handler race.
+
+### Current System Workloads
+
+These runs use the existing installed recipe stores. Each cell is lazy / Base.
+Receipts retain the exact runtime; openKylin uses the cancellation-qualified build
+below, and the other workloads use the clean build above. Docker and Podman here run as guest root;
+ordinary-user containers require their separate checks. QEMU is direct TCG boot;
+libvirt adds managed lifecycle, pause/resume and teardown, not VM networking.
+LTP covers the seven reviewed ordinary-user tests. A missing result in this pass
+is N, even when another build has evidence elsewhere in the matrix.
+
+| Recipe | Executor | Docker | Podman | QEMU | Libvirt | BuildKit | LXC | LTP | nspawn command | machinectl boot |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| alpine | Shell | P/N | P/N | P/N | P/N | P/N | P/N | P/N | N/N | N/N |
+| debian | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| arch | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| fedora | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| opensuse | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| ubuntu | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| armtix | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | N/N | N/N |
+| manjaro | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| nixos | User | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| steamos | Shell | P/N | P/N | P/N | B/N | P/N | P/N | P/N | P/N | P/N |
+| deepin | Shell | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| openkylin | Shell | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N | P/N |
+| void | Shell | P/N | P/N | P/N | P/N | P/N | P/N | P/N | N/N | N/N |
+
+Receipts are under `build/release-2.3/results/services-*.json`; the corresponding
+`services-*/` directories retain preparation, workload and shutdown logs.
+Other executor/OS combinations, VM networking and graphical workflows remain
+pending for this pass.
+
+SteamOS uses the lab-installed upstream Docker Engine with nftables, overlay2
+and the unchanged container sandbox; its distribution provides `podman-docker`,
+not a Docker service. Libvirt remains blocked by the absence of a package in its
+enabled repositories. Package inventory is retained in
+`logs/services-steamos-shell-package-audit.log`.
+
+Cancellation qualification uses fixture APK build ID
+`5b4ff664ae71d2a6dd982bd785959271dbc020b272c4bbe5b6a4047686597067`.
+Shared ownership checks pass under User and Shell; active/parked thread groups
+with robust registration pass bounded TERM/KILL cancellation under both.
+The same cancellation checks pass with the Linux 5.15 capability profile.
+All 13 recipe distributions complete init-session cancellation with status 143
+and final log collection under the executor selected in the workload table.
+Debian/User and SteamOS/Shell also pass this workflow in Base mode.
+The robust-futex component suite also passes under User and Shell.
+Receipts: `results/cancellation-*.json` and
+`logs/cancellation-owner-{app,shell}.log`. These do not promote earlier workload
+receipts to the new build or establish graceful in-guest system shutdown.
+
+All 13 selected executor/OS pairs also pass this launch/controller/cancellation
+workflow using ordinary APK build ID
+`fc0042a5dd9aee463d2d48ff4d17821df5caa7a4c08349d4f0f44c40d7bf4763`,
+without injected fixture executables or runtime counters. Every launch ends
+with status 143; receipts: `results/cancellation-*-lazy-cleanup.json`.
+This short-session result does not establish long graphical-session stability.
+
+Uninstrumented Shell timing for this runtime retains all four alternating rounds
+of stat, open/close, file-cycle, poll and epoll in
+`results/cancellation-performance.json`; steady-loop medians differ from the
+saved baseline by less than 1%. A separate twelve-round stat repeat has paired
+median changes of -0.1% for full launch and -7.2% for all file blocks.
+The same-binary control reproduces first-block variation of approximately
+3-8 ms, so the short series does not establish a cold-start regression or gain.
+Receipts `results/cold-stat-{repeat,same-build}.json` retain both binary hashes,
+all rounds and host frequency observations. No CPU affinity, governor changes,
+warmup exclusion or test counters are used; final packaged-APK and User timing
+remain pending.
+
+### Current Rootless Containers
+
+These checks use an ordinary guest account, independently of the Android
+executor. Each cell is lazy / Base. SteamOS, Deepin, openKylin and Void use fixture APK build ID
+`59e20a9aee63b8fb6f8866ff346b99bce896cfb7f34004304985e52341550de2`;
+the other completed rows retain the cancellation-qualified build above.
+Docker retains its stock RootlessKit launcher and bridge policy; Podman retains
+its default rootless network, including packaged pasta where selected.
+Sandbox policy and cgroups remain enabled. The common probes check file IO,
+repeated exec, TCP/UDP publication, outbound traffic, occupied-port rejection,
+continued service by existing containers after that rejection, and port release.
+Docker also checks peer IP/name traffic. Both probes preserve the outer system
+mounts. These local exchanges do not certify public Internet reachability.
+
+| Recipe | Executor | Docker | Podman |
+| --- | --- | --- | --- |
+| alpine | Shell | P/N | P/N |
+| debian | User | P/N | P/N |
+| arch | User | P/N | P/N |
+| fedora | User | P/N | P/N |
+| opensuse | User | P/N | P/N |
+| ubuntu | User | P/N | P/N |
+| armtix | User | P/N | P/N |
+| manjaro | User | P/N | P/N |
+| nixos | User | P/N | P/N |
+| steamos | Shell | P/N | P/N |
+| deepin | Shell | P/N | P/N |
+| openkylin | Shell | P/N | P/N |
+| void | Shell | P/N | P/N |
+
+Receipts under `build/release-2.3/results/`:
+`rootless-alpine-shell-port-conflict-{docker,podman}.json`,
+`rootless-debian-app-port-conflict-docker.json`,
+`rootless-debian-app-packaged-pasta-podman.json`,
+`rootless-arch-app-packaged-podman.json`,
+`rootless-arch-app-rootless-launcher-docker.json` and
+`rootless-fedora-app-qualified-{docker,podman}.json` and
+`rootless-opensuse-app-qualified-{docker,podman}.json` and
+`rootless-ubuntu-app-qualified-{docker,podman}.json` and
+`rootless-armtix-app-prepared-{docker,podman}.json` and
+`rootless-manjaro-app-stdio-owner-{docker,podman}.json` and
+`rootless-nixos-app-qualified-{docker,podman}.json` and
+`rootless-steamos-shell-udp-verified-{docker,podman}.json` and
+`rootless-deepin-shell-udp-verified-{docker,podman}.json` and
+`rootless-openkylin-shell-packaged-{docker,podman}.json` and
+`rootless-void-shell-packaged-{docker,podman}.json`.
+SteamOS and Deepin complete both scenarios and session cancellation without a host debugger.
+SteamOS uses upstream Docker 29.1.3 and RootlessKit 2.3.5 with its packaged pasta.
+The same runtime passes the complete shared resource model under User and Shell,
+including IPv4/IPv6 UDP publication ownership, dynamic socket options, bind
+rollback and NAT admission/removal. Receipts:
+`results/udp-publication-model-{app,shell}.json`.
+Private-file memory repair, directory-result delivery and the full inotify
+runtime suite also pass on this build under User and Shell with the Linux 5.15
+capability profile. Deadlines and ordinary-read interception assertions remain
+unchanged. Receipts: `results/copy-fence-*-kernel515.json`. This profile restricts
+available host operations; it is not physical-kernel or firmware coverage.
+Uninstrumented Shell timing retains four alternating rounds of all five file
+and readiness workloads in `results/udp-publication-performance.json`. A separate
+16-pair stat/poll/epoll repeat records paired median changes against the source
+baseline of +1.23%, +0.08% and +0.55%, respectively, in
+`results/udp-publication-performance-repeat.json`. Neither run pins CPUs or changes
+their governor; all samples and frequency observations remain in the receipts.
+These loops do not qualify User timing, video/audio or the final packaged APK.
+Distribution packages installed for these probes are test dependencies, not
+additional installer recipe requirements.
+Armtix Docker uses an unchanged lab-installed Arch RootlessKit 3.3.0 binary and
+the cached upstream rootless launcher; its enabled repository lacks RootlessKit.
+Dependency versions and hashes are retained in `logs/rootless-dependency-export.log`
+and `logs/rootless-armtix-app-prepared-prepare.log`. This is rootless-runtime
+acceptance, not evidence that Armtix ships those dependencies.
+Manjaro retains its packaged RootlessKit 1.1.1 and Docker 25.0.2 with the
+unchanged upstream launcher from that Docker tag, installed only for the lab.
+openKylin retains Docker 24.0.7 and RootlessKit 2.0.2, with the unchanged upstream
+24.0.7 launcher installed for the lab. Its packaged Docker commands require
+`/opt/system/bin` in PATH. No container sandbox or network option is disabled.
+Void retains Docker 29.8.0 and RootlessKit 2.2.0, using the unmodified launcher
+from the upstream Docker 29.1.3 rootless-extras archive as a lab dependency.
+
+### Current Boot Pass
+
+The boot receipts identify their exact runtime builds and exercise each installed
+recipe's own init with the common installer preparation. Systemd acceptance
+includes default-target health,
+actual D-Bus and journal IO, logind restart and strict shutdown checks. OpenRC
+and runit retain their stock stages and check service lifecycle. NixOS activates
+the selected installed generation. These checks do not certify graphical sessions
+or the complete application matrix.
+
+| Recipe | Executor | Init and service lifecycle (lazy / Base) |
+| --- | --- | --- |
+| alpine | Shell | P/P |
+| debian | User | P/P |
+| arch | User | P/P |
+| fedora | User | P/P |
+| opensuse | User | P/P |
+| ubuntu | User | U/N |
+| armtix | User | P/P |
+| manjaro | User | P/P |
+| nixos | User | P/P |
+| steamos | Shell | P/P |
+| deepin | Shell | U/N |
+| openkylin | Shell | P/P |
+| void | Shell | P/P |
+
+Receipts: `results/boot-matrix-*.json`, `results/boot-alpine-shell-*.json`
+and `boot-debian-app-bridge-lazy/`. Ordinary default-target runs use a private
+bridge where stock services bind DHCP ports; routed publication of port 67 is
+subject to Android permission checks, not an emulated permission grant.
+
+Ubuntu and Deepin reach a healthy default target and pass the service-IO checks,
+but strict shutdown retains **U**. Their packaged `podman-restart.service` invokes
+`podman stop` without arguments when no always-restart containers exist, returning
+125. Ubuntu's LXC 5.0.3 also returns failure for an empty autostart list. Installed
+versions are Podman `4.9.3+ds1-1ubuntu0.2`, LXC `1:5.0.3-2ubuntu7.3`, and Deepin
+Podman `5.2.5.2-1deepin3`. The installed units and isolated empty-list calls are
+retained in `ubuntu-service-config/`, `ubuntu-empty-stop/`,
+`ubuntu-lxc-version/` and `inspect-deepin/`; upstream source confirms the
+[Podman stop command](https://github.com/containers/podman/blob/v4.9.3/contrib/systemd/system/podman-restart.service.in)
+and [LXC empty-list verdict](https://github.com/lxc/lxc/blob/lxc-5.0.3/src/lxc/tools/lxc_autostart.c).
+No units were disabled and the shutdown assertion remains strict.
 
 ## Reading Results
 
@@ -512,7 +1176,7 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | manjaro | P/N | F/N | P/N | I/N | I/N | N/N | - |
 | void | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | armtix | I/N | N/N | N/N | P/N | N/N | N/N | - |
-| nixos | I/N | N/N | I/N | P/N | N/N | N/N | - |
+| nixos | I/N | N/N | P/N | P/N | N/N | N/N | - |
 | steamos | I/N | N/N | N/N | P/N | H/N | H/N | I/N |
 
 Preserve separate application/package versions in the receipt.

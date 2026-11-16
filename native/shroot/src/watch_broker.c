@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "watch_broker.h"
+#include "fs_worker.h"
 #include "watch_calls.h"
 #include "inode_watch.h"
 #include "interception.h"
@@ -21,8 +22,10 @@ struct watch_read {
     int listener, reader, vector_count, vector;
     size_t copied;
     struct iovec vectors[1024];
+    struct md_fs_worker *worker;
 };
 struct md_watch_broker {
+    struct md_fs_worker *worker;
     struct watch_read *pending, **tail, *free;
     unsigned allocated;
     char output[65536];
@@ -38,12 +41,11 @@ static int reply(int listener, uint64_t id, long result, int flags) {
 }
 static int deliver(void *context, const void *data, size_t size) {
     struct watch_read *r = context;
-    if (!valid(r)) return -ECANCELED;
-    if (!size) return 0;
-    struct iovec local = {(void *)data, size};
-    struct iovec remote = {r->vectors[r->vector].iov_base, size};
-    ssize_t n = process_vm_writev(r->q.pid, &local, 1, &remote, 1, 0);
-    if (n < 0 && (errno == EPERM || errno == EACCES)) return -EACCES;
+    if (!size) return valid(r) ? 0 : -ECANCELED;
+    ssize_t n=md_fs_worker_copy_to_task(r->worker,r->q.pid,r->listener,r->q.id,
+        (uintptr_t)r->vectors[r->vector].iov_base,data,size);
+    if (n==-EPERM || n==-EACCES) return -EACCES;
+    if (n==-ECANCELED) return -ECANCELED;
     return n == (ssize_t)size ? 0 : -EFAULT;
 }
 static void recycle(struct md_watch_broker *b, struct watch_read *r) {
@@ -76,9 +78,9 @@ static int run(struct md_watch_broker *b, struct md_inode_store *s, struct watch
     int error = reply(r->listener, r->q.id, result, 0);
     return error ? error : 1;
 }
-struct md_watch_broker *md_watch_broker_create(void) {
+struct md_watch_broker *md_watch_broker_create(struct md_fs_worker *worker) {
     struct md_watch_broker *b = calloc(1, sizeof(*b));
-    if (b) b->tail = &b->pending;
+    if (b) { b->tail = &b->pending; b->worker=worker; }
     return b;
 }
 int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, int listener,
@@ -99,9 +101,9 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
             result = md_inode_watch_bytes(s, reader);
             if (result >= 0) {
                 int bytes = (int)result;
-                struct iovec local = {&bytes, sizeof(bytes)}, remote = {(void *)q->data.args[2], sizeof(bytes)};
-                ssize_t n = process_vm_writev(q->pid, &local, 1, &remote, 1, 0);
-                result = n == sizeof(bytes) ? 0 : n < 0 && (errno == EPERM || errno == EACCES)
+                ssize_t n=md_fs_worker_copy_to_task(b->worker,q->pid,listener,q->id,
+                    q->data.args[2],&bytes,sizeof(bytes));
+                result = n == sizeof(bytes) ? 0 : (n==-EPERM || n==-EACCES)
                     ? MD_WATCH_TASK_AFFINE : -EFAULT;
             }
         }
@@ -113,6 +115,7 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
     else if (b->allocated < 1024) { r = calloc(1, sizeof(*r)); if (r) b->allocated++; }
     if (!r) { close(reader); return reply(listener, q->id, -ENOMEM, 0); }
     r->reader = reader; r->listener = listener; r->q = *q;
+    r->worker=b->worker;
     r->vector = 0; r->copied = 0;
     int error = 0;
     if (q->data.nr == SYS_read) {

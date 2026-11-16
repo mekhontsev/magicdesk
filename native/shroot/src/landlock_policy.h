@@ -24,6 +24,10 @@ enum { MD_LANDLOCK_ABI=1, MD_LANDLOCK_LAYERS=16 };
 /* Store lifetime plus logical object survives copy-up and rename. An open
  * description is not a path rule and is never retained for data access here. */
 struct md_landlock_key { struct md_inode_lifetime *store; char object[33]; };
+/* Operation-scoped grants from mount ancestors, indexed by policy layer.
+ * The local inode walk stops at root instead of following a bind source's
+ * unrelated original ancestors. No paths or mutable policy are cached. */
+struct md_landlock_scope { uint64_t inherited[MD_LANDLOCK_LAYERS]; char root[33]; };
 struct md_landlock_ruleset;
 struct md_landlock_policy;
 struct md_landlock_ruleset *md_landlock_ruleset_new(uint64_t handled);
@@ -37,7 +41,9 @@ void md_landlock_release(struct md_landlock_policy *);
 /* Matching runs under the same namespace transaction as the operation. A
  * negative match is a lookup failure, not permission to skip that rule. */
 int md_landlock_check(const struct md_landlock_policy *,uint64_t,
-    int (*matches)(void *,const struct md_landlock_key *),void *);
+    int (*matches)(void *,const struct md_landlock_key *),void *,const uint64_t *inherited);
+int md_landlock_collect(const struct md_landlock_policy *,
+    int (*matches)(void *,const struct md_landlock_key *),void *,uint64_t *grants);
 uint64_t md_landlock_open_access(int flags,mode_t kind);
 uint64_t md_landlock_make_access(mode_t kind);
 int md_landlock_ruleset_open(struct md_landlock_ruleset *,const struct md_identity *,

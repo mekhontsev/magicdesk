@@ -482,6 +482,45 @@ static void datagram_idle(void) {
     md_identity_release(&identity); md_network_namespace_release(root);
     puts("PASS IPv4/IPv6 UDP: private, published and multicast carriers survive idle expiry and conntrack deletion");
 }
+static void host_datagram_reuse(unsigned family,const struct sockaddr_storage *address,socklen_t size,int permitted) {
+    int fd=socket(family,SOCK_DGRAM|SOCK_CLOEXEC,0),one=1;
+    assert(fd>=0 && !setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one)));
+    int result=bind(fd,(const void *)address,size);
+    assert(permitted ? !result : result==-1 && errno==EADDRINUSE);
+    close(fd);
+}
+static void published_datagram_options(unsigned family) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity identity=md_identity_new(0,0);
+    struct md_fd_object *objects[3]; int fds[3],one=1,zero=0;
+    assert(n);
+    for (unsigned i=0;i<3;++i) {
+        assert(!md_network_endpoint_open(n,0,family,SOCK_DGRAM,0,&objects[i],&fds[i]));
+        endpoint_option(objects[i],fds[i],SOL_SOCKET,SO_REUSEPORT,&one,sizeof(one));
+    }
+    endpoint_option(objects[0],fds[0],SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
+    struct md_inet_address local={.ip=md_ip_loopback(family)};
+    struct sockaddr_storage wire; socklen_t size;
+    assert(!md_inet_encode(&local,0,&wire,&size));
+    assert(!md_network_endpoint_bind(objects[0],fds[0],&identity,(void *)&wire,size));
+    /* Make the final bind fail after joining an existing publication. */
+    assert(!bind(fds[2],(void *)&wire,size));
+    assert(!md_network_endpoint_name(objects[0],fds[0],0,&wire,&size));
+    host_datagram_reuse(family,&wire,size,1);
+    assert(md_network_endpoint_bind(objects[2],fds[2],&identity,(void *)&wire,size)==-EINVAL);
+    host_datagram_reuse(family,&wire,size,1);
+    assert(!md_network_endpoint_bind(objects[1],fds[1],&identity,(void *)&wire,size));
+    host_datagram_reuse(family,&wire,size,0);
+    endpoint_option(objects[1],fds[1],SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
+    host_datagram_reuse(family,&wire,size,1);
+    endpoint_option(objects[0],fds[0],SOL_SOCKET,SO_REUSEADDR,&zero,sizeof(zero));
+    host_datagram_reuse(family,&wire,size,0);
+    close(fds[0]); md_fd_object_release(objects[0]);
+    host_datagram_reuse(family,&wire,size,1);
+    for (unsigned i=1;i<3;++i) { close(fds[i]); md_fd_object_release(objects[i]); }
+    md_identity_release(&identity); md_network_namespace_release(n);
+    printf("PASS IPv%u published UDP options: native reuse, all owners, dynamic updates, bind rollback and retirement\n",family==AF_INET ? 4 : 6);
+}
 static void published_datagram_reuse(unsigned family) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_identity identity=md_identity_new(0,0);
@@ -501,6 +540,7 @@ static void published_datagram_reuse(unsigned family) {
     assert(!md_inet_encode(&local,0,&wire,&length));
     assert(md_network_endpoint_bind(objects[2],fds[2],&identity,(void *)&wire,length)==-EADDRINUSE);
     assert(!md_network_endpoint_bind(objects[1],fds[1],&identity,(void *)&wire,length));
+    host_datagram_reuse(family,&wire,length,1);
     int client=socket(family,SOCK_DGRAM|SOCK_CLOEXEC,0);
     assert(client>=0);
     for (unsigned round=0;round<3;++round) {
@@ -900,6 +940,7 @@ void test_network_endpoint(void) {
         datagram_namespace_retirement(AF_INET,bound); datagram_namespace_retirement(AF_INET6,bound);
     }
     datagram_idle();
+    published_datagram_options(AF_INET); published_datagram_options(AF_INET6);
     published_datagram_reuse(AF_INET); published_datagram_reuse(AF_INET6);
     device_binding();
     socket_priority(AF_INET);

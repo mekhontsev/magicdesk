@@ -37,6 +37,7 @@ static bool dma_client;
 static bool dma_cursor;
 static bool pointer_lock_test;
 static bool single_pixel;
+static bool idle_feedback, idle_feedback_family;
 static bool pacing;
 enum { PACING_FRAMES = 120 };
 static int64_t pacing_times[PACING_FRAMES];
@@ -57,6 +58,7 @@ struct Client {
     struct wp_presentation *presentation;
     bool presentation_clock;
     int presented;
+    uint64_t first_presentation, last_presentation;
     struct zwp_linux_dmabuf_v1 *dma;
     struct xdg_wm_base *shell;
     struct wl_surface *surface;
@@ -342,6 +344,8 @@ static void presentation_clock(void *data, struct wp_presentation *presentation,
 }
 static const struct wp_presentation_listener presentation_listener = {.clock_id = presentation_clock};
 
+static void request_idle_feedback(struct Client *client);
+
 static void feedback_output(void *data, struct wp_presentation_feedback *feedback, struct wl_output *output) {
     (void)data; (void)feedback; (void)output;
 }
@@ -354,8 +358,16 @@ static void feedback_presented(void *data, struct wp_presentation_feedback *feed
     // The headless output observes software completion, not hardware scanout.
     assert(!(flags & (WP_PRESENTATION_FEEDBACK_KIND_HW_CLOCK |
         WP_PRESENTATION_FEEDBACK_KIND_HW_COMPLETION | WP_PRESENTATION_FEEDBACK_KIND_VSYNC)));
-    ((struct Client *)data)->presented++;
+    struct Client *client = data;
+    uint64_t timestamp = (((uint64_t)sec_hi << 32) | sec_lo) * 1000000000 + nsec;
+    assert(timestamp >= client->last_presentation);
+    if (!client->presented) client->first_presentation = timestamp;
+    client->last_presentation = timestamp;
+    client->presented++;
     wp_presentation_feedback_destroy(feedback);
+    if (idle_feedback && client->presented < 8) request_idle_feedback(client);
+    else if (idle_feedback && client->presented == 8)
+        xdg_toplevel_set_app_id(client->toplevel, "io.magicdesk.feedback.done");
 }
 static void feedback_discarded(void *data, struct wp_presentation_feedback *feedback) {
     (void)data;
@@ -441,6 +453,14 @@ static void frame_done(void *data, struct wl_callback *callback, uint32_t time) 
     }
 }
 static const struct wl_callback_listener frame_listener = {frame_done};
+
+static void request_idle_feedback(struct Client *client) {
+    // Unchanged visible content still has a new committed presentation request.
+    wp_presentation_feedback_add_listener(wp_presentation_feedback(client->presentation, client->surface),
+        &feedback_listener, client);
+    wl_callback_add_listener(wl_surface_frame(client->surface), &frame_listener, client);
+    wl_surface_commit(client->surface);
+}
 
 static void buffer_release(void *data, struct wl_buffer *buffer) {
     (void)data;
@@ -542,6 +562,10 @@ static void toplevel_close(void *data, struct xdg_toplevel *toplevel) {
     struct Client *client = data;
     assert(client->frames > 0);
     assert(client->presented > 0);
+    if (idle_feedback) {
+        assert(client->presented >= 8);
+        assert(client->last_presentation > client->first_presentation);
+    }
     assert(client->key_down == 1 && client->key_up == 1);
     assert(client->button_down == 1 && client->button_up == 1);
     for (int index = 0; index < 2; ++index)
@@ -648,6 +672,7 @@ static void window_event(void *data, uint64_t id, const MdwWindow *window) {
     if (window->mapped) {
         assert(!strcmp(window->title, "MagicDesk Wayland fixture"));
         assert(!strcmp(window->app_id, "io.magicdesk.fixture") || (interaction && !strcmp(window->app_id, "io.magicdesk.committed")) ||
+            (idle_feedback && !strcmp(window->app_id, "io.magicdesk.feedback.done")) ||
             (pointer_lock_test && (!strcmp(window->app_id, "pointer-moved") || !strcmp(window->app_id, "pointer-unlocked"))));
     }
 }
@@ -745,6 +770,8 @@ int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL); return 0; }
     fixed_client_size = argc == 2 && !strcmp(argv[1], "--fixed-size");
     single_pixel = argc == 2 && !strcmp(argv[1], "--single-pixel");
+    idle_feedback_family = argc == 2 && !strcmp(argv[1], "--idle-feedback-family");
+    idle_feedback = idle_feedback_family || (argc == 2 && !strcmp(argv[1], "--idle-feedback"));
     pointer_lock_test = argc == 2 && !strcmp(argv[1], "--pointer-lock");
     minimum_client_size = argc == 2 && !strcmp(argv[1], "--minimum-size");
     bounded_client_size = argc == 2 && !strcmp(argv[1], "--bounded-size");
@@ -766,7 +793,7 @@ int main(int argc, char **argv) {
         .pointer_capture = capture_event, .context = &host};
     mdw_server_set_events(server, &events);
     int connection = argc == 2 && !strcmp(argv[1], "--fd") ? mdw_server_connect(server) : -1;
-    assert(argc == 1 || connection >= 0 || fixed_client_size || minimum_client_size || bounded_client_size || interaction || pointer_lock_test || single_pixel);
+    assert(argc == 1 || connection >= 0 || fixed_client_size || minimum_client_size || bounded_client_size || interaction || pointer_lock_test || single_pixel || idle_feedback);
     pid_t child = fork();
     assert(child >= 0);
     if (child == 0) {
@@ -782,8 +809,10 @@ int main(int argc, char **argv) {
     }
     if (connection >= 0) close(connection);
     MdwOutput *output = NULL;
+    MdwOutput *feedback_dependents = NULL;
     bool detached = false, closing = false, deferred = false, resumed = false;
     bool input_sent = false, text_sent = false, minimize_seen = false;
+    bool idle_checked = !idle_feedback;
     int capture_stage = 0;
     uint64_t old_capture = 0;
     while (!host.destroyed) {
@@ -793,9 +822,23 @@ int main(int argc, char **argv) {
         if (host.mapped && !output) {
             output = mdw_output_create(server, host.window, 80, offered_height);
             assert(output);
+            if (idle_feedback_family && !idle_checked) {
+                feedback_dependents = mdw_output_borrow_dependents(output);
+                assert(feedback_dependents && mdw_output_set_visible(feedback_dependents, false));
+            }
             if (interaction) assert(mdw_output_scale(output, 2));
             if (bounded_client_size) assert(mdw_output_scale(output, 4));
             assert(!mdw_output_resize(output, 0, 60));
+        }
+        if (!idle_checked) {
+            if (strcmp(host.app_id, "io.magicdesk.feedback.done")) continue;
+            // Feedback-only commits must not repaint and export a new pixel buffer.
+            assert(host.frames < 8);
+            if (feedback_dependents) {
+                mdw_output_destroy(feedback_dependents);
+                feedback_dependents = NULL;
+            }
+            idle_checked = true;
         }
         if (host.frames >= 1 && !detached) {
             MdwOutput *dependents = mdw_output_borrow_dependents(output);

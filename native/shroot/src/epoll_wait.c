@@ -55,6 +55,7 @@ int md_epoll_wait_task(struct md_epoll_wait *w,struct md_control_epoll *q,
     }
     int64_t remaining=w->blocking ? w->deadline==INT64_MAX ? INT64_MAX : w->deadline-md_event_now() : 0;
     if (remaining<0) remaining=0;
+    w->blocking=remaining!=0;
     frame->timeout=(struct timespec){remaining/1000000000LL,remaining%1000000000LL};
     int count=capacity-w->virtual_count;
     /* With no virtual transport, the kernel owns output validation and event
@@ -147,7 +148,7 @@ int md_epoll_wait_task_affine(struct md_epoll_wait *w,struct md_control_epoll *q
     if (remaining<0) remaining=0;
     frame->park=(struct md_epoll_park){.timeout={remaining/1000000000LL,remaining%1000000000LL},
         .queues={{descriptor,POLLIN,0},{task_descriptor,POLLIN,0}},.mask=frame->mask};
-    w->task_phase=QUEUES_WAIT; w->blocking=1;
+    w->task_phase=QUEUES_WAIT; w->blocking=remaining!=0;
     *call=(struct md_task_call_arguments){.number=SYS_ppoll,.value={
         address+offsetof(struct md_epoll_frame,park)+offsetof(struct md_epoll_park,queues),2,
         remaining==INT64_MAX ? 0 : address+offsetof(struct md_epoll_frame,park)+offsetof(struct md_epoll_park,timeout),

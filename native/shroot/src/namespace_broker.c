@@ -519,8 +519,8 @@ static int pathname(pid_t pid, uintptr_t address, char *out, size_t capacity) {
     return size<0 ? (int)size : 0;
 }
 static int deliver_bytes(struct operation *op, uintptr_t pointer, const void *data, size_t size) {
-    if (!valid(op)) return -ECANCELED;
-    if (!size) return 0;
+    if (!size) return valid(op) ? 0 : -ECANCELED;
+    if (op->channel && !valid(op)) return -ECANCELED;
     int detached=op->notification.data.nr==SYS_readlinkat || op->syscall.copy==MD_FS_COPY_STAT
         || op->syscall.copy==MD_FS_COPY_STATX || op->syscall.copy==MD_FS_COPY_STATFS
         || op->syscall.copy==MD_FS_COPY_XATTR;
@@ -532,11 +532,12 @@ static int deliver_bytes(struct operation *op, uintptr_t pointer, const void *da
         memcpy(c->output.bytes,data,size);
         return 0;
     }
-    struct iovec local = {(void *)data, size}, remote = {(void *)pointer, size};
-    ssize_t n = process_vm_writev(op->notification.pid, &local, 1, &remote, 1, 0);
+    ssize_t n=md_fs_worker_copy_to_task(op->owner->worker,op->notification.pid,
+        op->channel ? -1 : op->listener,op->notification.id,pointer,data,size);
     /* Only a denied, untouched output may fall back to the task-affine path.
      * Partial copies and notification cancellation are terminal for this call. */
-    if (n < 0 && (errno == EPERM || errno == EACCES)) op->undelivered = 1;
+    if (n==-EPERM || n==-EACCES) op->undelivered = 1;
+    if (n==-ECANCELED) return -ECANCELED;
     return n == (ssize_t)size ? 0 : -EFAULT;
 }
 static int control_open(void *context,const struct md_control_file_ops *ops,void *data,
@@ -603,12 +604,9 @@ struct md_namespace_broker *md_broker_create(struct md_fs_worker *worker, int st
     }
     return b;
 }
-static int recycle(struct md_namespace_broker *b, struct operation *op) {
-    int64_t start=md_cost_begin(b->counts ? &b->retirement : NULL);
-    int cleared=md_notification_result_clear(&op->completion);
-    if (cleared) return cleared;
-    cleared=md_inode_birth_discard(&op->birth);
-    if (cleared) return cleared;
+/* Resource custody ends identically on completion and after worker shutdown.
+ * Store-backed birth rollback remains with the live worker's caller. */
+static int release_operation(struct operation *op) {
     if (op->continuation) { op->continuation->destroy(op->continuation); op->continuation=NULL; }
     md_fd_loan_end(op->custody); md_fd_loan_release(op->custody); op->custody=NULL;
     if (op->directory >= 0) close(op->directory);
@@ -634,8 +632,9 @@ static int recycle(struct md_namespace_broker *b, struct operation *op) {
         if (error==1) error=md_ofd_order_complete(&op->cursor);
     }
     if (op->fs_order.fs) {
-        error=md_fs_order_cancel(&op->fs_order);
-        if (error==1) error=md_fs_order_complete(&op->fs_order);
+        int retired=md_fs_order_cancel(&op->fs_order);
+        if (retired==1) retired=md_fs_order_complete(&op->fs_order);
+        if (!error) error=retired;
     }
     if (op->order.table) {
         int retired=md_fd_order_cancel(&op->order);
@@ -644,6 +643,15 @@ static int recycle(struct md_namespace_broker *b, struct operation *op) {
     }
     md_fs_context_end(&op->context);
     free(op->value); op->value=NULL;
+    return error;
+}
+static int recycle(struct md_namespace_broker *b, struct operation *op) {
+    int64_t start=md_cost_begin(b->counts ? &b->retirement : NULL);
+    int cleared=md_notification_result_clear(&op->completion);
+    if (cleared) return cleared;
+    cleared=md_inode_birth_discard(&op->birth);
+    if (cleared) return cleared;
+    int error=release_operation(op);
     pthread_mutex_lock(&b->lock);
     unsigned pending=operation_retired(b,op);
     int borrower=op->borrow_pending; op->borrow_pending=0;
@@ -1939,7 +1947,7 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
         task_release(task);
         pthread_mutex_unlock(&b->lock);
         if (closed) { if (fd>=0) close(fd); return closed; }
-        if (!b->watches) b->watches = md_watch_broker_create();
+        if (!b->watches) b->watches = md_watch_broker_create(b->worker);
         if (!b->watches) { if (fd >= 0) close(fd); return -ENOMEM; }
         return md_watch_broker_submit(b->watches, fs->store, b->listener, &q, fd);
     }
@@ -2092,26 +2100,8 @@ void md_broker_destroy(struct md_namespace_broker *b) {
     while (b->all) {
         struct operation *op = b->all; b->all = op->all;
         if (md_notification_result_clear(&op->completion)) abort();
-        if (op->control_descriptor>=0) close(op->control_descriptor);
-        md_fd_object_release(op->output_object);
-        md_fd_object_release(op->control_input);
-        if (op->directory >= 0) close(op->directory);
-        if (op->result.fd >= 0) close(op->result.fd);
-        if (op->result.open_completion.kind == MD_OPEN_PIPE) close(op->result.open_completion.control);
-        md_fd_origins_finish(&op->update,-1);
-        md_fd_loan_end(op->custody); md_fd_loan_release(op->custody);
         md_inode_birth_forget(&op->birth);
-        md_fs_anchor_release(op->input_origin); md_fs_anchor_release(op->output_origin);
-        if (op->cursor.owner) {
-            if (md_ofd_order_cancel(&op->cursor)==1) md_ofd_order_complete(&op->cursor);
-        }
-        if (op->fs_order.fs) {
-            if (md_fs_order_cancel(&op->fs_order)==1) md_fs_order_complete(&op->fs_order);
-        }
-        if (op->order.table) {
-            if (md_fd_order_cancel(&op->order)==1) md_fd_order_complete(&op->order);
-        }
-        md_fs_context_end(&op->context);
+        release_operation(op);
         free(op);
     }
     while (b->tasks) {

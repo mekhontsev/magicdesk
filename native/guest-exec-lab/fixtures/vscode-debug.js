@@ -3,7 +3,7 @@ const vscode = require('vscode');
 const assert = require('node:assert/strict');
 const net = require('node:net');
 
-async function rendererProcesses() {
+async function electronInfo(method) {
     // Portal-spawned renderers need not be descendants of the editor process.
     // Ask this Electron instance, rather than infer identity from a ps tree.
     const fs = require('node:fs');
@@ -12,9 +12,12 @@ async function rendererProcesses() {
     const events = [];
     return new Promise((resolve, reject) => {
         // EVENT_WAIT: exact DevTools response; EOF or deadline fails inspection.
-        const timer = setTimeout(() => finish(new Error('Electron process inspection timed out: '
-            + JSON.stringify({state: channel.readyState, events}))), 15000);
+        const timer = setTimeout(() => finish(new Error('Electron inspection timed out: '
+            + JSON.stringify({method, state: channel.readyState, events}))), 15000);
+        let finished = false;
         const finish = (error, result) => {
+            if (finished) return;
+            finished = true;
             clearTimeout(timer);
             channel.onclose = null;
             channel.close();
@@ -22,13 +25,13 @@ async function rendererProcesses() {
         };
         channel.onopen = () => {
             events.push('open');
-            channel.send(JSON.stringify({id: 1, method: 'SystemInfo.getProcessInfo'}));
+            channel.send(JSON.stringify({id: 1, method}));
         };
         channel.onmessage = event => {
             const reply = JSON.parse(event.data);
             events.push({id: reply.id, method: reply.method});
             if (reply.id === 1) finish(reply.error ? new Error(JSON.stringify(reply.error)) : null,
-                                      reply.result?.processInfo);
+                                      reply.result);
         };
         channel.onerror = () => finish(new Error('Electron process inspection connection failed'));
         channel.onclose = () => finish(new Error('Electron process inspection disconnected'));
@@ -126,10 +129,11 @@ exports.activate = async function (context) {
             watcher.dispose();
             terminal.dispose();
         }
-        const processes = await rendererProcesses();
+        const processes = (await electronInfo('SystemInfo.getProcessInfo')).processInfo;
+        const gpu = (await electronInfo('SystemInfo.getInfo')).gpu;
         const workspaceChecked = ack();
         send('workspace', {editorSaved: true, terminal: true, fileNotification: true,
-                           processes});
+                           processes, gpu});
         await workspaceChecked;
         const uri = vscode.Uri.joinPath(folder.uri, 'main.c');
         await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
@@ -170,8 +174,9 @@ exports.activate = async function (context) {
         const exited = await event('exited');
         assert.equal(exited.exitCode, 0);
         await event('terminated');
+        const finalGpu = (await electronInfo('SystemInfo.getInfo')).gpu;
         const close = process.env.MD_VSCODE_CLOSE === '1' ? ack() : null;
-        send('passed', {step, value: nextValue, exited});
+        send('passed', {step, value: nextValue, exited, gpu: finalGpu});
         if (close) {
             await close;
             await vscode.commands.executeCommand('workbench.action.closeWindow');

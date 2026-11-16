@@ -30,6 +30,15 @@ It also forces channel registration to reply before the supervisor retires its
 delegated operation. A next request published during that interval must wake the
 parked worker when retirement makes the task available, without another guest
 call. This checks the readiness handoff independently of thread timing.
+`--case capacity` selects the existing concurrent-channel growth and reuse case.
+Supervisor-state checks cover cancellation of queued and ready channel/client
+expansion while preserving the next mapping owner's progress, and native TID
+reuse in the same address space with a retained old channel. Inline/overflow
+registry tests require exact live leases, preserve in-progress unbound claims,
+and collect retired clients while lazy admission is paused. Channel release
+schedules collection without repeating work already done at a terminal stop.
+Filter checks require fresh channels in lazy mode and kernel fallback in Base,
+with the same denial, TSYNC, exec and reader/writer assertions in both modes.
 
 Shared model tests cover filesystem publication, credentials, mount branches,
 network rules, FD provenance, request lifetimes and buffer ownership. The watch

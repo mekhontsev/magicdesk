@@ -79,8 +79,9 @@ or guest root if it is empty. `--user NAME|UID[:GROUP|GID]` overrides it using t
 same credential model as ordinary guest launches; names and supplementary groups
 come from the image's account files. `--user current` retains the executor's IDs.
 A mapped-ownership image with nonempty User requires an explicit user override.
-The actual selected executor remains UID 2000 or UID 0. Kernel permissions and
-network namespace do not change. `inspect` includes the `guestUsers` policy.
+The actual Android identity remains that of the selected User (app UID) or Shell
+(authorized UID 2000 or 0) executor. Kernel permissions and the host network
+namespace do not change. `inspect` includes the `guestUsers` policy.
 Each instance gets a stable launch hostname derived from its storage identity;
 `--hostname NAME` overrides it. The ordinary runner accepts the same option.
 This changes guest uname's nodename, not Android's hostname or network namespace.

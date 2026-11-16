@@ -47,4 +47,5 @@ int md_network_forward_bind(struct md_network_namespace *,const void *,int,const
     struct md_network_port_reservation **);
 void md_network_forward_bound(struct md_network_port_reservation *,int);
 int md_network_forward_listen(struct md_network_namespace *,const void *,int);
+int md_network_forward_reuse(struct md_network_namespace *,const void *);
 #endif

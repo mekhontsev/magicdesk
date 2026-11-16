@@ -1,8 +1,10 @@
 # Distribution Init Checks
 
-These checks run native ARM64 userspace under actual Android shell UID 2000.
-They use the production Shroot runtime, private API filesystems and unchanged
-distribution init binaries. They are not installer recipes or hardware boots.
+These checks run native ARM64 userspace under the selected User (app UID) or
+Shell (UID 2000) executor, using the shared fixture transport. They use the
+production Shroot runtime, private API filesystems and unchanged distribution
+init binaries. They are not installer recipes or hardware boots. Results retain
+the selected identity and do not qualify the other executor automatically.
 
 ## Contracts
 

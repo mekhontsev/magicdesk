@@ -303,6 +303,44 @@ static int relative_path_filter(void) {
     return 0;
 }
 static int socket_signal_fd;
+static _Alignas(64) _Thread_local volatile sig_atomic_t pipe_signals_seen;
+static void pipe_signal_handler(int number,siginfo_t *info,void *context) {
+    assert(number==SIGPIPE && info->si_signo==SIGPIPE && info->si_code==SI_USER);
+    assert(info->si_pid==getpid());
+    assert(!sigismember(&((ucontext_t *)context)->uc_sigmask,SIGPIPE));
+    ++pipe_signals_seen;
+}
+static void *pipe_signal_writer(void *argument) {
+    (void)argument;
+    for (unsigned kind=0;kind<2;++kind) for (unsigned vector=0;vector<2;++vector) {
+        int pair[2];
+        assert(!(kind ? socketpair(AF_UNIX,SOCK_STREAM,0,pair) : pipe(pair)));
+        assert(!close(pair[0]));
+        for (unsigned i=0;i<32;++i) {
+            char byte='p'; struct iovec io={&byte,1};
+            sig_atomic_t before=pipe_signals_seen;
+            errno=0;
+            long result=vector ? syscall(SYS_writev,pair[1],&io,1)
+                : syscall(SYS_write,pair[1],&byte,1);
+            assert(result==-1 && errno==EPIPE && pipe_signals_seen==before+1);
+        }
+        assert(!close(pair[1]));
+    }
+    return NULL;
+}
+static int pipe_signals(void) {
+    alarm(30);
+    struct sigaction action={.sa_sigaction=pipe_signal_handler,.sa_flags=SA_SIGINFO|SA_RESTART};
+    assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGPIPE,&action,NULL));
+    pipe_signal_writer(NULL);
+    pthread_t peer;
+    assert(!pthread_create(&peer,NULL,pipe_signal_writer,NULL));
+    pipe_signal_writer(NULL);
+    assert(!pthread_join(peer,NULL));
+    alarm(0);
+    puts("PASS SIGPIPE: scalar/vector closed pipe/socket writes, exact signal context and shared dispositions");
+    return 0;
+}
 static uintptr_t socket_signal_stack;
 struct socket_signal_notice { uint64_t pc,number,result; int signal; };
 static void socket_signal_handler(int number,siginfo_t *info,void *context) {
@@ -2049,6 +2087,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "namespace-service-filter")) return namespace_service_filter();
     if (!strcmp(argv[1], "relative-path-filter")) return relative_path_filter();
     if (!strcmp(argv[1], "socket-signals")) return socket_signals();
+    if (!strcmp(argv[1], "pipe-signals")) return pipe_signals();
     if (!strcmp(argv[1], "socket-tsync")) return socket_tsync();
     if (!strcmp(argv[1], "socket-child-signals")) return socket_child_signals();
     if (!strcmp(argv[1], "proc")) return protected_proc();

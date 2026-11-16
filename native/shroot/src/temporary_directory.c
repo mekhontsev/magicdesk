@@ -15,6 +15,10 @@
 
 static const char prefix[]=".md-transient-", marker[]=MD_TEMPORARY_DIRECTORY_MARKER;
 struct identity { uint32_t magic, version; uint64_t device, inode; };
+static int temporary_name(const char *name) {
+    return strlen(name)==sizeof(prefix)-1+32 && !strncmp(name,prefix,sizeof(prefix)-1)
+        && strspn(name+sizeof(prefix)-1,"0123456789abcdef")==32;
+}
 static int owned(int fd, struct stat *st) {
     if (fstat(fd,st)) return -errno;
     return S_ISDIR(st->st_mode) && st->st_uid==getuid() && (st->st_mode&0777)==0700 ? 0 : -EACCES;
@@ -41,8 +45,7 @@ static int collect(int parent) {
         errno=0; struct dirent *entry=readdir(dir);
         if (!entry) { if (errno) r=-errno; break; }
         const char *name=entry->d_name;
-        if (strlen(name)!=sizeof(prefix)-1+32 || strncmp(name,prefix,sizeof(prefix)-1)
-                || strspn(name+sizeof(prefix)-1,"0123456789abcdef")!=32) continue;
+        if (!temporary_name(name)) continue;
         int root=openat(parent,name,O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
         if (root<0) { if (errno==ENOENT) continue; r=-errno; break; }
         struct stat st;
@@ -50,10 +53,10 @@ static int collect(int parent) {
         if (!r && flock(root,LOCK_EX|LOCK_NB)) {
             if (errno!=EWOULDBLOCK) r=-errno;
         } else if (!r) {
-            r=md_temporary_directory_check(root);
-            /* Creation owns the parent lock until the marker and root lease
-             * exist. A missing marker here is an interrupted private staging. */
-            if (!r || r==-ENOENT) r=md_private_tree_discard(parent,name);
+            /* The reserved name, ownership and exclusive lease authorize
+             * retirement. Markers validate live imports, not crash debris:
+             * temporary writes need not survive a reboot, even partially. */
+            r=md_private_tree_discard(parent,name);
         }
         close(root);
     }
@@ -115,7 +118,8 @@ void md_temporary_directory_release(int root) {
     int collector=openat(root,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
     close(root);
     if (collector<0) return;
-    if (!flock(collector,LOCK_EX|LOCK_NB) && !md_temporary_directory_check(collector)) {
+    struct stat retained;
+    if (!owned(collector,&retained) && !flock(collector,LOCK_EX|LOCK_NB)) {
         char proc[64], path[PATH_MAX];
         snprintf(proc,sizeof(proc),"/proc/self/fd/%d",collector);
         ssize_t n=readlink(proc,path,sizeof(path)-1);
@@ -123,8 +127,8 @@ void md_temporary_directory_release(int root) {
             path[n]=0;
             char *name=strrchr(path,'/');
             int parent=openat(collector,"..",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-            struct stat retained,named;
-            if (name && parent>=0 && !fstat(collector,&retained)
+            struct stat named;
+            if (name && temporary_name(name+1) && parent>=0
                     && !fstatat(parent,name+1,&named,AT_SYMLINK_NOFOLLOW)
                     && retained.st_dev==named.st_dev && retained.st_ino==named.st_ino)
                 md_private_tree_discard(parent,name+1);

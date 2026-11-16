@@ -14,13 +14,17 @@
 #include <sys/ptrace.h>
 #include <linux/ptrace.h>
 #include <linux/perf_event.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
 #include <sys/inotify.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <linux/shm.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -346,6 +350,30 @@ static void mixed_test(void) {
     int status; assert(waitpid(-1, &status, 0) == plain);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == 4);
     assert(write(release[1], "x", 1) == 1); close(release[1]); exited(traced, 3);
+}
+static void exec_test(void) {
+    for (unsigned events=0;events<2;++events) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            assert(!ptrace(PTRACE_TRACEME,0,0,0));
+            if (events) raise(SIGSTOP);
+            execl("/bin/true","true",(char *)0); _exit(99);
+        }
+        if (events) {
+            assert(WSTOPSIG(stop(child))==SIGSTOP);
+            assert(!ptrace(PTRACE_SETOPTIONS,child,0,PTRACE_O_TRACEEXEC));
+            assert(!ptrace(PTRACE_CONT,child,0,0));
+        }
+        int status=stop(child);
+        assert(WSTOPSIG(status)==SIGTRAP);
+        assert((unsigned)status>>16==(events ? PTRACE_EVENT_EXEC : 0));
+        struct user_pt_regs regs;
+        struct iovec io={&regs,sizeof(regs)};
+        assert(!ptrace(PTRACE_GETREGSET,child,NT_PRSTATUS,&io));
+        assert(regs.pc && regs.sp);
+        assert(!ptrace(PTRACE_CONT,child,0,0));
+        exited(child,0);
+    }
 }
 static void syscall_exec_test(void) {
     pid_t child=fork(); assert(child>=0);
@@ -675,6 +703,48 @@ static void self_dump_threads(int active_io) {
         assert(!rmdir(io_directory));
     }
 }
+__attribute__((noinline)) static ssize_t gdb_socket_receive(int fd,char *c,int flags) {
+    char control[CMSG_SPACE(sizeof(int))];
+    struct iovec vector={c,1};
+    struct msghdr message={.msg_iov=&vector,.msg_iovlen=1,
+        .msg_control=control,.msg_controllen=sizeof(control)};
+    ssize_t result=recvmsg(fd,&message,flags);
+    if (result==1) {
+        struct cmsghdr *header=CMSG_FIRSTHDR(&message);
+        assert(header && header->cmsg_level==SOL_SOCKET && header->cmsg_type==SCM_RIGHTS
+            && header->cmsg_len==CMSG_LEN(sizeof(int)));
+        int received; memcpy(&received,CMSG_DATA(header),sizeof(received));
+        assert(received>=0 && !close(received));
+    }
+    return result;
+}
+static void gdb_socket_target(void) {
+    int pair[2]; assert(!socketpair(AF_UNIX,SOCK_STREAM,0,pair));
+    char c;
+    for (unsigned i=0;i<64;++i) {
+        assert(gdb_socket_receive(pair[0],&c,MSG_DONTWAIT)==-1 && errno==EAGAIN);
+    }
+    puts("READY"); fflush(stdout);
+    /* EVENT_WAIT: the debugger changes magic_value and detaches before stdin
+     * releases the sender. Attach must interrupt an already warmed recvmsg. */
+    pid_t sender=fork(); assert(sender>=0);
+    if (!sender) {
+        assert(read(STDIN_FILENO,&c,1)==1);
+        char control[CMSG_SPACE(sizeof(int))]={0};
+        struct iovec vector={&c,1};
+        struct msghdr message={.msg_iov=&vector,.msg_iovlen=1,
+            .msg_control=control,.msg_controllen=sizeof(control)};
+        struct cmsghdr *header=CMSG_FIRSTHDR(&message);
+        header->cmsg_level=SOL_SOCKET; header->cmsg_type=SCM_RIGHTS;
+        header->cmsg_len=CMSG_LEN(sizeof(int));
+        int descriptor=STDIN_FILENO; memcpy(CMSG_DATA(header),&descriptor,sizeof(descriptor));
+        assert(sendmsg(pair[1],&message,0)==1);
+        _exit(0);
+    }
+    assert(gdb_socket_receive(pair[0],&c,0)==1 && c=='x' && magic_value==43);
+    exited(sender,0);
+    assert(!close(pair[0]) && !close(pair[1]));
+}
 static void gdb_poll_target(void) {
     struct pollfd input = {.fd = STDIN_FILENO, .events = POLLIN};
     struct timespec zero = {0};
@@ -732,21 +802,66 @@ static void *gdb_io_worker(void *argument) {
 __attribute__((noinline)) static void io_marker(unsigned iteration) {
     assert(iteration < 16);
 }
-static void gdb_io_target(void) {
+static int debugger_wait_fds[8][2];
+static void *gdb_wait_worker(void *argument) {
+    size_t index=(size_t)argument;
+    int fd=debugger_wait_fds[index][0];
+    int queue=-1,watch=-1;
+    struct epoll_event event={.events=EPOLLIN,.data.fd=fd};
+    if (index%4==3) {
+        queue=epoll_create1(EPOLL_CLOEXEC); watch=inotify_init1(IN_CLOEXEC|IN_NONBLOCK);
+        assert(queue>=0 && watch>=0 && !epoll_ctl(queue,EPOLL_CTL_ADD,fd,&event));
+        event.data.fd=watch;
+        assert(!epoll_ctl(queue,EPOLL_CTL_ADD,watch,&event));
+    }
+    pthread_barrier_wait(&ready_barrier);
+    char byte=0;
+    /* EVENT_WAIT: main releases every wait after the debugger's last detach.
+     * A breakpoint must stop these idle threads without provider readiness. */
+    if (index%4==2) {
+        struct pollfd poller={.fd=fd,.events=POLLIN};
+        int result; do result=ppoll(&poller,1,NULL,NULL); while (result<0 && errno==EINTR);
+        assert(result==1 && (poller.revents&POLLIN));
+    } else if (index%4==3) {
+        int result; do result=epoll_wait(queue,&event,1,-1); while (result<0 && errno==EINTR);
+        assert(result==1 && event.data.fd==fd && (event.events&EPOLLIN));
+        assert(!close(queue) && !close(watch));
+    }
+    ssize_t count;
+    do {
+        struct iovec vector={&byte,1};
+        char control[CMSG_SPACE(sizeof(int))];
+        struct msghdr message={.msg_iov=&vector,.msg_iovlen=1,
+            .msg_control=control,.msg_controllen=sizeof(control)};
+        count=index%4==1 ? recvmsg(fd,&message,0) : read(fd,&byte,1);
+    } while (count<0 && errno==EINTR);
+    assert(count==1 && byte=='x');
+    return NULL;
+}
+static void gdb_io_target(int waiting) {
     pthread_t workers[8];
-    assert(mkdtemp(io_directory));
+    if (!waiting) assert(mkdtemp(io_directory));
     assert(!pthread_barrier_init(&ready_barrier, NULL, 9));
-    for (size_t i=0;i<8;++i) assert(!pthread_create(&workers[i], NULL, gdb_io_worker, (void *)i));
+    for (size_t i=0;i<8;++i) {
+        if (waiting) assert(!(i%4==1 ? socketpair(AF_UNIX,SOCK_STREAM,0,debugger_wait_fds[i])
+            : pipe(debugger_wait_fds[i])));
+        assert(!pthread_create(&workers[i], NULL, waiting ? gdb_wait_worker : gdb_io_worker, (void *)i));
+    }
     pthread_barrier_wait(&ready_barrier);
     puts("READY"); fflush(stdout);
     char c;
     /* EVENT_WAIT: debugger attachment permits each breakpoint; alarm bounds failure. */
     for (unsigned i=0;i<16;++i) { assert(read(0,&c,1)==1); io_marker(i); }
     atomic_store(&io_exit,1);
+    if (waiting) for (unsigned i=0;i<8;++i) assert(write(debugger_wait_fds[i][1],"x",1)==1);
     for (unsigned i=0;i<8;++i) assert(!pthread_join(workers[i],NULL));
-    assert(atomic_load(&io_calls)>0);
     assert(!pthread_barrier_destroy(&ready_barrier));
-    assert(!rmdir(io_directory));
+    if (waiting) for (unsigned i=0;i<8;++i)
+        assert(!close(debugger_wait_fds[i][0]) && !close(debugger_wait_fds[i][1]));
+    else {
+        assert(atomic_load(&io_calls)>0);
+        assert(!rmdir(io_directory));
+    }
 }
 __attribute__((noinline)) static void shm_marker(char *address) {
     assert(*address=='S');
@@ -785,12 +900,21 @@ static void jit_target(void) {
 }
 int main(int argc, char **argv) {
     assert(argc == 2); alarm(20);
+    const char *name=argv[1];
+    if (!strncmp(name,"filtered-",9)) {
+        struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(code[0]),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,&program));
+        argv[1]+=9;
+    }
     if (!strcmp(argv[1], "attach")) attach_test(0, 0);
     else if (!strcmp(argv[1], "seize")) attach_test(1, 0);
     else if (!strcmp(argv[1], "trace-exit")) attach_test(1, 1);
     else if (!strcmp(argv[1], "syscall")) syscall_test();
     else if (!strcmp(argv[1], "syscall-edit-close")) syscall_edit_close_test();
     else if (!strcmp(argv[1], "credential-transition")) credential_transition_test();
+    else if (!strcmp(argv[1], "exec")) exec_test();
     else if (!strcmp(argv[1], "syscall-exec")) syscall_exec_test();
     else if (!strcmp(argv[1], "syscall-signal")) syscall_signal_test();
     else if (!strcmp(argv[1], "mixed")) mixed_test();
@@ -804,6 +928,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "shared-files-debugger")) shared_files_debugger_test();
     else if (!strcmp(argv[1], "perf-event")) { if (!perf_test()) return 0; }
     else if (!strcmp(argv[1], "gdb-target")) gdb_target(0, 0);
+    else if (!strcmp(argv[1], "gdb-socket-target")) gdb_socket_target();
     else if (!strcmp(argv[1], "gdb-poll-target")) gdb_poll_target();
     else if (!strcmp(argv[1], "gdb-epoll-target")) gdb_epoll_target();
     else if (!strcmp(argv[1], "gdb-thread-target")) gdb_target(1, 0);
@@ -811,9 +936,10 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "self-dump-io")) self_dump_threads(1);
     else if (!strcmp(argv[1], "gdb-fork-target")) gdb_target(1, 1);
     else if (!strcmp(argv[1], "strace-target")) { magic_value=43; gdb_target(1, 0); }
-    else if (!strcmp(argv[1], "gdb-io-target")) gdb_io_target();
+    else if (!strcmp(argv[1], "gdb-io-target")) gdb_io_target(0);
+    else if (!strcmp(argv[1], "gdb-wait-target")) gdb_io_target(1);
     else if (!strcmp(argv[1], "shm-target")) shm_target();
     else if (!strcmp(argv[1], "jit-target")) jit_target();
     else return 2;
-    printf("PASS %s\n", argv[1]); return 0;
+    printf("PASS %s\n", name); return 0;
 }
