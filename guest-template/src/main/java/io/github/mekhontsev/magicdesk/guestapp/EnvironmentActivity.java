@@ -21,6 +21,8 @@ public final class EnvironmentActivity extends Activity {
     private TextView status;
     private boolean bound;
     private Uri pending;
+    private boolean pendingExport;
+    private boolean waitingForArchive;
     private Intent pendingConnection;
     private AlertDialog confirmation;
     private final Runnable updated=this::refresh;
@@ -37,7 +39,12 @@ public final class EnvironmentActivity extends Activity {
 
     private void openPending() {
         if (service==null) return;
-        if (pending!=null && !service.installed() && !service.active()) {
+        if (waitingForArchive) { refresh(); return; }
+        if (pending!=null && pendingExport) {
+            Uri archive=pending; pending=null; pendingExport=false;
+            if (service.installed() && !service.active()) service.exportArchive(archive);
+            else service.status="End the session before saving a backup";
+        } else if (pending!=null && !service.installed() && !service.active()) {
             Uri archive=pending;
             EnvironmentService selected=service;
             if (confirmation!=null) confirmation.dismiss();
@@ -51,12 +58,14 @@ public final class EnvironmentActivity extends Activity {
     }
 
     @Override protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent); setIntent(intent); pending=intent.getData(); openPending();
+        super.onNewIntent(intent); setIntent(intent); pending=intent.getData(); pendingExport=false; openPending();
     }
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         pending=state==null ? getIntent().getData() : state.getParcelable("pending",Uri.class);
+        pendingExport=state!=null && state.getBoolean("pendingExport");
+        waitingForArchive=state!=null && state.getBoolean("waitingForArchive");
         pendingConnection=state==null ? null : state.getParcelable("connection",Intent.class);
         var layout=new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL);
         var toolbar=new android.widget.Toolbar(this);
@@ -88,18 +97,21 @@ public final class EnvironmentActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT>=37) menu.add(0,4,3,"Local network access");
         menu.add(0,5,4,"Connect to MagicDesk");
         menu.add(0,6,5,"Disconnect from MagicDesk");
+        menu.add(0,7,6,"Export backup");
         return true;
     }
     @Override public boolean onPrepareOptionsMenu(Menu menu) {
         menu.findItem(1).setEnabled(service!=null && !service.installed() && !service.active());
         menu.findItem(2).setEnabled(service!=null && service.installed() && !service.active());
         menu.findItem(3).setEnabled(service!=null && service.active());
+        menu.findItem(7).setEnabled(service!=null && service.installed() && !service.active());
         menu.findItem(5).setEnabled(service!=null && !service.connected());
         menu.findItem(6).setEnabled(service!=null && service.connected()); return true;
     }
     @Override public boolean onOptionsItemSelected(MenuItem item) {
         if (service==null) return false;
         if (item.getItemId()==1) {
+            waitingForArchive=true;
             startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),1);
         } else if (item.getItemId()==2) service.startTerminal();
         else if (item.getItemId()==3) {
@@ -115,13 +127,23 @@ public final class EnvironmentActivity extends Activity {
                 new AlertDialog.Builder(this).setMessage(error.toString()).setPositiveButton(android.R.string.ok,null).show();
             }
         } else if (item.getItemId()==6) { service.disconnectHost(); refresh(); }
+        else if (item.getItemId()==7) {
+            waitingForArchive=true;
+            startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE).setType("application/zstd")
+                    .putExtra(Intent.EXTRA_TITLE,"linux-backup.tar.zst"),7);
+        }
         else return super.onOptionsItemSelected(item);
         return true;
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
-        if (request==1 && result==RESULT_OK && data!=null && data.getData()!=null && service!=null)
-            service.importArchive(data.getData());
+        if (request==1 || request==7) waitingForArchive=false;
+        if ((request==1 || request==7) && result==RESULT_OK && data!=null && data.getData()!=null) {
+            pending=data.getData();
+            pendingExport=request==7;
+            openPending();
+        }
         if (request==5) {
             if (result==RESULT_OK && data!=null) {
                 if (service!=null) service.acceptHost(data); else pendingConnection=data;
@@ -130,6 +152,8 @@ public final class EnvironmentActivity extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state); state.putParcelable("pending",pending);
+        state.putBoolean("pendingExport",pendingExport);
+        state.putBoolean("waitingForArchive",waitingForArchive);
         state.putParcelable("connection",pendingConnection);
     }
     private void detach() {

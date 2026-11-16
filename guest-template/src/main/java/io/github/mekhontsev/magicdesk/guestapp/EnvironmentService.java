@@ -18,11 +18,9 @@ import io.github.mekhontsev.magicdesk.ConsoleTerminalInputConnection;
 import io.github.mekhontsev.magicdesk.NativePtyProcess;
 import io.github.mekhontsev.magicdesk.OperationResources;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /** Owns this APK's processes and data. Activity and MagicDesk lifetimes are irrelevant. */
 public final class EnvironmentService extends Service implements ConsoleTerminalInputConnection.Session {
@@ -106,60 +104,32 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
         return builder;
     }
 
-    void importArchive(Uri uri) {
-        if (busy || installed() || closed) return;
-        busy=true; status="Restoring Linux"; notifyChanged();
+    void importArchive(Uri uri) { archive(uri,true); }
+    void exportArchive(Uri uri) { archive(uri,false); }
+    private void archive(Uri uri,boolean restore) {
+        if (active() || closed || restore==installed()) return;
+        busy=true; status=restore ? "Restoring Linux" : "Saving Linux backup"; notifyChanged();
         var resources=new OperationResources(); operation=resources;
         var owner=lifetime.reserve(); owner.attach(resources);
         work.execute(() -> {
-            Path archive=null, log=null;
-            Process process=null;
             Exception failure=null;
             try {
-                archive=Files.createTempFile(getCacheDir().toPath(),"linux-",".tar.zst");
-                var ingress=resources.reserve();
-                try (var source=getContentResolver().openInputStream(uri); var target=Files.newOutputStream(archive)) {
-                    if (source==null) throw new IOException("Archive is unavailable");
-                    ingress.attach(source);
-                    byte[] buffer=new byte[131072]; int n;
-                    while ((n=source.read(buffer))>=0) { if (resources.isClosed()) throw new IOException("Import cancelled"); target.write(buffer,0,n); }
-                } finally { ingress.close(); }
-                log=Files.createTempFile(getCacheDir().toPath(),"restore-",".log");
-                if (resources.isClosed()) throw new IOException("Import cancelled");
-                var child=resources.reserve();
-                process=command("restore",archive.toString(),store().toString())
-                        .redirectErrorStream(true).redirectOutput(log.toFile()).start();
-                Process captured=process; child.attach(captured::destroy);
-                // EVENT_WAIT: native import completion; deadline cancels this owned operation.
-                if (!process.waitFor(1,TimeUnit.HOURS)) throw new IOException("Import timed out");
-                if (process.exitValue()!=0) {
-                    byte[] text;
-                    try (var in=Files.newInputStream(log)) { text=in.readNBytes(8192); }
-                    throw new IOException(new String(text,StandardCharsets.UTF_8));
-                }
+                if (restore) EnvironmentArchives.restore(getCacheDir().toPath(),store(),
+                        () -> getContentResolver().openInputStream(uri),this::command,resources);
+                else EnvironmentArchives.backup(getCacheDir().toPath(),store(),
+                        () -> getContentResolver().openOutputStream(uri,"wt"),this::command,resources);
             } catch (Exception error) {
                 failure=error;
                 if (error instanceof InterruptedException) Thread.currentThread().interrupt();
-            }
-            finally {
-                if (process!=null && process.isAlive()) {
-                    process.destroy();
-                    try {
-                        // EVENT_WAIT: cancellation reaches the native import owner; timeout force-terminates this child.
-                        if (!process.waitFor(5,TimeUnit.SECONDS)) process.destroyForcibly();
-                    } catch (InterruptedException interrupted) { process.destroyForcibly(); Thread.currentThread().interrupt(); }
-                }
-                try { if (archive!=null) Files.deleteIfExists(archive); if (log!=null) Files.deleteIfExists(log); }
-                catch (IOException error) { if (failure==null) failure=error; }
             }
             Exception error=failure;
             main.post(() -> {
                 // Complete on the same thread that accepts cancellation, before releasing its token.
                 boolean cancelled=resources.isClosed();
                 owner.close(); operation=null; busy=false;
-                status=cancelled ? "Import cancelled" : error==null ? "" : error.toString();
+                status=cancelled ? "Archive operation cancelled" : error!=null ? error.toString() : restore ? "" : "Backup saved";
                 notifyChanged();
-                if (!cancelled && error==null && !closed) startTerminal();
+                if (restore && !cancelled && error==null && !closed) startTerminal();
             });
         });
     }

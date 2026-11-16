@@ -22,7 +22,11 @@ Exporting the same source identity again updates the same signed package. An
 update replaces its bundled runtime without importing over its private store.
 Package replacement stops that application's processes; stored files remain.
 Uninstalling it deletes its Android-private data. Keep a Shroot backup before
-uninstalling or clearing application data.
+uninstalling or clearing application data. End the terminal session, then choose
+**Export backup** and a destination in Android's document picker. Export and
+import use Shroot's native `tar.zst` format and preserve guest metadata. They
+work without MagicDesk; cancellation releases the owned archive process,
+streams and private temporary files.
 
 Different packages have different Android UIDs. Guest root does not grant
 access to another package's private files. Shroot's logical guest credentials
