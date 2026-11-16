@@ -222,7 +222,7 @@ def shellBuild = layout.buildDirectory.dir('androidShell').get().asFile
 def shellLicenses = layout.buildDirectory.dir('androidShellLicenses').get().asFile
 android.sourceSets.main.assets.srcDir shellLicenses
 def configureShell = tasks.register('configureAndroidShell', Exec) {
-    inputs.files rootProject.fileTree('native/android-shell') { include '*.cmake', 'CMakeLists.txt' }
+    inputs.files rootProject.fileTree('native/android-shell') { include '*.cmake', '*.patch', 'CMakeLists.txt' }
     inputs.property 'nativeTarget', nativeTarget
     inputs.property 'buildShell', providers.environmentVariable('MAGICDESK_BUILD_SHELL').orElse('')
     outputs.file new File(shellBuild, 'build.ninja')

@@ -1,8 +1,9 @@
 # Android Shell
 
-MagicDesk packages unmodified upstream mksh R59c for User and Shell execution.
+MagicDesk packages upstream mksh R59c for User and Shell execution.
 The pinned, SHA-256-verified archive is the original upstream tarball mirrored
-by Debian, not Debian's patched package. This is a build adapter, not a shell fork.
+by Debian, not Debian's patched package. The build applies `history.patch` to a
+private generated copy of `histrap.c`; the downloaded source remains unchanged.
 Future updates must pin a release/archive and review its Android configuration;
 the build never follows a floating branch.
 
@@ -12,7 +13,7 @@ Android/Bionic configuration based on AOSP's `external/mksh/Android.bp`, enablin
 `libmagicdesk_mksh.so` for Android's native-library packaging, with 16 KiB ELF
 segment alignment. It is executed, never loaded into ART. The Gradle owner
 supplies the APK minimum API (34) and the existing arm64 toolchain. POSIX `sh`,
-`sed`, `sort` and `tr` are build-host tools supplied by Linux or Termux.
+`sed`, `sort`, `tr` and `patch` are build-host tools supplied by Linux or Termux.
 `MAGICDESK_BUILD_SHELL` selects an absolute host shell path, overriding discovery.
 `generate-table.cmake` places its companion tools first on `PATH` before invoking
 upstream `Build.sh`. Paths remain separate, quoted arguments, including build
@@ -49,7 +50,11 @@ HOME/state paths.
 The shell owns the binary format, command boundaries, locking, append and startup
 compaction. The 2000-command setting is a recall/compaction size, not a strict
 on-disk quota while sessions are active. There is no database, polling, per-command
-helper process, or shutdown-only save. Power-loss durability is not promised.
+helper process, or shutdown-only save. The focused history patch preserves the
+file identity when empty, retries interrupted locks, and rewrites compacted
+history under the existing lock while allowing other live shells to reload it.
+Its format and interpreter semantics remain upstream's. Power-loss durability
+is not promised.
 History variables are not exported into other shells, especially guest Bash.
 The terminal's OSC-marked history/output menu remains session-local and independent.
 
