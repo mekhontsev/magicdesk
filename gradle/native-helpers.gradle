@@ -137,11 +137,25 @@ guestFilesTask.configure {
 
 def cmakeAndroidTarget = {
     def compiler = resolveNativeCompilerCommand()
-    termuxNativeHost ? [
+    if (termuxNativeHost) {
+        // Termux's libc stub targets its own minimum API. Use NDK stubs for
+        // the APK API; desktop NDK executables are not run on this host.
+        def libraries = findNdkHomes().collectMany { home ->
+            def prebuilts = new File(home, 'toolchains/llvm/prebuilt').listFiles()
+            (prebuilts ?: []).collect { prebuilt ->
+                new File(prebuilt, "sysroot/usr/lib/aarch64-linux-android/${android.defaultConfig.minSdk}")
+            }
+        }.find { new File(it, 'libc.so').isFile() }
+        if (libraries == null) throw new GradleException(
+                'Android API link stubs are missing; install the configured NDK or set ANDROID_NDK_HOME')
+        def flags = "-fno-termux-rpath -L\"${libraries.absolutePath}\""
+        return [
             "-DCMAKE_C_COMPILER=${compiler[0]}", "-DCMAKE_ASM_COMPILER=${compiler[0]}",
             "-DCMAKE_C_FLAGS=${compiler[1]}", "-DCMAKE_ASM_FLAGS=${compiler[1]}",
-            '-DCMAKE_EXE_LINKER_FLAGS=-fno-termux-rpath'
-    ] : [
+            "-DCMAKE_EXE_LINKER_FLAGS=${flags}", "-DCMAKE_SHARED_LINKER_FLAGS=${flags}"
+        ]
+    }
+    return [
             "-DCMAKE_TOOLCHAIN_FILE=${findNdkHomes()[0]}/build/cmake/android.toolchain.cmake",
             '-DANDROID_ABI=arm64-v8a', "-DANDROID_PLATFORM=android-${android.defaultConfig.minSdk}"
     ]
@@ -158,29 +172,33 @@ gradle.taskGraph.whenReady { graph ->
     }) throw new GradleException('Guest fixtures are debug-only')
 }
 def configureGuest = tasks.register('configureGuestRuntime', Exec) {
-    inputs.files rootProject.file('native/shroot/CMakeLists.txt'), rootProject.file('native/shroot/image-dependencies.cmake')
+    inputs.files rootProject.fileTree('native/shroot') {
+        include 'CMakeLists.txt', '*.cmake', 'cmake/**', 'lwip/CMakeLists.txt', 'tests/*.cmake'
+    }
     inputs.property 'nativeTarget', nativeTarget
     inputs.property 'guestFixtures', guestFixtures
     outputs.file new File(guestBuild, 'build.ninja')
     doFirst {
         commandLine(['cmake', '-S', rootProject.file('native/shroot'), '-B', guestBuild,
                 '-G', 'Ninja', "-DANDROID_PLATFORM_LEVEL=${android.defaultConfig.minSdk}",
-                "-DMAGICDESK_GUEST_FIXTURES=${guestFixtures}"] + cmakeAndroidTarget())
+                "-DSHROOT_BUILD_TESTS=${guestFixtures}"] + cmakeAndroidTarget())
     }
 }
 def buildGuest = tasks.register('buildGuestRuntime', Exec) {
     dependsOn configureGuest
-    commandLine 'cmake', '--build', guestBuild, '--target', 'bootstrap', 'supervisor', 'run', 'service', 'image', '--parallel', '2'
+    commandLine 'cmake', '--build', guestBuild, '--target', 'shroot-cli', 'bootstrap', 'supervisor', 'run', 'service', 'image', '--parallel', '2'
 }
 def packageGuest = tasks.register('packageGuestRuntime', Copy) {
     dependsOn buildGuest
     from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so', 'libmagicdesk_guest_image.so' }
+    from(new File(guestBuild, 'shroot')) { rename { 'libmagicdesk_shroot.so' } }
     into new File(nativeOutputRoot, 'arm64-v8a')
 }
 
 if (guestFixtures == 'true') {
     // Fixture receipts compare exact ELF bytes with the installed APK bundle.
     android.packaging.jniLibs.keepDebugSymbols.add('**/libmagicdesk_guest_*.so')
+    android.packaging.jniLibs.keepDebugSymbols.add('**/libmagicdesk_shroot.so')
     def fixtures = layout.buildDirectory.dir('guestFixtures').get().asFile
     android.sourceSets.debug.jniLibs.srcDir fixtures
     def buildFixtures = tasks.register('buildGuestFixtures', Exec) {
@@ -252,6 +270,7 @@ android.sourceSets.main.assets.srcDir guestLicenses
 def packageGuestLicenses = tasks.register('packageGuestRuntimeLicenses', Sync) {
     dependsOn configureGuest
     from new File(guestBuild, 'licenses')
+    from(rootProject.file('native/shroot/LICENSE')) { rename { 'Shroot-GPL-3.0.txt' } }
     into new File(guestLicenses, 'licenses/guest-images')
 }
 

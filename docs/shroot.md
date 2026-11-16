@@ -9,7 +9,7 @@ engines use the same runtime.
 
 This guide covers installation, daily use, supported workflows and their limits.
 The [native architecture](../native/shroot/README.md) describes implementation
-owners and contracts; the [fixture guide](../native/guest-exec-lab/README.md)
+owners and contracts; the [fixture guide](../native/shroot/tests/README.md)
 describes how those contracts are tested.
 
 - [Requirements](#requirements) and [isolation boundaries](#boundaries)
@@ -144,7 +144,7 @@ IP-sensitive inherited chains, unavailable policy mappings and debugger ownershi
 retain Base. A successful sandboxed launch alone therefore does not prove
 acceleration.
 See [entry contracts](../native/shroot/cooperative-entry.md#sandboxes-and-debuggers)
-and [integration evidence](../native/guest-exec-lab/svc-rewriting.md#product-boundary).
+and [integration evidence](../native/shroot/tests/svc-rewriting.md#product-boundary).
 Native `--statistics` reports `SVC_RUNTIME_STATS` and completed calls; ordinary
 launches do not enable timing instrumentation.
 
@@ -1007,8 +1007,8 @@ Exiting just the console shell starts another shell; it does not power off the
 guest. An explicit `shroot stop` from another Android console is cancellation,
 not a substitute for orderly service shutdown.
 
-See the [init matrix](../native/guest-exec-lab/init-matrix.md) and
-[init fixtures](../native/guest-exec-lab/namespaces.md#namespace-clients) for setup
+See the [init matrix](../native/shroot/tests/init-matrix.md) and
+[init fixtures](../native/shroot/tests/namespaces.md#namespace-clients) for setup
 and exact assertions. The recipe adds `ConditionVirtualization=!container` to
 systemd's module-loading units: they do not modify the host kernel in a container,
 but remain available for a native boot of an exported rootfs. This is applied
@@ -1156,7 +1156,7 @@ Guest routing supports separate tables, source/destination rules and masked
 packet/connection marks. These settings belong to the selected guest network
 namespace; they do not modify Android's routes or socket marks.
 
-The Debian [integration evidence](../native/guest-exec-lab/distribution-evidence.md#debian-packet-applications)
+The Debian [integration evidence](../native/shroot/tests/distribution-evidence.md#debian-packet-applications)
 covers the exact entry modes and configurations, including large transfers,
 fragmentation and connection shutdown. QEMU uses software CPU emulation (TCG),
 not KVM. This does not certify every VPN, bridge protocol or QEMU configuration.
@@ -1195,7 +1195,7 @@ configuration using Docker's ordinary userland proxy:
 ```
 
 Prepare private API filesystems and logical cgroups as in the
-[Docker fixture](../native/guest-exec-lab/probe_docker_runtime.py).
+[Docker fixture](../native/shroot/tests/probe_docker_runtime.py).
 VFS and overlay2 checks cover concurrent containers, ordinary
 `docker run -p HOST:CONTAINER[/udp]`, connections from another Android UID,
 outbound DNS/HTTP, occupied-port rejection and port release. Overlay2 also covers
@@ -1229,7 +1229,7 @@ commands. Do not reinstall k3s or delete `/etc/rancher` and `/var/lib/rancher`:
 these retain cluster credentials, configuration, datastore and local volumes.
 Back up important data independently; recovery after process termination is
 not a guarantee against physical storage failure.
-The [full-boot fixture](../native/guest-exec-lab/test_k3s_boot.py) separately
+The [full-boot fixture](../native/shroot/tests/test_k3s_boot.py) separately
 checks orderly shutdown and forced supervisor termination, then boots the same
 store through its ordinary enabled service and verifies cluster identities,
 PVC contents, DNS and Service HTTP.
@@ -1249,10 +1249,10 @@ The nodes share one device; this does not establish a multi-device deployment.
 Managed ipset and TCP conntrack timeout controls use the shared network namespace; deleting
 a TCP tracking record does not close its transport. Cadvisor cannot report a
 guest block-device inventory. Cgroup memory limits remain advisory, not enforced
-OOM isolation. The [single-distribution fixture](../native/guest-exec-lab/test_k3s.py)
-and [mixed-cluster fixture](../native/guest-exec-lab/test_k3s_cluster.py) share the
+OOM isolation. The [single-distribution fixture](../native/shroot/tests/test_k3s.py)
+and [mixed-cluster fixture](../native/shroot/tests/test_k3s_cluster.py) share the
 same workload and node lifecycle. See the
-[qualified results](../native/guest-exec-lab/validation-matrix.md#k3s).
+[qualified results](../native/shroot/tests/validation-matrix.md#k3s).
 
 ### Podman
 
@@ -1270,7 +1270,7 @@ raising do not irreversibly lower Android's hard limit. This does not create
 additional physical FD slots or bypass Android's task ceiling; see
 [process limits](../native/shroot/process-resources.md#process-limits).
 
-The [Podman fixture](../native/guest-exec-lab/probe_podman_runtime.py) runs inside
+The [Podman fixture](../native/shroot/tests/probe_podman_runtime.py) runs inside
 a routed Shroot launch. No `--network host` bypass or Podman-specific runtime
 branch supplies bridge connectivity. This does not certify arbitrary nftables
 rules or general rootless-Podman configurations; supported operations and flow
@@ -1432,10 +1432,10 @@ for preparation and the distinction between WebGL and browser composition.
 CPU topology is available through the shared read-only native sysfs projection,
 also checked inside Flatpak. Discover and portal workflows require the guest's
 system and session services; a headless browser pass does not verify them.
-The [Flatpak browser fixture](../native/guest-exec-lab/desktop-workflows.md#flatpak-chromium)
+The [Flatpak browser fixture](../native/shroot/tests/desktop-workflows.md#flatpak-chromium)
 also checks JavaScript and repeated normal exits inside that desktop session.
 Per-OS browser, portal and desktop results belong in the
-[distribution matrix](../native/guest-exec-lab/validation-matrix.md), with exact
+[distribution matrix](../native/shroot/tests/validation-matrix.md), with exact
 builds and remaining limitations in its evidence ledger.
 An independently activated KDE service can keep a separate supervised launch
 alive after the browser exits; that is not itself evidence of a browser hang.
@@ -1479,7 +1479,7 @@ Guest GDB, LLDB, gdbserver and strace use the supervisor's
 [nested debugger contract](../native/shroot/debugging.md), including attach/seize
 within the same supervised launch. Another physical tracer cannot attach
 concurrently; external attach and arbitrary crash reporters are not supported
-by that contract. See [browser fixtures](../native/guest-exec-lab/browser/README.md)
+by that contract. See [browser fixtures](../native/shroot/tests/browser/README.md)
 and [interception](../native/shroot/interception.md) for exact assertions.
 
 ## Graphical Connections
@@ -1577,7 +1577,7 @@ MagicDesk ships no D-Bus daemon and does not reuse Android's or Termux's bus.
 
 The device baseline for these results is RM11/NX809J, Android API 36,
 Linux 6.12.23 and 4 KiB pages. Shell results use actual UID 2000; separate
-[User-mode evidence](../native/guest-exec-lab/host-execution.md) records app-UID
+[User-mode evidence](../native/shroot/tests/host-execution.md) records app-UID
 coverage, including stock glibc/musl robust mutexes. The minimum supported kernel
 remains 5.15; build and injected-error checks are not device coverage for another
 kernel, firmware, page size or executor identity.
@@ -1588,25 +1588,25 @@ application, init or isolation test.
 
 | Area | Checked workflows | Scope/details |
 | --- | --- | --- |
-| ELF and libc | Debian glibc, Alpine musl, static PIE/ET_EXEC, raw SVC, threads, signals, fork/vfork and exec | [Runtime fixtures](../native/guest-exec-lab/README.md#prepared-runtime-fixtures) |
+| ELF and libc | Debian glibc, Alpine musl, static PIE/ET_EXEC, raw SVC, threads, signals, fork/vfork and exec | [Runtime fixtures](../native/shroot/tests/README.md#prepared-runtime-fixtures) |
 | Files and IPC | Hardlinks, copy-on-write, overlays, watches, FIFOs, shared memory, SysV IPC and authenticated D-Bus | [Native contracts](../native/shroot/README.md#contracts) include failure and lifetime checks |
-| Packages and development | APT, APK, DNF, pacman; accounts, compiler builds, Git/SSH, npm and Python environments | [Packages](../native/guest-exec-lab/desktop-workflows.md#distribution-packages-and-applications) and [developer workflows](../native/guest-exec-lab/developer-workflows.md#developer-workflows) |
+| Packages and development | APT, APK, DNF, pacman; accounts, compiler builds, Git/SSH, npm and Python environments | [Packages](../native/shroot/tests/desktop-workflows.md#distribution-packages-and-applications) and [developer workflows](../native/shroot/tests/developer-workflows.md#developer-workflows) |
 | Systemd managers | Debian 257, Ubuntu 255, Fedora 259, Arch 262 and SteamOS; system/user managers and service activation | Focused targets are distinct from default-target boot |
-| Distribution boot | Ubuntu, Fedora, Arch, openSUSE, Deepin and Manjaro default targets; Debian/openKylin with explicit module-capability drop | [Init matrix](../native/guest-exec-lab/init-matrix.md); SteamOS hardware units remain degraded |
+| Distribution boot | Ubuntu, Fedora, Arch, openSUSE, Deepin and Manjaro default targets; Debian/openKylin with explicit module-capability drop | [Init matrix](../native/shroot/tests/init-matrix.md); SteamOS hardware units remain degraded |
 | OpenRC and runit | Alpine PID 1, default runlevel and restart/stop; Void/Armtix stock stages and supervised services | Userspace service lifecycle, not complete hardware initialization |
 | Docker Engine | Docker 29.9.1, containerd 2.4.2, runc 1.5.2; overlay2, nftables bridge and TCP/UDP publication without userland proxy; older VFS/proxy profile retained | [Explicit daemon configuration](#docker-engine), logical IPv4/IPv6 flow filtering, not Android firewall management; per-family results are recorded separately |
 | Podman | Podman 5.8.7, crun 1.28, conmon 2.2.1; overlay, nftables bridge, TCP/UDP publication, DNS/HTTP, named peers and cleanup | [Routed launch and inherited limits](#podman); cgroups and application seccomp enabled |
 | Browser sandboxes | Stock Chromium JavaScript/DOM/PNG with installed filters, Firefox screenshot, Electron/VS Code workflow | [Browser contract](#application-filters-and-browsers), not complete security isolation |
-| Landlock and Bubblewrap | Positive/negative filesystem access, stacked domains and inheritance; pacman, Glycin and stock Bubblewrap workflows | [Filesystem policy](#filesystem-restrictions) and [namespace fixtures](../native/guest-exec-lab/namespaces.md#namespace-clients) |
+| Landlock and Bubblewrap | Positive/negative filesystem access, stacked domains and inheritance; pacman, Glycin and stock Bubblewrap workflows | [Filesystem policy](#filesystem-restrictions) and [namespace fixtures](../native/shroot/tests/namespaces.md#namespace-clients) |
 | Debugging | GDB/LLDB breakpoints, stepping and locals; attach/seize, gdbserver and strace workflows | [Same-launch ownership and request limits](../native/shroot/debugging.md) |
-| GUI and content | Debian/Ubuntu/Alpine editors through X11 and Wayland, input, clipboard, save/readback and actual process exit; GIMP and LibreOffice checks | [Application fixtures](../native/guest-exec-lab/desktop-workflows.md#distribution-packages-and-applications) |
+| GUI and content | Debian/Ubuntu/Alpine editors through X11 and Wayland, input, clipboard, save/readback and actual process exit; GIMP and LibreOffice checks | [Application fixtures](../native/shroot/tests/desktop-workflows.md#distribution-packages-and-applications) |
 | Desktops | Xfce in a retained X11 viewer, Weston, Plasma; Fedora GNOME devkit with private services | GNOME is llvmpipe/devkit coverage, not GDM login or GPU certification |
-| GPU | Turnip Vulkan on Adreno 840 through X11/Wayland, GTK GLArea, X11 Blender, private KWin Wayland composition | [GPU fixtures](../native/guest-exec-lab/desktop-workflows.md#linux-gpu-fixture) and [installer profiles](#graphics-drivers) |
-| SteamOS | Nested Plasma, Steam client and selected FEX game workflows; private-memory/JIT and audio-continuity checks | [Steam fixtures](../native/guest-exec-lab/desktop-workflows.md#holo-arm64-userspace); not arbitrary game compatibility |
-| Application integration | Concurrent named environments, catalog identities/icons, retained PTY, CLI/MCP cancellation, file helpers, backup/restore and interrupted publication | [Environment workflows](../native/guest-exec-lab/README.md#named-environment-workflows); no Desktop required |
+| GPU | Turnip Vulkan on Adreno 840 through X11/Wayland, GTK GLArea, X11 Blender, private KWin Wayland composition | [GPU fixtures](../native/shroot/tests/desktop-workflows.md#linux-gpu-fixture) and [installer profiles](#graphics-drivers) |
+| SteamOS | Nested Plasma, Steam client and selected FEX game workflows; private-memory/JIT and audio-continuity checks | [Steam fixtures](../native/shroot/tests/desktop-workflows.md#holo-arm64-userspace); not arbitrary game compatibility |
+| Application integration | Concurrent named environments, catalog identities/icons, retained PTY, CLI/MCP cancellation, file helpers, backup/restore and interrupted publication | [Environment workflows](../native/shroot/tests/README.md#named-environment-workflows); no Desktop required |
 
 For results and open failures by installer distribution and entry mode, see the
-[distribution validation matrix](../native/guest-exec-lab/validation-matrix.md).
+[distribution validation matrix](../native/shroot/tests/validation-matrix.md).
 It separates recorded passes, historical coverage and untested workflows,
 including nspawn, BuildKit, LXC and the selected LTP checks.
 

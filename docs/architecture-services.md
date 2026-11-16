@@ -622,9 +622,9 @@ shell-backed session.
 catalog or connecting to the inherited command channel. `DownloadCommand` owns
 CLI arguments and throttled terminal progress; `HttpDownload` owns streaming,
 optional SHA-256 verification and atomic destination replacement. `HttpGet`
-shares connection bounds and redirect validation with `GuestOciRegistry`, whose
-HTTPS-only endpoint policy, registry authentication and content-addressed cache
-remain OCI-owned. Downloads run under the caller's UID without app initialization,
+owns bounded HTTP connections and redirect validation for these downloads.
+Shroot's native registry owner supplies its own HTTPS acquisition, authentication
+and content-addressed cache. Downloads run under the caller's UID without app initialization,
 Desktop, Termux, MCP or guest-runtime capabilities.
 
 ### Framework Calls
@@ -769,8 +769,8 @@ endpoint, refuses package-owned files and symbolic links, and removes matching
 source/package recipes from both Recent scopes. Retained graphical sessions forget
 that launch recipe without stopping their clients or server.
 
-The [Shroot runtime](shroot.md) is a native-only component under
-`native/shroot`. App-side immutable launch plans select a store without
+The [Shroot runtime](shroot.md) is an independently versioned native project,
+pinned as the `native/shroot` submodule. App-side immutable launch plans select a store without
 creating a global distribution owner. Several environments can use the same
 or different methods concurrently. Lazy content-addressed executable staging
 and explicit child-process capability probes keep new kernel requirements out
@@ -779,12 +779,13 @@ TRACE/USER_NOTIF operations. Its namespace worker owns inode metadata and explic
 sealed-image admission, accepting ordinary file notifications directly and
 task-affine adapter RPC through the same engine. Guest signal handlers remain application-owned.
 These executables are never loaded into ART and do not own Android windows.
-`GuestEnvironmentLibrary` owns each executor identity's catalog of named writable
-stores, sealed images and shared layer dependencies. `GuestEnvironmentCatalog`
-merges visible User/Shell entries without merging their storage or authority.
-`GuestOciRegistry` supplies verified public OCI downloads through Java HTTPS; `GuestImageTool` invokes only offline
-native image operations. Management runs in a short-lived Java child, while the
-original CLI shell retains PTY/graphics descriptors and execs native launches.
+The native catalog owns each executor identity's named writable stores, sealed
+images, verified OCI downloads and shared layer dependencies.
+`GuestEnvironmentLibrary` adapts structured native results for Android;
+`GuestEnvironmentCatalog` merges visible User/Shell entries without merging their
+storage or authority. `GuestImageTool` invokes the public Shroot CLI out of process.
+The short-lived Java adapter retains Android DNS and presentation policy, while the
+original CLI shell retains PTY/graphics descriptors and execs the native CLI.
 No Termux, external downloader, Docker daemon or Desktop session is required.
 Catalog mutation and native store lifetime locks protect explicit removal and GC;
 ordinary execution retains the existing process-tree guardian.

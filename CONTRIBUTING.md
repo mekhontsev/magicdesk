@@ -104,8 +104,10 @@ If Gradle cannot locate the Android SDK, create an untracked
 sdk.dir=/absolute/path/to/android-sdk
 ```
 
-Termux builds use `$PREFIX/bin/clang` and `$PREFIX/bin/llvm-strip` and do not
-require the desktop NDK toolchain. APK packaging strips debug sections and
+Termux builds use `$PREFIX/bin/clang` and `$PREFIX/bin/llvm-strip`. They use
+the configured NDK's target-API link stubs, but do not execute its desktop tools.
+Termux's default dynamic libc stub can target an older API than the APK.
+APK packaging strips debug sections and
 unneeded symbols on every build host; compiler outputs remain available in
 build directories for diagnostics. Dynamic loader symbols and unwind data are
 retained. `scripts/verify-apks.sh` also checks the PTY helper's transfer size.

@@ -15,7 +15,7 @@ public final class GuestRuntimeCommand {
             + "case \"$md_action\" in run|exec|login)\n"
             + LinuxAudioEnvironment.shrootArguments() + GamepadWire.shrootArguments()
             + TerminalFilesEnvironment.shrootArguments() + ";; esac\n"
-            + "exec \"$md_guest/libmagicdesk_guest_image.so\" \"$md_action\" \"$md_store\" \"$@\"; }\n"
+            + "exec \"$md_guest/libmagicdesk_shroot.so\" \"$md_action\" \"$md_store\" \"$@\"; }\n"
             + "case \"${1-}\" in\n"
             + "  run|exec|login) md_action=$1; shift\n"
             + "     md_store=$(md_library resolve \"${1-}\") || exit $?\n"
@@ -29,7 +29,7 @@ public final class GuestRuntimeCommand {
             + "       \"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\" --probe >/dev/null || exit $?\n"
             + "     fi\n"
             + "     if [ \"$#\" -ge 2 ]; then md_image \"$@\"; fi\n"
-            + "     exec \"$md_guest/libmagicdesk_guest_image.so\" \"$@\" ;;\n"
+            + "     exec \"$md_guest/libmagicdesk_shroot.so\" \"$@\" ;;\n"
             + "  --import) exec \"$md_guest/libmagicdesk_guest_service.so\" \"$@\" ;;\n"
             + "  --probe) exec \"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\" \"$@\" ;;\n"
             + "  *) \"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\" --probe >/dev/null || exit $?\n"

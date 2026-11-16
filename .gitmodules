@@ -1,3 +1,6 @@
 [submodule "vendor/magicdesk-x11"]
 	path = vendor/magicdesk-x11
 	url = https://github.com/mekhontsev/magicdesk-x11.git
+[submodule "native/shroot"]
+	path = native/shroot
+	url = https://github.com/mekhontsev/shroot.git

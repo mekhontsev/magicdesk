@@ -22,7 +22,7 @@ public final class GuestRuntimeArtifacts {
     static final int MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
     public static final List<String> FILES = List.of("libmagicdesk_guest_bootstrap.so",
             "libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so", "libmagicdesk_guest_service.so",
-            "libmagicdesk_guest_image.so", "libmagicdesk_command_client.so");
+            "libmagicdesk_guest_image.so", "libmagicdesk_shroot.so", "libmagicdesk_command_client.so");
 
     static Path packaged(Path source) throws IOException {
         if (!source.isAbsolute()) throw new IOException("Absolute APK library directory required");

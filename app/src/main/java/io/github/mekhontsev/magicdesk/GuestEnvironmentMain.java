@@ -15,9 +15,7 @@ public final class GuestEnvironmentMain {
             var paths = new RuntimeDataPaths(Path.of(java.util.Objects.requireNonNull(System.getenv("HOME"))));
             var images = new GuestImageTool(Path.of(arguments[0]), paths.temporary());
             GuestLibraryLocation.prepare(root, paths, android.system.Os.getuid(), images);
-            var library = new GuestEnvironmentLibrary(root,
-                    images,
-                    new GuestOciRegistry(System.err::println), System.err::println);
+            var library = new GuestEnvironmentLibrary(root, images, System.err::println);
             execute(library, command);
         } catch (Exception error) {
             System.err.println("Shroot environment: " + error.getMessage());
@@ -30,7 +28,7 @@ public final class GuestEnvironmentMain {
         String command = arguments[0];
         if (command.equals("help") || command.equals("--help") || command.equals("-h")) {
             System.out.println("""
-                    Shroot: Linux environments through the selected shell/root executor.
+                    Shroot: Linux environments through the selected User or Shell executor.
 
                     shroot install REPOSITORY[:TAG] --name NAME
                     shroot install PATH --oci|--rootfs --name NAME
@@ -61,7 +59,6 @@ public final class GuestEnvironmentMain {
                     dns changes an inactive environment; --replace explicitly replaces existing configuration.
                     dns --check validates the policy without creating or changing an environment; it does not test reachability.
                     Bind directories must exist; access is limited by the actual shell/root identity.
-                    Launches use distribution libc and never compile or download it.
                     Lazy syscall entry is automatic; --env SHROOT_MACHINE_ENTRY=0 selects Shroot Base.
                     prune removes unused library resources and the download cache; busy resources fail.
                     MAGICDESK_GUEST_HOME selects a separate library. Only public HTTPS registries are supported.

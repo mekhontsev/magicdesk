@@ -31,5 +31,5 @@ retain their service checks and selected authority.
 
 The [automation contract](../../docs/automation.md#linux-command-access) describes
 resource lifetime and trust. Focused Java tests cover framing, parsing and
-lease ownership; `native/guest-exec-lab/test_command_access.py` exercises installed
+lease ownership; `native/shroot/tests/test_command_access.py` exercises installed
 Debian/Alpine guests and native Termux/PRoot, with a separate App-only phase.

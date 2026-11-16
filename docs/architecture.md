@@ -150,7 +150,7 @@ do not own desktop UI or session state. Runtime composition occurs only in the
 | X11 native engine | `vendor/magicdesk-x11/lorie/src/main/cpp/` | X server, protocol and adapters to shared multi-output graphics |
 | Wayland runtime | `wayland-runtime/` | wlroots compositor, protocol state, client admission and Android adapters |
 | Shroot native runtime | `native/shroot/` | Optional ARM64 Linux execution, supervision, inode namespace and OCI image tools under the selected command identity |
-| Linux environment manager | `GuestEnvironmentLibrary`, `GuestOciRegistry` | Named stores, verified public OCI acquisition and shared image dependencies; existing PTY/graphics services own launch presentation |
+| Linux environment manager | Native Shroot catalog/API; `GuestEnvironmentLibrary` adapter | Native named stores, verified public OCI acquisition and shared image dependencies; existing PTY/graphics services own launch presentation |
 | Launcher template | `launcher-template/` | Build-time unsigned Activity APK used to export launcher entries; not a standalone product |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |

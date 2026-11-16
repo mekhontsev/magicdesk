@@ -81,9 +81,9 @@ remain possible.
 
 ## Reproduction
 
-Use [benchmark_compile.py](../native/guest-exec-lab/benchmark_compile.py) and an
+Use [benchmark_compile.py](../native/shroot/tests/benchmark_compile.py) and an
 independent build-only sysroot, not a running user's desktop environment.
-[Developer workflows](../native/guest-exec-lab/developer-workflows.md) describe
+[Developer workflows](../native/shroot/tests/developer-workflows.md) describe
 preparation, identity requirements and diagnostic counters.
 
 The source is the official
@@ -96,7 +96,7 @@ image service with hardlinks preserved and unmodified libraries/compiler.
 To reproduce the file-series configuration:
 
 ```sh
-python native/guest-exec-lab/benchmark_compile.py WORK_DIRECTORY \
+python native/shroot/tests/benchmark_compile.py WORK_DIRECTORY \
   --sqlite SQLITE_AMALGAMATION_DIRECTORY --runtime NATIVE_BUNDLE \
   --cpu-mask 3 --workload file-stat --iterations 1024 --file-blocks 16 \
   --rounds 5 --warmups 1

@@ -797,7 +797,7 @@ delivery. The Qt fixture is `tests/toolkits/editor.qml` (`-e entryY 95`), launch
 with `QT_QPA_PLATFORM=wayland` and `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3`.
 Optional `-e guestStore STORE -e keyboard XKB_DIRECTORY` selects the packaged
 guest runtime through the existing shell launch recipe instead of Termux.
-`native/guest-exec-lab/test_qt.py` prepares that invocation on an independent
+`native/shroot/tests/test_qt.py` prepares that invocation on an independent
 display, preserves the selected Android IME and records its protocol trace.
 
 The caller needs instrumentation permission. `--no-restart` retains the running

@@ -533,7 +533,7 @@ GPU-gated submission, readback cancellation and balanced ownership. Native
 imports invoke no lease/completion notification callbacks. The Mesa helper test
 checks the native single-ioctl path, interrupted waits, actual completion,
 invalid descriptors and failure propagation. The
-[distribution evidence](../native/guest-exec-lab/distribution-evidence.md#linux-515-capability-profile)
+[distribution evidence](../native/shroot/tests/distribution-evidence.md#linux-515-capability-profile)
 records sandboxed Chromium cold start, animation/video, reload and normal exit
 on Alpine and Debian with the bridge denied in both client and compositor.
 

@@ -50,17 +50,17 @@ The focused contracts remain authoritative for
 [Android API levels](runtime-api-levels.md), [privilege boundaries](privilege-modes.md),
 [fullscreen/focus](fullscreen-transitions.md), [window layout](window-layout.md),
 and [Shroot native internals](../native/shroot/README.md).
-Use [Shroot fixtures](../native/guest-exec-lab/README.md) for Linux checks and
+Use [Shroot fixtures](../native/shroot/tests/README.md) for Linux checks and
 the [device validation matrix](testing-backlog.md) for Android coverage and the
-[distribution matrix](../native/guest-exec-lab/validation-matrix.md) for per-OS
-Linux acceptance. Its [evidence ledger](../native/guest-exec-lab/distribution-evidence.md)
+[distribution matrix](../native/shroot/tests/validation-matrix.md) for per-OS
+Linux acceptance. Its [evidence ledger](../native/shroot/tests/distribution-evidence.md)
 keeps exact application receipts separate from the status tables. Desktop
 self-tests do not replace protocol, installer or guest-runtime workflows.
 
 ## Evidence And Project Policy
 
 - [Device-porting workflow](ai-assisted-device-porting.md)
-- [Paused graphics-adaptation research](../native/guest-exec-lab/README.md#graphics-adaptation-paused)
+- [Paused graphics-adaptation research](../native/shroot/tests/README.md#graphics-adaptation-paused)
 - [Nubia vendor API audit](nubia-vendor-audit.md)
 - [Honor windowing API audit](honor-vendor-audit.md)
 - [Chrome custom-caption investigation](chrome-custom-caption-investigation.md)

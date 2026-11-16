@@ -168,7 +168,7 @@ public class GuestRuntimeTest {
         String branch = script.substring(start, end);
         assertTrue(branch.contains("if [ \"${1-}\" = run ] ||"));
         assertTrue(branch.contains("--probe >/dev/null || exit $?"));
-        assertTrue(branch.contains("exec \"$md_guest/libmagicdesk_guest_image.so\" \"$@\""));
+        assertTrue(branch.contains("exec \"$md_guest/libmagicdesk_shroot.so\" \"$@\""));
         assertFalse(branch.contains("su "));
     }
 
