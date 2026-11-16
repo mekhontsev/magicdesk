@@ -76,8 +76,8 @@ environment.
 `native/linux-settings/CMakeLists.txt` downloads the pinned, hash-verified dbus
 1.16.2 source and builds client-library support using Meson. `message_bus`
 and `tools` are explicitly disabled; libdbus is statically linked into our helper.
-A build-only patch skips unused upstream test fixtures in this configuration,
-including their Windows-incompatible bulk copy command. Library sources are unchanged.
+A build-only patch skips unused upstream test fixtures in this configuration.
+Library sources are unchanged.
 Gradle packages that exact executable and `assets/licenses/dbus`, not the whole
 dependency prefix. The build uses the Android minimum API and requires `patch` and Meson
 (the same `magicDeskMeson` override as the Wayland build).

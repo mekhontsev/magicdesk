@@ -112,8 +112,8 @@ PipeWire configuration.
 
 `audio-runtime/native-deps` pins PipeWire sources and checksums, minimal Bionic
 compatibility patches and explicit FD admission. The Android module packages
-only its library allowlist and license texts. Windows builds consume
-`:audio-runtime:exportRuntime` with `-PmagicDeskAudioRuntime=PATH`.
+only its library allowlist and license texts. A runtime exported with
+`:audio-runtime:exportRuntime` can be reused with `-PmagicDeskAudioRuntime=PATH`.
 
 - `audio-runtime/tests/ring.c`: wraparound, bounds, gain and concurrent transfer.
 - `audio-runtime/tests/smoke.py`: real Pulse and native PipeWire playback through

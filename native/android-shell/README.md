@@ -12,12 +12,11 @@ Android/Bionic configuration based on AOSP's `external/mksh/Android.bp`, enablin
 `libmagicdesk_mksh.so` for Android's native-library packaging, with 16 KiB ELF
 segment alignment. It is executed, never loaded into ART. The Gradle owner
 supplies the APK minimum API (34) and the existing arm64 toolchain. POSIX `sh`,
-`sed`, `sort` and `tr` are build-host tools; Windows CI supplies them through MSYS2.
+`sed`, `sort` and `tr` are build-host tools supplied by Linux or Termux.
 `MAGICDESK_BUILD_SHELL` selects an absolute host shell path, overriding discovery.
 `generate-table.cmake` places its companion tools first on `PATH` before invoking
-upstream `Build.sh`, so native Windows CMake cannot accidentally select Windows
-`sort.exe`. Paths remain separate, quoted arguments, including build directories
-with spaces; Windows CI has a dedicated NDK build check for that case.
+upstream `Build.sh`. Paths remain separate, quoted arguments, including build
+directories with spaces; Linux CI has a dedicated NDK build check for that case.
 Per-file copyright/license notices, including embedded notices, are collected into the APK's
 `assets/licenses/mksh/NOTICE.txt` without rewriting the sources.
 

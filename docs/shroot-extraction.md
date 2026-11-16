@@ -49,7 +49,7 @@ environment catalogs, public HTTPS OCI registry installation, shared-layer
 imports, launch/stop and portable backup/restore. Its versioned install bundle
 contains runtime metadata, libraries, headers, dependency licenses and checksums.
 An independent CI workflow covers client-only consumers, native ARM64 Linux
-with bundled/system SQLite, and Android cross builds on Linux and Windows.
+with bundled/system SQLite, and Android cross builds on Linux.
 Third-party dependencies are static by default; a qualified external SQLite
 provider is optional. The image utility uses dynamic host libc for DNS, while
 default execution helpers retain static linking.

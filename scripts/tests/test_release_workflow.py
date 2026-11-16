@@ -222,6 +222,19 @@ class VersionChannelTest(unittest.TestCase):
 
 
 class WorkflowBoundaryTest(unittest.TestCase):
+    def test_linux_build_owns_verification_and_publication(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        build, publish = workflow.split("  publish-development:\n", 1)
+        self.assertIn("    runs-on: ubuntu-24.04", build)
+        self.assertIn("    needs:\n      - build\n    runs-on:", publish)
+        self.assertNotIn("windows-smoke", workflow)
+        self.assertNotIn("shell: pwsh", workflow)
+        self.assertIn('build="$RUNNER_TEMP/mksh build with spaces"', build)
+        self.assertIn('cmake --build "$build" --parallel 2', build)
+        self.assertIn("run: ./gradlew --no-daemon verifyDevelopment", build)
+        self.assertIn(":wayland-runtime:exportRuntime :audio-runtime:exportRuntime", build)
+        self.assertNotIn("gh run download", build)
+
     def test_development_notes_come_from_verified_source_artifact(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         step = workflow.split("      - name: Prepare stable development assets\n", 1)[1].split("      - name:", 1)[0]

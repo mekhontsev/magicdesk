@@ -587,12 +587,12 @@ To export only the portable runtime libraries and licenses:
 ./gradlew :wayland-runtime:exportRuntime
 ```
 
-The result is `wayland-runtime/build/runtime`. Windows builds consume this
-directory through `-PmagicDeskWaylandRuntime=/path/to/runtime`; their NDK still
-builds the Android host renderer. Linux/Termux may use the same explicit override.
+The result is `wayland-runtime/build/runtime`. Linux/Termux builds can reuse this
+directory through `-PmagicDeskWaylandRuntime=/path/to/runtime`; the selected
+Android toolchain still builds the host renderer.
 The exported artifact contains no build-machine tools or pkg-config files.
-CI builds the runtime on Linux and transfers it to the Windows job from the
-same workflow run. Missing or invalid runtime artifacts fail the build instead
+CI builds and verifies runtime exports on Linux.
+Missing or invalid runtime artifacts fail the build instead
 of producing an incomplete APK.
 
 ## Verification

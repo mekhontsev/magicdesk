@@ -61,7 +61,7 @@ the successful Miracast direct-pointer path.
   Native artifacts target API 34; device coverage remains per helper, not implied
   by the build. See
   [Runtime API levels](runtime-api-levels.md).
-- Linux and Windows CI build artifacts. Linux also runs native protocol/PTY
+- Linux CI builds artifacts and runs native protocol/PTY
   fixtures. These jobs do not run Android emulators.
 - Desktop self-tests run production lifecycle, launch, focus, fullscreen,
   caption/resize, mixed-window, taskbar, wallpaper and cleanup paths.

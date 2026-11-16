@@ -259,12 +259,12 @@ also builds its server/renderer library. CI verifies
 that the main APK contains the required helpers and no `.ko`, and that the Kernel
 Fixes APK contains exactly the reviewed module and no main-app native helper.
 
-The APK, main-app helpers and graphical runtimes cover ARM64 only. Linux
-and Windows CI both target Android ARM64; package checks reject other native ABIs.
+The APK, main-app helpers and graphical runtimes cover ARM64 only. Linux CI
+targets Android ARM64; package checks reject other native ABIs.
 Both helper compiler paths and graphical runtimes target the APK's API 34 minimum.
 Wayland dependencies are pinned source builds through the Android NDK on Linux
-and the Android toolchain in Termux. Linux CI exports the verified dependency
-prefix for Windows CI; Windows consumes it through `magicDeskWaylandRuntime`.
+and the Android toolchain in Termux. An exported dependency prefix can be reused
+through `magicDeskWaylandRuntime`; CI verifies that export on Linux.
 The build does not require an installed Termux runtime on the target device.
 See [Wayland build instructions](wayland.md#build).
 Compilation does not establish native compatibility. Device coverage is documented in

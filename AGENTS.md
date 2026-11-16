@@ -33,10 +33,13 @@ require the user's authorization.
 
 CI verifies both branches and PRs targeting either one. Only successful pushes
 to `develop` update the rolling `development` prerelease; that tag is not a
-branch. `main` requires the Linux `build` and `windows-smoke` checks for ordinary
+branch. `main` requires the Linux `build` check for ordinary
 contributors; administrators may merge release commits before CI, but publication
 always requires successful checks on the exact main commit. `develop`
 accepts direct commits; failed CI prevents publication, not further fixes.
+
+Supported build hosts are Linux and Android/Termux. Windows users build inside
+WSL2 using Linux tools; do not add native Windows build jobs or prerequisites.
 
 ## Device Support Work
 

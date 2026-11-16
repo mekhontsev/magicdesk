@@ -183,7 +183,7 @@ toolchain. Compilation does not establish API 34 native compatibility by itself.
 The phone mouse/uinput helper has Samsung/API 34 device coverage; PTY, Termux
 and graphical-runtime workflows still need validation at that floor.
 
-The current APK is not an x86_64 emulator build. Linux and Windows build smoke
+The current APK is not an x86_64 emulator build. Linux CI build
 checks do not run an Android emulator or provide another ABI. An Android Studio
 API 34/35/36 test matrix needs matching native artifacts as well as system images.
 
