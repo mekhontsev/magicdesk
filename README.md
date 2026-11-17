@@ -17,6 +17,11 @@ work without any privileged service or managed Desktop.
 mode runs Linux under MagicDesk's ordinary app UID, including containers and k3s.
 See [Linux with Shroot](#linux-with-shroot) for capabilities and limits.
 
+**Linux as a standalone Android app, with OS-enforced isolation and no VM.**
+Export a distribution as [its own APK](#a-linux-distribution-as-its-own-android-app),
+with a separate Android UID, private data and runtime. It runs without MagicDesk,
+Shizuku or root.
+
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
 [Getting started](docs/getting-started.md) |
@@ -235,6 +240,25 @@ Uninstall the launcher entry like any Android app; the Linux application remains
 installed. If its source entry is removed, the launcher can no longer open it.
 See [Android launcher exports](docs/desktop-entries.md#android-launcher-exports).
 
+### A Linux Distribution As Its Own Android App
+
+**Install a whole Linux environment as a separate APK with kernel-enforced
+Android application isolation.** Unlike a launcher-only APK, it contains its own
+Shroot runtime, terminal and private copy of the distribution. It runs under its
+own Android UID, without MagicDesk, Shizuku or Android root.
+
+Android's UID, SELinux and seccomp protections apply to the Linux processes.
+Even guest root cannot access another package's private data by default: this
+is the real [Android application sandbox](https://source.android.com/docs/security/app-sandbox),
+not merely Shroot's emulated guest permissions. Files and optional audio/graphics
+connections require explicit grants; clients sharing an X11 server still share
+its display authority.
+
+Open **Console > New session > Shroot environments**, select an environment,
+then **Install Linux as an application**. See
+[independent Linux applications](docs/linux-applications.md) for installation,
+backup, updates and connections.
+
 ### Whole Linux Desktops Too
 
 **Linux graphics** manages retained sessions and their viewers. X11 hosts a
@@ -297,6 +321,7 @@ Supported workflows include:
 | Packaged applications | Selected Flatpak and Snap browser workflows, FUSE-backed document portals; Snap runs with reduced confinement, not strict AppArmor isolation |
 | Filesystem restrictions | Supported Landlock ABI 1 policies, including pacman's filesystem sandbox |
 | Development | Compilers, GDB/LLDB/gdbserver, strace and VS Code workflows |
+| Recursive execution | Shroot inside Shroot using the same binaries; two- and three-level Base/lazy combinations covered on Android |
 
 **Run a Kubernetes lab on your phone:** k3s clusters can use separate
 Debian and Alpine nodes on one Android device, without Android root or a VM.
@@ -328,14 +353,18 @@ See [acceleration](docs/shroot.md#syscall-acceleration).
 The minimum kernel is **Linux 5.15**, with actual capability checks under the
 selected executor. Failure leaves independent MagicDesk tools available.
 
-**Shroot is experimental, not a security boundary for untrusted code.** Guest
+**Shroot's emulated guest boundaries do not isolate untrusted programs sharing
+one host UID.** Guest
 permissions, mount policies, supported Landlock rules and process/IPC separation
 enforce real restrictions. Guest seccomp policy is checked in the accelerated
 entry, with kernel mirrors covering calls outside it; Android's filters still apply.
 Unadapted calls and inherited descriptors retain host authority; logical cgroups
 do not enforce native CPU, memory or device limits. Snap's reduced-confinement
-mode is not AppArmor enforcement. Independent Linux APKs provide an outer
-Android UID sandbox. Use trusted images and programs inside each environment.
+mode is not AppArmor enforcement. For kernel-enforced separation between whole
+environments, use [independent Linux APKs](#a-linux-distribution-as-its-own-android-app),
+each with its own Android UID and private data. This is application isolation,
+not a VM or hard CPU/memory partition. Use trusted images and programs inside
+each environment.
 See [coverage and limits](docs/shroot.md#coverage-and-limits).
 
 #### Performance
