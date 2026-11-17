@@ -67,6 +67,15 @@ jobs:
       - name: Verify APK boundary fixtures
         run: python3 -m unittest discover -s scripts/tests -p test_verify_apks.py
 
+      - name: Verify Shroot application integration
+        env:
+          PYTHONPATH: tests/shroot
+        run: |
+          python3 scripts/tests/test_command_shroot.py
+          python3 -m unittest discover -s tests/shroot/unit
+          python3 -m unittest discover -s tests/shroot -p 'test_*fixture*.py'
+          python3 tests/shroot/test_boot_helpers.py
+
       - name: Verify branch and version fixtures
         run: python3 -m unittest discover -s scripts/tests -p test_release_workflow.py
 

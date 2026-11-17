@@ -131,7 +131,7 @@ public class GuestRuntimeTest {
 
     @Test public void preparesLargeDebugHelpersButBoundsArtifactSize() throws Exception {
         Path source = source(), root = temporary.newFolder().toPath();
-        Path helper = source.resolve("libmagicdesk_guest_image.so");
+        Path helper = source.resolve("libshroot_guest_image.so");
         try (var file = new java.io.RandomAccessFile(helper.toFile(), "rw")) {
             file.setLength(17 * 1024 * 1024);
         }
@@ -147,20 +147,33 @@ public class GuestRuntimeTest {
     }
 
     @Test public void preparationDoesNotConsumeInheritedGraphicsConnection() {
-        assertTrue(GuestRuntimeCommand.BODY.contains("md_guest=$(CLASSPATH="));
-        assertTrue(GuestRuntimeCommand.BODY.contains("exec \"$md_guest/libmagicdesk_guest_run.so\" \"$@\""));
+        assertTrue(GuestRuntimeCommand.BODY.contains("md_prepared=$(CLASSPATH="));
+        assertTrue(GuestRuntimeCommand.BODY.contains("md_launch \"$md_guest/libshroot_guest_run.so\" \"$@\""));
+        assertTrue(GuestRuntimeCommand.BODY.contains("--shroot \"$md_commands\" \"$@\""));
         assertFalse(GuestRuntimeCommand.BODY.contains("exec /system/bin/app_process"));
         assertTrue(GuestRuntimeCommand.BODY.contains("--probe >/dev/null || exit $?"));
-        assertTrue(GuestRuntimeArtifacts.FILES.contains("libmagicdesk_guest_supervisor.so"));
-        assertTrue(GuestRuntimeCommand.BODY.contains("\"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\""));
-        assertFalse(GuestRuntimeCommand.BODY.contains("--probe) exec \"$md_guest/libmagicdesk_guest_bootstrap.so\""));
+        assertTrue(GuestRuntimeArtifacts.FILES.contains("libshroot_guest_supervisor.so"));
+        assertTrue(GuestRuntimeCommand.BODY.contains("\"$md_guest/libshroot_guest_supervisor.so\" \"$md_guest/libshroot_guest_bootstrap.so\""));
+        assertFalse(GuestRuntimeCommand.BODY.contains("--probe) exec \"$md_guest/libshroot_guest_bootstrap.so\""));
         assertFalse(GuestRuntimeCommand.BODY.contains("--libc-registry"));
         assertFalse(GuestRuntimeCommand.BODY.contains("SHROOT_LIBC"));
         assertFalse(GuestRuntimeCommand.BODY.contains("SHROOT_MACHINE_ENTRY"));
     }
 
+    @Test public void appIdentityStagesOnlyGuestCommands() throws Exception {
+        Path source = source(), root = temporary.newFolder().toPath();
+        Path commands = GuestRuntimeArtifacts.commands(source, root);
+        assertEquals(commands, GuestRuntimeArtifacts.commands(source, root));
+        assertEquals(Files.readString(source.resolve("libmagicdesk_command_client.so")),
+                Files.readString(commands.resolve("magicdesk")));
+        try (var files = Files.list(commands.getParent())) {
+            assertEquals(List.of(commands), files.toList());
+        }
+        assertEquals(source, GuestRuntimeArtifacts.packaged(source));
+    }
+
     @Test public void imageToolIsStagedWithItsRunnerButOnlyExecutionProbesKernel() {
-        assertTrue(GuestRuntimeArtifacts.FILES.contains("libmagicdesk_guest_image.so"));
+        assertTrue(GuestRuntimeArtifacts.FILES.contains("libshroot_guest_image.so"));
         String script = GuestRuntimeCommand.BODY;
         int start = script.indexOf("image) shift");
         int end = script.indexOf("--import) exec", start);
@@ -168,7 +181,7 @@ public class GuestRuntimeTest {
         String branch = script.substring(start, end);
         assertTrue(branch.contains("if [ \"${1-}\" = run ] ||"));
         assertTrue(branch.contains("--probe >/dev/null || exit $?"));
-        assertTrue(branch.contains("exec \"$md_guest/libmagicdesk_shroot.so\" \"$@\""));
+        assertTrue(branch.contains("exec \"$md_guest/libshroot_cli.so\" \"$@\""));
         assertFalse(branch.contains("su "));
     }
 

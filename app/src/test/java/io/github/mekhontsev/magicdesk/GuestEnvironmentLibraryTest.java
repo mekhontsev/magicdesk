@@ -118,8 +118,11 @@ public class GuestEnvironmentLibraryTest {
     @Test public void namedLaunchRetainsArgumentsInOriginalShell() {
         String script = GuestRuntimeCommand.BODY;
         assertTrue(script.contains("md_store=$(md_library resolve \"${1-}\")"));
-        assertTrue(script.contains("exec \"$md_guest/libmagicdesk_shroot.so\" \"$md_action\" \"$md_store\" \"$@\""));
-        assertFalse(script.contains("eval "));
+        assertTrue(script.contains("exec \"$md_guest/libshroot_cli.so\" \"$md_action\" \"$md_store\" \"$@\""));
+        // Only quoted preparation assignments are evaluated, never guest argv.
+        assertEquals(1, script.split("eval ", -1).length - 1);
+        assertTrue(script.contains("eval \"$md_prepared\""));
+        assertTrue(script.contains("md_launch \"$md_guest/libshroot_cli.so\" \"$md_action\" \"$md_store\" \"$@\""));
         assertFalse(script.contains("exec /system/bin/app_process"));
     }
 

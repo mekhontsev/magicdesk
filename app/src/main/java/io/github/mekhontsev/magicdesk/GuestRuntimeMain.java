@@ -12,9 +12,13 @@ public final class GuestRuntimeMain {
                 throw new IllegalArgumentException("Expected native-library and runtime-store directories");
             // Modern app UIDs cannot execute copies from writable app data.
             // Packaged helpers already share one immutable APK lifetime.
-            System.out.println(uid == 0 || uid == 2000
+            Path runtime = uid == 0 || uid == 2000
                     ? GuestRuntimeArtifacts.prepare(Path.of(arguments[0]), Path.of(arguments[1]))
-                    : GuestRuntimeArtifacts.packaged(Path.of(arguments[0])));
+                    : GuestRuntimeArtifacts.packaged(Path.of(arguments[0]));
+            Path commands = uid == 0 || uid == 2000 ? runtime.resolve("commands")
+                    : GuestRuntimeArtifacts.commands(Path.of(arguments[0]), Path.of(arguments[1]));
+            System.out.println("md_guest=" + ShellCommandLine.quote(runtime.toString()));
+            System.out.println("md_commands=" + ShellCommandLine.quote(commands.toString()));
         } catch (Exception error) {
             System.err.println("Shroot preparation failed: " + error.getMessage());
             System.exit(1);

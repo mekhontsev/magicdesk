@@ -50,7 +50,7 @@ Start with [contributing](../CONTRIBUTING.md) and the
 The focused contracts remain authoritative for
 [Android API levels](runtime-api-levels.md), [privilege boundaries](privilege-modes.md),
 [fullscreen/focus](fullscreen-transitions.md), [window layout](window-layout.md),
-and [Shroot native internals](https://github.com/mekhontsev/shroot/blob/develop/README.md).
+and [Shroot native internals](https://github.com/mekhontsev/shroot/blob/develop/architecture.md).
 Use [Shroot fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md) for Linux checks and
 the [device validation matrix](testing-backlog.md) for Android coverage and the
 [distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md) for per-OS

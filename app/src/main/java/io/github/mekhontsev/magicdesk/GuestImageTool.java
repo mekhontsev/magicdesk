@@ -13,7 +13,7 @@ final class GuestImageTool implements GuestEnvironmentLibrary.Images {
     private final Path scratch;
 
     GuestImageTool(Path bundle, Path scratch) throws IOException {
-        executable = bundle.resolve("libmagicdesk_shroot.so");
+        executable = bundle.resolve("libshroot_cli.so");
         this.scratch = Files.createDirectories(scratch);
     }
 

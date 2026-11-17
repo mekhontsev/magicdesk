@@ -8,7 +8,7 @@ kernel. glibc and musl distributions, applications, init systems and container
 engines use the same runtime.
 
 This guide covers installation, daily use, supported workflows and their limits.
-The [native architecture](https://github.com/mekhontsev/shroot/blob/develop/README.md) describes implementation
+The [native architecture](https://github.com/mekhontsev/shroot/blob/develop/architecture.md) describes implementation
 owners and contracts; the [fixture guide](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md)
 describes how those contracts are tested.
 
@@ -1018,8 +1018,8 @@ recovery image's physical Deckard/SteamVR services and partition-set mounts for
 container boots only. Binfmt registration belongs to Shroot's guest namespace,
 not Android's kernel registry. Its runtime output
 does not change packaged units or administrator overrides; native boots retain
-them. Ordinary service failures remain visible. Older Debian/openKylin checks explicitly dropped
-`CAP_SYS_MODULE`. Unavailable hardware still needs appropriate configuration.
+them. Ordinary service failures remain visible. Unavailable hardware still needs
+appropriate configuration.
 SteamOS's default boot remains degraded on
 hardware/network units. Passing a userspace boot does not certify a display
 manager, graphical login or hardware boot.
@@ -1229,7 +1229,7 @@ commands. Do not reinstall k3s or delete `/etc/rancher` and `/var/lib/rancher`:
 these retain cluster credentials, configuration, datastore and local volumes.
 Back up important data independently; recovery after process termination is
 not a guarantee against physical storage failure.
-The [full-boot fixture](https://github.com/mekhontsev/shroot/blob/develop/tests/test_k3s_boot.py) separately
+The [full-boot fixture](https://github.com/mekhontsev/magicdesk/blob/develop/tests/shroot/test_k3s_boot.py) separately
 checks orderly shutdown and forced supervisor termination, then boots the same
 store through its ordinary enabled service and verifies cluster identities,
 PVC contents, DNS and Service HTTP.
@@ -1311,7 +1311,7 @@ CPU/RSS counters. CPU quotas, cpuset affinity, memory and device limits remain
 unenforced; these are not full kernel resource controls.
 
 See [Alpine containers inside SteamOS](#alpine-containers-inside-steamos) for an
-example and the distinction between lazy entry and filtered Base admission.
+example and the common seccomp admission used by lazy and Base execution.
 
 ## Guest Credentials
 
@@ -1589,13 +1589,13 @@ application, init or isolation test.
 | Area | Checked workflows | Scope/details |
 | --- | --- | --- |
 | ELF and libc | Debian glibc, Alpine musl, static PIE/ET_EXEC, raw SVC, threads, signals, fork/vfork and exec | [Runtime fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md#prepared-runtime-fixtures) |
-| Files and IPC | Hardlinks, copy-on-write, overlays, watches, FIFOs, shared memory, SysV IPC and authenticated D-Bus | [Native contracts](https://github.com/mekhontsev/shroot/blob/develop/README.md#contracts) include failure and lifetime checks |
+| Files and IPC | Hardlinks, copy-on-write, overlays, watches, FIFOs, shared memory, SysV IPC and authenticated D-Bus | [Native contracts](https://github.com/mekhontsev/shroot/blob/develop/architecture.md#contracts) include failure and lifetime checks |
 | Packages and development | APT, APK, DNF, pacman; accounts, compiler builds, Git/SSH, npm and Python environments | [Packages](https://github.com/mekhontsev/shroot/blob/develop/tests/desktop-workflows.md#distribution-packages-and-applications) and [developer workflows](https://github.com/mekhontsev/shroot/blob/develop/tests/developer-workflows.md#developer-workflows) |
 | Systemd managers | Debian 257, Ubuntu 255, Fedora 259, Arch 262 and SteamOS; system/user managers and service activation | Focused targets are distinct from default-target boot |
 | Distribution boot | Ubuntu, Fedora, Arch, openSUSE, Deepin and Manjaro default targets; Debian/openKylin with explicit module-capability drop | [Init matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/init-matrix.md); SteamOS hardware units remain degraded |
 | OpenRC and runit | Alpine PID 1, default runlevel and restart/stop; Void/Armtix stock stages and supervised services | Userspace service lifecycle, not complete hardware initialization |
 | Docker Engine | Docker 29.9.1, containerd 2.4.2, runc 1.5.2; overlay2, nftables bridge and TCP/UDP publication without userland proxy; older VFS/proxy profile retained | [Explicit daemon configuration](#docker-engine), logical IPv4/IPv6 flow filtering, not Android firewall management; per-family results are recorded separately |
-| Podman | Podman 5.8.7, crun 1.28, conmon 2.2.1; overlay, nftables bridge, TCP/UDP publication, DNS/HTTP, named peers and cleanup | [Routed launch and inherited limits](#podman); cgroups and application seccomp enabled |
+| Podman | Podman 5.8.7, crun 1.28, conmon 2.2.1; overlay, nftables bridge, TCP/UDP publication, DNS/HTTP, named peers and cleanup | [Routed launch and process limits](#podman); cgroups and application seccomp enabled |
 | Browser sandboxes | Stock Chromium JavaScript/DOM/PNG with installed filters, Firefox screenshot, Electron/VS Code workflow | [Browser contract](#application-filters-and-browsers), not complete security isolation |
 | Landlock and Bubblewrap | Positive/negative filesystem access, stacked domains and inheritance; pacman, Glycin and stock Bubblewrap workflows | [Filesystem policy](#filesystem-restrictions) and [namespace fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/namespaces.md#namespace-clients) |
 | Debugging | GDB/LLDB breakpoints, stepping and locals; attach/seize, gdbserver and strace workflows | [Same-launch ownership and request limits](https://github.com/mekhontsev/shroot/blob/develop/debugging.md) |
@@ -1660,6 +1660,6 @@ Filesystem watches have [hardlink/rename and delivery limits](https://github.com
 An unsupported operation remains an explicit error, not permission to disable
 an application sandbox, switch to Android root or fabricate a successful result.
 
-The [native runtime map](https://github.com/mekhontsev/shroot/blob/develop/README.md) is the entry point for syscall,
+The [native runtime map](https://github.com/mekhontsev/shroot/blob/develop/architecture.md) is the entry point for syscall,
 filesystem, process and descriptor contracts. Keep implementation invariants
 there rather than duplicating them in installation instructions.

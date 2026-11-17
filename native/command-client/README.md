@@ -10,9 +10,13 @@ No JNI, guest syscall adapter, D-Bus, libc loader or command catalog is embedded
   group. A registration socket owns its temporary key. Child exit, cancellation
   or wrapper death closes the channel; a bounded cancellation grace ends in
   SIGKILL. It does not turn daemonized descendants into managed sessions.
+- `shroot` adapts the application's `--magicdesk` launch option. It registers
+  access, then execs Shroot with ordinary directory/environment options and an
+  opaque owner descriptor. The supervisor retains that descriptor until its
+  complete guest tree ends; the guest never inherits it. Command authorization
+  and wire framing do not enter Shroot.
 - `wire` supplies bounded loopback framing and one-shot lease registration to
-  both the bridge and the guest supervisor. The supervisor retains ownership
-  until its complete supervised tree ends.
+  the application's bridge and client.
 
 The endpoint/build are inherited only from a prepared MagicDesk command
 environment. Delegation replaces the inherited key with a random launch key;
@@ -31,5 +35,6 @@ retain their service checks and selected authority.
 
 The [automation contract](../../docs/automation.md#linux-command-access) describes
 resource lifetime and trust. Focused Java tests cover framing, parsing and
-lease ownership; `native/shroot/tests/test_command_access.py` exercises installed
+lease ownership. `scripts/tests/test_command_shroot.py` checks the native launch
+adapter and its failure paths; `tests/shroot/test_command_access.py` exercises installed
 Debian/Alpine guests and native Termux/PRoot, with a separate App-only phase.

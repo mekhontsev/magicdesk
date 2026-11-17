@@ -474,8 +474,12 @@ Offscreen checks on RM11 / Android 16 cover Termux X11 and Wayland, Alpine/Shroo
 and Ubuntu/PRoot clients, captured frames, pointer/keyboard input, client close
 confirmation and cancellation, and Wayland handoff to a virtual-display viewer
 and back without restarting the client. Unit fixtures cover pixel strides,
-size limits, session closure and input release after errors. API 34 device coverage
-and a complete desktop workload in offscreen mode remain unverified.
+size limits, session closure and input release after errors. SteamOS Shell also
+has an approximately 20-minute offscreen Plasma session covering browser, editor,
+portal and process-tree shutdown; see the
+[distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md).
+This is lifecycle coverage, not a video-latency or sustained-performance result.
+API 34 offscreen graphics still need device coverage.
 
 Native fixtures compare GPU/software colors, partial updates, RGBA/BGRA imports,
 clipping, blending, lifetime and transforms. The Wayland renderer fixture compares

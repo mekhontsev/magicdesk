@@ -86,7 +86,7 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
     private ProcessBuilder command(String... arguments) throws IOException {
         String nativeDir=getApplicationInfo().nativeLibraryDir;
         var words=new java.util.ArrayList<String>();
-        words.add(nativeDir+"/libmagicdesk_shroot.so");
+        words.add(nativeDir+"/libshroot_cli.so");
         words.addAll(java.util.List.of("--parent-pid",Integer.toString(android.os.Process.myPid())));
         words.addAll(java.util.List.of(arguments));
         return environment(new ProcessBuilder(words));
@@ -147,7 +147,7 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
             Exception failure=null;
             try {
                 String nativeDir=getApplicationInfo().nativeLibraryDir;
-                String startup=EnvironmentCommand.terminal(nativeDir+"/libmagicdesk_shroot.so",store().toString(),connections);
+                String startup=EnvironmentCommand.terminal(nativeDir+"/libshroot_cli.so",store().toString(),connections);
                 pty=new NativePtyProcess(environment(new ProcessBuilder(nativeDir+"/libmagicdesk_pty_bridge.so",
                         Integer.toString(rows),Integer.toString(columns),getDataDir().toString(),
                         nativeDir+"/libmagicdesk_mksh.so",startup)),resources);

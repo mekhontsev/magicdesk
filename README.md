@@ -14,8 +14,8 @@ optional direct root. Termux terminals and Termux-hosted Linux graphics can
 work without any privileged service or managed Desktop.
 
 **Linux and Kubernetes without Shizuku or Android root:** Shroot's **User**
-mode runs under MagicDesk's ordinary app UID, with verified single-node k3s
-on Alpine. See [Linux with Shroot](#linux-with-shroot) for scope and test evidence.
+mode runs Linux under MagicDesk's ordinary app UID, including containers and k3s.
+See [Linux with Shroot](#linux-with-shroot) for capabilities and limits.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -276,18 +276,13 @@ and virtual network interfaces do not require permission to create their native
 Android counterparts. Shroot neither installs a guest kernel nor changes SELinux;
 Android still enforces the selected executor's host permissions and resource limits.
 
-**Verified under an ordinary Android app UID, without Shizuku or Android root:**
-recipe-installed Alpine runs stock **runc** containers and a **single-node k3s
-(Kubernetes) cluster**, including CoreDNS, pod-to-pod and Service traffic,
-NetworkPolicy, persistent volumes, ingress and server restart. Stock Chromium
-also passes software-rendered browser checks with its namespace and set-ID
-sandboxes. User mode is not limited to lightweight command-line utilities.
-See [app-UID test evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md#qualifying-evidence)
-for the tested device and exact scope. The broader Docker, Podman, systemd and
-multi-node matrix below includes Shell results; those results do not by themselves
-establish the same application coverage in User mode.
+**User mode is not limited to lightweight utilities.** Under an ordinary Android
+app UID, Alpine runs stock runc containers, k3s and sandboxed Chromium with
+software graphics. User and Shell retain separate
+[application coverage](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md#qualifying-evidence);
+a pass under one executor is not evidence for the other.
 
-Across the tested executors, verified scenarios include:
+Supported workflows include:
 
 | Area | Scope |
 | --- | --- |
@@ -303,12 +298,10 @@ Across the tested executors, verified scenarios include:
 | Filesystem restrictions | Supported Landlock ABI 1 policies, including pacman's filesystem sandbox |
 | Development | Compilers, GDB/LLDB/gdbserver, strace and VS Code workflows |
 
-**Run a Kubernetes lab on your phone:** checked k3s clusters include separate
+**Run a Kubernetes lab on your phone:** k3s clusters can use separate
 Debian and Alpine nodes on one Android device, without Android root or a VM.
-Checks include workload and network recovery after k3s restarts. Debian/systemd
-and Alpine/OpenRC also run the stock enabled service and recover cluster identity
-and persistent volumes after guest shutdown or forced Shroot termination.
-See [k3s support](docs/shroot.md#k3s).
+CoreDNS, Services, NetworkPolicy, ingress and persistent volumes use the stock
+k3s distribution. See [k3s setup, lifecycle and coverage](docs/shroot.md#k3s).
 
 <p align="center">
   <a href="docs/images/magicdesk-k3s-lazy-svc.png">
@@ -325,8 +318,11 @@ Logical resource limits remain subject to Android's physical ceilings.
 
 Shroot's default lazy SVC entry accelerates eligible calls in unmodified ARM64
 programs, including stock glibc, musl and Go binaries, without changing their
-files. Shroot Base is the seccomp/ptrace fallback for unsupported sites and
-application-filtered execution, and can be selected explicitly for diagnosis.
+files. The shared entry checks guest seccomp policy before selecting native
+execution or the appropriate resource owner. Admitted calls use shared-memory
+channels; ptrace remains where actual task context is required. Unsupported
+sites or unavailable policy views use Shroot Base, which can also be selected
+explicitly for diagnosis.
 See [acceleration](docs/shroot.md#syscall-acceleration).
 
 The minimum kernel is **Linux 5.15**, with actual capability checks under the
@@ -334,10 +330,12 @@ selected executor. Failure leaves independent MagicDesk tools available.
 
 **Shroot is experimental, not a security boundary for untrusted code.** Guest
 permissions, mount policies, supported Landlock rules and process/IPC separation
-enforce real restrictions, and application seccomp filters remain in the kernel.
+enforce real restrictions. Guest seccomp policy is checked in the accelerated
+entry, with kernel mirrors covering calls outside it; Android's filters still apply.
 Unadapted calls and inherited descriptors retain host authority; logical cgroups
 do not enforce native CPU, memory or device limits. Snap's reduced-confinement
-mode is not AppArmor enforcement. Use trusted images and programs.
+mode is not AppArmor enforcement. Independent Linux APKs provide an outer
+Android UID sandbox. Use trusted images and programs inside each environment.
 See [coverage and limits](docs/shroot.md#coverage-and-limits).
 
 #### Performance
@@ -388,11 +386,9 @@ parallelism defaults to four jobs. Source builds and compatibility vary by recip
 it does not follow later network changes. DNS remains editable inside Linux.
 See [network choices and resume](docs/shroot.md#linux-installer).
 
-NixOS prepares and activates a NixOS system generation. Its Plasma X11 and Wayland
-launchers have HDMI checks with Zink/Turnip, keyboard input and close/reopen;
-broader application coverage remains incomplete. SteamOS uses Valve's ARM64
-recovery userspace, not a guest kernel; this does not imply compatibility with
-every Steam game. See the [recipes and image sources](docs/shroot.md#linux-installer)
+NixOS prepares and activates a NixOS system generation. SteamOS uses Valve's
+ARM64 recovery userspace, not a guest kernel; this does not imply compatibility
+with every Steam game. See the [recipes and image sources](docs/shroot.md#linux-installer)
 and [per-distribution evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md).
 
 After installation, use **Apps** for individual programs and installed desktop
@@ -541,8 +537,9 @@ See [contribution workflow](CONTRIBUTING.md#branches-and-releases).
 | Use | Additional requirements |
 | --- | --- |
 | Settings, appearance, display inventory | Ordinary app access |
+| User console and Shroot environments | Ordinary app access; Shroot also needs the host capabilities listed below |
 | Termux terminals and graphics | Termux external commands, `RUN_COMMAND`; graphics also need XKB data |
-| Files, shell, privileged capture and actions | Authorized shell/root service and operation-specific capabilities |
+| Files, Shell console, privileged capture and actions | Authorized shell/root service and operation-specific capabilities |
 | Shroot | ARM64, executable storage, Linux 5.15+ and required guest capabilities |
 | Managed Desktop | Android 15+, privileged service, setup and working framework windowing |
 | External output | Hardware/firmware exposing a usable Android secondary display |

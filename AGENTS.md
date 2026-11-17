@@ -70,7 +70,8 @@ An explicitly managed tmux window releases only its client PTY; tmux owns the
 server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
-Experimental guest execution lives in native-only `native/shroot`;
+Guest execution lives in the independent native Shroot project, pinned at
+`native/shroot`;
 app-side launch adapters use the existing shell, PTY and graphics services.
 User (MagicDesk app UID) and Shell are first-class executors of the same
 Shroot engine. Adapt to each executor's host capabilities through shared owners,

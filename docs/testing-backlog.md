@@ -85,7 +85,9 @@ App-UID resource, ABI, signal, debugger, Alpine k3s and sandboxed Chromium
 coverage is recorded separately in [host execution](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md).
 Results do not transfer between executors, distributions or kernels and are not
 Desktop self-test results. Remaining Shroot device gates include actual API 34/older
-kernels, 16 KiB pages and actual root execution. Installer GUI/Turnip recipes
+kernels, Android with 16 KiB pages and actual root execution. Standalone ARM64
+Linux on Raspberry Pi 5 already has [16 KiB coverage](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md#qualified-hosts);
+that does not qualify Android firmware with the same page size. Installer GUI/Turnip recipes
 also need separate validation for each distribution/toolchain; a recipe's
 presence is not a passed desktop or GPU test.
 
