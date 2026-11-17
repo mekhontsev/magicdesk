@@ -22,7 +22,7 @@ final class LinuxConnections {
             endpoints.retain(result.lifetime);
             result.resources.reserve().attach(() -> { try { endpoints.close(); } catch (RemoteException ignored) { } });
             var owner=result.resources.reserve();
-            result.audio=LinuxAudio.acquire(context,uid,endpoints::open);
+            result.audio=LinuxAudio.acquireRouted(context,uid,endpoints::open);
             owner.attach(result.audio);
             if (graphics!=null) {
                 var graphicsOwner=result.resources.reserve();

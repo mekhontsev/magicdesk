@@ -33,7 +33,6 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
     private OperationResources operation;
     private volatile boolean closed;
     private TerminalEmulator emulator;
-    private boolean busy;
     private boolean opened;
     private HostConnection host;
     private OperationResources.Slot hostOwner;
@@ -79,7 +78,7 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
     }
     Path store() { return getDataDir().toPath().resolve("linux"); }
     boolean installed() { return Files.isDirectory(store()); }
-    boolean active() { return terminal != null || busy; }
+    boolean active() { return operation != null; }
     boolean closed() { return closed; }
     boolean connected() { return host != null && host.ready(); }
     @Override public TerminalEmulator emulator() { return emulator; }
@@ -108,9 +107,9 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
     void exportArchive(Uri uri) { archive(uri,false); }
     private void archive(Uri uri,boolean restore) {
         if (active() || closed || restore==installed()) return;
-        busy=true; status=restore ? "Restoring Linux" : "Saving Linux backup"; notifyChanged();
         var resources=new OperationResources(); operation=resources;
         var owner=lifetime.reserve(); owner.attach(resources);
+        status=restore ? "Restoring Linux" : "Saving Linux backup"; notifyChanged();
         work.execute(() -> {
             Exception failure=null;
             try {
@@ -126,7 +125,7 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
             main.post(() -> {
                 // Complete on the same thread that accepts cancellation, before releasing its token.
                 boolean cancelled=resources.isClosed();
-                owner.close(); operation=null; busy=false;
+                owner.close(); operation=null;
                 status=cancelled ? "Archive operation cancelled" : error!=null ? error.toString() : restore ? "" : "Backup saved";
                 notifyChanged();
                 if (restore && !cancelled && error==null && !closed) startTerminal();
@@ -137,14 +136,15 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
     void startTerminal() {
         if (active() || !installed() || closed) return;
         opened=true;
-        busy=true; status="Starting Linux"; notifyChanged();
         int rows=emulator.mRows, columns=emulator.mColumns;
         var connections=host==null ? java.util.List.<String>of() : host.arguments();
         var resources=new OperationResources(); operation=resources;
         var owner=lifetime.reserve();
         owner.attach(resources);
+        status="Starting Linux"; notifyChanged();
         work.execute(() -> {
             NativePtyProcess pty=null;
+            Exception failure=null;
             try {
                 String nativeDir=getApplicationInfo().nativeLibraryDir;
                 String startup=EnvironmentCommand.terminal(nativeDir+"/libmagicdesk_shroot.so",store().toString(),connections);
@@ -153,7 +153,11 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
                         nativeDir+"/libmagicdesk_mksh.so",startup)),resources);
                 if (resources.isClosed()) { pty.close(); return; }
                 terminal=pty;
-                main.post(() -> { busy=false; status=""; resizeTerminal(); notifyChanged(); });
+                main.post(() -> {
+                    if (operation==resources && !resources.isClosed() && !closed) {
+                        status=""; resizeTerminal(); notifyChanged();
+                    }
+                });
                 byte[] buffer=new byte[32768]; int n;
                 while ((n=pty.inputStream().read(buffer))>=0) {
                     byte[] bytes=java.util.Arrays.copyOf(buffer,n);
@@ -162,13 +166,18 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
                     // EVENT_WAIT: owning UI thread consumes one bounded output chunk; service shutdown interrupts the reader.
                     delivered.await();
                 }
-                main.post(() -> { status="Session ended"; notifyChanged(); });
             } catch (Exception error) {
-                if (!resources.isClosed()) main.post(() -> { status=error.toString(); notifyChanged(); });
+                failure=error;
+                if (error instanceof InterruptedException) Thread.currentThread().interrupt();
             } finally {
+                Exception error=failure;
+                boolean cancelled=resources.isClosed();
                 owner.close();
-                terminal=null;
-                main.post(() -> { operation=null; busy=false; notifyChanged(); });
+                main.post(() -> {
+                    terminal=null; operation=null;
+                    status=cancelled || error==null ? "Session ended" : error.toString();
+                    notifyChanged();
+                });
             }
         });
     }
@@ -177,7 +186,13 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
         NativePtyProcess pty=terminal;
         if (pty==null || closed) return;
         byte[] captured=data.clone();
-        input.execute(() -> { try { pty.write(captured); } catch (IOException error) { main.post(() -> { status=error.toString(); notifyChanged(); }); } });
+        input.execute(() -> { try { pty.write(captured); } catch (IOException error) {
+            main.post(() -> {
+                if (terminal==pty && operation!=null && !operation.isClosed() && !closed) {
+                    status=error.toString(); notifyChanged();
+                }
+            });
+        } });
     }
     void resize(int columns,int rows,int cellWidth,int cellHeight) {
         if (emulator.mColumns==columns && emulator.mRows==rows

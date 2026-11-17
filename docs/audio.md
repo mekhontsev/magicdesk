@@ -70,6 +70,12 @@ Shroot routes `/tmp/magicdesk-audio/pipewire` and `/tmp/magicdesk-audio/pulse` t
 the authorized abstract endpoints; shell does not need to create filesystem
 socket nodes on Android. No launcher silently changes privilege identity.
 
+Independent Linux APKs use the same routed audio admission under their own UID.
+Their broker creates abstract endpoints only; long private application paths do
+not become Unix socket paths. Native and PRoot clients retain their required
+filesystem endpoints. The optional connection grants protocol access, not host
+commands or files, and revocation leaves unrelated audio owners running.
+
 `install_linux.sh` installs PipeWire client support with GUI profiles. Individual
 applications connect directly. The shared `magicdesk-desktop-session` launcher
 uses `magicdesk-audio-session`, which owns a guest PipeWire core, WirePlumber and

@@ -40,6 +40,8 @@ connection supplies routes to newly started terminals; existing launches retain
 their original environment. It grants neither host shell commands nor arbitrary
 host file access. X11 clients sharing a display share X11's display authority;
 select a separate graphical session for mutually untrusted clients.
+The X11 credential is copied into a connection-private directory and attached
+read-only to the guest. The host does not share its own authorization directory.
 
 **Disconnect from MagicDesk** revokes the connection's endpoints and accepted
 graphics streams. It does not stop Linux or unrelated host clients. Closing the
@@ -67,3 +69,20 @@ remain separate from audio/graphics permission.
 The Binder contract is an internal integration interface, not a stable public
 ABI. Runtime and persistent-storage compatibility are governed independently
 by Shroot's native admission contract.
+
+## Verification
+
+Device acceptance on Android 16 / ARM64 covers two generated, non-debuggable
+Alpine packages with distinct Android UIDs. Checks include independent file
+changes, hardlink metadata, denied guest access to the other package's private
+path, same-package runtime updates without reimport, document-picker backup and
+restore, and Activity recreation while the picker is open. Closing a window
+retains its PTY; ending a session or stopping its notification releases its owned
+process tree without stopping the other package.
+
+The generated application and Linux both cold-start with MagicDesk force-stopped.
+Optional cross-UID checks cover X11 and Wayland offscreen rendering/input,
+X11 authentication and read-only credentials, PipeWire/Pulse playback, denied
+consent and connection revocation without terminating Linux. These are delivery
+and integration checks, not the full distribution matrix or API 34 device
+coverage. Android package sandboxing remains the isolation boundary.

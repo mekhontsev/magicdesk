@@ -103,6 +103,7 @@ public final class LinuxConnectionActivity extends Activity {
                     var ready=LinuxConnections.acquire(context,uid,endpoints,graphics,resources);
                     main.post(() -> { connection=ready; if (changed!=null) changed.run(); });
                 } catch (Exception problem) {
+                    android.util.Log.w("LinuxConnection", "Cannot authorize Linux services", problem);
                     main.post(() -> { error=problem; if (changed!=null) changed.run(); });
                 }
             },"LinuxConnection").start();

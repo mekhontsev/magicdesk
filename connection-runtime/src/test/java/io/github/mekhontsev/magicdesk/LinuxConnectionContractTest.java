@@ -27,12 +27,16 @@ public class LinuxConnectionContractTest {
         assertTrue(wayland.contains("WAYLAND_DISPLAY=" + LinuxConnectionContract.WAYLAND_PATH));
         fields.put("graphicsProtocol", "x11"); fields.put("display", "42");
         assertThrows(IllegalArgumentException.class, () -> LinuxConnectionContract.launchArguments(1, fields));
-        var x11 = LinuxConnectionContract.launchArguments(1, fields, "/private/Xauthority");
+        var x11 = LinuxConnectionContract.launchArguments(1, fields, "/private/xauth-scope");
         assertTrue(x11.contains("--socket-resource-path"));
         assertTrue(x11.contains("--socket-resource-abstract"));
         assertEquals("/tmp/.X11-unix/X42", x11.get(11));
-        assertTrue(x11.contains("--bind-ro"));
+        assertTrue(x11.contains("--bind-ro-create"));
         assertFalse(x11.contains("--bind"));
+        int bind = x11.indexOf("--bind-ro-create");
+        assertEquals(java.util.List.of("--bind-ro-create", "/private/xauth-scope", "/tmp/magicdesk-xauthority"),
+                x11.subList(bind, bind + 3));
+        assertTrue(x11.contains("XAUTHORITY=/tmp/magicdesk-xauthority/Xauthority"));
         fields.put("display", "65536");
         assertThrows(IllegalArgumentException.class, () -> LinuxConnectionContract.launchArguments(1, fields, "/private/auth"));
     }

@@ -65,8 +65,8 @@ final class HostConnection implements Closeable {
             if ("x11".equals(values.get("graphicsProtocol"))) {
                 byte[] auth=description.getByteArray("xauthority");
                 if (auth==null || auth.length==0 || auth.length>4096) throw new IOException("Invalid Xauthority grant");
-                authority=java.nio.file.Files.createTempFile(temporary,"xauth-",".bin");
-                java.nio.file.Files.write(authority,auth);
+                authority=java.nio.file.Files.createTempDirectory(temporary,"xauth-");
+                java.nio.file.Files.write(authority.resolve("Xauthority"),auth);
             }
             arguments = LinuxConnectionContract.launchArguments(description.getInt("format"), values,
                     authority==null ? null : authority.toString());
@@ -89,7 +89,10 @@ final class HostConnection implements Closeable {
             try { previous.close(); } catch (RemoteException ignored) { }
         }
         endpoints.release(); ended.run();
-        if (auth!=null) try { java.nio.file.Files.deleteIfExists(auth); }
+        if (auth!=null) try {
+            java.nio.file.Files.deleteIfExists(auth.resolve("Xauthority"));
+            java.nio.file.Files.deleteIfExists(auth);
+        }
         catch (IOException error) { android.util.Log.w("LinuxConnection","Cannot remove private authority",error); }
     }
 }

@@ -83,7 +83,19 @@ Graphical-session checks pass under User and Shell for X11 and Wayland, includin
 D-Bus, launch arguments, environment, process exit and cleanup. Device checks cover
 cross-UID socket admission, descriptor handoff, scope revocation and peer cleanup;
 audio checks cover concurrent leases and User, Shell and Termux clients. These
-results do not substitute for acceptance of the generated autonomous applications.
+checks are complemented by generated autonomous-application acceptance below.
+
+Two generated, non-debuggable Alpine APKs have distinct Android UIDs, independent
+stores and owned native helper trees. Device acceptance covers private data,
+metadata and hardlinks, same-package updates without reimport, session stop,
+notification stop, document-picker backup/restore and Activity recreation with
+the picker open. The application and Linux cold-start with MagicDesk force-stopped.
+Authorized cross-UID X11/Wayland connections pass rendering/input, authentication,
+read-only X11 credential attachment, PipeWire/Pulse playback and scoped revocation.
+Both accepted and cancelled connection replies retain ownership until service
+binding. Focused lifecycle tests also retain the operation guard until terminal
+completion reaches the UI thread. See [independent applications](linux-applications.md)
+for the product contract and coverage limits.
 
 Storage-update checks preserve inode identities, metadata and hardlinks from
 the integrated backend in both Base and lazy modes, including portable
@@ -114,15 +126,11 @@ exact successful branch artifact. Source and dependency-license audits are part
 of packaging. Linux and Android/Termux are supported build hosts; Windows uses
 WSL2, not native builds.
 
-## Remaining Delivery
+## Coverage Limits
 
-Finish autonomous Linux APK acceptance: private runtime/data ownership,
-two independent package identities, updates, owner cancellation, document
-import/export, operation without MagicDesk and authorized optional connections.
-The APK template and streamed signing/packaging are implemented; device results
-are still required. Include Activity recreation while a document picker is open
-and a reply arriving before service binding.
-
+The delivery checks are complete for the qualified Android 16 device and
+Raspberry Pi 5 host. They do not establish the full distribution matrix on every
+host, generated-APK operation on Android 14, or compatibility with every firmware.
 Nested Shroot and a host-runtime build against musl remain deferred.
 
 ## Acceptance

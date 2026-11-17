@@ -15,7 +15,7 @@ public final class LinuxConnectionContract {
         return launchArguments(format, endpoints, null);
     }
 
-    public static List<String> launchArguments(int format, Map<String, String> endpoints, String authorityFile) {
+    public static List<String> launchArguments(int format, Map<String, String> endpoints, String authorityDirectory) {
         if (format != FORMAT) throw new IllegalArgumentException("Unsupported Linux connection format");
         String nativeEndpoint = endpoint(endpoints.get("pipewire"));
         String pulseEndpoint = endpoint(endpoints.get("pulse"));
@@ -34,14 +34,14 @@ public final class LinuxConnectionContract {
                     String display = endpoints.get("display");
                     if (display == null || !display.matches("[0-9]{1,5}") || Integer.parseInt(display) > 65535)
                         throw new IllegalArgumentException("Invalid X11 display");
-                    if (authorityFile == null || !authorityFile.startsWith("/"))
-                        throw new IllegalArgumentException("Private Xauthority file is required");
+                    if (authorityDirectory == null || !authorityDirectory.startsWith("/"))
+                        throw new IllegalArgumentException("Private Xauthority directory is required");
                     String socket = "/tmp/.X11-unix/X" + display;
                     arguments.addAll(List.of("--socket-resource-path", socket, graphics,
                             "--socket-resource-abstract", socket, graphics,
-                            "--bind-ro", authorityFile, "/tmp/magicdesk-xauthority",
+                            "--bind-ro-create", authorityDirectory, "/tmp/magicdesk-xauthority",
                             "--env", "DISPLAY=:" + display,
-                            "--env", "XAUTHORITY=/tmp/magicdesk-xauthority"));
+                            "--env", "XAUTHORITY=/tmp/magicdesk-xauthority/Xauthority"));
                 }
                 default -> throw new IllegalArgumentException("Unsupported graphics protocol");
             }

@@ -55,13 +55,18 @@ final class LinuxAudio implements Closeable {
             var broker=new ExecutorEndpointBroker(context,commands,audio::failed);
             brokerSlot.attach(broker);
             audio.connect(commands.uid,broker.factory);
+            // Native/PRoot clients need paths; routed Shroot clients only use abstract endpoints.
+            if (commands.uid!=2000) {
+                audio.nativePath=audio.nativeEndpoint.filesystemPath();
+                audio.pulsePath=audio.pulseEndpoint.filesystemPath();
+            }
             return audio;
         } catch (IOException | RuntimeException | RemoteException error) {
             audio.close(); throw new IOException("Cannot prepare Linux audio",error);
         }
     }
 
-    static LinuxAudio acquire(Context context,int uid,ExecutorSocketEndpoint.Factory factory) throws IOException {
+    static LinuxAudio acquireRouted(Context context,int uid,ExecutorSocketEndpoint.Factory factory) throws IOException {
         LinuxAudio audio=bind(context);
         try { audio.connect(uid,factory); return audio; }
         catch (IOException | RuntimeException | RemoteException error) {
@@ -95,8 +100,6 @@ final class LinuxAudio implements Closeable {
         var pulseOwner=resources.reserve();
         pulseEndpoint=new ExecutorSocketEndpoint(uid,0,factory,fd -> lease.accept(1,fd),this::failed);
         pulseOwner.attach(pulseEndpoint);
-        // Shroot supplies guest paths for abstract endpoints; UID 2000 needs no sock_file permission.
-        if (uid!=2000) { nativePath=nativeEndpoint.filesystemPath(); pulsePath=pulseEndpoint.filesystemPath(); }
         LIVE.add(this);
         if (closed.get()) { LIVE.remove(this); throw new IOException("Audio admission closed during startup"); }
     }

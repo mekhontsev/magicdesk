@@ -24,6 +24,7 @@ public final class EnvironmentActivity extends Activity {
     private boolean pendingExport;
     private boolean waitingForArchive;
     private Intent pendingConnection;
+    private boolean pendingConnectionResult;
     private AlertDialog confirmation;
     private final Runnable updated=this::refresh;
     private final ServiceConnection connection=new ServiceConnection() {
@@ -31,7 +32,7 @@ public final class EnvironmentActivity extends Activity {
             service=((EnvironmentService.Connection)binder).service();
             terminal.attach(service);
             service.changed=updated;
-            if (pendingConnection!=null) { service.acceptHost(pendingConnection); pendingConnection=null; }
+            deliverConnectionResult();
             openPending();
         }
         @Override public void onServiceDisconnected(ComponentName name) { detach(); finish(); }
@@ -67,6 +68,7 @@ public final class EnvironmentActivity extends Activity {
         pendingExport=state!=null && state.getBoolean("pendingExport");
         waitingForArchive=state!=null && state.getBoolean("waitingForArchive");
         pendingConnection=state==null ? null : state.getParcelable("connection",Intent.class);
+        pendingConnectionResult=state!=null && state.getBoolean("connectionResult");
         var layout=new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL);
         var toolbar=new android.widget.Toolbar(this);
         toolbar.setTitle(getApplicationInfo().loadLabel(getPackageManager()));
@@ -145,16 +147,23 @@ public final class EnvironmentActivity extends Activity {
             openPending();
         }
         if (request==5) {
-            if (result==RESULT_OK && data!=null) {
-                if (service!=null) service.acceptHost(data); else pendingConnection=data;
-            } else if (service!=null) service.disconnectHost();
+            pendingConnection=result==RESULT_OK ? data : null;
+            pendingConnectionResult=true;
+            deliverConnectionResult();
         }
+    }
+    private void deliverConnectionResult() {
+        if (service==null || !pendingConnectionResult) return;
+        Intent reply=pendingConnection;
+        pendingConnection=null; pendingConnectionResult=false;
+        if (reply!=null) service.acceptHost(reply); else service.disconnectHost();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state); state.putParcelable("pending",pending);
         state.putBoolean("pendingExport",pendingExport);
         state.putBoolean("waitingForArchive",waitingForArchive);
         state.putParcelable("connection",pendingConnection);
+        state.putBoolean("connectionResult",pendingConnectionResult);
     }
     private void detach() {
         if (service!=null) { if (service.changed==updated) service.changed=null; service=null; }

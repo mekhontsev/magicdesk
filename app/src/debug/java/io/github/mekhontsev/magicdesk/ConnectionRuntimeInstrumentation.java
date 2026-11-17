@@ -25,13 +25,26 @@ public final class ConnectionRuntimeInstrumentation extends Instrumentation {
             try {
                 verifyScope(events);
                 verifyAdmission();
-                result.putString("result","PASS direct traffic, scoped revocation, peer cleanup, exact handoff and broker rejection");
+                verifyRoutedAudio();
+                result.putString("result","PASS direct traffic, scoped revocation, peer cleanup, exact handoff, broker rejection and path-independent audio");
                 finish(Activity.RESULT_OK,result);
             } catch (Throwable error) {
                 result.putString("error",android.util.Log.getStackTraceString(error));
                 finish(Activity.RESULT_CANCELED,result);
             } finally { events.quitSafely(); }
         },"ConnectionVerification").start();
+    }
+
+    private void verifyRoutedAudio() throws Exception {
+        var unused=getTargetContext().getCacheDir().toPath().resolve("unused-"+"x".repeat(150));
+        var broker=new UnixEndpointBroker(Os.getuid(),unused,() -> { });
+        broker.retain(new Binder());
+        try (var audio=LinuxAudio.acquireRouted(getTargetContext(),Os.getuid(),broker::open)) {
+            var environment=audio.environment();
+            check(environment.get("PIPEWIRE_REMOTE").startsWith("@magicdesk-"),"Routed audio requires a filesystem socket");
+            check(environment.containsKey("MAGICDESK_AUDIO_PULSE_ENDPOINT"),"Pulse route missing");
+            check(!java.nio.file.Files.exists(unused),"Routed admission created unused filesystem endpoints");
+        } finally { broker.release(); }
     }
 
     private static void verifyScope(HandlerThread events) throws Exception {
