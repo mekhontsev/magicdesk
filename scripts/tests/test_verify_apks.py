@@ -13,7 +13,7 @@ SHROOT_HELPERS = ("guest_bootstrap", "guest_supervisor", "guest_run", "guest_ser
 
 
 class VerifyApksTest(unittest.TestCase):
-    def verify(self, *extra_entries, omit_helper=None, pty_bytes=0):
+    def verify(self, *extra_entries, omit_helper=None, pty_bytes=0, addon_entries=None):
         with tempfile.TemporaryDirectory() as directory:
             apk = Path(directory) / "fixture.apk"
             with zipfile.ZipFile(apk, "w") as archive:
@@ -27,8 +27,27 @@ class VerifyApksTest(unittest.TestCase):
                         archive.writestr(f"lib/arm64-v8a/libshroot_{helper}.so", b"")
                 for entry in extra_entries:
                     archive.writestr(entry, b"")
-            return subprocess.run(["sh", str(VERIFY), str(apk)],
-                                  capture_output=True, text=True)
+            command = ["sh", str(VERIFY), str(apk)]
+            if addon_entries is not None:
+                addon = Path(directory) / "kernel-fixes.apk"
+                module = "res/raw/dp_mode_reset.ko"
+                with zipfile.ZipFile(addon, "w") as archive:
+                    archive.write(VERIFY.parents[1] / "kernel-fixes/src/main" / module, module)
+                    for entry in addon_entries:
+                        archive.writestr(entry, b"")
+                command.append(str(addon))
+            return subprocess.run(command, capture_output=True, text=True)
+
+    def test_accepts_reviewed_kernel_addon(self):
+        result = self.verify(addon_entries=[])
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_rejects_helpers_in_kernel_addon(self):
+        for library in ("libmagicdesk_pty_bridge.so", "libshroot_guest_run.so"):
+            with self.subTest(library=library):
+                result = self.verify(addon_entries=[f"lib/arm64-v8a/{library}"])
+                self.assertEqual(1, result.returncode, result.stderr)
+                self.assertIn("must not contain a shell helper", result.stderr)
 
     def test_accepts_arm64_apk(self):
         result = self.verify("assets/licenses/x86_64.txt")

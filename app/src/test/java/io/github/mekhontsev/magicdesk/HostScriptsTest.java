@@ -9,8 +9,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -18,10 +16,6 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public final class HostScriptsTest {
-    private static final List<String> NATIVE_LIBRARIES = List.of(
-            "uinput_bridge", "pty_bridge", "mksh", "service_launcher", "process_signal", "guest_files", "command_client", "command_bridge",
-            "wayland_executor", "wayland_client", "graphics_host",
-            "guest_bootstrap", "guest_supervisor", "guest_run", "guest_service");
     @Rule
     public final TemporaryFolder temporary = new TemporaryFolder();
 
@@ -47,38 +41,6 @@ public final class HostScriptsTest {
         assertEquals(1, smoke("FAIL").exitCode);
         assertEquals(1, smoke("CANCELLED").exitCode);
         assertEquals(1, smoke("UNKNOWN").exitCode);
-    }
-
-    @Test
-    public void coreApkRequiresEveryNativeLibrary() throws Exception {
-        final var helpers = NATIVE_LIBRARIES;
-        for (final String omitted : helpers) {
-            final Path apk = coreApk(helpers.stream()
-                    .filter(helper -> !helper.equals(omitted)).toList());
-            final var result = run("verify-apks.sh", Map.of(), apk.toString());
-            assertEquals(result.output, 1, result.exitCode);
-            assertTrue(result.output.contains("libmagicdesk_" + omitted + ".so"));
-        }
-        final var result = run("verify-apks.sh", Map.of(), coreApk(helpers).toString());
-        assertEquals(result.output, 0, result.exitCode);
-    }
-
-    @Test
-    public void kernelAddonRejectsPtyHelperToo() throws Exception {
-        final Path addon = temporary.newFile().toPath();
-        try (var zip = new ZipOutputStream(Files.newOutputStream(addon))) {
-            zip.putNextEntry(new ZipEntry("res/raw/dp_mode_reset.ko"));
-            Files.copy(Path.of("..", "kernel-fixes", "src", "main",
-                    "res", "raw", "dp_mode_reset.ko"), zip);
-            zip.closeEntry();
-            zip.putNextEntry(new ZipEntry("lib/arm64-v8a/libmagicdesk_pty_bridge.so"));
-            zip.closeEntry();
-        }
-        final var result = run("verify-apks.sh", Map.of(),
-                coreApk(NATIVE_LIBRARIES)
-                        .toString(), addon.toString());
-        assertEquals(result.output, 1, result.exitCode);
-        assertTrue(result.output.contains("must not contain a shell helper"));
     }
 
     @Test
@@ -292,18 +254,6 @@ public final class HostScriptsTest {
                 .put("report", "Outcome: " + outcome).toString();
         return run("smoke-simulated-display.sh",
                 Map.of("ADB", adb.toString(), "TEST_RESULT", result));
-    }
-
-    private Path coreApk(final List<String> helpers) throws Exception {
-        final Path apk = temporary.newFile().toPath();
-        try (var zip = new ZipOutputStream(Files.newOutputStream(apk))) {
-            for (final String helper : helpers) {
-                zip.putNextEntry(new ZipEntry("lib/arm64-v8a/libmagicdesk_"
-                        + helper + ".so"));
-                zip.closeEntry();
-            }
-        }
-        return apk;
     }
 
     private BoundedProcessRunner.Result run(
