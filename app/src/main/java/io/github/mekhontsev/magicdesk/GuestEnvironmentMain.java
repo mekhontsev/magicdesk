@@ -15,7 +15,7 @@ public final class GuestEnvironmentMain {
             var paths = new RuntimeDataPaths(Path.of(java.util.Objects.requireNonNull(System.getenv("HOME"))));
             var images = new GuestImageTool(Path.of(arguments[0]), paths.temporary());
             GuestLibraryLocation.prepare(root, paths, android.system.Os.getuid(), images);
-            var library = new GuestEnvironmentLibrary(root, images, System.err::println);
+            var library = new GuestEnvironmentLibrary(root, root.equals(paths.linux()), images, System.err::println);
             execute(library, command);
         } catch (Exception error) {
             System.err.println("Shroot environment: " + error.getMessage());
@@ -30,6 +30,8 @@ public final class GuestEnvironmentMain {
             System.out.println("""
                     Shroot: Linux environments through the selected User or Shell executor.
 
+                    shroot --print-library
+                    shroot --library DIR COMMAND [ARGS...]
                     shroot install REPOSITORY[:TAG] --name NAME
                     shroot install PATH --oci|--rootfs --name NAME
                     shroot list | inspect NAME | path NAME

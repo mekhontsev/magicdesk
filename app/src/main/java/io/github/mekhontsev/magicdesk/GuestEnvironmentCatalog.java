@@ -40,38 +40,66 @@ final class GuestEnvironmentCatalog {
 
     static Closeable load(Context context, Loaded loaded) {
         var resources = new OperationResources();
-        var entries = new ArrayList<Entry>();
-        var first = resources.reserve();
-        first.attach(load(context, DesktopExecBackend.APP, (local, localError) -> {
-            entries.addAll(local);
-            if (!ShellAccess.isReady()) { loaded.complete(List.copyOf(entries), localError); return; }
-            var second = resources.reserve();
-            try {
-                second.attach(load(context, DesktopExecBackend.SHELL, (shell, shellError) -> {
-                    entries.addAll(shell);
-                    loaded.complete(List.copyOf(entries), localError != null ? localError : shellError);
-                }));
-            } catch (RuntimeException error) { loaded.complete(List.copyOf(entries), error); }
-        }));
+        var backends = new ArrayList<>(List.of(DesktopExecBackend.APP));
+        if (ShellAccess.isReady()) backends.add(DesktopExecBackend.SHELL);
+        if (TermuxIntegration.isAvailable(context)) backends.add(DesktopExecBackend.TERMUX);
+        loadNext(context, backends.iterator(), resources, new ArrayList<>(), null, loaded);
         return resources;
     }
 
+    private static void loadNext(Context context, java.util.Iterator<DesktopExecBackend> pending,
+            OperationResources resources, List<Entry> entries, Throwable firstError, Loaded loaded) {
+        if (resources.isClosed()) return;
+        if (!pending.hasNext()) { loaded.complete(List.copyOf(entries), firstError); return; }
+        var slot = resources.reserve();
+        Loaded next = (items, error) -> {
+            entries.addAll(items);
+            loadNext(context, pending, resources, entries, firstError == null ? error : firstError, loaded);
+        };
+        try { slot.attach(load(context, pending.next(), true, next)); }
+        catch (RuntimeException error) { next.complete(List.of(), error); }
+    }
+
     static Closeable load(Context context, DesktopExecBackend backend, Loaded loaded) {
-        if (backend == DesktopExecBackend.TERMUX) throw new IllegalArgumentException("Shroot catalog requires User or Shell");
+        return load(context, backend, false, loaded);
+    }
+
+    private static Closeable load(Context context, DesktopExecBackend backend, boolean optional, Loaded loaded) {
+        if (backend == DesktopExecBackend.TERMUX) {
+            var endpoint = TermuxIntegration.inspect(context);
+            var request = TermuxIntegration.runBackgroundShellCommandForResult(context, endpoint,
+                    (optional ? "command -v shroot >/dev/null 2>&1 || { echo '[]'; exit 0; }; " : "")
+                            + "exec shroot list", "Shroot catalog", endpoint.homeDirectory, 15_000,
+                    (result, failure) -> {
+                        if (failure != null || result == null || !result.success()) {
+                            loaded.complete(List.of(), failure != null ? failure : new IOException(
+                                    result == null ? "No Termux catalog result" : result.usefulMessage()));
+                        } else deliver(result.stdout, backend, loaded);
+                    });
+            return () -> TermuxCommandResultReceiver.cancel(request);
+        }
         return new CommandExecution(context, backend).start(command("list", "--json"), "", "Guest catalog", null,
                 (code, output, error) -> {
-                    final List<Entry> entries;
-                    try {
-                        if (error != null) throw new IOException("Cannot read guest catalog", error);
-                        if (code != 0) throw new IOException(output);
-                        entries = parse(output, backend);
-                    } catch (Exception failure) { loaded.complete(List.of(), failure); return; }
-                    loaded.complete(entries, null);
+                    if (error != null || code != 0) loaded.complete(List.of(), error != null ? error : new IOException(output));
+                    else deliver(output, backend, loaded);
                 });
     }
 
+    private static void deliver(String output, DesktopExecBackend backend, Loaded loaded) {
+        List<Entry> entries;
+        try { entries = parse(output, backend); }
+        catch (Exception failure) { loaded.complete(List.of(), failure); return; }
+        loaded.complete(entries, null);
+    }
+
+    static String storeCommand(Entry entry, String operation, String... args) {
+        var words = new ArrayList<>(GuestLaunchPlan.storeCommand(entry.backend(), operation, entry.store()));
+        words.addAll(List.of(args));
+        return String.join(" ", words.stream().map(ShellCommandLine::quote).toList());
+    }
+
     static String login(Entry entry) {
-        return command("image", "login", entry.store());
+        return storeCommand(entry, "login");
     }
     private GuestEnvironmentCatalog() { }
 }

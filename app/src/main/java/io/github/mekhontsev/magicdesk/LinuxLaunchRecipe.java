@@ -22,8 +22,8 @@ final class LinuxLaunchRecipe {
             if (backend == null) throw new IllegalArgumentException("Select an executor");
             if (kind == Kind.PROOT && backend != DesktopExecBackend.TERMUX)
                 throw new IllegalArgumentException("proot-distro requires Termux");
-            if ((kind == Kind.GUEST || kind == Kind.MANAGED_GUEST) && backend == DesktopExecBackend.TERMUX)
-                throw new IllegalArgumentException("Shroot requires MagicDesk or Android Shell");
+            if (kind == Kind.GUEST && backend == DesktopExecBackend.TERMUX)
+                throw new IllegalArgumentException("Unmanaged guest roots require the MagicDesk launcher");
             if (magicDesk && kind == Kind.SCRIPT)
                 throw new IllegalArgumentException("Prepared scripts supply their own command client mapping");
             keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
@@ -131,6 +131,8 @@ final class LinuxLaunchRecipe {
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
         boolean graphical = presentation != Presentation.TERMINAL;
         boolean managed = environment.kind() == Kind.MANAGED_GUEST;
+        if (graphical && environment.backend() == DesktopExecBackend.TERMUX)
+            throw new IllegalArgumentException("Termux Shroot terminal recipes do not host a MagicDesk graphical session");
         String keyboard = environment.keyboardDirectory().isEmpty() ? "guest:" + environment.target() : environment.keyboardDirectory();
         var identity = new GuestEnvironment(environment.target(), managed ? "" : "/tmp", user, managed);
         String cwd = directory.isEmpty() && !managed ? "/" : directory;
@@ -142,7 +144,7 @@ final class LinuxLaunchRecipe {
         plan = new GuestLaunchPlan(plan.environment(), plan.directory(), plan.command(), environment.magicDesk(), plan.network());
         String exec = DesktopExecTemplate.encodeArguments(graphical
                 ? List.of("env", "SHROOT_GUEST_LABEL=" + name, "sh", "-c",
-                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments());
+                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments(environment.backend()));
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(), !graphical)

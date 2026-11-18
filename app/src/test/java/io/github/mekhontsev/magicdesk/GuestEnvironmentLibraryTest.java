@@ -28,15 +28,15 @@ public class GuestEnvironmentLibraryTest {
         @Override public String invoke(String... args) throws Exception {
             commands.add(List.of(args));
             if (failure != null) throw failure;
-            if (args[0].equals("library")) {
+            if (args[0].equals("--library")) {
                 String operation = args[2];
                 if (operation.equals("list")) return new JSONArray(records.values()).toString();
                 if (operation.equals("resolve")) return records.get(args[3]).toString();
                 if (operation.equals("remove")) { records.remove(args[3]); return ""; }
                 if (operation.equals("prune") || operation.equals("backup") || operation.equals("resolver")) return "";
                 if (operation.equals("install") || operation.equals("restore")) {
-                    String source = args[operation.equals("install") ? 4 : 3];
-                    String name = args[operation.equals("install") ? 5 : 4];
+                    String source = args[3];
+                    String name = args[5];
                     records.put(name, new JSONObject().put("name", name).put("id", UUID.randomUUID().toString())
                             .put("image", "").put("source", source)
                             .put("store", Path.of(args[1], "instances", UUID.randomUUID().toString()).toString()));
@@ -61,7 +61,7 @@ public class GuestEnvironmentLibraryTest {
     }
 
     private GuestEnvironmentLibrary library(Path root, Images images) {
-        return new GuestEnvironmentLibrary(root, images, message -> { });
+        return new GuestEnvironmentLibrary(root, true, images, message -> { });
     }
 
     @Test public void delegatesCatalogMutationWithoutTouchingNativeRecords() throws Exception {
@@ -70,21 +70,21 @@ public class GuestEnvironmentLibraryTest {
         var library = library(root, images);
         String source = "/archive with ' spaces.tar";
         var environment = library.install(source, GuestEnvironmentLibrary.SourceKind.ROOTFS, "work", "nameserver 192.0.2.1\n");
-        assertEquals(List.of("library", root.toString(), "install", "rootfs", source, "work",
+        assertEquals(List.of("--library", root.toString(), "install", source, "--name", "work", "--rootfs",
                 "--resolver", "nameserver 192.0.2.1\n"), images.commands.get(0));
-        assertEquals(List.of("library", root.toString(), "resolve", "work"), images.commands.get(1));
+        assertEquals(List.of("--library", root.toString(), "resolve", "work"), images.commands.get(1));
         assertEquals(source, environment.source());
         assertNotEquals(environment.id(), environment.store().getFileName().toString());
         assertEquals(environment, library.list().get(0));
         library.backup("work", Path.of("/backup with spaces.tar.zst"));
-        assertEquals(List.of("library", root.toString(), "backup", "work", "/backup with spaces.tar.zst"),
+        assertEquals(List.of("--library", root.toString(), "backup", "work", "/backup with spaces.tar.zst"),
                 images.commands.get(images.commands.size() - 1));
         library.resolver("work", "nameserver 192.0.2.2\n", true);
-        assertEquals(List.of("library", root.toString(), "resolver", "work", "nameserver 192.0.2.2\n", "--replace"),
+        assertEquals(List.of("--library", root.toString(), "resolver", "work", "nameserver 192.0.2.2\n", "--replace"),
                 images.commands.get(images.commands.size() - 1));
         library.remove("work");
         library.prune();
-        assertEquals(List.of("library", root.toString(), "prune"), images.commands.get(images.commands.size() - 1));
+        assertEquals(List.of("--library", root.toString(), "prune"), images.commands.get(images.commands.size() - 1));
         try (var files = Files.list(root)) { assertEquals(0, files.count()); }
     }
 
@@ -96,6 +96,9 @@ public class GuestEnvironmentLibraryTest {
         assertEquals(0, library.catalog().length());
         assertFalse(Files.exists(root));
         assertTrue(images.commands.isEmpty());
+        images.failure = new IOException("missing explicit library: " + root);
+        var selected = new GuestEnvironmentLibrary(root, false, images, message -> { });
+        assertSame(images.failure, assertThrows(IOException.class, selected::list));
     }
 
     @Test public void nativeErrorsAndLaunchIdentityAreRetained() throws Exception {

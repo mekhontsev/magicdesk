@@ -14,6 +14,24 @@ import org.junit.rules.TemporaryFolder;
 public class GuestRuntimeTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
+    @Test public void printLibraryNeedsNoAndroidRuntimeAndUsesExecutorHome() throws Exception {
+        Path home = temporary.newFolder().toPath();
+        for (List<String> args : List.of(List.of("--print-library"),
+                List.of("--library", "custom path", "--print-library"))) {
+            var command = new java.util.ArrayList<>(List.of("sh", "-c", GuestRuntimeCommand.BODY, "shroot"));
+            command.addAll(args);
+            var builder = new ProcessBuilder(command).redirectErrorStream(true);
+            builder.environment().remove("MAGICDESK_GUEST_HOME");
+            builder.environment().remove("MAGICDESK_COMMAND_APK");
+            builder.environment().put("HOME", home.toString());
+            var process = builder.start();
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(output, 0, process.waitFor());
+            assertEquals((args.size() == 1 ? home.resolve("linux").toString() : "custom path") + "\n", output);
+        }
+        assertFalse(Files.exists(home.resolve("linux")));
+    }
+
     @Test public void publicCommandAndHelpUseShroot() throws Exception {
         assertEquals("shroot", GuestLaunchPlan.TOOL);
         var output = new java.io.ByteArrayOutputStream();

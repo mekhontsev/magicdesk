@@ -17,24 +17,27 @@ final class GuestEnvironmentLibrary {
     enum SourceKind { REGISTRY, OCI, ROOTFS }
     record Environment(String name, String id, String image, String source, Path store) { }
     private final Path root;
+    private final boolean defaultLibrary;
     private final Images images;
     private final Consumer<String> progress;
 
-    GuestEnvironmentLibrary(Path root, Images images, Consumer<String> progress) {
+    GuestEnvironmentLibrary(Path root, boolean defaultLibrary, Images images, Consumer<String> progress) {
         this.root = root.toAbsolutePath().normalize();
+        this.defaultLibrary = defaultLibrary;
         this.images = images;
         this.progress = progress;
     }
 
     private String invoke(String... arguments) throws Exception {
-        var command = new ArrayList<>(List.of("library", root.toString()));
+        var command = new ArrayList<>(List.of("--library", root.toString()));
         command.addAll(List.of(arguments));
         return images.invoke(command.toArray(String[]::new));
     }
 
     Environment install(String source, SourceKind kind, String name, String resolver) throws Exception {
         validateName(name);
-        var arguments = new ArrayList<>(List.of("install", kind.name().toLowerCase(Locale.ROOT), source, name));
+        var arguments = new ArrayList<>(List.of("install", source, "--name", name));
+        if (kind != SourceKind.REGISTRY) arguments.add("--" + kind.name().toLowerCase(Locale.ROOT));
         if (resolver != null) arguments.addAll(List.of("--resolver", resolver));
         progress.accept(invoke(arguments.toArray(String[]::new)));
         return resolve(name);
@@ -137,7 +140,7 @@ final class GuestEnvironmentLibrary {
 
     Environment restore(Path archive, String name) throws Exception {
         validateName(name);
-        progress.accept(invoke("restore", archive.toAbsolutePath().toString(), name));
+        progress.accept(invoke("restore", archive.toAbsolutePath().toString(), "--name", name));
         return resolve(name);
     }
 
@@ -158,7 +161,7 @@ final class GuestEnvironmentLibrary {
 
     List<Environment> list() throws Exception {
         // An unused executor has no library yet. Listing must not create it.
-        if (Files.notExists(root, LinkOption.NOFOLLOW_LINKS)) return List.of();
+        if (defaultLibrary && Files.notExists(root, LinkOption.NOFOLLOW_LINKS)) return List.of();
         JSONArray items = new JSONArray(invoke("list"));
         var result = new ArrayList<Environment>();
         for (int i = 0; i < items.length(); ++i) result.add(environment(items.getJSONObject(i)));

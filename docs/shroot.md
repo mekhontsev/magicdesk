@@ -707,8 +707,12 @@ Instances copy up on mutation. `path NAME` returns the immutable store location;
 Reusing a removed name creates a new identity, never retargets a running launch
 or an existing shortcut.
 
-The default library is `$HOME/linux`;
-`MAGICDESK_GUEST_HOME` selects another executor-accessible executable filesystem.
+In a MagicDesk console the selected executor's default library is `$HOME/linux`.
+Use `shroot --print-library` to see it or `shroot --library DIR list` to
+select another library for one command. `MAGICDESK_GUEST_HOME` can set the
+console default. Changing the directory never changes the executor or moves
+installed environments. The standalone [Shroot CLI](https://github.com/mekhontsev/shroot/blob/develop/library.md)
+uses its own Linux or Termux package default.
 Do not edit its backing files as a normal rootfs: names, hardlinks, metadata and
 shared image ownership belong to the inode store. Use guest commands, explicit
 attachments or backup/restore.
@@ -872,8 +876,17 @@ Import and backup need no execution probe; launching does. See
 
 #### Apps, terminals and automation
 
-Start, the shortcut editor and the terminal environment picker use the same
-default-library catalog as an ordinary Shell CLI invocation. An explicit
+**Terminal sessions > New session > Shroot environments** lists the default
+libraries of the available executors. With Termux integration enabled and the
+standalone `shroot` command installed there, its environments appear alongside
+User and Shell. Choose one to open a login session or inspect its running
+launches. MagicDesk asks Termux to list and open its own stores; no copy or
+cross-UID file access is needed. The shortcut editor also supports terminal
+commands in those environments. For an external Termux:X11 server, see the
+[Shroot library guide](https://github.com/mekhontsev/shroot/blob/develop/library.md#use-termuxx11).
+
+For User and Shell, Start and the shortcut editor use each executor's default
+library. An explicit
 `MAGICDESK_GUEST_HOME` selects another library for that command; it does not
 register that library with Android's application catalog. Use the default library
 for applications intended to appear in Start.

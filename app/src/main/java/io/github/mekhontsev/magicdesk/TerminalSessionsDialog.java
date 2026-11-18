@@ -237,8 +237,10 @@ final class TerminalSessionsDialog {
                                 (dialog, index) -> {
                                     var entry = entries.get(index);
                                     UiDialogs.builder(activity).setTitle(entry.name())
-                                            .setItems(new String[]{activity.getString(R.string.terminal_new), activity.getString(R.string.guest_launches),
-                                                    activity.getString(R.string.guest_install_application)},
+                                            .setItems((entry.backend() == DesktopExecBackend.TERMUX
+                                                    ? java.util.List.of(R.string.terminal_new, R.string.guest_launches)
+                                                    : java.util.List.of(R.string.terminal_new, R.string.guest_launches, R.string.guest_install_application))
+                                                    .stream().map(activity::getString).toArray(String[]::new),
                                                     (action, selected) -> {
                                                         if (selected == 1) GuestLaunchesDialog.show(activity, entry);
                                                         else if (selected == 2) LauncherExportActivity.openEnvironment(activity,entry);

@@ -32,7 +32,11 @@ final class GuestImageTool implements GuestEnvironmentLibrary.Images {
             Runtime.getRuntime().addShutdownHook(cleanup);
             // EVENT_WAIT: native image process exit; timeout cancels this offline operation.
             if (!process.waitFor(1, TimeUnit.HOURS)) throw new IOException("Guest image operation timed out");
-            if (process.exitValue() != 0) throw new IOException("Guest image " + arguments[0] + " failed (exit " + process.exitValue() + ")");
+            if (process.exitValue() != 0) {
+                String operation = arguments[0].equals("--library") && arguments.length >= 3
+                        ? arguments[2] + " in " + arguments[1] : arguments[0];
+                throw new IOException("Guest image " + operation + " failed (exit " + process.exitValue() + ")");
+            }
             return GuestImageFiles.read(output);
         } finally {
             if (process != null && process.isAlive()) cancel(process);

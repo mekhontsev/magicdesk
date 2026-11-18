@@ -31,15 +31,30 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     public List<String> arguments() {
-        var result = new ArrayList<>(launcherArguments());
+        return arguments(DesktopExecBackend.SHELL);
+    }
+
+    List<String> arguments(DesktopExecBackend backend) {
+        var result = new ArrayList<>(launcherArguments(backend));
         result.add("--");
         result.addAll(command);
         return List.copyOf(result);
     }
 
     List<String> launcherArguments() {
+        return launcherArguments(DesktopExecBackend.SHELL);
+    }
+
+    static List<String> storeCommand(DesktopExecBackend backend, String operation, String store) {
+        return backend == DesktopExecBackend.TERMUX ? List.of(TOOL, operation, store)
+                : List.of(TOOL, "image", operation, store);
+    }
+
+    private List<String> launcherArguments(DesktopExecBackend backend) {
+        if (backend == DesktopExecBackend.TERMUX && (!environment.image() || magicDesk))
+            throw new IllegalArgumentException("The standalone Shroot CLI requires a store and no Android command bridge");
         var result = new ArrayList<>(environment.image()
-                ? List.of(TOOL, "image", command.isEmpty() ? "login" : "exec", environment.store())
+                ? storeCommand(backend, command.isEmpty() ? "login" : "exec", environment.store())
                 : List.of(TOOL, "--store", environment.store(), "--home", environment.home()));
         if (!directory.isEmpty()) result.addAll(List.of("--cwd", directory));
         if (environment.image() && !environment.home().isEmpty()) result.addAll(List.of("--env", "HOME=" + environment.home()));
