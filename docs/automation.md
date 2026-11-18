@@ -18,24 +18,15 @@ to launch shell, Termux and Shroot commands through the same execution, terminal
 and graphics services. It has its own Android permission and local opt-in;
 it does not consume MCP grants or expose the automation tool catalog.
 
-- [Local MCP Server](#local-mcp-server)
-- [Permissions](#permissions)
-- [Built-In CLI](#built-in-cli)
-- [Script Dialogs And Notifications](#script-dialogs-and-notifications)
-- [Result Contract](#result-contract)
-- [State and Observation](#state-and-observation)
-- [Display Preparation](#display-preparation)
-- [Control And Tool Commands](#control-and-tool-commands)
-- [Semantic UI Automation](#semantic-ui-automation)
-- [Linux Scope](#linux-scope)
-- [Typed D-Bus](#typed-d-bus)
-- [Appearance](#appearance)
-- [File Transfers and Updates](#file-transfers-and-updates)
-- [Android Integration](#android-integration)
-- [Events and Waits](#events-and-waits)
-- [Security Boundary](#security-boundary)
-- [Android App Functions](#android-app-functions)
-- [Self-Tests](#self-tests)
+| Task | Reference |
+| --- | --- |
+| Connect and authorize a client | [MCP server](#local-mcp-server), [permissions](#permissions), [security boundary](#security-boundary) |
+| Run commands from a script or Android agent | [Built-in CLI](#built-in-cli), [dialogs and notifications](#script-dialogs-and-notifications), [App Functions](#android-app-functions) |
+| Inspect state and wait for an operation | [Result contract](#result-contract), [observation](#state-and-observation), [events and waits](#events-and-waits) |
+| Choose a display or control a tool | [Display preparation](#display-preparation), [tool commands](#control-and-tool-commands), [appearance](#appearance) |
+| Inspect and drive applications | [Semantic UI automation](#semantic-ui-automation), [Linux scope](#linux-scope), [typed D-Bus](#typed-d-bus) |
+| Transfer files or update the app | [File transfers and updates](#file-transfers-and-updates), [Android integration](#android-integration) |
+| Run a managed Desktop self-test | [Self-tests](#self-tests) |
 
 ## Appearance
 

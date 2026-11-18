@@ -66,6 +66,11 @@ do not make it a container security boundary. A guest program can reach Android
 resources allowed to that executor. See [Shroot boundaries](docs/shroot.md#boundaries).
 Only opt trusted programs into the additional MagicDesk command channel.
 
+An [independent Linux APK](docs/linux-applications.md) is different: Android
+assigns the package its own UID and private data. That outer sandbox separates
+it from MagicDesk and other packages; it does not isolate programs from one
+another inside the same APK. Explicit file and display grants still matter.
+
 For ordinary crashes, display compatibility and feature requests, use
 [GitHub issues](https://github.com/mekhontsev/magicdesk/issues) or
 [community support](README.md#community-and-support).

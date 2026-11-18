@@ -2,9 +2,10 @@
 
 Files, Console, Termux and X11/Wayland sessions are shared tools, not
 Desktop-owned services.
-The APK baseline is Android 14; managed Desktop requires Android 15. Tools open
-as ordinary fullscreen Activities on the phone or selected display outside a
-session, and as managed windows on its active display. Service requirements and
+The APK baseline is Android 14; managed Desktop requires Android 15. Independent launches default
+to fullscreen on the phone or selected display. The launcher's explicit
+[window mode](desktop-entries.md#window-modes) can request freeform where the
+firmware supports it; an active Desktop manages windows on its own display. Service requirements and
 unverified API boundaries are in [Runtime API levels](runtime-api-levels.md).
 Implementation boundaries are in [Architecture](architecture.md).
 

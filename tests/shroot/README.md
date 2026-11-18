@@ -5,6 +5,10 @@ command delegation and graphical workflows. Native engine assertions, guest
 payloads and the local executor live in the pinned [`Shroot tests`](../../native/shroot/tests/README.md).
 These drivers import them rather than maintaining a second copy.
 
+Recipe-specific probes live here with their drivers. See [installer and environment workflows](recipe-workflows.md)
+for APK acceptance, and [compositor package adaptation](compositor-adaptation.md)
+for the KWin and Weston experiments.
+
 Run application drivers from this repository:
 
 ```sh

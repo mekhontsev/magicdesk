@@ -13,6 +13,10 @@ fingerprints and reproduction details belong in compatibility reports.
 
 ## Device Coverage
 
+Honor Android 17 / API 37 has a separate [firmware evidence record](honor-vendor-audit.md#evidence-scope).
+Community observations of external windows and resizing are not a complete
+device self-test or verification of local Nubia prototypes on Honor.
+
 | Device | Runtime | Exercised scope |
 | --- | --- | --- |
 | RedMagic 11 Pro NX809J EEA | Android 16 / API 36, build `20260204.221845` | Direct phone/simulated/HDMI/Miracast testing, physical and phone input, recording, HOME lifecycle, task cleanup |
@@ -94,11 +98,11 @@ presence is not a passed desktop or GPU test.
 The [Shroot distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md)
 tracks every installer OS separately: recipe/package setup, init, graphics,
 Docker/Podman, libvirt/QEMU, Flatpak/Snap browsers, portals, desktop applications
-and VS Code. It also adds nspawn, BuildKit, LXC and a small permanent LTP
+and VS Code. It also covers nspawn, BuildKit, LXC, k3s and a focused LTP
 selection. Each scenario retains separate Shroot/Base status; historical or
 partial coverage is not current-build acceptance.
 
-- [ ] Complete [installer acceptance](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md#installer-acceptance)
+- [ ] Complete [installer acceptance](../tests/shroot/recipe-workflows.md#installer-acceptance)
   with the packaged APK and default environment library: download the script,
   configure it interactively, install, Refresh Apps, search in Start and launch.
   Cover individual applications and whole desktops separately. Test-library

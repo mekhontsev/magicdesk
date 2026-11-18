@@ -21,6 +21,11 @@ retired implementation descriptions or step-by-step experiment history; Git
 and run artifacts retain those details. Keep the rationale for current safety
 constraints. Release notes are the dedicated place for version-specific changes.
 
+Document APK packaging, installer recipes, Android services and graphical
+integration here. Link to Shroot for standalone commands, kernel contracts
+and engine qualification. Keep recipe-specific fixture payloads beside their
+MagicDesk drivers; sharing an executor does not make a fixture an engine test.
+
 ## Branch Workflow
 
 Use two permanent branches: `develop` for daily work and external pull requests,

@@ -67,9 +67,9 @@ MagicDesk's local `x11-runtime` module. X11 and Wayland use MagicDesk's shared
 
 ## Guest Runtime SQLite
 
-The experimental native guest filesystem service statically links unmodified
-SQLite 3.51.3. The amalgamation archive and SHA-256 are pinned in
-[`native/shroot/CMakeLists.txt`](https://github.com/mekhontsev/shroot/blob/develop/CMakeLists.txt).
+MagicDesk's packaged Shroot filesystem service statically links unmodified
+SQLite 3.51.3. The amalgamation archive and SHA-256 are pinned in Shroot's
+[SQLite provider definition](https://github.com/mekhontsev/shroot/blob/develop/cmake/SQLite.cmake).
 SQLite is public domain; its dedication is packaged under
 `assets/licenses/guest-images/sqlite.txt`. It is not linked into the bootstrap
 or syscall handler. Debian fixture packages are development inputs and are not

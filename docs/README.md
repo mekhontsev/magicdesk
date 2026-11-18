@@ -51,17 +51,19 @@ The focused contracts remain authoritative for
 [Android API levels](runtime-api-levels.md), [privilege boundaries](privilege-modes.md),
 [fullscreen/focus](fullscreen-transitions.md), [window layout](window-layout.md),
 and [Shroot native internals](https://github.com/mekhontsev/shroot/blob/develop/architecture.md).
-Use [Shroot fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md) for Linux checks and
-the [device validation matrix](testing-backlog.md) for Android coverage and the
-[distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md) for per-OS
-Linux acceptance. Its [evidence ledger](https://github.com/mekhontsev/shroot/blob/develop/tests/distribution-evidence.md)
-keeps exact application receipts separate from the status tables. Desktop
-self-tests do not replace protocol, installer or guest-runtime workflows.
+For verification, choose the owner of the behavior:
+
+| What are you testing? | Where to start |
+| --- | --- |
+| Android tools, displays and managed Desktop | [Device coverage and outstanding checks](testing-backlog.md) |
+| Packaged APK, installer, catalog or graphical sessions | [MagicDesk integration tests](../tests/shroot/README.md) and [recipe workflows](../tests/shroot/recipe-workflows.md) |
+| Standalone native engine | [Shroot fixture guide](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md) |
+| An application on a particular distribution and executor | [Distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md) and [supporting receipts](https://github.com/mekhontsev/shroot/blob/develop/tests/distribution-evidence.md) |
 
 ## Evidence And Project Policy
 
 - [Device-porting workflow](ai-assisted-device-porting.md)
-- [Paused graphics-adaptation research](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md#graphics-adaptation-paused)
+- [KWin and Weston package adaptation: scope, tests and limits](../tests/shroot/compositor-adaptation.md)
 - [Nubia vendor API audit](nubia-vendor-audit.md)
 - [Honor windowing API audit](honor-vendor-audit.md)
 - [Chrome custom-caption investigation](chrome-custom-caption-investigation.md)

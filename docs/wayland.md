@@ -42,7 +42,7 @@ connection, not a shareable endpoint for unrelated clients. Root clients normall
 use a session-owned named endpoint with descriptor admission, described below.
 The launch recipe selects the connection contract through
 `X-MagicDesk-GraphicsConnection`, independently of executor UID. `inherited`
-selects one existing FD; `routed` selects the experimental
+selects one existing FD; `routed` selects the
 [guest runtime's admission endpoint](shroot.md#graphical-connections).
 That endpoint supports independent guest clients under User and Shell: the
 selected executor accepts connections, checks peer UID and transfers connected descriptors
@@ -756,7 +756,7 @@ Recent, managed placement, fullscreen/restore and cancelling a close confirmatio
 GTK clipboard text and file drag-and-drop pass in both directions with Android,
 including PRoot Ubuntu and Alpine chroot recipes with file-content hash verification.
 The chroot GTK client and guest-file helper run as UID 65534; the renderer stays
-under the MagicDesk app UID. `tests/gtk-guest-content.py` provides text/email/PIN
+under the MagicDesk app UID. [The GTK input fixture](../wayland-runtime/tests/gtk-guest-content.py) provides text/email/PIN
 fields, clipboard actions, file drag endpoints and a dependent dialog for these
 checks. Same-session
 drags between Android hosts insert once. The X11 regression covers clipboard and
@@ -782,7 +782,7 @@ to text-input-v3.
 `HostedGuestEditorInstrumentation` exercises a real GTK3 or Qt guest through its Android
 host: composition, Unicode correction, field switching, private PINs, caret geometry,
 IME-inset delivery and a size-constrained dialog. Prepare an independent
-non-phone display and a command launching `tests/gtk-guest-content.py` with the
+non-phone display and a command launching `wayland-runtime/tests/gtk-guest-content.py` with the
 session's Wayland socket available inside the guest, then run:
 
 ```sh

@@ -151,7 +151,7 @@ do not own desktop UI or session state. Runtime composition occurs only in the
 | X11 Android runtime | `x11-runtime/` | Server entry point, Binder connection, JNI and Android renderer adapters |
 | X11 native engine | `vendor/magicdesk-x11/lorie/src/main/cpp/` | X server, protocol and adapters to shared multi-output graphics |
 | Wayland runtime | `wayland-runtime/` | wlroots compositor, protocol state, client admission and Android adapters |
-| Shroot native runtime | `native/shroot/` | Optional ARM64 Linux execution, supervision, inode namespace and OCI image tools under the selected command identity |
+| Shroot native runtime | Pinned [`native/shroot`](https://github.com/mekhontsev/shroot) submodule | Independent ARM64 engine, CLI and C API. The APK packages the native helpers; each launch runs under the selected executor. |
 | Linux environment manager | Native Shroot catalog/API; `GuestEnvironmentLibrary` adapter | Native named stores, verified public OCI acquisition and shared image dependencies; existing PTY/graphics services own launch presentation |
 | Launcher template | `launcher-template/` | Build-time unsigned Activity APK used to export launcher entries; not a standalone product |
 | Linux application template | `guest-template/` | Independent Android UID, private Shroot runtime/store, retained terminal and optional host connections |

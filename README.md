@@ -287,18 +287,11 @@ kernel without Android root, a VM, Termux or PRoot.** Choose **User** to run und
 MagicDesk's app UID without Shizuku, or **Shell** for the authorized command
 service, normally UID 2000. Each executor has its own Linux library.
 
-Shroot is an [independent native project](https://github.com/mekhontsev/shroot)
-for Android and ARM64 Linux, with a CLI and `libshroot` management API. MagicDesk
-adds its consoles, graphical sessions and Android integration. An environment
-can also be exported as an [independent Linux application](docs/linux-applications.md)
-with its own Android UID, native runtime and private data.
-
-User and Shell use the same userspace syscall engine. It supplies supported
-filesystem, credential, namespace and networking interfaces missing from the
-host's kernel configuration or executor permissions. Guest namespaces, mounts
-and virtual network interfaces do not require permission to create their native
-Android counterparts. Shroot neither installs a guest kernel nor changes SELinux;
-Android still enforces the selected executor's host permissions and resource limits.
+MagicDesk supplies the console, audio, graphics and Android integration. The
+[independent Shroot project](https://github.com/mekhontsev/shroot) owns the CLI,
+`libshroot` and the userspace implementation of supported Linux interfaces.
+Guest namespaces and mounts do not require permission to create their Android
+counterparts. Android's permissions and SELinux policy still apply.
 
 **User mode is not limited to lightweight utilities.** Under an ordinary Android
 app UID, Alpine runs stock runc containers, k3s and sandboxed Chromium with
@@ -335,37 +328,20 @@ k3s distribution. See [k3s setup, lifecycle and coverage](docs/shroot.md#k3s).
   </a>
 </p>
 
-Coverage is [per distribution and scenario](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md),
-not a guarantee that every service or package works. Packages come from the guest;
-the installer does not build missing container engines for users. Docker and
-Podman have [documented launch requirements](docs/shroot.md#services-and-containers).
-Logical resource limits remain subject to Android's physical ceilings.
+Check the [distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md)
+for the specific OS, executor and workflow. The installer does not build missing
+container engines. See [Docker and Podman setup](docs/shroot.md#services-and-containers).
 
-Shroot's default lazy SVC entry accelerates eligible calls in unmodified ARM64
-programs, including stock glibc, musl and Go binaries, without changing their
-files. The shared entry checks guest seccomp policy before selecting native
-execution or the appropriate resource owner. Admitted calls use shared-memory
-channels; ptrace remains where actual task context is required. Unsupported
-sites or unavailable policy views use Shroot Base, which can also be selected
-explicitly for diagnosis.
-See [acceleration](docs/shroot.md#syscall-acceleration).
+Shroot requires **Linux 5.15+** and checks the actual host capabilities at guest
+startup. Its default [lazy SVC entry](docs/shroot.md#syscall-acceleration) accelerates
+eligible calls in unmodified ARM64 programs without changing installed files.
+If Shroot cannot start, the other MagicDesk tools remain available.
 
-The minimum kernel is **Linux 5.15**, with actual capability checks under the
-selected executor. Failure leaves independent MagicDesk tools available.
-
-**Shroot's emulated guest boundaries do not isolate untrusted programs sharing
-one host UID.** Guest
-permissions, mount policies, supported Landlock rules and process/IPC separation
-enforce real restrictions. Guest seccomp policy is checked in the accelerated
-entry, with kernel mirrors covering calls outside it; Android's filters still apply.
-Unadapted calls and inherited descriptors retain host authority; logical cgroups
-do not enforce native CPU, memory or device limits. Snap's reduced-confinement
-mode is not AppArmor enforcement. For kernel-enforced separation between whole
-environments, use [independent Linux APKs](#a-linux-distribution-as-its-own-android-app),
-each with its own Android UID and private data. This is application isolation,
-not a VM or hard CPU/memory partition. Use trusted images and programs inside
-each environment.
-See [coverage and limits](docs/shroot.md#coverage-and-limits).
+**Two environments under the same Android UID are not a security boundary for
+untrusted programs.** Guest permissions and application filters enforce supported
+restrictions, but unadapted calls and inherited descriptors retain host authority.
+For Android-enforced separation use [a distribution APK with its own UID](#a-linux-distribution-as-its-own-android-app).
+It is not a VM or a hard CPU/memory partition. See [limits](docs/shroot.md#coverage-and-limits).
 
 #### Performance
 

@@ -89,9 +89,11 @@ Android and retains saved **Recent** entries. Android decides whether each app
 may launch on the destination. Global running-task queries and transfers of
 existing tasks require the privileged service.
 
-Outside Desktop these are ordinary fullscreen Activities. If the destination
-already has a MagicDesk Desktop session, the tools use its managed window path.
-Neither action starts a session implicitly or requires Desktop provisioning.
+Outside managed Desktop, independent launches default to fullscreen. An
+explicit **Window** selection can request freeform on the selected screen
+when Shell and the firmware support it; stock Nubia requires managed Desktop
+for this. A destination with an active Desktop uses its managed window path.
+Opening a tool does not start or provision Desktop.
 
 **User** consoles run under MagicDesk's own app UID without Shizuku or root.
 **Shell** consoles and Files need the authorized privileged service.
@@ -212,8 +214,7 @@ Shell UID 2000 uses `/data/local/tmp/magicdesk/`; Shell with UID 0 uses
 Run resume and management commands with the same executor as the installation.
 Download before executing so the script can read your answers from the terminal; do not pipe it into `sh`.
 For unreleased installer changes, use `develop` with the development APK.
-For the script shipped with a specific release, replace `main` with its tag,
-for example `v2.0.2`.
+To match a specific APK, use its release tag instead of the branch name.
 
 Choose a distribution, environment name, GUI profile, graphics driver,
 compiler job count, language and optional user. Installation and
