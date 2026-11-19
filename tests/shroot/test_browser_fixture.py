@@ -167,7 +167,7 @@ class BrowserBenchmark(unittest.TestCase):
 
     def test_profile_keeps_intervals_and_thread_scopes_separate(self):
         with tempfile.TemporaryDirectory() as work:
-            args = SimpleNamespace(profile=True, output=Path(work))
+            args = SimpleNamespace(profile=True, wait_timeline=False, output=Path(work))
             with mock.patch.object(benchmark.subprocess, 'Popen') as record, \
                     mock.patch.object(benchmark.subprocess, 'run') as report:
                 record.return_value.wait.return_value = 0
@@ -180,6 +180,21 @@ class BrowserBenchmark(unittest.TestCase):
                     self.assertIn('--sort tid,dso,symbol', commands[0])
                     self.assertIn('--tids 123 --children --sort symbol', commands[1])
                     self.assertTrue(all(row['samplingProfile'] in command for command in commands))
+
+    def test_wait_timeline_counts_only_the_supervisor_and_delivered_statuses(self):
+        with tempfile.TemporaryDirectory() as work:
+            args = SimpleNamespace(profile=False, wait_timeline=True, output=Path(work))
+            with mock.patch.object(benchmark.subprocess, 'Popen') as record:
+                record.return_value.wait.return_value = 0
+                for ident, seconds in (('run-idle', 10), ('run', 25)):
+                    row = {}
+                    with benchmark.sample_profile(args, row, 123, ident, seconds):
+                        cmd = benchmark.shlex.split(record.call_args.args[0][-1])
+                    self.assertEqual(cmd[1:5], ['stat', '-t', '123', '--no-inherit'])
+                    self.assertEqual(cmd[cmd.index('--tp-filter')+1], 'id == 260 && ret > 0')
+                    self.assertIn('task-clock,context-switches', cmd)
+                    self.assertEqual(cmd[cmd.index('--duration')+1], str(seconds))
+                    self.assertEqual(Path(row['waitTimelineCsv']).name, 'wait-' + ident + '.csv')
 
     def test_cdp_events_do_not_replace_the_exact_reply(self):
         protocol = self.protocol([dict(method='Page.loadEventFired'),

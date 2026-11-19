@@ -229,15 +229,7 @@ def instrumentation(args, state=None):
 
 
 @contextmanager
-def sample_profile(args, row, pid, ident, seconds):
-    if not args.profile:
-        yield
-        return
-    target = (args.output / ('profile-' + ident)).resolve()
-    command = ['/system/bin/simpleperf', 'record', '-p', str(pid), '--no-inherit',
-               '-e', 'cpu-clock', '-f', '499', '--call-graph', 'fp',
-               '--duration', str(seconds), '--exit-with-parent', '-o', str(target) + '.data']
-    row['samplingProfile'] = str(target) + '.data'
+def host_measurement(command, target, seconds):
     with Path(str(target) + '.log').open('w') as log:
         process = subprocess.Popen(['su', '-c', shlex.join(command)], stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -250,6 +242,31 @@ def sample_profile(args, row, pid, ident, seconds):
                 process.wait(timeout=10)
                 raise
             assert result == 0, 'Profiler failed: ' + str(target) + '.log'
+
+
+@contextmanager
+def sample_profile(args, row, pid, ident, seconds):
+    if args.wait_timeline:
+        target = (args.output / ('wait-' + ident)).resolve()
+        row['waitTimelineCsv'] = str(target) + '.csv'
+        # ARM64 wait4 is syscall 260; only a positive return delivers a child status.
+        command = ['/system/bin/simpleperf', 'stat', '-t', str(pid), '--no-inherit',
+                   '--csv', '--interval', '500', '-e', 'task-clock,context-switches',
+                   '-e', 'raw_syscalls:sys_exit', '--tp-filter', 'id == 260 && ret > 0',
+                   '--duration', str(seconds), '-o', row['waitTimelineCsv']]
+        with host_measurement(command, target, seconds):
+            yield
+        return
+    if not args.profile:
+        yield
+        return
+    target = (args.output / ('profile-' + ident)).resolve()
+    command = ['/system/bin/simpleperf', 'record', '-p', str(pid), '--no-inherit',
+               '-e', 'cpu-clock', '-f', '499', '--call-graph', 'fp',
+               '--duration', str(seconds), '--exit-with-parent', '-o', str(target) + '.data']
+    row['samplingProfile'] = str(target) + '.data'
+    with host_measurement(command, target, seconds):
+        yield
     for suffix, options in (('.txt', ['--sort', 'tid,dso,symbol']),
                             ('-supervisor.txt', ['--tids', str(pid), '--children', '--sort', 'symbol'])):
         with Path(str(target) + suffix).open('w') as report:
@@ -480,7 +497,10 @@ def main():
     parser.add_argument('--rounds', type=int, default=2)
     parser.add_argument('--statistics', action='store_true', help='Instrumented admission proof, not timing baseline')
     parser.add_argument('--diagnostics', action='store_true', help='Detailed runtime transitions, not timing baseline')
-    parser.add_argument('--profile', action='store_true', help='Profile the selected intervals with simpleperf, not a timing baseline')
+    observation = parser.add_mutually_exclusive_group()
+    observation.add_argument('--profile', action='store_true', help='Profile the selected intervals with simpleperf, not a timing baseline')
+    observation.add_argument('--wait-timeline', action='store_true',
+                             help='Count supervisor CPU time, context switches and delivered child statuses together')
     parser.add_argument('--modes', nargs='+', choices=('base', 'lazy'), default=['base', 'lazy'])
     FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
@@ -519,7 +539,7 @@ def main():
     thread.start()
     report = dict(videoSha256=hashlib.sha256(video).hexdigest() if args.video else None,
                   url=args.url, executor=args.executor,
-                  **runtime, profile=args.profile,
+                  **runtime, profile=args.profile, waitTimeline=args.wait_timeline,
                   samples=[], passed=False)
     try:
         for index in range(args.rounds):

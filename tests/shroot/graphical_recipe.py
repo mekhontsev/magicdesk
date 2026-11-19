@@ -13,6 +13,7 @@ def compile_recipe(classes):
              'GuestEnvironment', 'GuestNetworkProfile', 'GraphicalProtocol', 'ShellCommandLine',
              'LinuxAudioEnvironment', 'GamepadWire')
     sources = [Path(__file__).with_name('GraphicalRecipe.java'),
+               repo / 'connection-runtime/src/main/java/io/github/mekhontsev/magicdesk/LinuxConnectionContract.java',
                *(repo / 'app/src/main/java/io/github/mekhontsev/magicdesk' / (name + '.java')
                  for name in names)]
     classes.mkdir(parents=True, exist_ok=True)

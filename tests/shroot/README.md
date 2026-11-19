@@ -60,3 +60,7 @@ Add `--profile` for separate simpleperf recordings of each requested interval.
 The `-supervisor.txt` reports distinguish inclusive and self cost on the main
 thread; the other text reports show self cost across the process's threads.
 Do not use profiled runs as the timing baseline.
+Use `--wait-timeline` instead to record cumulative CPU milliseconds, context
+switches and delivered `wait4` statuses for the supervisor TID every 500 ms.
+Difference consecutive CSV rows using their actual elapsed times; an empty wait
+is not a delivered status. Recording requires host tracepoint access.

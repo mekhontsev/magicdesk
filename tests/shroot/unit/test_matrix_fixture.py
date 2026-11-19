@@ -40,6 +40,15 @@ with patch.object(sys, 'path', [str(LAB), str(LAB / 'fixtures'), *sys.path]):
 
 
 class MatrixFixtureTest(unittest.TestCase):
+    def test_graphical_recipe_runs_on_the_host_jdk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            installed_desktop.compile_recipe(Path(directory))
+            argv = ['java', '-cp', directory, 'io.github.mekhontsev.magicdesk.GraphicalRecipe',
+                    'managed', 'wayland', '/test/store', '/usr/bin/true']
+            recipe = subprocess.check_output(argv, text=True, timeout=10)
+            self.assertIn('/test/store', recipe)
+            self.assertIn('/tmp/magicdesk-wayland/wayland-0', recipe)
+
     @unittest.skipUnless(sys.platform != 'win32' and shutil.which('bash'), 'POSIX guest command execution')
     def test_session_commands_have_stdin_without_inheriting_controller_input(self):
         driver = '''
