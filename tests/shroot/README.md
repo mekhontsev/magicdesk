@@ -64,3 +64,5 @@ Use `--wait-timeline` instead to record cumulative CPU milliseconds, context
 switches and delivered `wait4` statuses for the supervisor TID every 500 ms.
 Difference consecutive CSV rows using their actual elapsed times; an empty wait
 is not a delivered status. Recording requires host tracepoint access.
+Use `--wait-profile` to distinguish empty, successful and failed waits by
+their return value and supervisor call site in a bounded simpleperf recording.

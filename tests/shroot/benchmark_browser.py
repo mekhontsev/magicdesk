@@ -45,7 +45,7 @@ input.addEventListener('input',()=>{const start=performance.now();
  requestAnimationFrame(()=>window.inputTimes.push(performance.now()-start));});
 window.snapshot=()=>{const q=video.getVideoPlaybackQuality();return {
  frames:q.totalVideoFrames,dropped:q.droppedVideoFrames,presented:window.framesSeen,
- width:video.videoWidth,height:video.videoHeight,paused:video.paused,
+ width:video.videoWidth,height:video.videoHeight,paused:video.paused,muted:video.muted,volume:video.volume,
  ready:video.readyState,error:video.error?.message||'',inputs:input.value.length,
  inputTimes:[...window.inputTimes],time:video.currentTime}};
 </script>'''
@@ -68,7 +68,7 @@ function install(){
   requestAnimationFrame(()=>times.push(performance.now()-t))});
  window.snapshot=()=>{const q=video.getVideoPlaybackQuality();return {
   frames:q.totalVideoFrames,dropped:q.droppedVideoFrames,presented:frames,
-  width:video.videoWidth,height:video.videoHeight,paused:video.paused,
+  width:video.videoWidth,height:video.videoHeight,paused:video.paused,muted:video.muted,volume:video.volume,
   ready:video.readyState,error:video.error?.message||'',inputs:input.value.length,
   inputTimes:[...times],time:video.currentTime,source:video.currentSrc,
   title:document.title,advertisement:!!document.querySelector('.ad-showing')}};
@@ -246,6 +246,20 @@ def host_measurement(command, target, seconds):
 
 @contextmanager
 def sample_profile(args, row, pid, ident, seconds):
+    if args.wait_profile:
+        target = (args.output / ('wait-' + ident)).resolve()
+        row['waitProfile'] = str(target) + '.data'
+        # The ARM64 libc syscall stub has no frame. Its live LR identifies
+        # the exact wait path even when an FP stack skips the caller.
+        # Bound the trace itself: Android can record every tracepoint hit.
+        command = ['/system/bin/simpleperf', 'record', '-t', str(pid), '--no-inherit',
+                   '-e', 'raw_syscalls:sys_exit', '--tp-filter', 'id == 260',
+                   '--call-graph', 'dwarf,64', '--no-unwind', '--size-limit', '16M',
+                   '--duration', str(seconds), '--exit-with-parent',
+                   '-o', row['waitProfile']]
+        with host_measurement(command, target, seconds):
+            yield
+        return
     if args.wait_timeline:
         target = (args.output / ('wait-' + ident)).resolve()
         row['waitTimelineCsv'] = str(target) + '.csv'
@@ -499,6 +513,8 @@ def main():
     parser.add_argument('--diagnostics', action='store_true', help='Detailed runtime transitions, not timing baseline')
     observation = parser.add_mutually_exclusive_group()
     observation.add_argument('--profile', action='store_true', help='Profile the selected intervals with simpleperf, not a timing baseline')
+    observation.add_argument('--wait-profile', action='store_true',
+                             help='Capture a bounded slice of supervisor wait4 results and ARM64 caller addresses')
     observation.add_argument('--wait-timeline', action='store_true',
                              help='Count supervisor CPU time, context switches and delivered child statuses together')
     parser.add_argument('--modes', nargs='+', choices=('base', 'lazy'), default=['base', 'lazy'])
@@ -539,7 +555,7 @@ def main():
     thread.start()
     report = dict(videoSha256=hashlib.sha256(video).hexdigest() if args.video else None,
                   url=args.url, executor=args.executor,
-                  **runtime, profile=args.profile, waitTimeline=args.wait_timeline,
+                  **runtime, profile=args.profile, waitTimeline=args.wait_timeline, waitProfile=args.wait_profile,
                   samples=[], passed=False)
     try:
         for index in range(args.rounds):

@@ -167,7 +167,7 @@ class BrowserBenchmark(unittest.TestCase):
 
     def test_profile_keeps_intervals_and_thread_scopes_separate(self):
         with tempfile.TemporaryDirectory() as work:
-            args = SimpleNamespace(profile=True, wait_timeline=False, output=Path(work))
+            args = SimpleNamespace(profile=True, wait_timeline=False, wait_profile=False, output=Path(work))
             with mock.patch.object(benchmark.subprocess, 'Popen') as record, \
                     mock.patch.object(benchmark.subprocess, 'run') as report:
                 record.return_value.wait.return_value = 0
@@ -183,7 +183,7 @@ class BrowserBenchmark(unittest.TestCase):
 
     def test_wait_timeline_counts_only_the_supervisor_and_delivered_statuses(self):
         with tempfile.TemporaryDirectory() as work:
-            args = SimpleNamespace(profile=False, wait_timeline=True, output=Path(work))
+            args = SimpleNamespace(profile=False, wait_timeline=True, wait_profile=False, output=Path(work))
             with mock.patch.object(benchmark.subprocess, 'Popen') as record:
                 record.return_value.wait.return_value = 0
                 for ident, seconds in (('run-idle', 10), ('run', 25)):
@@ -195,6 +195,20 @@ class BrowserBenchmark(unittest.TestCase):
                     self.assertIn('task-clock,context-switches', cmd)
                     self.assertEqual(cmd[cmd.index('--duration')+1], str(seconds))
                     self.assertEqual(Path(row['waitTimelineCsv']).name, 'wait-' + ident + '.csv')
+
+    def test_wait_profile_keeps_negative_results_and_the_syscall_caller(self):
+        with tempfile.TemporaryDirectory() as work:
+            args = SimpleNamespace(profile=False, wait_timeline=False, wait_profile=True, output=Path(work))
+            with mock.patch.object(benchmark.subprocess, 'Popen') as record:
+                record.return_value.wait.return_value = 0
+                row = {}
+                with benchmark.sample_profile(args, row, 123, 'video', 20):
+                    cmd = benchmark.shlex.split(record.call_args.args[0][-1])
+                self.assertEqual(cmd[1:5], ['record', '-t', '123', '--no-inherit'])
+                self.assertEqual(cmd[cmd.index('--tp-filter')+1], 'id == 260')
+                self.assertIn('--no-unwind', cmd)
+                self.assertIn('--size-limit', cmd)
+                self.assertEqual(cmd[-1], row['waitProfile'])
 
     def test_cdp_events_do_not_replace_the_exact_reply(self):
         protocol = self.protocol([dict(method='Page.loadEventFired'),
