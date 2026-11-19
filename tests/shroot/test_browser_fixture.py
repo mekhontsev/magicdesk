@@ -36,6 +36,28 @@ class InstalledDesktopConnections(unittest.TestCase):
 
 
 class BrowserBenchmark(unittest.TestCase):
+    def test_retained_session_owns_executor_unless_explicitly_matched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            session = directory / 'session.json'
+            argv = ['benchmark', '--desktop-session', str(session), '--url', 'http://localhost/',
+                    '--output', tmp]
+            for mode in ('app', 'shell'):
+                session.write_text(json.dumps({'executor': {'mode': mode}, 'environment': {'store': 'fixture'}}))
+                for selected in (None, mode, 'local'):
+                    with self.subTest(mode=mode, selected=selected), \
+                            mock.patch.dict(os.environ, SHROOT_TEST_EXECUTOR='local'), \
+                            mock.patch.object(sys, 'argv', argv + (['--executor', selected] if selected else [])), \
+                            mock.patch.object(benchmark.FixtureExecutor, 'connect', side_effect=RuntimeError('connected')) as connect:
+                        if selected == 'local':
+                            with self.assertRaisesRegex(ValueError, 'executor cannot be changed'):
+                                benchmark.main()
+                            connect.assert_not_called()
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, 'connected'):
+                                benchmark.main()
+                            self.assertEqual(connect.call_args.args[1], mode)
+
     def test_debug_endpoint_does_not_enable_automation_control(self):
         args = SimpleNamespace(desktop_session=None, output=Path('unused'), build=None,
             executor='app', store='store', browser_arg=[], statistics=False, diagnostics=False,
@@ -47,7 +69,7 @@ class BrowserBenchmark(unittest.TestCase):
                 mock.patch.object(benchmark, 'port', return_value=54321), \
                 mock.patch.object(benchmark, 'Server', side_effect=RuntimeError('launch receipt')) as server:
             with self.assertRaisesRegex(RuntimeError, 'launch receipt'):
-                benchmark.run(args, 'http://127.0.0.1/', 'lazy', 0)
+                benchmark.run(args, 'http://127.0.0.1/', 'lazy', 0, None)
         command = server.call_args.args[1]
         self.assertIn('--remote-debugging-address=127.0.0.1', command)
         self.assertEqual([arg for arg in command if arg.startswith('--remote-debugging-port=')],
@@ -66,7 +88,7 @@ class BrowserBenchmark(unittest.TestCase):
         suite.command.side_effect = [RuntimeError('launch failed'), RuntimeError('cleanup failed')]
         with mock.patch.object(benchmark, 'Suite', return_value=suite):
             with self.assertRaisesRegex(RuntimeError, 'cleanup failed'):
-                benchmark.run(args, 'http://127.0.0.1/', 'lazy', 0)
+                benchmark.run(args, 'http://127.0.0.1/', 'lazy', 0, None)
         row = suite.report['browserVideo']
         self.assertFalse(row['passed'])
         self.assertFalse(suite.report['passed'])

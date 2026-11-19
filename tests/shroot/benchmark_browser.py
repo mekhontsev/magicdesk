@@ -345,13 +345,12 @@ def display_clocks(client):
                           for display in snapshot.get('displays', [])])
 
 
-def run(args, server_url, mode, index):
-    state = json.loads(args.desktop_session.read_text()) if args.desktop_session else None
+def run(args, server_url, mode, index, state):
     suite = Suite(args.output, None if state else args.build, executor=args.executor, session=state)
     profile = ('/home/' + state['user'] + '/.var/app/' + args.flatpak + '/cache/' if state
                else '/tmp/') + 'md-video-' + suite.report['id']
     worker = protocol = session = None
-    row = dict(mode=mode, round=index, passed=False, profile=profile, browserArguments=args.browser_arg,
+    row = dict(mode=mode, round=index, executor=suite.executor.mode, passed=False, profile=profile, browserArguments=args.browser_arg,
                **instrumentation(args, state))
     suite.report['browserVideo'] = row
     launch_started = time.monotonic()
@@ -519,6 +518,8 @@ def main():
                              help='Count supervisor CPU time, context switches and delivered child statuses together')
     parser.add_argument('--modes', nargs='+', choices=('base', 'lazy'), default=['base', 'lazy'])
     FixtureExecutor.add_argument(parser)
+    # Suite inherits a retained session's identity; only an explicit CLI choice constrains it.
+    parser.set_defaults(executor=None)
     args = parser.parse_args()
     if not 0 <= args.idle_seconds <= 120 or (args.idle_seconds and not args.desktop_session):
         parser.error('--idle-seconds requires a retained desktop and a duration of 0 to 120 seconds')
@@ -560,7 +561,8 @@ def main():
     try:
         for index in range(args.rounds):
             for mode in (args.modes if index%2 == 0 else reversed(args.modes)):
-                row = run(args, args.url or f'http://127.0.0.1:{server.server_port}/', mode, index)
+                row = run(args, args.url or f'http://127.0.0.1:{server.server_port}/', mode, index, state)
+                report['executor'] = row['executor']
                 report['samples'].append(row)
                 brief = {k:v for k,v in row.items() if k not in
                          ('idle','cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}
