@@ -43,7 +43,7 @@ video.requestVideoFrameCallback(frame);
 input.addEventListener('input',()=>{const start=performance.now();
  document.getElementById('echo').textContent=input.value;
  requestAnimationFrame(()=>window.inputTimes.push(performance.now()-start));});
-window.snapshot=()=>{const q=video.getVideoPlaybackQuality();return {
+window.shrootSnapshot=()=>{const q=video.getVideoPlaybackQuality();return {probeId:String(performance.timeOrigin),
  frames:q.totalVideoFrames,dropped:q.droppedVideoFrames,presented:window.framesSeen,
  width:video.videoWidth,height:video.videoHeight,paused:video.paused,muted:video.muted,volume:video.volume,
  ready:video.readyState,error:video.error?.message||'',inputs:input.value.length,
@@ -52,29 +52,42 @@ window.snapshot=()=>{const q=video.getVideoPlaybackQuality();return {
 
 # Live pages retain their player and sandbox. The small fixture input measures
 # renderer responsiveness without depending on a site's search-box markup.
-LIVE_PROBE = '''(()=>{
-const observer=new MutationObserver(install);
-function install(){
+LIVE_PROBE = '''if(window===window.top)window.shrootPrepareVideo=()=>{
  const video=document.querySelector('video');
  if(!video||!document.body)return;
- observer.disconnect();
+ if(video===window.shrootVideo&&window.shrootInput?.isConnected)return;
+ window.shrootInput?.remove();
+ const generation=window.shrootProbeGeneration=(window.shrootProbeGeneration||0)+1;
+ const probeId=performance.timeOrigin+':'+generation;
  const input=document.createElement('input');input.id='shroot-benchmark-input';
  input.style.cssText='position:fixed;bottom:0;left:0;width:160px;z-index:2147483647';
  document.body.append(input);window.shrootInput=input;window.shrootVideo=video;
  let frames=0;const times=[];
- function frame(){frames++;video.requestVideoFrameCallback(frame)}
+ function frame(){if(generation===window.shrootProbeGeneration&&video.isConnected){frames++;video.requestVideoFrameCallback(frame)}}
  video.requestVideoFrameCallback(frame);
  input.addEventListener('input',()=>{const t=performance.now();
   requestAnimationFrame(()=>times.push(performance.now()-t))});
- window.snapshot=()=>{const q=video.getVideoPlaybackQuality();return {
+ window.shrootSnapshot=()=>{if(!video.isConnected||!input.isConnected)return null;
+  const q=video.getVideoPlaybackQuality();return {probeId,
   frames:q.totalVideoFrames,dropped:q.droppedVideoFrames,presented:frames,
   width:video.videoWidth,height:video.videoHeight,paused:video.paused,muted:video.muted,volume:video.volume,
   ready:video.readyState,error:video.error?.message||'',inputs:input.value.length,
   inputTimes:[...times],time:video.currentTime,source:video.currentSrc,
   title:document.title,advertisement:!!document.querySelector('.ad-showing')}};
-}
-observer.observe(document,{childList:true,subtree:true});install();
-})()'''
+}'''
+
+# Reject the DevTools promise if sampling throws after the frame arrives.
+SNAPSHOT = 'window.shrootSnapshot?.() ?? null'
+FRAME_SNAPSHOT = 'new Promise(resolve=>requestAnimationFrame(resolve)).then(()=>(' + SNAPSHOT + '))'
+
+
+def require_same_video(first, current):
+    if not current:
+        raise AssertionError('Video probe unavailable during measurement (document or player replaced)')
+    for key in ('probeId', 'source'):
+        if first.get(key) != current.get(key):
+            raise AssertionError(f'Video {key} changed during measurement: {first.get(key)} -> {current.get(key)}')
+    return current
 
 
 class ProtocolError(AssertionError):
@@ -150,10 +163,11 @@ def wait_video(protocol, session):
     while time.monotonic() < deadline:
         try:
             last = protocol.evaluate('''(()=>{
+window.shrootPrepareVideo?.();
 const input=window.shrootInput||document.getElementById('input');
 const video=window.shrootVideo||document.getElementById('video');
-if(typeof window.snapshot!=='function'||!input?.isConnected||!video?.isConnected)return null;
-const state=snapshot();
+if(!input?.isConnected||!video?.isConnected)return null;
+const state=window.shrootSnapshot?.();if(!state)return null;
 if(state.presented>=30&&!state.paused&&state.ready>=3)input.focus();
 return state;
 })()''', session)
@@ -161,7 +175,7 @@ return state;
                 assert not last['error'], last
                 if (last['presented'] >= 30 and not last['paused'] and last['ready'] >= 3
                         and not last.get('advertisement')):
-                    return
+                    return last
                 if last['paused']:
                     protocol.evaluate('(window.shrootVideo||document.getElementById("video"))?.play();true',
                                       session, user_gesture=True)
@@ -345,13 +359,15 @@ def display_clocks(client):
                           for display in snapshot.get('displays', [])])
 
 
-def run(args, server_url, mode, index, state):
+def run(args, server_url, mode, index, state, row=None):
     suite = Suite(args.output, None if state else args.build, executor=args.executor, session=state)
     profile = ('/home/' + state['user'] + '/.var/app/' + args.flatpak + '/cache/' if state
                else '/tmp/') + 'md-video-' + suite.report['id']
     worker = protocol = session = None
-    row = dict(mode=mode, round=index, executor=suite.executor.mode, passed=False, profile=profile, browserArguments=args.browser_arg,
-               **instrumentation(args, state))
+    if row is None:
+        row = {}
+    row.update(mode=mode, round=index, executor=suite.executor.mode, passed=False, profile=profile,
+               browserArguments=args.browser_arg, **instrumentation(args, state))
     suite.report['browserVideo'] = row
     launch_started = time.monotonic()
     try:
@@ -411,11 +427,11 @@ def run(args, server_url, mode, index, state):
         row['url'] = server_url
         protocol.call('Page.navigate', dict(url=server_url), session)
         protocol.call('Page.bringToFront', session=session)
-        wait_video(protocol, session)
+        ready = wait_video(protocol, session)
         row['videoReadySeconds'] = time.monotonic()-navigated
         with sample_profile(args, row, pid, suite.report['id'], args.seconds), observe_cpu(host) as cpu:
             before = threads(pid)
-            first = protocol.evaluate('snapshot()', session)
+            first = require_same_video(ready, protocol.evaluate(SNAPSHOT, session))
             start = time.monotonic()
             latencies = []
             timeline = []
@@ -425,13 +441,13 @@ def run(args, server_url, mode, index, state):
                 threading.Event().wait(max(0, start+count-time.monotonic()))
                 sent = time.monotonic()
                 protocol.call('Input.insertText', dict(text='x'), session)
-                value = protocol.evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve(snapshot())))', session)
+                value = require_same_video(first, protocol.evaluate(FRAME_SNAPSHOT, session))
                 assert value['inputs'] == count+1, value
                 latencies.append((time.monotonic()-sent)*1000)
                 timeline.append(dict(seconds=sent-start, inputRoundTripMs=latencies[-1],
                                      video={key:item for key,item in value.items() if key != 'inputTimes'}))
             threading.Event().wait(max(0, start+args.seconds-time.monotonic()))
-            last = protocol.evaluate('snapshot()', session)
+            last = require_same_video(first, protocol.evaluate(SNAPSHOT, session))
             elapsed = time.monotonic()-start
             after = threads(pid)
         row['hostDisplaysAfter'] = display_clocks(suite.client)
@@ -460,6 +476,7 @@ def run(args, server_url, mode, index, state):
             try:
                 row['failedPage'] = protocol.evaluate('({url:location.href,title:document.title,'
                     'visibility:document.visibilityState,focused:document.hasFocus(),'
+                    'video:(()=>{try{return window.shrootSnapshot?.()??null}catch(e){return {snapshotError:String(e)}}})(),'
                     'playerError:String(document.getElementById("movie_player")?.getVideoStats?.()?.debug_error||"").slice(0,3000),'
                     'text:document.body?.innerText.slice(0,3000)})', session)
                 row['screenshot'] = save_page(protocol, session, args.output, suite.report['id'])
@@ -561,9 +578,14 @@ def main():
     try:
         for index in range(args.rounds):
             for mode in (args.modes if index%2 == 0 else reversed(args.modes)):
-                row = run(args, args.url or f'http://127.0.0.1:{server.server_port}/', mode, index, state)
-                report['executor'] = row['executor']
+                row = dict(mode=mode, round=index, passed=False)
                 report['samples'].append(row)
+                try:
+                    run(args, args.url or f'http://127.0.0.1:{server.server_port}/', mode, index, state, row)
+                except Exception as error:
+                    row.setdefault('error', repr(error))
+                    raise
+                report['executor'] = row['executor']
                 brief = {k:v for k,v in row.items() if k not in
                          ('idle','cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}
                 if 'idle' in row:

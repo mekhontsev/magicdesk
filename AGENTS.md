@@ -13,6 +13,16 @@ through their shared owner where appropriate, and add focused regression tests.
 Do not treat the original reproduction passing as proof that related paths are
 correct; report any applicable paths that remain unverified.
 
+## Performance Work
+
+Trace work back to the operation that produced it. Before tuning a queue,
+poll or IPC round trip, ask whether the caller can finish locally with the
+state and authority it already has. Delegate only the part that needs another
+owner. Apply the rule by operation and capability, not by application name.
+Measure the complete workload, including its helpers: reducing one thread's
+CPU by moving work elsewhere is not a win. Check latency and user-visible
+results as well as CPU.
+
 ## Documentation
 
 Keep maintained Markdown focused on current behavior, ownership, limitations,

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import socket
 import subprocess
 import sys
@@ -36,6 +37,32 @@ class InstalledDesktopConnections(unittest.TestCase):
 
 
 class BrowserBenchmark(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'requires a JavaScript runtime')
+    def test_frame_snapshot_rejects_sampling_errors(self):
+        script = '''
+            import assert from 'node:assert/strict';
+            let frame;
+            globalThis.requestAnimationFrame = callback => { frame = callback };
+            globalThis.window = globalThis;
+            globalThis.shrootSnapshot = () => { throw new Error('sampling failed') };
+            const pending = ''' + benchmark.FRAME_SNAPSHOT + ''';
+            frame(123);
+            await assert.rejects(pending, /sampling failed/);
+            globalThis.shrootSnapshot = () => ({inputs: 1});
+            const next = ''' + benchmark.FRAME_SNAPSHOT + ''';
+            frame(456);
+            assert.deepEqual(await next, {inputs: 1});
+        '''
+        subprocess.run(['node', '--input-type=module', '-e', script], check=True, timeout=10)
+
+    def test_measurement_never_combines_documents_or_players(self):
+        first = dict(probeId='page:1', source='player-a', frames=10)
+        for current in (None, dict(first, probeId='page:2'), dict(first, source='player-b')):
+            with self.subTest(current=current), self.assertRaises(AssertionError):
+                benchmark.require_same_video(first, current)
+        last = dict(first, frames=20)
+        self.assertEqual(benchmark.require_same_video(first, last), last)
+
     def test_retained_session_owns_executor_unless_explicitly_matched(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
@@ -57,6 +84,11 @@ class BrowserBenchmark(unittest.TestCase):
                             with self.assertRaisesRegex(RuntimeError, 'connected'):
                                 benchmark.main()
                             self.assertEqual(connect.call_args.args[1], mode)
+                        summary = json.loads((directory / 'summary.json').read_text())
+                        self.assertFalse(summary['passed'])
+                        self.assertEqual(len(summary['samples']), 1)
+                        self.assertFalse(summary['samples'][0]['passed'])
+                        self.assertIn('error', summary['samples'][0])
 
     def test_debug_endpoint_does_not_enable_automation_control(self):
         args = SimpleNamespace(desktop_session=None, output=Path('unused'), build=None,
