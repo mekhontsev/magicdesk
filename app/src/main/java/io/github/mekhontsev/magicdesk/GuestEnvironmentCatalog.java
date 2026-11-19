@@ -93,7 +93,7 @@ final class GuestEnvironmentCatalog {
     }
 
     static String storeCommand(Entry entry, String operation, String... args) {
-        var words = new ArrayList<>(GuestLaunchPlan.storeCommand(entry.backend(), operation, entry.store()));
+        var words = new ArrayList<>(entry.backend().shrootCli().storeCommand(operation, entry.store()));
         words.addAll(List.of(args));
         return String.join(" ", words.stream().map(ShellCommandLine::quote).toList());
     }

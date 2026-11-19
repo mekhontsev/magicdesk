@@ -8,6 +8,14 @@ import java.util.Objects;
 public record GuestLaunchPlan(GuestEnvironment environment, String directory, List<String> command, boolean magicDesk,
         GuestNetworkProfile network) {
     public static final String TOOL = "shroot";
+    enum Cli {
+        MAGICDESK, STANDALONE;
+
+        List<String> storeCommand(String operation, String store) {
+            return this == STANDALONE ? List.of(TOOL, operation, store)
+                    : List.of(TOOL, "image", operation, store);
+        }
+    }
     public GuestLaunchPlan(GuestEnvironment environment, String directory, List<String> command) {
         this(environment, directory, command, false);
     }
@@ -31,30 +39,25 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     public List<String> arguments() {
-        return arguments(DesktopExecBackend.SHELL);
+        return arguments(Cli.MAGICDESK);
     }
 
-    List<String> arguments(DesktopExecBackend backend) {
-        var result = new ArrayList<>(launcherArguments(backend));
+    List<String> arguments(Cli cli) {
+        var result = new ArrayList<>(launcherArguments(cli));
         result.add("--");
         result.addAll(command);
         return List.copyOf(result);
     }
 
     List<String> launcherArguments() {
-        return launcherArguments(DesktopExecBackend.SHELL);
+        return launcherArguments(Cli.MAGICDESK);
     }
 
-    static List<String> storeCommand(DesktopExecBackend backend, String operation, String store) {
-        return backend == DesktopExecBackend.TERMUX ? List.of(TOOL, operation, store)
-                : List.of(TOOL, "image", operation, store);
-    }
-
-    private List<String> launcherArguments(DesktopExecBackend backend) {
-        if (backend == DesktopExecBackend.TERMUX && (!environment.image() || magicDesk))
+    private List<String> launcherArguments(Cli cli) {
+        if (cli == Cli.STANDALONE && (!environment.image() || magicDesk))
             throw new IllegalArgumentException("The standalone Shroot CLI requires a store and no Android command bridge");
         var result = new ArrayList<>(environment.image()
-                ? storeCommand(backend, command.isEmpty() ? "login" : "exec", environment.store())
+                ? cli.storeCommand(command.isEmpty() ? "login" : "exec", environment.store())
                 : List.of(TOOL, "--store", environment.store(), "--home", environment.home()));
         if (!directory.isEmpty()) result.addAll(List.of("--cwd", directory));
         if (environment.image() && !environment.home().isEmpty()) result.addAll(List.of("--env", "HOME=" + environment.home()));

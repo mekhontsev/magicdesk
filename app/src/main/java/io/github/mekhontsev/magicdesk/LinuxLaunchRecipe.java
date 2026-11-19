@@ -144,7 +144,7 @@ final class LinuxLaunchRecipe {
         plan = new GuestLaunchPlan(plan.environment(), plan.directory(), plan.command(), environment.magicDesk(), plan.network());
         String exec = DesktopExecTemplate.encodeArguments(graphical
                 ? List.of("env", "SHROOT_GUEST_LABEL=" + name, "sh", "-c",
-                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments(environment.backend()));
+                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments(environment.backend().shrootCli()));
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(), !graphical)

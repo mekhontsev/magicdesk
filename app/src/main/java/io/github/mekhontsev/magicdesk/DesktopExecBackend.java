@@ -22,6 +22,10 @@ enum DesktopExecBackend {
         return capabilities;
     }
 
+    GuestLaunchPlan.Cli shrootCli() {
+        return this == TERMUX ? GuestLaunchPlan.Cli.STANDALONE : GuestLaunchPlan.Cli.MAGICDESK;
+    }
+
     RuntimeCapabilities.Service service() {
         return switch (this) {
             case APP -> RuntimeCapabilities.Service.BUILTIN_UI;
