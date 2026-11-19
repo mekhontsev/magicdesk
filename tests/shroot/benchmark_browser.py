@@ -201,6 +201,23 @@ def thread_snapshot(rows, pid):
     return result
 
 
+def thread_cost(pid, before, after, elapsed):
+    ticks = os.sysconf('SC_CLK_TCK')
+    delta = {str(tid): (row['ticks']-before[tid]['ticks'])/ticks for tid,row in after.items()
+             if tid in before and row['start'] == before[tid]['start']}
+    assert str(pid) in delta and all(value >= 0 for value in delta.values()), delta
+    return dict(threadCpuSeconds=delta, supervisorPercent=100*delta[str(pid)]/elapsed,
+                processPercent=100*sum(delta.values())/elapsed)
+
+
+def workload_launch(suite, store, key, value):
+    records = [json.loads(line) for line in suite.command(
+        suite.image_command('launches', store), quiet=True).splitlines() if line]
+    owned = [record for record in records if record.get(key) == value]
+    assert len(owned) == 1, records
+    return owned[0]
+
+
 def instrumentation(args, state=None):
     result = {name: getattr(args, name) if state is None else state.get(name)
               for name in ('statistics', 'diagnostics')}
@@ -212,14 +229,14 @@ def instrumentation(args, state=None):
 
 
 @contextmanager
-def sample_profile(args, row, pid, ident):
+def sample_profile(args, row, pid, ident, seconds):
     if not args.profile:
         yield
         return
     target = (args.output / ('profile-' + ident)).resolve()
     command = ['/system/bin/simpleperf', 'record', '-p', str(pid), '--no-inherit',
                '-e', 'cpu-clock', '-f', '499', '--call-graph', 'fp',
-               '--duration', str(args.seconds), '--exit-with-parent', '-o', str(target) + '.data']
+               '--duration', str(seconds), '--exit-with-parent', '-o', str(target) + '.data']
     row['samplingProfile'] = str(target) + '.data'
     with Path(str(target) + '.log').open('w') as log:
         process = subprocess.Popen(['su', '-c', shlex.join(command)], stdout=log, stderr=subprocess.STDOUT)
@@ -227,16 +244,18 @@ def sample_profile(args, row, pid, ident):
             yield
         finally:
             try:
-                result = process.wait(timeout=args.seconds + 20)
+                result = process.wait(timeout=seconds + 20)
             except subprocess.TimeoutExpired:
                 process.terminate()
                 process.wait(timeout=10)
                 raise
             assert result == 0, 'Profiler failed: ' + str(target) + '.log'
-    with Path(str(target) + '.txt').open('w') as report:
-        subprocess.run(['su', '-c', shlex.join(['/system/bin/simpleperf', 'report',
-            '-i', str(target) + '.data', '--sort', 'tid,dso,symbol'])],
-            stdout=report, stderr=subprocess.STDOUT, timeout=30, check=True)
+    for suffix, options in (('.txt', ['--sort', 'tid,dso,symbol']),
+                            ('-supervisor.txt', ['--tids', str(pid), '--children', '--sort', 'symbol'])):
+        with Path(str(target) + suffix).open('w') as report:
+            subprocess.run(['su', '-c', shlex.join(['/system/bin/simpleperf', 'report',
+                '-i', row['samplingProfile'], *options])],
+                stdout=report, stderr=subprocess.STDOUT, timeout=30, check=True)
 
 
 class DesktopBrowser:
@@ -313,6 +332,18 @@ def run(args, server_url, mode, index):
                    '--window-size=1280,900', *args.browser_arg, 'about:blank']
         if state:
             wait_controller(state, user=True)
+            launch = workload_launch(suite, args.store, 'label', state['id'])
+            if args.idle_seconds:
+                pid = launch['pid']
+                idle = row['idle'] = {}
+                with sample_profile(args, idle, pid, suite.report['id'] + '-idle', args.idle_seconds), observe_cpu(host) as cpu:
+                    before = threads(pid)
+                    start = time.monotonic()
+                    threading.Event().wait(args.idle_seconds)  # measurement interval
+                    after = threads(pid)
+                    elapsed = time.monotonic()-start
+                idle.update(seconds=elapsed, cpu=cpu, **thread_cost(pid, before, after, elapsed))
+                launch_started = time.monotonic()
             worker = DesktopBrowser(suite, state, ['flatpak', 'run',
                 '--env=SHROOT_MACHINE_ENTRY=' + str(int(mode == 'lazy')), args.flatpak, *options], args.seconds)
         else:
@@ -341,13 +372,10 @@ def run(args, server_url, mode, index):
             protocol.call('Network.enable', session=session)
             protocol.call('Media.enable', session=session)
             protocol.call('Page.addScriptToEvaluateOnNewDocument', dict(source=LIVE_PROBE), session)
-        records = [json.loads(line) for line in suite.command(
-            suite.image_command('launches', args.store), quiet=True).splitlines() if line]
-        owned = [record for record in records if record.get('label') == state['id']] if state else [
-            record for record in records if record['program'] == args.chromium]
-        assert len(owned) == 1, records
-        pid = owned[0]['pid']
-        row['launch'] = owned[0]
+        if not state:
+            launch = workload_launch(suite, args.store, 'program', args.chromium)
+        pid = launch['pid']
+        row['launch'] = launch
         row['hostDisplaysBefore'] = display_clocks(suite.client)
         navigated = time.monotonic()
         row['url'] = server_url
@@ -355,7 +383,7 @@ def run(args, server_url, mode, index):
         protocol.call('Page.bringToFront', session=session)
         wait_video(protocol, session)
         row['videoReadySeconds'] = time.monotonic()-navigated
-        with sample_profile(args, row, pid, suite.report['id']), observe_cpu(host) as cpu:
+        with sample_profile(args, row, pid, suite.report['id'], args.seconds), observe_cpu(host) as cpu:
             before = threads(pid)
             first = protocol.evaluate('snapshot()', session)
             start = time.monotonic()
@@ -377,13 +405,7 @@ def run(args, server_url, mode, index):
             elapsed = time.monotonic()-start
             after = threads(pid)
         row['hostDisplaysAfter'] = display_clocks(suite.client)
-        ticks = os.sysconf('SC_CLK_TCK')
-        delta = {str(tid): (state['ticks']-before[tid]['ticks'])/ticks for tid,state in after.items()
-                 if tid in before and state['start'] == before[tid]['start']}
-        assert str(pid) in delta and all(value >= 0 for value in delta.values()), delta
-        row.update(seconds=elapsed, before=first, after=last, cpu=cpu, threadCpuSeconds=delta,
-                   supervisorPercent=100*delta[str(pid)]/elapsed,
-                   processPercent=100*sum(delta.values())/elapsed,
+        row.update(seconds=elapsed, before=first, after=last, cpu=cpu, **thread_cost(pid, before, after, elapsed),
                    frames=last['frames']-first['frames'], dropped=last['dropped']-first['dropped'],
                    inputRoundTripMs=latencies, inputMedianMs=statistics.median(latencies), timeline=timeline)
         assert not last['paused'] and not last['error'] and last['ready'] >= 3, last
@@ -453,13 +475,17 @@ def main():
     parser.add_argument('--chromium', default='/usr/lib/chromium/chromium')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=45)
+    parser.add_argument('--idle-seconds', type=int, default=0,
+                        help='Sample the retained desktop before browser launch (0 disables)')
     parser.add_argument('--rounds', type=int, default=2)
     parser.add_argument('--statistics', action='store_true', help='Instrumented admission proof, not timing baseline')
     parser.add_argument('--diagnostics', action='store_true', help='Detailed runtime transitions, not timing baseline')
-    parser.add_argument('--profile', action='store_true', help='Root simpleperf samples during playback, not a timing baseline')
+    parser.add_argument('--profile', action='store_true', help='Profile the selected intervals with simpleperf, not a timing baseline')
     parser.add_argument('--modes', nargs='+', choices=('base', 'lazy'), default=['base', 'lazy'])
     FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
+    if not 0 <= args.idle_seconds <= 120 or (args.idle_seconds and not args.desktop_session):
+        parser.error('--idle-seconds requires a retained desktop and a duration of 0 to 120 seconds')
     state = None
     if args.desktop_session:
         if args.build or args.store:
@@ -500,8 +526,11 @@ def main():
             for mode in (args.modes if index%2 == 0 else reversed(args.modes)):
                 row = run(args, args.url or f'http://127.0.0.1:{server.server_port}/', mode, index)
                 report['samples'].append(row)
-                print('VIDEO_RESULT', json.dumps({k:v for k,v in row.items() if k not in
-                      ('cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}), flush=True)
+                brief = {k:v for k,v in row.items() if k not in
+                         ('idle','cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}
+                if 'idle' in row:
+                    brief['idle'] = {k: row['idle'][k] for k in ('seconds','supervisorPercent','processPercent')}
+                print('VIDEO_RESULT', json.dumps(brief), flush=True)
         report['passed'] = True
     finally:
         server.shutdown()
