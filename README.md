@@ -20,7 +20,9 @@ See [Linux with Shroot](#linux-with-shroot) for capabilities and limits.
 **Linux as a standalone Android app, with OS-enforced isolation and no VM.**
 Export a distribution as [its own APK](#a-linux-distribution-as-its-own-android-app),
 with a separate Android UID, private data and runtime. It runs without MagicDesk,
-Shizuku or root.
+Shizuku or root. Choose a folder in Android's picker and Linux tools can work
+on the same files as your Android apps, without copying them into the distribution
+or granting access to all shared storage.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -253,6 +255,16 @@ is the real [Android application sandbox](https://source.android.com/docs/securi
 not merely Shroot's emulated guest permissions. Files and optional audio/graphics
 connections require explicit grants; clients sharing an X11 server still share
 its display authority.
+
+For example, give a Linux image converter read-only access to a folder of photos
+and write access to a separate output folder. It can read the originals and
+write thumbnails that you can open directly in Android. The originals stay
+read-only in Linux; there is nothing to import or export.
+
+Choose [**Android folders**](docs/linux-applications.md#android-folders) to set
+this up in a standalone Linux APK or a MagicDesk Shroot **User** or **Shell**
+environment. New sessions mount your selections under `/mnt/android`.
+Each folder defaults to read-only, and the choices are saved per environment.
 
 Open **Console > New session > Shroot environments**, select an environment,
 then **Install Linux as an application**. See

@@ -1208,6 +1208,8 @@
     <string name="console_share_too_many">共享文件过多。请减少每次共享的文件数量。</string>
     <string name="linux_connection_title">连接到 MagicDesk</string>
     <string name="linux_connection_audio">仅音频</string>
+    <string name="linux_connection_new_x11">音频和新的 X11 显示器</string>
+    <string name="graphics_keyboard_hint">内置数据（可指定其他路径）</string>
     <string name="linux_connection_graphics">音频 + %1$s：%2$s</string>
     <string name="linux_connection_permission">%1$s 可以使用所选的音频和图形会话。X11 客户端共享对其显示的访问权限。不会授予命令或文件访问权限。</string>
     <string name="linux_connection_connect">连接</string>

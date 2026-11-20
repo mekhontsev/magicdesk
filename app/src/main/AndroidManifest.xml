@@ -120,6 +120,8 @@
         <property
             android:name="android.app.appfunctions.app_metadata"
             android:resource="@xml/app_function_app_metadata" />
+        <activity android:name=".GuestFolders" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

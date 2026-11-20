@@ -55,7 +55,7 @@ public final class GuestFilesInstrumentation extends Instrumentation {
             require(setup.execute(words(prepare.arguments())).exitCode() == 0, "helper directory");
             exchange = new HostedFileExchange(context.getCacheDir().getPath() + "/unused-files", null, "", token);
             var target = exchange;
-            admission = new ExecutorSocketEndpoint(2000, 10_000, fd -> target.acceptGuest(ParcelFileDescriptor.dup(fd.getFileDescriptor())),
+            admission = new ExecutorSocketEndpoint(2000, 10_000, ShellAccess::openUnixEndpoint, fd -> target.acceptGuest(ParcelFileDescriptor.dup(fd.getFileDescriptor())),
                     ready::completeExceptionally);
             endpoint = admission.name;
             var plan = new GuestLaunchPlan(identity, "", List.of("/tmp/magicdesk-helpers/libmagicdesk_guest_files.so", "--",

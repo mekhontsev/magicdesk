@@ -44,6 +44,9 @@ public final class MagicDeskApplicationStartupTest {
                     static void initialize(Application app) { calls.add("termux-ui-observer"); }
                 }
                 static class ShellAccess { static void initialize() { calls.add("service"); } }
+                static class GuestFolderPublication {
+                    static void initialize(Context c) { calls.add("folder-publication"); }
+                }
                 static class DesktopSetupStatus {
                     static void initialize(Context c) { calls.add("setup-status"); }
                 }
@@ -79,7 +82,7 @@ public final class MagicDeskApplicationStartupTest {
                 public static void verify() {
                     List<String> primary = List.of("application", "geometry", "appearance", "uri-recovery", "home-recovery",
                             "integrations", "backend", "identity-policy", "termux-ui-observer",
-                            "service", "setup-status", "diagnostics", "theme-recovery", "platform-recovery", "event");
+                            "service", "folder-publication", "setup-status", "diagnostics", "theme-recovery", "platform-recovery", "event");
                     start("magicdesk", primary);
                     for (String name : new String[] {"magicdesk:selftest",
                             "magicdesk:task_area_backstop", "magicdesk:another", "", null}) {

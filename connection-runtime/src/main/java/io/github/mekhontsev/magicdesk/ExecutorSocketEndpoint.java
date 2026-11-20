@@ -9,23 +9,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /** Captured executor admission shared by protocol servers; no graphics or protocol proxy. */
-final class ExecutorSocketEndpoint implements Closeable {
-    interface Sink { void accept(ParcelFileDescriptor socket) throws RemoteException, IOException; }
-    interface Factory { IUnixEndpoint open(String name, int uid, int timeout, IUnixConnectionReceiver receiver) throws IOException, RemoteException; }
-    final String name;
+public final class ExecutorSocketEndpoint implements Closeable {
+    public interface Sink { void accept(ParcelFileDescriptor socket) throws RemoteException, IOException; }
+    public interface Factory { IUnixEndpoint open(String name, int uid, int timeout, IUnixConnectionReceiver receiver) throws IOException, RemoteException; }
+    public final String name;
     private final CompletableFuture<IUnixEndpoint> endpoint = new CompletableFuture<>();
     private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
     private final android.os.IBinder.DeathRecipient died;
 
-    ExecutorSocketEndpoint(int uid, Sink sink, Consumer<Throwable> failure) throws IOException {
-        this(uid, 0, sink, failure);
-    }
-
-    ExecutorSocketEndpoint(int uid, int ioTimeoutMillis, Sink sink, Consumer<Throwable> failure) throws IOException {
-        this(uid, ioTimeoutMillis, ShellAccess::openUnixEndpoint, sink, failure);
-    }
-
-    ExecutorSocketEndpoint(int uid, int ioTimeoutMillis, Factory factory, Sink sink, Consumer<Throwable> failure) throws IOException {
+    public ExecutorSocketEndpoint(int uid, int ioTimeoutMillis, Factory factory, Sink sink, Consumer<Throwable> failure) throws IOException {
         byte[] nonce = new byte[32]; new java.security.SecureRandom().nextBytes(nonce);
         name = "magicdesk-" + java.util.HexFormat.of().formatHex(nonce);
         died = () -> {

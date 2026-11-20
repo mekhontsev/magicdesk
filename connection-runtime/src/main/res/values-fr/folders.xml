@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Dossiers Android</string>
+    <string name="folder_connect">Connecter un dossier</string>
+    <string name="folder_ro">Lecture seule</string>
+    <string name="folder_rw">Lecture et écriture</string>
+    <string name="folder_access">Accès au dossier</string>
+    <string name="folder_unavailable">Autorisation indisponible</string>
+    <string name="folder_forget">Oublier la connexion</string>
+    <string name="folder_forget_message">Les nouvelles sessions ne monteront plus %1$s. Les fichiers sur Android ne seront pas supprimés.</string>
+    <string name="folder_next">Dans les nouvelles sessions : %1$s</string>
+</resources>

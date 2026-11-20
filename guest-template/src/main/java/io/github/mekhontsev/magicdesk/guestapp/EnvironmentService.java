@@ -147,7 +147,14 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
             Exception failure=null;
             try {
                 String nativeDir=getApplicationInfo().nativeLibraryDir;
-                String startup=EnvironmentCommand.terminal(nativeDir+"/libshroot_cli.so",store().toString(),connections);
+                var folders=io.github.mekhontsev.magicdesk.documents.FolderMountLease.open(this,
+                        io.github.mekhontsev.magicdesk.documents.FolderMounts.INDEPENDENT, android.os.Process.myUid(),
+                        (name,uid,timeout,receiver) -> new io.github.mekhontsev.magicdesk.UnixSocketEndpoint(
+                                name,uid,timeout,receiver,getCacheDir().toPath()));
+                resources.reserve().attach(folders);
+                var bindings=new java.util.ArrayList<>(connections);
+                bindings.addAll(folders.arguments());
+                String startup=EnvironmentCommand.terminal(nativeDir+"/libshroot_cli.so",store().toString(),bindings);
                 pty=new NativePtyProcess(environment(new ProcessBuilder(nativeDir+"/libmagicdesk_pty_bridge.so",
                         Integer.toString(rows),Integer.toString(columns),getDataDir().toString(),
                         nativeDir+"/libmagicdesk_mksh.so",startup)),resources);

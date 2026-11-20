@@ -25,6 +25,7 @@ public final class MagicDeskApplication extends Application {
         RuntimeLimits.active();
         TermuxConnectionStatus.initialize(this);
         ShellAccess.initialize();
+        GuestFolderPublication.initialize(this);
         DesktopSetupStatus.initialize(this);
         CompatibilityDiagnostics.initialize(this);
         DesktopSystemTheme.initialize(this);

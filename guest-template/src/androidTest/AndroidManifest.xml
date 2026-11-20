@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries><package android:name="io.github.mekhontsev.magicdesk.guesttemplate"/></queries>
+    <application>
+        <provider android:name="io.github.mekhontsev.magicdesk.documents.FixtureGrantOffer"
+            android:authorities="io.github.mekhontsev.magicdesk.guesttemplate.test.grants" android:exported="true" />
+        <provider android:name="io.github.mekhontsev.magicdesk.documents.FixtureDocuments"
+            android:authorities="io.github.mekhontsev.magicdesk.guesttemplate.test.documents"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:exported="true" android:grantUriPermissions="true">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER"/></intent-filter>
+        </provider>
+    </application>
+</manifest>

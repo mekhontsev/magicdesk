@@ -11,6 +11,7 @@ android {
         applicationId = 'io.github.mekhontsev.magicdesk.guesttemplate'
         minSdk = 34
         targetSdk = 37
+        testInstrumentationRunner = 'io.github.mekhontsev.magicdesk.documents.FolderInstrumentation'
         versionCode = providers.gradleProperty('magicDeskVersionCode').get().toInteger()
         versionName = providers.gradleProperty('magicDeskVersionName').get()
     }

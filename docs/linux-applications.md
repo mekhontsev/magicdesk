@@ -32,6 +32,29 @@ Different packages have different Android UIDs. Guest root does not grant
 access to another package's private files. Shroot's logical guest credentials
 are not a substitute for this outer Android sandbox.
 
+## Android Folders
+
+In a Linux APK, choose **Android folders** from the terminal menu. In MagicDesk
+choose **Console > New session > Shroot environments**, select the User or Shell
+environment, then **Android folders**. Select a directory in Android's picker
+and choose **Read only** or **Read and write**. Write access is available only
+when the provider grants it. Repeat to connect additional folders.
+
+New Linux sessions mount each tree at the path shown, for example
+`/mnt/android/Projects`. This is a live view, not an import. The saved choice
+survives a restart; it is private to the Android package and selected environment,
+and is not part of a Linux backup. A revoked grant makes that mount inaccessible;
+it does not prevent the other mounts or Linux from starting. Select the folder
+again to renew its grant.
+Use `umount '/mnt/android/Projects'` for the current Linux namespace. To stop
+mounting a folder in future sessions, select its row in **Android folders** and
+choose **Forget**. Neither action deletes provider files.
+
+These mounts expose documents, not a POSIX backing store for a distribution.
+Provider capabilities determine which edits are possible. Atomic replacement,
+recursive deletion through `rmdir`, Unix ownership and executable files are not
+provided. A provider returning a non-seekable descriptor may not support random IO.
+
 ## Optional MagicDesk Connection
 
 To show a graphical program from a separate Linux APK:

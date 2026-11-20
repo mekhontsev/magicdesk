@@ -239,11 +239,13 @@ final class TerminalSessionsDialog {
                                     UiDialogs.builder(activity).setTitle(entry.name())
                                             .setItems((entry.backend() == DesktopExecBackend.TERMUX
                                                     ? java.util.List.of(R.string.terminal_new, R.string.guest_launches)
-                                                    : java.util.List.of(R.string.terminal_new, R.string.guest_launches, R.string.guest_install_application))
+                                                    : java.util.List.of(R.string.terminal_new, R.string.guest_launches, R.string.guest_install_application,
+                                                            io.github.mekhontsev.magicdesk.connections.R.string.folder_title))
                                                     .stream().map(activity::getString).toArray(String[]::new),
                                                     (action, selected) -> {
                                                         if (selected == 1) GuestLaunchesDialog.show(activity, entry);
                                                         else if (selected == 2) LauncherExportActivity.openEnvironment(activity,entry);
+                                                        else if (selected == 3) GuestFolders.show(activity,entry);
                                                         else openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
                                                                 GuestEnvironmentCatalog.login(entry), "", entry.backend()));
                                                     }).setNegativeButton(android.R.string.cancel, null).show();

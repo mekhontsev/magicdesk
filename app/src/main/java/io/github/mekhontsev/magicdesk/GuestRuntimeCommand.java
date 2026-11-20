@@ -22,6 +22,7 @@ public final class GuestRuntimeCommand {
             + "md_image() { md_action=$1; md_store=$2; shift 2\n"
             + "case \"$md_action\" in run|exec|login|backup|remove|resolver) case \"$md_store\" in ''|*/*) ;; *) md_store=./$md_store ;; esac ;; esac\n"
             + "case \"$md_action\" in run|exec|login)\n"
+            + GuestFolderPublication.arguments()
             + LinuxAudioEnvironment.shrootArguments() + GamepadWire.shrootArguments()
             + TerminalFilesEnvironment.shrootArguments() + ";; esac\n"
             + "case \"$md_action\" in run|exec|login) md_launch \"$md_guest/libshroot_cli.so\" \"$md_action\" \"$md_store\" \"$@\" ;;\n"

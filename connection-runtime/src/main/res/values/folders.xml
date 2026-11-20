@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Android folders</string>
+    <string name="folder_connect">Connect folder</string>
+    <string name="folder_ro">Read only</string>
+    <string name="folder_rw">Read and write</string>
+    <string name="folder_access">Folder access</string>
+    <string name="folder_unavailable">Permission unavailable</string>
+    <string name="folder_forget">Forget connection</string>
+    <string name="folder_forget_message">New sessions will no longer mount %1$s. Files in Android are not deleted.</string>
+    <string name="folder_next">New sessions: %1$s</string>
+</resources>

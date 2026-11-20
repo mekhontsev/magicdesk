@@ -100,6 +100,7 @@ public final class EnvironmentActivity extends Activity {
         menu.add(0,5,4,"Connect to MagicDesk");
         menu.add(0,6,5,"Disconnect from MagicDesk");
         menu.add(0,7,6,"Export backup");
+        menu.add(0,8,7,io.github.mekhontsev.magicdesk.connections.R.string.folder_title);
         return true;
     }
     @Override public boolean onPrepareOptionsMenu(Menu menu) {
@@ -135,6 +136,10 @@ public final class EnvironmentActivity extends Activity {
                     .addCategory(Intent.CATEGORY_OPENABLE).setType("application/zstd")
                     .putExtra(Intent.EXTRA_TITLE,"linux-backup.tar.zst"),7);
         }
+        else if (item.getItemId()==8) startActivity(new Intent(this,
+                io.github.mekhontsev.magicdesk.documents.AndroidFoldersActivity.class)
+                .putExtra(io.github.mekhontsev.magicdesk.documents.AndroidFoldersActivity.SCOPE,
+                        io.github.mekhontsev.magicdesk.documents.FolderMounts.INDEPENDENT));
         else return super.onOptionsItemSelected(item);
         return true;
     }

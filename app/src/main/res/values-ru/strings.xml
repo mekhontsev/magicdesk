@@ -1244,6 +1244,8 @@
     <string name="console_share_too_many">Слишком много файлов. Отправьте меньше файлов за один раз.</string>
     <string name="linux_connection_title">Подключиться к MagicDesk</string>
     <string name="linux_connection_audio">Только звук</string>
+    <string name="linux_connection_new_x11">Звук и новый экран X11</string>
+    <string name="graphics_keyboard_hint">Встроенные данные (можно указать другой путь)</string>
     <string name="linux_connection_graphics">Звук + %1$s: %2$s</string>
     <string name="linux_connection_permission">%1$s сможет использовать выбранные звук и графическую сессию. Клиенты X11 имеют общий доступ к своему дисплею. Доступ к командам и файлам не предоставляется.</string>
     <string name="linux_connection_connect">Подключить</string>

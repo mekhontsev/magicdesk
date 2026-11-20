@@ -1232,6 +1232,8 @@
     <string name="console_share_too_many">Trop de fichiers partagés. Partagez moins de fichiers à la fois.</string>
     <string name="linux_connection_title">Se connecter à MagicDesk</string>
     <string name="linux_connection_audio">Audio uniquement</string>
+    <string name="linux_connection_new_x11">Audio et nouvel écran X11</string>
+    <string name="graphics_keyboard_hint">Données intégrées (autre chemin facultatif)</string>
     <string name="linux_connection_graphics">Audio + %1$s : %2$s</string>
     <string name="linux_connection_permission">%1$s pourra utiliser les services audio et la session graphique sélectionnés. Les clients X11 partagent l\'accès à leur affichage. Aucun accès aux commandes ni aux fichiers n\'est accordé.</string>
     <string name="linux_connection_connect">Connecter</string>

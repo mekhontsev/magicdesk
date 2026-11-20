@@ -1208,6 +1208,8 @@
     <string name="console_share_too_many">共有ファイルが多すぎます。一度に共有するファイル数を減らしてください。</string>
     <string name="linux_connection_title">MagicDesk に接続</string>
     <string name="linux_connection_audio">音声のみ</string>
+    <string name="linux_connection_new_x11">音声と新しい X11 ディスプレイ</string>
+    <string name="graphics_keyboard_hint">内蔵データ（別のパスを指定可能）</string>
     <string name="linux_connection_graphics">音声 + %1$s: %2$s</string>
     <string name="linux_connection_permission">%1$s は選択した音声とグラフィカルセッションを使用できます。X11 クライアントは同じディスプレイへのアクセスを共有します。コマンドやファイルへのアクセスは許可されません。</string>
     <string name="linux_connection_connect">接続</string>
