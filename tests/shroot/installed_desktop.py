@@ -263,8 +263,11 @@ def main():
         state['prefix'] = prefix
         # Retain the exact owner even if preparation fails before guest launch.
         statefile.write_text(json.dumps(state, indent=2))
-        state['commandConsoleId'] = (client.call('console.open', dict(backend='app'))['sessionId']
-                                     if suite.executor.mode == 'app' else suite.console)
+        if suite.executor.mode == 'app':
+            state['commandConsoleId'] = suite.executor.files.console
+            state['nativeLibraryDir'] = suite.executor.libraries
+        else:
+            state['commandConsoleId'] = suite.console
         statefile.write_text(json.dumps(state, indent=2))
         suite.command(prefix + ['--', binary + '/mkdir' if system else '/bin/mkdir', '-p', target])
         boot, driver = installed_boot(target, state['rootPort'], state['token'], args.init,
@@ -428,11 +431,11 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
     def transfer(direction, source, destination, **options):
         if state.get('executor', {}).get('mode', 'shell') == 'shell':
             return getattr(transport, direction)(client, source, destination, **options)
-        owner = FixtureExecutor.connect(out, 'app', 'transfer')
-        try:
-            return getattr(owner, direction)(source, destination, **options)
-        finally:
-            owner.close()
+        from app_files import AppFiles
+        files = AppFiles(client, console=state['commandConsoleId'])
+        if direction == 'upload':
+            return files.upload(source, destination, state.get('nativeLibraryDir'))
+        return files.transfer(source, destination)
 
     if args.action == 'attach':
         assert not state.get('closed') and not state.get('headless'), 'No retained graphical fixture'

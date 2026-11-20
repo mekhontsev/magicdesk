@@ -101,11 +101,16 @@ if Path(sys.argv[0]).name == "magicdesk":
 if stage == "list":
     print(os.environ.get("TEST_ENVIRONMENTS", ""))
 if stage in ("exec", "login"):
-    if args[-3:] == ['/bin/sh', '-c', ':'] and os.environ.get('TEST_NIXOS_UNACTIVATED'):
+    bootstrap = Path(os.environ['TEST_PAYLOAD'] + '.bootstrap')
+    initial = os.environ.get('TEST_NIXOS_UNACTIVATED') and not bootstrap.exists()
+    if initial and stage == 'login':
         sys.exit(1)
-    if stage == 'exec' and args[-2].endswith('-bash-interactive-5.3p9/bin/bash'):
-        Path(os.environ['TEST_PAYLOAD'] + '.bootstrap').write_text(sys.stdin.read())
-        sys.exit(0)
+    if stage == 'exec' and any(a.endswith('-bash-interactive-5.3p9/bin/bash') for a in args):
+        script = sys.stdin.read()
+        if 'exec "$system/activate"' in script:
+            bootstrap.write_text(script)
+            sys.exit(0)
+        sys.exit(0 if initial and os.environ.get('TEST_DISTRO') == 'nixos' else 1)
     if args[1] == "unpack":
         if args[-1] == "/mnt":
             Path(os.environ["TEST_PAYLOAD"] + ".reader").write_text(sys.stdin.read())
@@ -2248,11 +2253,19 @@ packages ninja meson pkgconf
         self.assertFalse(Path(str(self.payload) + '.kwin').exists())
 
     def test_nixos_unactivated_image_uses_stock_activation_in_private_mounts(self):
-        result = self.run_script('--yes', '--distro', 'nixos', '--resume', '--name', 'fresh',
+        result = self.run_script('--yes', '--resume', '--name', 'fresh',
                                  TEST_DISTRO='nixos', TEST_NIXOS_UNACTIVATED='1')
         self.assertEqual(0, result.returncode, result.stderr)
         bootstrap = Path(str(self.payload) + '.bootstrap').read_text()
-        self.assertIn('[ "$ID" = nixos ] && [ "$VERSION_ID" = 26.05 ]', bootstrap)
+        release = self.directory / 'os-release'
+        guard = bootstrap.split('umask 022', 1)[0].replace('/etc/os-release', '"$1"')
+        for distro, version, allowed in [('nixos', '26.05', True), ('other', '26.05', False),
+                                         ('nixos', '25.11', False)]:
+            release.write_text(f'ID={distro}\nVERSION_ID={version}\n')
+            probe = subprocess.run(['sh', '-c', guard + '\necho admitted', 'sh', release],
+                                   capture_output=True, text=True)
+            self.assertEqual(allowed, probe.returncode == 0)
+            self.assertEqual(allowed, 'admitted' in probe.stdout)
         self.assertIn('unshare --mount', bootstrap)
         self.assertIn('mount -t proc proc /proc', bootstrap)
         self.assertIn('mount -t devpts -o newinstance,ptmxmode=0666,mode=0620 devpts /dev/pts', bootstrap)
@@ -2265,6 +2278,22 @@ packages ninja meson pkgconf
         self.assertNotIn('cat > /etc/passwd', bootstrap)
         self.assertNotIn('ln -s /nix/store', bootstrap)
         self.assertEqual(0, subprocess.run(['sh', '-n'], input=bootstrap, text=True).returncode)
+
+    def test_unactivated_nixos_resume_validates_options_before_bootstrap(self):
+        for distro in ([], ['--distro', 'nixos']):
+            result = self.run_script('--yes', '--resume', '--name', 'fresh', '--gui', 'gnome', *distro,
+                                     TEST_DISTRO='nixos', TEST_NIXOS_UNACTIVATED='1')
+            self.assertIn('requires Fedora', result.stderr)
+            self.assertFalse(Path(str(self.payload) + '.bootstrap').exists())
+
+    def test_unactivated_nixos_resume_can_cancel_without_activation(self):
+        output = self.questions(b'n\nn\n', args=('--distro', 'nixos', '--resume', '--name', 'fresh',
+                                '--gui', 'none', '--gpu', 'keep', '--locale', 'keep',
+                                '--timezone', 'keep', '--fonts', 'keep'),
+                                TEST_DISTRO='nixos', TEST_NIXOS_UNACTIVATED='1')
+        self.assertIn('Cancelled.', output)
+        self.assertFalse(Path(str(self.payload) + '.bootstrap').exists())
+        self.assertFalse(self.payload.exists())
 
     def test_rootfs_converter_preserves_uncompressed_tar_bytes(self):
         result = self.run_script('--yes', '--distro', 'void', '--downloads', str(self.directory / 'downloads'))

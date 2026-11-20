@@ -5385,17 +5385,23 @@ ln -sfn "$(readlink -f "$current")" /run/current-system
 NIXOS_END
 }
 
+nixos_image_shell() {
+    {
+        printf '%s\n' 'set -eu' '. /etc/os-release' '[ "$ID" = nixos ]' '[ "$VERSION_ID" = 26.05 ]'
+        cat
+    } | shroot exec "$name" --user 0:0 --env HOME=/root -- \
+        /nix/store/0m1nl6fyb2zn779if6aaswmbwmmdnlwr-bash-interactive-5.3p9/bin/bash -s
+}
+
 nixos_bootstrap() {
     # The official LXC archive has neither /bin/sh nor /etc/passwd until its
     # first activation. A configured generation never needs the pinned shell.
     if admin_exec "$name" -- /bin/sh -c ':' >/dev/null 2>&1; then return; fi
     {
-        printf '%s\n' 'set -eu' '. /etc/os-release' '[ "$ID" = nixos ] && [ "$VERSION_ID" = 26.05 ]'
         nixos_environment
         printf '%s\n' 'exec "$system/activate"'
         nixos_environment_end
-    } | shroot exec "$name" --user 0:0 --env HOME=/root -- \
-        /nix/store/0m1nl6fyb2zn779if6aaswmbwmmdnlwr-bash-interactive-5.3p9/bin/bash -s
+    } | nixos_image_shell
 }
 
 nixos_setup() {
@@ -6906,9 +6912,15 @@ if [ -n "$extras" ]; then
 fi
 
 # Read-only validation precedes every existing-environment mutation.
+initial_activation=no
 if [ "$resume" = yes ]; then
-    [ "$distro" != nixos ] || nixos_bootstrap
-    detected=$(admin_exec "$name" -- /bin/sh -c '. /etc/os-release; printf "%s\n" "$ID"')
+    if ! detected=$(admin_exec "$name" -- /bin/sh -c '. /etc/os-release; printf "%s\n" "$ID"'); then
+        { [ -z "$distro" ] || [ "$distro" = nixos ]; } &&
+            printf '%s\n' '[ ! -x /bin/sh ] || [ ! -s /etc/passwd ]' | nixos_image_shell ||
+            fail 'Cannot identify the existing distribution; setup was not applied.'
+        detected=nixos
+        initial_activation=yes
+    fi
     detected=$(distribution_id "$detected")
     [ -z "$distro" ] || [ "$distro" = "$detected" ] || fail 'Selected distribution does not match the existing environment.'
     distro=$detected
@@ -6990,10 +7002,10 @@ if [ "$resume" = no ]; then
         stage='applying selected DNS to the new environment'
         shroot dns "$name" "$dns" --replace
     fi
-    if [ "$distro" = nixos ]; then
-        stage='activating the official NixOS image'
-        nixos_bootstrap
-    fi
+fi
+if [ "$distro" = nixos ] && { [ "$resume" = no ] || [ "$initial_activation" = yes ]; }; then
+    stage='activating the official NixOS image'
+    nixos_bootstrap
 fi
 stage='validating the selected environment'
 admin_exec "$name" -- /bin/sh -c '

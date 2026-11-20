@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 from magicdesk_executor import MagicDeskExecutor
+from app_files import AppFiles
 from fixture_executor import FixtureExecutor, bounded_shell
 
 
@@ -51,9 +52,10 @@ class CapturedCommands(unittest.TestCase):
             source.write_bytes(b'\x7fELFfixture')
             executor = self.executor(Path(directory))
             executor.mode, executor.libraries = 'app', '/apk/lib'
-            executor.packaged, executor.executables = {}, {}
-            executor.files = mock.Mock()
-            executor.files.command.return_value = dict(output=hashlib.sha256(source.read_bytes()).hexdigest() + '  file')
+            executor.executables = {}
+            executor.files = AppFiles(executor.client, console='retained-app-console')
+            executor.files.command = mock.Mock(return_value=dict(output=hashlib.sha256(source.read_bytes()).hexdigest() + '  file'))
+            executor.files.transfer = mock.Mock()
             name = 'libshroot_guest_prepared_sockets_test.so'
             executor.upload(source, '/owned/driver', packaged_name=name)
             self.assertEqual(executor.native_path('/owned/driver'), '/apk/lib/' + name)
@@ -64,6 +66,8 @@ class CapturedCommands(unittest.TestCase):
             self.assertNotIn('/owned/other', executor.executables)
             with self.assertRaises(ValueError):
                 executor.upload(source, '/owned/other', packaged_name='../invalid')
+            executor.files.close()
+            executor.client.call.assert_not_called()
 
     def test_deadline_wrapper_keeps_the_executor_cancellation_owner(self):
         command = "sh -c 'printf ready; wait'"

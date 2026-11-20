@@ -1,6 +1,5 @@
 """Optional MagicDesk transport; no runtime or test assertions belong here."""
 import _bootstrap
-import hashlib
 import importlib.util
 import json
 import os
@@ -74,7 +73,6 @@ class MagicDeskExecutor:
         self.console = client.call('console.open')['sessionId']
         self.files = None
         self.receipts = []
-        self.packaged = {}
         self.executables = {}
         self.closed = False
         self.active = set()
@@ -184,26 +182,10 @@ class MagicDeskExecutor:
         source = Path(source)
         if self.mode == 'shell':
             return self.transport.upload(self.client, source, target, **options)
-        with source.open('rb') as stream:
-            executable = stream.read(4) == b'\x7fELF'
-            stream.seek(0)
-            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-        name = packaged_name or source.name
-        if packaged_name and (not name.startswith('libshroot_guest_') or '/' in name):
-            raise ValueError('Invalid packaged fixture name')
-        if executable and name.startswith('libshroot_guest_'):
-            packaged = self.libraries + '/' + name
-            if name not in self.packaged:
-                output = self.files.command(shlex.join(['sha256sum', packaged]))['output']
-                self.packaged[name] = output.split()[0]
-            if self.packaged[name] != digest:
-                raise RuntimeError('Install a fixture APK containing the exact build of ' + name)
-            # Guest mounts need a regular file, not a symlink escaping their
-            # root. Native execution separately selects the immutable APK ELF.
-            self.files.command(shlex.join(['cp', packaged, target]))
-            self.executables[target] = packaged
-            return dict(path=target, sha256=digest, packaged=packaged)
-        return self.files.transfer(target, source, upload=True)
+        result = self.files.upload(source, target, self.libraries, packaged_name)
+        if 'packaged' in result:
+            self.executables[target] = result['packaged']
+        return result
 
     def chmod(self, mode, *targets):
         return self.execute(shlex.join(['chmod', mode, *targets]))

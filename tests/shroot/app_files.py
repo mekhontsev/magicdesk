@@ -10,9 +10,32 @@ import threading
 
 
 class AppFiles:
-    def __init__(self, client):
+    def __init__(self, client, *, console=None):
         self.client = client
-        self.console = client.call('console.open', dict(backend='app'))['sessionId']
+        self.owns_console = console is None
+        self.console = client.call('console.open', dict(backend='app'))['sessionId'] if self.owns_console else console
+        self.packaged = {}
+
+    def upload(self, source, target, libraries, packaged_name=None):
+        source = Path(source)
+        name = packaged_name or source.name
+        if packaged_name and (not name.startswith('libshroot_guest_') or '/' in name):
+            raise ValueError('Invalid packaged fixture name')
+        if name.startswith('libshroot_guest_'):
+            with source.open('rb') as stream:
+                if stream.read(4) == b'\x7fELF':
+                    stream.seek(0)
+                    digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                    if not libraries:
+                        raise ValueError('Missing APK library directory for native fixture')
+                    packaged = libraries + '/' + name
+                    if packaged not in self.packaged:
+                        self.packaged[packaged] = self.command(shlex.join(['sha256sum', packaged]))['output'].split()[0]
+                    if self.packaged[packaged] != digest:
+                        raise RuntimeError('Install a fixture APK containing the exact build of ' + name)
+                    self.command(shlex.join(['cp', packaged, target]))
+                    return dict(path=target, sha256=digest, packaged=packaged)
+        return self.transfer(target, source, upload=True)
 
     def command(self, command, check=True):
         value = self.client.call('console.execute', dict(sessionId=self.console, command=command))
@@ -95,4 +118,5 @@ class AppFiles:
         return dict(path=str(remote), sha256=digest)
 
     def close(self):
-        self.client.call('console.close', dict(sessionId=self.console))
+        if self.owns_console:
+            self.client.call('console.close', dict(sessionId=self.console))

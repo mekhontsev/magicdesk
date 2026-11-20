@@ -365,7 +365,9 @@ sh ~/install_linux.sh --name nixos --resume --package ripgrep
 The recipe imports a checksum-pinned official NixOS LXC image, registers its
 Nix store and generates `/etc/nixos/magicdesk.nix`. Its first activation uses
 the shell shipped in that image: `/bin/sh` and the account database do not
-exist until NixOS creates them. Activation and the subsequent build share a
+exist until NixOS creates them. If installation stops between import and first
+activation, `--name NAME --resume` recognizes the image without activating it
+until setup is confirmed. Activation and the subsequent build share a
 private mount namespace with guest-owned API filesystems, including devpts.
 PTY ownership changes apply to guest metadata, not Android terminals; inherited
 console descriptors remain open. Stock activation runs unchanged, and a failed
