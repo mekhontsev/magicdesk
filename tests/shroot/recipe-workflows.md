@@ -39,10 +39,18 @@ automatically registered in the Android default-library catalog. Test
 `--gui apps` and a whole-desktop profile separately; installing application
 packages does not verify a desktop-session launcher.
 
-`test_installer.py` records its explicit `--locale` and `--timezone` selections
+`test_installer.py --executor app|shell` runs the public recipe in a console
+of the selected Android identity. Use `--library` for a disposable catalog and
+`--output` for separate receipts. The test checks that a normal guest user's
+file survives `--resume`. It records its explicit `--locale` and `--timezone` selections
 (defaults: `en_US.UTF-8` and `UTC`). These controlled fixture defaults are not
 the installer's Android-locale default. Test that default separately through
 interactive setup, including the keep-on-resume behavior.
+
+Alpine fresh `--gui apps --gpu keep` installation and resume were exercised
+in independent empty catalogs on Android 16. Receipts under
+`build/alpine-regression-523f33b/` are `app/installer-fixed/fresh.json`
+(User) and `shell/installer/receipt.json` (Shell). Neither builds Turnip.
 
 ### Recipe Setup And Graphics
 

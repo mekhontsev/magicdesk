@@ -1856,6 +1856,22 @@ packages ninja meson pkgconf
         self.assertIn('already exists', result.stderr)
         self.assertEqual([['--probe'], ['list']], self.calls())
 
+    def test_first_rootfs_install_in_an_explicit_library(self):
+        result = self.run_script('--yes', '--distro', 'alpine', TEST_DISTRO='alpine',
+                                 MAGICDESK_GUEST_HOME=str(self.directory / 'new-library'),
+                                 TEST_FAIL='list')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn(['list'], self.calls())
+        self.assertTrue(any(c[0] == 'install' and '--rootfs' in c for c in self.calls()))
+
+    def test_existing_explicit_library_list_error_precedes_download(self):
+        root = self.directory / 'library'
+        root.mkdir()
+        result = self.run_script('--yes', '--distro', 'alpine', TEST_FAIL='list',
+                                 MAGICDESK_GUEST_HOME=str(root))
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual([['--probe'], ['list']], self.calls())
+
     def test_steamos_work_cannot_overlap_read_only_cache(self):
         result = self.run_script('--yes', '--distro', 'steamos', '--downloads', str(self.directory),
                                  TMPDIR=str(self.directory / 'tmp'))

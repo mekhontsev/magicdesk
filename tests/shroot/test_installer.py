@@ -2,6 +2,7 @@
 """Run the public installer and verify settings inside a named test environment."""
 import _bootstrap
 import argparse
+from app_files import AppFiles
 from magicdesk_executor import load_transport, source_root
 import hashlib
 import json
@@ -24,21 +25,21 @@ def main():
                         help='Installer command failure bound, including a source GPU build')
     parser.add_argument('--name', required=True, help='Dedicated fixture name; retained for graphics checks')
     parser.add_argument('--resume', action='store_true')
-    parser.add_argument('--library', help='Dedicated shell-owned library, isolated from existing image caches')
+    parser.add_argument('--executor', choices=('app', 'shell'), default='shell')
+    parser.add_argument('--library', help='Dedicated library owned by the selected executor')
+    parser.add_argument('--output', type=Path, help='Location of the installer receipt')
     parser.add_argument('--ipv4', action='store_true', help='Set XBPS FORCE_IPV4 for networks without working IPv6')
     args = parser.parse_args()
-    repo = _bootstrap.SHROOT
     transport = load_transport()
     config = tomllib.loads((Path.home() / '.codex/config.toml').read_text())['mcp_servers']['magicdesk']
     client = transport.Client(config['url'], config['http_headers']['Authorization'].removeprefix('Bearer '),
                               timeout=args.timeout, request_timeout=args.timeout)
     state = client.call('get_state')
-    assert state['shell']['uid'] == 2000
     report = {'app': state['app'], 'distro': args.distro, 'gui': args.gui, 'name': args.name, 'library': args.library,
               'ipv4': args.ipv4, 'gpu': args.gpu, 'jobs': args.jobs,
               'dns': args.dns, 'packages': args.package, 'locale': args.locale, 'timezone': args.timezone,
               'checks': [], 'passed': False}
-    console = client.call('console.open', {'directory': '/data/local/tmp/magicdesk'})['sessionId']
+    console = client.call('console.open', {'backend': args.executor})['sessionId']
     try:
         def command(argv):
             # EVENT_WAIT: command exit; transport deadline fails without replaying a running install.
@@ -48,14 +49,19 @@ def main():
             assert result['exitCode'] == 0, result
             return result['output']
 
+        uid = int(command(['id', '-u']).strip())
+        assert uid >= 10000 if args.executor == 'app' else uid == 2000, uid
+        report['executor'] = {'mode': args.executor, 'uid': uid}
+        home = command(['printenv', 'HOME']).strip()
         if args.library:
             command(['export', 'MAGICDESK_GUEST_HOME=' + args.library])
         if args.ipv4:
             command(['export', 'FORCE_IPV4=1'])
         source = source_root() / 'scripts/install_linux.sh'
         digest = hashlib.sha256(source.read_bytes()).hexdigest()
-        script = '/data/local/tmp/magicdesk/installer-test-' + args.name + '-' + digest + '.sh'
-        report['upload'] = transport.upload(client, source, script, overwrite=True)
+        script = str(Path(home) / ('installer-test-' + args.name + '-' + digest + '.sh'))
+        report['upload'] = (AppFiles(client, console=console).transfer(script, source, upload=True)
+                            if args.executor == 'app' else transport.upload(client, source, script, overwrite=True))
         invocation = ['sh', script, '--yes', '--name', args.name, '--distro', args.distro,
                       '--gui', args.gui, '--locale', args.locale, '--timezone', args.timezone,
                       '--create-user', 'mdtester', '--fonts', 'basic', '--package', 'jq',
@@ -103,7 +109,8 @@ def main():
         report['passed'] = True
     finally:
         client.call('console.close', {'sessionId': console})
-        destination = repo / 'build' / ('installer-' + args.name + '.json')
+        destination = args.output or source_root() / 'build' / ('installer-' + args.name + '.json')
+        destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(report, indent=2) + '\n')
         print(destination, flush=True)
 

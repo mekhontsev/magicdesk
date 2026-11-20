@@ -13,6 +13,12 @@ through their shared owner where appropriate, and add focused regression tests.
 Do not treat the original reproduction passing as proof that related paths are
 correct; report any applicable paths that remain unverified.
 
+After each distribution matrix run, check the result against that distribution's
+recipe in `scripts/install_linux.sh`. Check that product prerequisites come
+from the recipe rather than incidental lab setup. Run the installer tests and
+exercise the relevant install or resume path; an installed-store or resume
+check does not establish that a clean install works.
+
 ## Performance Work
 
 Trace work back to the operation that produced it. Before tuning a queue,

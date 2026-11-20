@@ -6533,9 +6533,15 @@ download_verified() {
 import_helper() { MAGICDESK_GUEST_HOME="$import_work/library" shroot "$@"; }
 
 prepare_downloads() {
-    environments=$(shroot list)
-    if printf '%s\n' "$environments" | cut -f1 | grep -Fxq "$name"; then
-        fail "Environment $name already exists; use --resume to continue setup."
+    # An explicit library need not exist until its first install. An existing
+    # or inaccessible catalog must still pass native admission before download.
+    library=${MAGICDESK_GUEST_HOME:-}
+    if [ -z "$library" ] || [ -e "$library" ] || [ -L "$library" ] ||
+        [ ! -x "$(dirname -- "$library")" ]; then
+        environments=$(shroot list)
+        if printf '%s\n' "$environments" | cut -f1 | grep -Fxq "$name"; then
+            fail "Environment $name already exists; use --resume to continue setup."
+        fi
     fi
     downloads=${downloads:-${HOME:?}/downloads}
     mkdir -p "$downloads"
