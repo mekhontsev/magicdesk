@@ -52,6 +52,11 @@ in independent empty catalogs on Android 16. Receipts under
 `build/alpine-regression-523f33b/` are `app/installer-fixed/fresh.json`
 (User) and `shell/installer/receipt.json` (Shell). Neither builds Turnip.
 
+Fedora and Arch also passed fresh Shell installation and resume in independent
+empty libraries with `--gui none --gpu keep`. Both verified the ordinary user's
+file after resume. Receipts: `build/{fedora,arch}-matrix-0ac4be67/shell/installer-retry/receipt.json`.
+The graphical checks used the installed Turnip stores, not these minimal installs.
+
 ### Recipe Setup And Graphics
 
 `test_installer_setup.py BUILD STORE [--dns ADDRESS]` runs the actual guest
