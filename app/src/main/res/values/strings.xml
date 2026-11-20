@@ -225,7 +225,8 @@
     <string name="command_app_linux_command_hint">Empty for a terminal login shell</string>
     <string name="command_app_linux_method">Linux launcher</string>
     <string name="command_app_linux_script">Launcher script (absolute path)</string>
-    <string name="x11_keyboard_directory">XKB data directory (host path)</string>
+    <string name="x11_keyboard_directory">Keyboard data (XKB)</string>
+    <string name="graphics_keyboard_hint">Built-in (optional path override)</string>
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Custom script (chroot or other)</item>
@@ -1220,8 +1221,9 @@
     <string name="console_share_too_many">Too many shared files. Share fewer files at a time.</string>
     <string name="linux_connection_title">Connect to MagicDesk</string>
     <string name="linux_connection_audio">Audio only</string>
+    <string name="linux_connection_new_x11">Audio + new X11 display</string>
     <string name="linux_connection_graphics">Audio + %1$s: %2$s</string>
-    <string name="linux_connection_permission">%1$s can use the selected audio and graphical session. X11 clients share access to their display. No command or file access is granted.</string>
+    <string name="linux_connection_permission">Choose what %1$s can use in its next terminal. Find the new display under Graphical sessions in MagicDesk. Clients on the same X11 display can access each other’s windows. No command or file access is granted.</string>
     <string name="linux_connection_connect">Connect</string>
     <string name="linux_connection_pending">Connecting&#8230;</string>
 </resources>

@@ -55,8 +55,6 @@ final class WaylandExecution {
         serverUid = commands.termux == null ? Process.myUid() : commands.uid;
         executorPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
         keyboard = HostedKeyboardSource.normalize(keyboardDirectory);
-        if (commands.termux == null && keyboard.isEmpty())
-            throw new IllegalArgumentException("An XKB data directory is required for the User or Shell graphical executor");
         byte[] secret = new byte[32];
         new java.security.SecureRandom().nextBytes(secret);
         token = java.util.HexFormat.of().formatHex(secret);

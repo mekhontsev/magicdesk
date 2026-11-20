@@ -130,3 +130,14 @@ The font is included in the APK; it does not require downloading fonts or instal
 The terminal's box-drawing topology follows the character names in Unicode 17.0
 `UnicodeData.txt`. The applicable Unicode License v3 is included in the APK:
 [`third_party/unicode/LICENSE.txt`](third_party/unicode/LICENSE.txt).
+## Keyboard Layout Data
+
+MagicDesk includes the installed data from [xkeyboard-config](https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config)
+2.48 (Termux package 2.48-1). Its copyright and license notices are included
+as `COPYING` in `app/src/main/assets/xkeyboard-config-2.48.zip`. This is data,
+not a runtime dependency on Termux. To reproduce the asset from that package:
+
+```sh
+python scripts/package-keyboard-data.py "$PREFIX/share/X11/xkb" \
+    "$PREFIX/share/doc/xkeyboard-config/copyright" app/src/main/assets/xkeyboard-config-2.48.zip
+```

@@ -34,11 +34,21 @@ are not a substitute for this outer Android sandbox.
 
 ## Optional MagicDesk Connection
 
-**Connect to MagicDesk** requests a visible, one-connection authorization dialog.
-It offers audio alone or audio with one ready X11/Wayland session. An accepted
-connection supplies routes to newly started terminals; existing launches retain
-their original environment. It grants neither host shell commands nor arbitrary
-host file access. X11 clients sharing a display share X11's display authority;
+To show a graphical program from a separate Linux APK:
+
+1. In the **Linux APK**, open **⋮ > Connect to MagicDesk**. Leave **Audio + new X11 display**
+   selected and tap **Connect**. MagicDesk provides the screen, keyboard data and sound.
+   No Termux, Shizuku, second Linux installation or managed Desktop is needed.
+2. In the **Linux APK**, save any work in the old terminal, choose **End session**,
+   then **New terminal**. Run the installed graphical program there. No manual
+   `DISPLAY` or socket configuration is needed.
+3. In **MagicDesk**, long-press the console icon in Control Panel, open **Graphical sessions**,
+   select the display named after the Linux APK, and open its viewer.
+
+The consent dialog also offers ready X11/Wayland sessions and **Audio only**.
+The new display closes with its connection; a borrowed display remains running.
+Existing terminals keep their original environment. The connection grants neither
+host shell commands nor arbitrary host file access. X11 clients sharing a display share X11's display authority;
 select a separate graphical session for mutually untrusted clients.
 The X11 credential is copied into a connection-private directory and attached
 read-only to the guest. The host does not share its own authorization directory.

@@ -17,7 +17,15 @@ final class HostedKeyboardData {
 
     static synchronized String prepare(Context context, CommandExecution execution, String source) throws IOException {
         source = HostedKeyboardSource.normalize(source);
-        if (source.isEmpty()) throw new IOException("An XKB data directory is required for the User or Shell graphical executor");
+        if (source.isEmpty()) {
+            Path target = context.getNoBackupFilesDir().toPath().resolve(BundledKeyboardData.NAME);
+            if (!Files.isRegularFile(target.resolve("rules/evdev"))) {
+                try (var input = context.getAssets().open(BundledKeyboardData.NAME + ".zip")) {
+                    BundledKeyboardData.install(input, target);
+                }
+            }
+            return target.toString();
+        }
         execution.requireCurrent();
         String key = execution.scope + ":" + source;
         Path existing = COPIES.get(key);

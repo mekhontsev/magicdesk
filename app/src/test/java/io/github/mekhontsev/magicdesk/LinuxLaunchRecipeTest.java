@@ -200,11 +200,17 @@ public final class LinuxLaunchRecipeTest {
         }
     }
 
-    @Test public void rootTerminalDoesNotRequireKeyboardDataButX11Does() {
-        var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, "/enter-linux", DesktopExecBackend.SHELL, "");
-        assertNull(LinuxLaunchRecipe.build("Linux", environment, "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL).graphics);
-        assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Linux", environment, "xterm", "", "",
-                LinuxLaunchRecipe.Presentation.APPLICATION));
+    @Test public void userAndShellCanUseBuiltInKeyboardDataWithoutTermux() {
+        for (var backend : List.of(DesktopExecBackend.APP, DesktopExecBackend.SHELL)) {
+            var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, "/enter-linux", backend, "");
+            assertNull(LinuxLaunchRecipe.build("Linux", environment, "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL).graphics);
+            for (var protocol : GraphicalProtocol.values()) {
+                var app = LinuxLaunchRecipe.build("Linux", environment, "xterm", "", "",
+                        LinuxLaunchRecipe.Presentation.APPLICATION, protocol);
+                assertEquals("", app.graphics.keyboardDirectory());
+                assertEquals(backend, app.execBackend);
+            }
+        }
         assertThrows(IllegalArgumentException.class, () -> new LinuxLaunchRecipe.Environment(
                 LinuxLaunchRecipe.Kind.PROOT, "ubuntu", DesktopExecBackend.SHELL, ""));
     }

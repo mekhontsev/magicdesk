@@ -242,26 +242,41 @@ public final class GraphicalSessionsActivity extends Activity {
         var executors = List.of(DesktopExecBackend.APP, DesktopExecBackend.SHELL, DesktopExecBackend.TERMUX);
         UiChoiceAdapter.bind(backend, executors.stream().map(item -> getString(item.title())).toList());
         fields.addView(backend);
-        EditText keyboard = field(fields, R.string.x11_keyboard_directory);
-        keyboard.setVisibility(executors.get(backend.getSelectedItemPosition()) == DesktopExecBackend.TERMUX ? android.view.View.GONE : android.view.View.VISIBLE);
+        LinearLayout keyboardFields = UiToolLayout.column(this);
+        fields.addView(keyboardFields);
+        TextView label = new TextView(this);
+        label.setText(R.string.x11_keyboard_directory);
+        keyboardFields.addView(label);
+        EditText keyboard = field(keyboardFields, R.string.graphics_keyboard_hint);
+        keyboard.setId(android.view.View.generateViewId());
+        label.setLabelFor(keyboard.getId());
         backend.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
-                keyboard.setVisibility(executors.get(position) == DesktopExecBackend.TERMUX ? android.view.View.GONE : android.view.View.VISIBLE);
+                keyboardFields.setVisibility(executors.get(position) == DesktopExecBackend.TERMUX ? android.view.View.GONE : android.view.View.VISIBLE);
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
-        AlertDialog dialog = UiDialogs.builder(this).setTitle(R.string.graphics_new_session).setView(fields)
+        AlertDialog dialog = UiDialogs.builder(this).setTitle(R.string.graphics_new_session).setView(UiToolLayout.scroll(fields, 640))
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.x11_start, null).create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
                     try {
                         var executor = executors.get(backend.getSelectedItemPosition());
+                        String source;
+                        try {
+                            source = HostedKeyboardSource.normalize(
+                                    executor == DesktopExecBackend.TERMUX ? "" : keyboard.getText().toString());
+                        } catch (IllegalArgumentException invalid) {
+                            keyboard.requestFocus();
+                            keyboard.setError(invalid.getMessage());
+                            return;
+                        }
                         if (DesktopExecRunner.prepareBackend(this, executor) != DesktopExecRunner.StartResult.STARTED) return;
                         var selectedProtocol = protocol.getSelectedItemPosition() == 0
                                 ? GraphicalProtocol.X11 : GraphicalProtocol.WAYLAND;
                         select(GraphicalSessions.start(this, selectedProtocol, name.getText().toString().isBlank()
                                 ? protocol.getSelectedItem().toString() : name.getText().toString(),
-                                command.getText().toString(), "", executor, keyboard.getText().toString(), desktop.isChecked()));
+                                command.getText().toString(), "", executor, source, desktop.isChecked()));
                         if (offscreen.isChecked()) session.setOffscreen(new HostedOffscreen.Size(1280, 720));
                         else if (session.desktop()) openWindow(0);
                         else session.watch(this);

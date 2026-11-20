@@ -6,12 +6,19 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import java.util.List;
 
 /** Interactive authorization for a captured caller; the result is a revocable capability. */
 public final class LinuxConnectionActivity extends Activity {
     private Model model;
     private AlertDialog dialog;
-    private android.widget.Spinner selection;
+    private static final String AUDIO = "", NEW_X11 = "@new-x11";
+    private RadioGroup selection;
+    private List<String> displayed;
+    private final Runnable sessionsChanged = () -> runOnUiThread(this::refreshChoices);
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -27,32 +34,58 @@ public final class LinuxConnectionActivity extends Activity {
             if (model.uid!=uid) throw new SecurityException("Connection caller changed");
             model.changed=this::render;
             CharSequence label=getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(caller,0));
-            selection=new android.widget.Spinner(this);
-            var labels=new java.util.ArrayList<String>(); labels.add(getString(R.string.linux_connection_audio));
-            for (var session:model.sessions) labels.add(getString(R.string.linux_connection_graphics,session.protocol().name(),session.name()));
-            UiChoiceAdapter.bind(selection,labels);
-            selection.setSelection(model.selected);
-            selection.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent,android.view.View view,int position,long id) {
-                    if (!model.started) model.selected=position;
-                }
-            });
-            var view=new android.widget.LinearLayout(this);
+            selection=new RadioGroup(this);
             int padding=Math.round(24*getResources().getDisplayMetrics().density);
-            view.setPadding(padding,0,padding,0); view.addView(selection,new android.widget.LinearLayout.LayoutParams(-1,-2));
+            selection.setPadding(padding,0,padding,0);
             dialog=UiDialogs.builder(this).setTitle(R.string.linux_connection_title)
                     .setMessage(getString(R.string.linux_connection_permission,label))
-                    .setView(view)
+                    .setView(UiToolLayout.scroll(selection,640))
                     .setNegativeButton(android.R.string.cancel,(d,w)->finish())
                     .setOnCancelListener(d->finish()).setPositiveButton(R.string.linux_connection_connect,null).create();
             dialog.show();
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setFilterTouchesWhenObscured(true);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->model.start());
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->model.start(label.toString()));
+            refreshChoices();
             render();
         } catch (Exception error) {
             setResult(RESULT_CANCELED,new Intent().putExtra("error",ShellAccess.usefulMessage(error))); finish();
         }
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        GraphicalSessions.listen(sessionsChanged);
+        refreshChoices();
+    }
+
+    @Override protected void onStop() {
+        GraphicalSessions.unlisten(sessionsChanged);
+        super.onStop();
+    }
+
+    private void refreshChoices() {
+        if (dialog==null || model.started || isFinishing() || isDestroyed()) return;
+        var sessions=GraphicalSessions.list().stream().filter(GraphicalSessions.Session::ready).toList();
+        var ids=sessions.stream().map(GraphicalSessions.Session::id).toList();
+        if (ids.equals(displayed)) return;
+        displayed=ids;
+        if (!AUDIO.equals(model.selected) && !NEW_X11.equals(model.selected)
+                && model.selected!=null && !ids.contains(model.selected)) model.selected=null;
+        selection.removeAllViews();
+        addChoice(NEW_X11,getString(R.string.linux_connection_new_x11));
+        for (var session:sessions) addChoice(session.id(),getString(R.string.linux_connection_graphics,
+                session.protocol().name(),session.name()));
+        addChoice(AUDIO,getString(R.string.linux_connection_audio));
+        render();
+    }
+
+    private void addChoice(String id,String label) {
+        var row=new RadioButton(this);
+        row.setId(View.generateViewId());
+        row.setText(label);
+        selection.addView(row);
+        if (id.equals(model.selected)) selection.check(row.getId());
+        row.setOnClickListener(v->{ model.selected=id; render(); });
     }
 
     private void render() {
@@ -62,8 +95,8 @@ public final class LinuxConnectionActivity extends Activity {
             model.delivered=true;
             setResult(RESULT_OK,new Intent().putExtras(reply)); finish(); return;
         }
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(!model.started);
-        selection.setEnabled(!model.started);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(!model.started && model.selected!=null);
+        for (int i=0;i<selection.getChildCount();i++) selection.getChildAt(i).setEnabled(!model.started);
         if (model.error!=null) dialog.setMessage(ShellAccess.usefulMessage(model.error));
         else if (model.started) dialog.setMessage(getString(R.string.linux_connection_pending));
     }
@@ -72,7 +105,7 @@ public final class LinuxConnectionActivity extends Activity {
     @Override protected void onDestroy() {
         if (model!=null) {
             model.changed=null;
-            if (isFinishing() && !model.delivered) model.resources.close();
+            if (isFinishing() && !model.delivered) model.cancel();
         }
         if (dialog!=null) dialog.dismiss();
         super.onDestroy();
@@ -84,29 +117,74 @@ public final class LinuxConnectionActivity extends Activity {
         final IExecutorUnixEndpoints endpoints;
         final OperationResources resources=new OperationResources();
         final Handler main=new Handler(Looper.getMainLooper());
-        final java.util.List<GraphicalSessions.Session> sessions;
-        int selected;
+        String selected=NEW_X11;
+        GraphicalSessions.Session created;
+        final Runnable ready=this::serverChanged;
         boolean started,delivered;
         Runnable changed;
         LinuxConnections.Connection connection;
         Throwable error;
         Model(android.content.Context context,int uid,IExecutorUnixEndpoints endpoints) {
             this.context=context; this.uid=uid; this.endpoints=endpoints;
-            sessions=GraphicalSessions.list().stream().filter(GraphicalSessions.Session::ready).toList();
         }
-        void start() {
-            if (started) return;
+        void start(String label) {
+            if (started || selected==null) return;
             started=true; if (changed!=null) changed.run();
-            var graphics=selected==0 ? null : sessions.get(selected-1);
+            try {
+                if (NEW_X11.equals(selected)) {
+                    String name=label.isBlank() ? "Linux" : label.strip();
+                    created=GraphicalSessions.start(context,GraphicalProtocol.X11,name.substring(0,Math.min(name.length(),128)),
+                            "","",DesktopExecBackend.APP,"",true);
+                    created.listen(ready);
+                    serverChanged();
+                } else {
+                    var graphics=AUDIO.equals(selected) ? null : GraphicalSessions.find(selected);
+                    if (!AUDIO.equals(selected) && (graphics==null || !graphics.ready()))
+                        throw new IllegalStateException("The selected graphical session is no longer ready");
+                    acquire(graphics);
+                }
+            } catch (RuntimeException failure) { failed(failure); }
+        }
+        void serverChanged() {
+            if (created==null) return;
+            if (created.stopped()) { failed(new IllegalStateException(created.error().isBlank()
+                    ? "The new X11 display stopped" : created.error())); return; }
+            if (!created.ready()) return;
+            created.unlisten(ready);
+            acquire(created);
+        }
+        void acquire(GraphicalSessions.Session graphics) {
             new Thread(() -> {
                 try {
                     var ready=LinuxConnections.acquire(context,uid,endpoints,graphics,resources);
-                    main.post(() -> { connection=ready; if (changed!=null) changed.run(); });
+                    main.post(() -> {
+                        if (resources.isClosed()) return;
+                        connection=ready;
+                        if (created!=null) {
+                            var owned=created;
+                            ready.resources.reserve().attach(()->main.post(owned::close));
+                            created=null;
+                        }
+                        if (changed!=null) changed.run();
+                    });
                 } catch (Exception problem) {
                     android.util.Log.w("LinuxConnection", "Cannot authorize Linux services", problem);
-                    main.post(() -> { error=problem; if (changed!=null) changed.run(); });
+                    main.post(() -> failed(problem));
                 }
             },"LinuxConnection").start();
+        }
+        void cancel() {
+            if (created!=null) {
+                created.unlisten(ready);
+                created.close();
+                created=null;
+            }
+            resources.close();
+        }
+        void failed(Throwable problem) {
+            cancel();
+            error=problem;
+            if (changed!=null) changed.run();
         }
     }
 }

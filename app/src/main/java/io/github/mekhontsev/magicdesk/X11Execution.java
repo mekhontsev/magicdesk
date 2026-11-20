@@ -25,8 +25,6 @@ final class X11Execution {
         commands = new CommandExecution(context, backend);
         serverUid = commands.termux == null ? Process.myUid() : commands.uid;
         serverPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
-        if (commands.termux == null && this.keyboardSource.isEmpty())
-            throw new IllegalArgumentException("An XKB data directory is required for the Shell X11 executor");
     }
 
     X11LaunchSpec spec(int dpi, boolean application, String fileEnvironment) {

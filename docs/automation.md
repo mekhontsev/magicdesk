@@ -1008,7 +1008,8 @@ host. Its optional `connection` selects `auto`, Wayland-only `inherited`, or
 User/Shell `routed` admission for independent guest connections. The latter
 requires explicit address routes supplied by the guest launch adapter; it is
 not a general cross-UID pathname socket. See [guest connections](shroot.md#graphical-connections).
-`keyboardDirectory` accepts a host path or `guest:/absolute/store`; the latter
+`keyboardDirectory` is optional: User/Shell default to built-in layouts and Termux
+uses its prefix. An explicit value accepts a host path or `guest:/absolute/store`; the latter
 uses bounded export of `/usr/share/X11/xkb` from the selected guest namespace.
 `graphics.list` supplies native window IDs; `graphics.open_window` uses the
 ordinary tool placement options. X11 accepts window ID zero for its

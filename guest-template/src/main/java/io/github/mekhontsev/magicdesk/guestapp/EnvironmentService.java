@@ -225,7 +225,12 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
         new Thread(() -> {
             try {
                 pending.accept(reply);
-                main.post(() -> { if (pending==host && !closed) { status="MagicDesk connected"; notifyChanged(); } });
+                main.post(() -> {
+                    if (pending!=host || closed) return;
+                    status=terminal==null ? "MagicDesk connected" :
+                            "MagicDesk connected. Save your work, then choose End session and New terminal to use it.";
+                    notifyChanged();
+                });
             } catch (Exception error) {
                 main.post(() -> {
                     if (pending==host) { disconnectHost(); status=error.toString(); notifyChanged(); }

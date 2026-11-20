@@ -26,7 +26,7 @@ final class LinuxLaunchRecipe {
                 throw new IllegalArgumentException("Unmanaged guest roots require the MagicDesk launcher");
             if (magicDesk && kind == Kind.SCRIPT)
                 throw new IllegalArgumentException("Prepared scripts supply their own command client mapping");
-            keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
+            keyboardDirectory = HostedKeyboardSource.normalize(keyboardDirectory);
         }
     }
 
@@ -108,8 +108,6 @@ final class LinuxLaunchRecipe {
             }
             host.append(" -- ").append(String.join(" ", guest.stream().map(LinuxLaunchRecipe::q).toList()));
         }
-        if (graphical && environment.backend() != DesktopExecBackend.TERMUX && environment.keyboardDirectory().isEmpty())
-            throw new IllegalArgumentException("Enter the XKB data directory in the prepared Linux environment");
         List<String> invocation = environment.magicDesk()
                 ? List.of("magicdesk-connect", "--", "sh", "-c", host.toString()) : List.of("sh", "-c", host.toString());
         String exec = DesktopExecTemplate.encodeArguments(invocation);

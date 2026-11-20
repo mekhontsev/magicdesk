@@ -197,7 +197,8 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         }
         if (kind != LinuxLaunchRecipe.Kind.PROOT)
             return new LinuxLaunchRecipe.Environment(kind, script.getText().toString(),
-                    backend, keyboard.getText().toString(), kind == LinuxLaunchRecipe.Kind.GUEST && magicDesk.isChecked());
+                    backend, keyboardFields.getVisibility() == View.VISIBLE ? keyboard.getText().toString() : "",
+                    kind == LinuxLaunchRecipe.Kind.GUEST && magicDesk.isChecked());
         Object selected = choices.getSelectedItem();
         if (selected == null) throw new IllegalArgumentException(
                 getContext().getString(R.string.command_app_proot_select));
