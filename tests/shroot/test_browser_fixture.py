@@ -210,14 +210,16 @@ class BrowserBenchmark(unittest.TestCase):
         protocol.socket.recv.side_effect = [json.dumps(reply) for reply in replies]
         return protocol
 
-    def test_cpu_interval_counts_only_surviving_threads(self):
-        before = {123: dict(start=1, ticks=3), 124: dict(start=2, ticks=80)}
-        after = {123: dict(start=1, ticks=53), 124: dict(start=3, ticks=4)}
+    def test_process_cpu_includes_retired_threads_without_attributing_reused_tids(self):
+        before = dict(start=1, ticks=100), {123: dict(start=1, ticks=3), 124: dict(start=2, ticks=80)}
+        after = dict(start=1, ticks=180), {123: dict(start=1, ticks=53), 124: dict(start=3, ticks=4)}
         with mock.patch.object(benchmark.os, 'sysconf', return_value=100):
             self.assertEqual(benchmark.thread_cost(123, before, after, 2), dict(
-                threadCpuSeconds={'123': 0.5}, supervisorPercent=25, processPercent=25))
+                threadCpuSeconds={'123': 0.5}, supervisorPercent=25, processPercent=40))
             with self.assertRaises(AssertionError):
                 benchmark.thread_cost(124, before, after, 2)
+            with self.assertRaisesRegex(AssertionError, 'Supervisor changed'):
+                benchmark.thread_cost(123, before, (dict(start=2, ticks=180), after[1]), 2)
 
     def test_profile_keeps_intervals_and_thread_scopes_separate(self):
         with tempfile.TemporaryDirectory() as work:

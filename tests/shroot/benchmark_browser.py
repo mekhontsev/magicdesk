@@ -199,10 +199,12 @@ def host(command):
     return subprocess.check_output(['su', '-c', command], text=True, timeout=15)
 
 
-def threads(pid):
-    rows = host(f'for f in /proc/{pid}/task/*/stat; do '
+def runtime_cpu(pid):
+    rows = host(f'IFS= read -r row < /proc/{pid}/stat || exit 1; printf "%s\\n" "$row"; '
+                f'for f in /proc/{pid}/task/*/stat; do '
                 'if { IFS= read -r row < "$f"; } 2>/dev/null; then printf "%s\\n" "$row"; fi; done')
-    return thread_snapshot(rows, pid)
+    group, _, tasks = rows.partition('\n')
+    return thread_snapshot(group, pid)[pid], thread_snapshot(tasks, pid)
 
 
 def thread_snapshot(rows, pid):
@@ -216,12 +218,17 @@ def thread_snapshot(rows, pid):
 
 
 def thread_cost(pid, before, after, elapsed):
+    group_before, before = before
+    group_after, after = after
     ticks = os.sysconf('SC_CLK_TCK')
     delta = {str(tid): (row['ticks']-before[tid]['ticks'])/ticks for tid,row in after.items()
              if tid in before and row['start'] == before[tid]['start']}
     assert str(pid) in delta and all(value >= 0 for value in delta.values()), delta
+    assert group_after['start'] == group_before['start'] == before[pid]['start'], 'Supervisor changed during observation'
+    group_ticks = group_after['ticks'] - group_before['ticks']
+    assert group_ticks >= 0, group_ticks
     return dict(threadCpuSeconds=delta, supervisorPercent=100*delta[str(pid)]/elapsed,
-                processPercent=100*sum(delta.values())/elapsed)
+                processPercent=100*group_ticks/ticks/elapsed)
 
 
 def workload_launch(suite, store, key, value):
@@ -383,10 +390,10 @@ def run(args, server_url, mode, index, state, row=None):
                 pid = launch['pid']
                 idle = row['idle'] = {}
                 with sample_profile(args, idle, pid, suite.report['id'] + '-idle', args.idle_seconds), observe_cpu(host) as cpu:
-                    before = threads(pid)
+                    before = runtime_cpu(pid)
                     start = time.monotonic()
                     threading.Event().wait(args.idle_seconds)  # measurement interval
-                    after = threads(pid)
+                    after = runtime_cpu(pid)
                     elapsed = time.monotonic()-start
                 idle.update(seconds=elapsed, cpu=cpu, **thread_cost(pid, before, after, elapsed))
                 launch_started = time.monotonic()
@@ -430,7 +437,7 @@ def run(args, server_url, mode, index, state, row=None):
         ready = wait_video(protocol, session)
         row['videoReadySeconds'] = time.monotonic()-navigated
         with sample_profile(args, row, pid, suite.report['id'], args.seconds), observe_cpu(host) as cpu:
-            before = threads(pid)
+            before = runtime_cpu(pid)
             first = require_same_video(ready, protocol.evaluate(SNAPSHOT, session))
             start = time.monotonic()
             latencies = []
@@ -449,7 +456,7 @@ def run(args, server_url, mode, index, state, row=None):
             threading.Event().wait(max(0, start+args.seconds-time.monotonic()))
             last = require_same_video(first, protocol.evaluate(SNAPSHOT, session))
             elapsed = time.monotonic()-start
-            after = threads(pid)
+            after = runtime_cpu(pid)
         row['hostDisplaysAfter'] = display_clocks(suite.client)
         row.update(seconds=elapsed, before=first, after=last, cpu=cpu, **thread_cost(pid, before, after, elapsed),
                    frames=last['frames']-first['frames'], dropped=last['dropped']-first['dropped'],

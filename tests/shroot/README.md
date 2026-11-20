@@ -54,8 +54,11 @@ python tests/shroot/benchmark_browser.py --desktop-session SESSION/session.json 
 
 Use `--url` instead of `--video` for a live player. The pre-browser interval
 includes any desktop startup work still in progress. CPU percentages use one
-core as 100%; compare the supervisor thread separately from the sum of observed
-threads. JSON retains CPU-frequency observations, frame counts and input timing.
+core as 100%. `supervisorPercent` measures the main thread; `processPercent`
+uses the kernel's whole-process counter, including workers that exited during
+the interval. Neither includes guest processes. The per-thread breakdown lists
+only threads present at both endpoints. JSON also records CPU frequencies,
+frame counts and input timing.
 Add `--profile` for separate simpleperf recordings of each requested interval.
 The `-supervisor.txt` reports distinguish inclusive and self cost on the main
 thread; the other text reports show self cost across the process's threads.
