@@ -47,6 +47,7 @@ defaults to automatic Turnip detection and a Wayland Plasma desktop.
                 Android Private DNS needs an explicit guest DNS choice
   --yes         Accept the selected configuration without questions
   --resume      Continue in --name NAME; detect distribution, preserve GUI by default
+                NixOS retains its saved protocol and build jobs unless specified
   --list        Show available distribution/profile combinations
   --print-system-setup  Print the guest setup script without running it
   --print-nixos-setup  Print the NixOS setup script without running it
@@ -121,9 +122,24 @@ DISTRO
     printf '%s\n' '    *) echo "Unsupported distribution: $ID" >&2; exit 1 ;;'
     cat <<'DISTRO'
 esac
+nonbooted_apt() (
+    policy=/usr/sbin/policy-rc.d
+    export MAGICDESK_PACKAGE_SETUP=1
+    if [ -e "$policy" ] || [ -L "$policy" ]; then exec "$@"; fi
+    owned=$(mktemp "$policy.XXXXXXXX")
+    trap 'if [ "$(readlink "$policy")" = "$owned" ]; then rm -f "$policy"; fi; rm -f "$owned"' 0
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    # Other package clients must remain unaffected, even if the installer is killed.
+    printf '%s\n' '#!/bin/sh' '[ "${MAGICDESK_PACKAGE_SETUP:-}" != 1 ] || exit 101' 'exit 0' > "$owned"
+    chmod 755 "$owned"
+    ln -sT "$owned" "$policy" || { [ -e "$policy" ] || [ -L "$policy" ]; }
+    "$@"
+)
 packages() {
     case "$family" in
-        apt) apt-get install -y --no-install-recommends "$@" </dev/null ;;
+        apt) nonbooted_apt apt-get install -y --no-install-recommends "$@" </dev/null ;;
         apk) apk add "$@" </dev/null ;;
         dnf) dnf -y --setopt=install_weak_deps=False install "$@" </dev/null ;;
         zypper) zypper --non-interactive install --no-recommends "$@" </dev/null ;;
@@ -5113,7 +5129,9 @@ nixos_module() {
     cat <<'NIXOS_MODULE'
 { config, lib, pkgs, ... }:
 let
-  settings = builtins.fromJSON (builtins.readFile ./magicdesk-settings.json);
+  settingsFile = lib.findFirst (entry: entry.prefix == "magicdesk-installer-settings")
+    { path = ./magicdesk-settings.json; } builtins.nixPath;
+  settings = builtins.fromJSON (builtins.readFile settingsFile.path);
   selected = name: builtins.elem name settings.desktops;
   graphical = settings.desktops != [];
   turnip = settings.gpu == "turnip";
@@ -5447,8 +5465,9 @@ user_list=
 [ -z "$new_user" ] || user_list="\"$new_user\""
 desktop_list=
 case "$gui" in none|keep) ;; *) desktop_list="\"$gui\"" ;; esac
+trap 'rm -f magicdesk-settings.json.new' 0
 nix-instantiate --eval --strict --json --expr "
-let defaults = { desktops = []; users = []; packages = []; locale = \"keep\"; timezone = \"keep\"; fonts = \"keep\"; gpu = \"software\"; };
+let defaults = { desktops = []; users = []; packages = []; locale = \"keep\"; timezone = \"keep\"; fonts = \"keep\"; gpu = \"software\"; protocol = \"both\"; jobs = 4; };
     old = defaults // (if builtins.pathExists ./magicdesk-settings.json then builtins.fromJSON (builtins.readFile ./magicdesk-settings.json) else {});
     unique = items: builtins.foldl' (result: item: if builtins.elem item result then result else result ++ [item]) [] items;
 in old // {
@@ -5459,9 +5478,12 @@ in old // {
     timezone = if \"$zone\" == \"keep\" then old.timezone else \"$zone\";
     fonts = if \"$fonts\" == \"keep\" then old.fonts else \"$fonts\";
     gpu = if \"$gpu\" == \"keep\" then old.gpu else \"$gpu\";
-    protocol = \"$protocol\"; jobs = $jobs;
+    protocol = if \"$protocol\" == \"keep\" then old.protocol else \"$protocol\";
+    jobs = if \"$jobs\" == \"keep\" then old.jobs else builtins.fromJSON \"$jobs\";
 }" > magicdesk-settings.json.new
-mv magicdesk-settings.json.new magicdesk-settings.json
+if [ "$jobs" = keep ]; then
+    jobs=$(nix-instantiate --eval --strict --json --expr '(builtins.fromJSON (builtins.readFile ./magicdesk-settings.json.new)).jobs')
+fi
 mkdir -p magicdesk-files
 cat > magicdesk.nix.new <<'NIXOS_MODULE'
 NIXOS_SETUP
@@ -5581,8 +5603,10 @@ echo 'Building the NixOS system generation (packages and selected graphics)...'
 # to switch services in an unrelated Shroot launch; activation prepares files.
 # Only this trusted installer build opts out. The installed Nix configuration
 # retains sandboxing; activation and later user builds do not inherit overrides.
-nixos-rebuild boot --no-reexec --max-jobs 1 --cores "$jobs" \
+# Only this rebuild sees the candidate. Ordinary rebuilds and retries use the last success.
+nixos-rebuild boot --no-reexec -I "magicdesk-installer-settings=$PWD/magicdesk-settings.json.new" --max-jobs 1 --cores "$jobs" \
     --option sandbox false --option filter-syscalls false
+mv magicdesk-settings.json.new magicdesk-settings.json
 echo 'Activating the installed NixOS generation...'
 /nix/var/nix/profiles/system/activate
 ln -sfn "$(readlink -f /nix/var/nix/profiles/system)" /run/current-system
@@ -5893,12 +5917,7 @@ case "$family" in
             # Slim images exclude translations from newly installed GUI packages.
             printf 'path-include /usr/share/locale/*\n' > /etc/dpkg/dpkg.cfg.d/zz-magicdesk-locales
         fi
-        # Package services belong to Linux, not Android's service manager.
-        if [ ! -e /usr/sbin/policy-rc.d ]; then
-            printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
-            chmod 755 /usr/sbin/policy-rc.d
-        fi
-        dpkg --configure -a </dev/null
+        nonbooted_apt dpkg --configure -a </dev/null
         refresh_packages
         packages ca-certificates bash coreutils util-linux tzdata locales passwd ;;
     apk)
@@ -6631,6 +6650,16 @@ ask() {
     IFS= read -r answer || fail 'Input closed.'
     answer=${answer:-$2}
 }
+ask_recipe_setting() {
+    if [ "$resume" = yes ]; then ask "$1 (empty = saved NixOS value, otherwise $2)" ''
+    else ask "$1" "$2"; fi
+}
+matches_setting() {
+    # grep matches individual lines, but each setting must match as a whole.
+    case "$1" in *'
+'*) return 1 ;; esac
+    printf '%s\n' "$1" | LC_ALL=C grep -Eq "$2"
+}
 android_locale() (
     # Read the active user's preference, not the app language or shell's LANG.
     locales=
@@ -6647,7 +6676,7 @@ android_locale() (
     # Formatting extensions do not select another language/region. Do not guess
     # POSIX modifiers for script/variant tags or a region for language-only tags.
     base=${tag%%-u-*}
-    if printf '%s\n' "$base" | LC_ALL=C grep -Eq '^[a-z]{2,3}-[A-Z]{2}$'; then
+    if matches_setting "$base" '^[a-z]{2,3}-[A-Z]{2}$'; then
         printf '%s_%s.UTF-8\n' "${base%-*}" "${base#*-}"
     else
         printf 'Android locale has no unambiguous Linux mapping; retaining the guest locale. Use --locale to override.\n' >&2
@@ -6786,10 +6815,9 @@ distro=
 name=
 image=
 gui=
-protocol=both
+protocol=
 gpu=
-jobs=4
-jobs_selected=no
+jobs=
 locale_name=
 zone=
 new_user=
@@ -6807,7 +6835,7 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] && [ -n "$2" ] || fail "Missing value for $1"
             case "$1" in
                 --distro) distro=$2 ;; --name) name=$2 ;; --image) image=$2 ;; --gui) gui=$2 ;;
-                --protocol) protocol=$2 ;; --gpu) gpu=$2 ;; --jobs) jobs=$2; jobs_selected=yes ;; --locale) locale_name=$2 ;;
+                --protocol) protocol=$2 ;; --gpu) gpu=$2 ;; --jobs) jobs=$2 ;; --locale) locale_name=$2 ;;
                 --timezone) zone=$2 ;; --create-user) new_user=$2 ;; --fonts) fonts=$2 ;;
                 --cache) cache=$2 ;;
                 --package) extras="${extras:+$extras }$2" ;; --dns) dns=$2 ;;
@@ -6849,8 +6877,8 @@ if [ "$yes" = no ]; then
         if [ "$distro" = steamos ] && [ "$resume" = no ]; then default_gpu=auto; fi
         ask 'Graphics: keep/software/auto/turnip (Adreno KGSL; builds Mesa)' "$default_gpu"; gpu=$answer
     fi
-    if { [ "$gpu" = turnip ] || [ "$gpu" = auto ] || [ "$gui" = plasma ] || [ "$gui" = weston ]; } && [ "$jobs_selected" = no ]; then
-        ask 'Compiler jobs for Mesa/KWin/Weston (1-8)' "$jobs"; jobs=$answer
+    if { [ "$gpu" = turnip ] || [ "$gpu" = auto ] || [ "$gui" = plasma ] || [ "$gui" = weston ]; } && [ -z "$jobs" ]; then
+        ask_recipe_setting 'Compiler jobs for Mesa/KWin/Weston (1-8)' 4; jobs=$answer
     fi
     if [ -z "$locale_name" ]; then
         default_locale=system; [ "$resume" = no ] || default_locale=keep
@@ -6867,7 +6895,9 @@ if [ "$yes" = no ]; then
         y|Y|yes|YES)
             if [ -z "$new_user" ]; then ask 'Create guest user (empty = no new account)' ''; new_user=$answer; fi
             if [ "$distro" != steamos ]; then
-                ask 'Installer application entries: both/x11/wayland' "$protocol"; protocol=$answer
+                if [ -z "$protocol" ]; then
+                    ask_recipe_setting 'Installer application entries: both/x11/wayland' both; protocol=$answer
+                fi
                 ask 'Additional repository packages (space-separated)' "$extras"; extras=$answer
             fi
             if [ "$resume" = no ] && [ -z "$dns" ]; then
@@ -6894,12 +6924,12 @@ dns=${dns:-system}
 case "$name" in ''|[!A-Za-z0-9]*|*[!A-Za-z0-9_.-]*) fail 'Invalid environment name.' ;; esac
 [ "${#name}" -le 64 ] || fail 'Name must be at most 64 characters.'
 case "$gui" in none|apps|xfce|weston|plasma|gnome|keep) ;; *) fail 'Invalid GUI profile.' ;; esac
-case "$protocol" in both|x11|wayland) ;; *) fail 'Protocol must be both, x11 or wayland.' ;; esac
+case "$protocol" in ''|both|x11|wayland) ;; *) fail 'Protocol must be both, x11 or wayland.' ;; esac
 case "$gpu" in keep|software|turnip|auto) ;; *) fail 'GPU must be keep, software, auto or turnip.' ;; esac
-case "$jobs" in [1-8]) ;; *) fail 'Jobs must be between 1 and 8.' ;; esac
+case "$jobs" in ''|[1-8]) ;; *) fail 'Jobs must be between 1 and 8.' ;; esac
 case "$locale_name" in
     keep|C.UTF-8) ;;
-    *) printf '%s\n' "$locale_name" | grep -Eq '^[a-z]{2,3}_[A-Z]{2}\.UTF-8$' || fail 'Expected a UTF-8 locale such as en_US.UTF-8.' ;;
+    *) matches_setting "$locale_name" '^[a-z]{2,3}_[A-Z]{2}\.UTF-8$' || fail 'Expected a UTF-8 locale such as en_US.UTF-8.' ;;
 esac
 if [ "$zone" = system ]; then
     command -v getprop >/dev/null 2>&1 || fail 'Android timezone is unavailable; supply an IANA timezone.'
@@ -6908,13 +6938,13 @@ if [ "$zone" = system ]; then
 fi
 case "$zone" in ''|/*|*..*|*[!A-Za-z0-9_+/-]*) fail 'Invalid IANA timezone.' ;; esac
 if [ -n "$new_user" ]; then
-    printf '%s\n' "$new_user" | grep -Eq '^[a-z_][a-z0-9_-]{0,30}$' || fail 'Invalid guest account name.'
+    matches_setting "$new_user" '^[a-z_][a-z0-9_-]{0,30}$' || fail 'Invalid guest account name.'
     [ "$new_user" != root ] || fail 'The root account already exists; --create-user creates an ordinary account.'
 fi
 case "$fonts" in basic|cjk|keep) ;; *) fail 'Fonts must be basic, cjk or keep.' ;; esac
 case "$cache" in keep|clean) ;; *) fail 'Cache must be keep or clean.' ;; esac
 if [ -n "$extras" ]; then
-    printf '%s\n' "$extras" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9+_.-]*( [A-Za-z0-9][A-Za-z0-9+_.-]*)*$' || fail 'Expected repository package names, not options or shell commands.'
+    matches_setting "$extras" '^[A-Za-z0-9][A-Za-z0-9+_.-]*( [A-Za-z0-9][A-Za-z0-9+_.-]*)*$' || fail 'Expected repository package names, not options or shell commands.'
 fi
 
 # Read-only validation precedes every existing-environment mutation.
@@ -6934,6 +6964,11 @@ else
     distro=${distro:-debian}
 fi
 recipe_defaults
+if [ "$resume" = yes ] && [ "$distro" = nixos ]; then
+    protocol=${protocol:-keep}; jobs=${jobs:-keep}
+else
+    protocol=${protocol:-both}; jobs=${jobs:-4}
+fi
 if [ "$distro" = steamos ]; then
     [ -z "$image" ] || fail 'SteamOS uses its pinned official recovery archive, not --image.'
     { [ "$gui" = keep ] || [ "$gui" = plasma ]; } && [ "$fonts" = keep ] && [ -z "$extras" ] \
@@ -6964,10 +6999,11 @@ fi
 
 stage='checking Shroot'
 ready=no
+import_committed=no
 finish() {
     status=$?
     if [ -n "$import_work" ]; then
-        if [ "$status" -eq 0 ] || [ "$ready" = yes ]; then
+        if [ "$import_committed" = yes ]; then
             if import_helper remove unpack && import_helper prune; then
                 rm -rf "$import_work"
             else
@@ -6979,7 +7015,7 @@ finish() {
     fi
     if [ "$status" -ne 0 ]; then
         printf '\nInstallation stopped while %s (exit %s).\n' "$stage" "$status" >&2
-        if [ "$ready" = yes ]; then
+        if [ "$import_committed" = yes ] || [ "$ready" = yes ]; then
             printf 'Environment retained. Repeat your options with --name %s --resume (do not reinstall).\n' "$name" >&2
             printf 'GUI=%s GPU=%s jobs=%s locale=%s timezone=%s fonts=%s\n' \
                 "$gui" "$gpu" "$jobs" "$locale_name" "$zone" "$fonts" >&2
@@ -7004,9 +7040,14 @@ if [ "$resume" = no ]; then
         rootfs) shroot install "$image" --rootfs --name "$name" --dns "$dns" ;;
         oci) shroot install "$image" --name "$name" --dns "$dns" ;;
     esac
+    import_committed=yes
     if [ "$dns" != preserve ]; then
         stage='applying selected DNS to the new environment'
-        shroot dns "$name" "$dns" --replace
+        shroot dns "$name" "$dns" --replace || {
+            dns_status=$?
+            printf 'Retry DNS first: shroot dns %s %s --replace\n' "$name" "$dns" >&2
+            exit "$dns_status"
+        }
     fi
 fi
 if [ "$distro" = nixos ] && { [ "$resume" = no ] || [ "$initial_activation" = yes ]; }; then
@@ -7158,7 +7199,7 @@ case "$gui" in
         esac ;;
 esac
 printf 'Terminal: Terminal sessions > New session > Shroot environments > %s > New session.\n' "$name"
-printf 'Keep privileged access available; no MagicDesk Desktop session or installer rerun is needed.\n'
+printf 'No MagicDesk Desktop session or installer rerun is needed.\n'
 printf 'Console: shroot login %s\n' "$name"
 [ "$distro" != steamos ] || printf '%s\n' 'SteamOS uses the steamos guest account. Open Steam from Apps; its own updater may download client components.' 'For x86 Linux games using FEX, set Steam Launch Options: magicdesk-steam-game %command%' 'This installs Linux userspace, not SteamOS boot, recovery or VR services. GPU/game compatibility is a separate check.'
 if [ -n "$new_user" ]; then printf 'User console: shroot login %s --user %s\n' "$name" "$new_user"; fi

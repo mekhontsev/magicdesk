@@ -1850,6 +1850,17 @@ packages ninja meson pkgconf
         self.assertEqual(['prune'], self.calls()[-1])
         self.assertFalse(list(self.directory.glob('magicdesk-import-*')))
 
+    def test_post_import_failures_clean_converter_and_offer_resume(self):
+        for distro, failure in (('steamos', 'dns'), ('armtix', 'validate')):
+            with self.subTest(distro=distro):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script('--yes', '--distro', distro, TEST_FAIL=failure)
+                self.assertEqual(23, result.returncode, result.stderr)
+                self.assertIn(f'--name {distro} --resume', result.stderr)
+                self.assertEqual(failure == 'dns', f'shroot dns {distro} system --replace' in result.stderr)
+                self.assertEqual([['remove', 'unpack'], ['prune']], self.calls()[-2:])
+                self.assertFalse(list(self.directory.glob('magicdesk-import-*')))
+
     def test_steamos_existing_name_is_rejected_before_fetching(self):
         result = self.run_script('--yes', '--distro', 'steamos', TEST_ENVIRONMENTS='steamos\tsource\t/store')
         self.assertNotEqual(0, result.returncode)
@@ -1972,7 +1983,7 @@ packages ninja meson pkgconf
                        'opensuse', 'void', 'armtix', 'openkylin', 'deepin', 'manjaro', 'nixos'):
             with self.subTest(distro=distro):
                 self.log.unlink(missing_ok=True)
-                result = self.run_script('--yes', '--resume', '--name', 'work',
+                result = self.run_script('--yes', '--distro', distro, '--name', 'work',
                                          '--gpu', 'turnip', TEST_DISTRO=distro)
                 self.assertEqual(0, result.returncode, result.stderr)
                 if distro == 'nixos':
@@ -2172,7 +2183,8 @@ packages ninja meson pkgconf
         self.assertFalse(any(c[0] in ('install', 'download', 'dns') for c in self.calls()))
         setups = [c for c in self.calls() if c[0] == 'login' and '-s' in c]
         self.assertEqual(1, len(setups))
-        self.assertEqual('keep', setups[0][-10])
+        self.assertEqual(['keep', 'keep'], setups[0][-10:-8])
+        self.assertEqual('keep', setups[0][-1])
         script = self.payload.read_text()
         self.assertIn('old.desktops ++', script)
         self.assertIn('old.packages ++', script)
@@ -2181,6 +2193,80 @@ packages ninja meson pkgconf
         self.assertIn('Add ./magicdesk.nix to the imports', script)
         self.assertNotIn('cat > configuration.nix', script)
         self.assertNotIn('nix-collect-garbage -', script)
+
+    def test_nixos_resume_accepts_explicit_defaults(self):
+        result = self.run_script('--yes', '--resume', '--name', 'existing', '--protocol', 'both',
+                                 '--jobs', '4', TEST_DISTRO='nixos')
+        self.assertEqual(0, result.returncode, result.stderr)
+        setup = self.system_setup_call()
+        self.assertEqual(('both', '4'), (setup[-9], setup[-1]))
+
+    @unittest.skipUnless(hasattr(os, 'openpty'), 'PTY required')
+    def test_interactive_nixos_resume_distinguishes_blank_from_explicit_defaults(self):
+        args = ('--resume', '--name', 'existing', '--gui', 'plasma', '--gpu', 'keep',
+                '--locale', 'keep', '--timezone', 'keep', '--fonts', 'keep')
+        for jobs, protocol, expected in (('', '', ('keep', 'keep')), ('4', 'both', ('both', '4'))):
+            with self.subTest(jobs=jobs, protocol=protocol):
+                self.log.unlink(missing_ok=True)
+                self.questions(f'{jobs}\ny\n\n{protocol}\n\n\ny\n'.encode(), args=args, TEST_DISTRO='nixos')
+                setup = self.system_setup_call()
+                self.assertEqual(expected, (setup[-9], setup[-1]))
+
+    def test_nixos_publishes_candidate_only_after_rebuild(self):
+        setup = self.run_script('--print-nixos-setup').stdout
+        rebuild = setup[setup.index('nixos-rebuild boot'):setup.index("echo 'Activating the installed")]
+        stub = self.directory / 'nixos-rebuild'
+        stub.write_text('#!' + sys.executable + '\n' + """
+import os, sys
+from pathlib import Path
+key, candidate = sys.argv[sys.argv.index('-I') + 1].split('=', 1)
+assert key == 'magicdesk-installer-settings'
+assert Path(candidate).read_text() == 'candidate'
+assert sys.argv[sys.argv.index('--cores') + 1] == '3'
+canonical = Path('magicdesk-settings.json')
+assert (canonical.read_text() if canonical.exists() else '') == os.environ['PREVIOUS']
+sys.exit(int(os.environ['BUILD_STATUS']))
+""")
+        stub.chmod(0o755)
+        canonical = self.directory / 'magicdesk-settings.json'
+        candidate = self.directory / 'magicdesk-settings.json.new'
+        for previous in ('', 'last good'):
+            canonical.unlink(missing_ok=True)
+            if previous:
+                canonical.write_text(previous)
+            for status in (23, 0):
+                with self.subTest(previous=previous, status=status):
+                    candidate.write_text('candidate')
+                    result = subprocess.run(['sh', '-ec', 'jobs=3\n' + rebuild], cwd=self.directory,
+                                            env=dict(self.environment, PREVIOUS=previous, BUILD_STATUS=str(status)),
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(status, result.returncode, result.stderr)
+                    self.assertEqual(previous if status else 'candidate',
+                                     canonical.read_text() if canonical.exists() else '')
+
+    def test_apt_service_policy_is_scoped_and_preserves_existing_policy(self):
+        setup = self.run_script('--print-system-setup').stdout
+        policy = self.directory / 'policy-rc.d'
+        function = setup[setup.index('nonbooted_apt()'):setup.index('\npackages()')]
+        function = function.replace('policy=/usr/sbin/policy-rc.d', 'policy=$TEST_POLICY')
+
+        def run(body):
+            return subprocess.run(['sh', '-ec', function + '\nnonbooted_apt sh -ec "$1"', 'sh', body],
+                                  env=dict(self.environment, TEST_POLICY=str(policy)), cwd=self.directory,
+                                  capture_output=True, text=True, timeout=5)
+
+        for status in (0, 23):
+            result = run('rc=0; sh "$TEST_POLICY" || rc=$?; test "$rc" = 101; '
+                         'unset MAGICDESK_PACKAGE_SETUP; sh "$TEST_POLICY"; exit ' + str(status))
+            self.assertEqual(status, result.returncode, result.stderr)
+            self.assertEqual([], list(self.directory.glob('policy-rc.d*')))
+        policy.symlink_to('missing-admin-policy')
+        self.assertEqual(0, run('test -L "$TEST_POLICY" && ! test -e "$TEST_POLICY"').returncode)
+        self.assertEqual('missing-admin-policy', os.readlink(policy))
+        policy.unlink()
+        self.assertEqual(0, run('rm "$TEST_POLICY"; echo admin > "$TEST_POLICY"').returncode)
+        self.assertEqual(0, run('test "$(cat "$TEST_POLICY")" = admin').returncode)
+        self.assertEqual('admin\n', policy.read_text())
 
     def test_nixos_module_uses_native_generations_and_shared_helpers(self):
         module = self.run_script('--print-nixos-module').stdout
@@ -2478,6 +2564,8 @@ packages ninja meson pkgconf
                      ("--timezone", "/tmp"), ("--timezone", "UTC;id"), ("--locale", "$(id)"),
                      ("--create-user", "root"), ("--create-user", "--root"), ("--package", "-y"),
                      ("--package", "curl;id"), ("--package", "../pkg"), ("--protocol", "auto"),
+                     ("--locale", "en_US.UTF-8\nde_DE.UTF-8"), ("--create-user", "alex\nsam"),
+                     ("--package", "curl\nwget"), ("--package", "curl\n"), ("--package", "curl\r"),
                      ("--cache", "all"), ("--arch-sandbox", "disable-filesystem"),
                      ("--gui", "none", "--gpu", "turnip")]:
             with self.subTest(args=args):

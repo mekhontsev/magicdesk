@@ -375,10 +375,11 @@ activation stops setup. After success, the selected generation is published for
 subsequent ordinary `shroot login` sessions outside the temporary init mounts.
 The initial channel uses the Nixpkgs source shipped in the verified image.
 A missing `configuration.nix` is created with the LXC and MagicDesk imports;
-it remains the place for your own Nix settings. Installer selections are stored
-in `magicdesk-settings.json` beside
-the module. Resume merges requested packages, accounts and desktops, and
-refreshes installer-owned files without replacing `configuration.nix`. For an
+it remains the place for your own Nix settings. The installer saves selections in
+`magicdesk-settings.json` beside the module only after `nixos-rebuild boot`
+succeeds. Resume adds the requested packages, accounts and desktops and retains
+the saved protocol and build jobs unless you specify new values. It refreshes
+installer-owned files without replacing `configuration.nix`. For an
 existing environment with a different configuration, the installer asks you to add
 `./magicdesk.nix` to its imports rather than guessing how to rewrite Nix code.
 
