@@ -223,7 +223,7 @@ class BrowserBenchmark(unittest.TestCase):
 
     def test_profile_keeps_intervals_and_thread_scopes_separate(self):
         with tempfile.TemporaryDirectory() as work:
-            args = SimpleNamespace(profile=True, wait_timeline=False, wait_profile=False, output=Path(work))
+            args = SimpleNamespace(profile=True, wait_timeline=False, wait_profile=False, session_stops=False, output=Path(work))
             with mock.patch.object(benchmark.subprocess, 'Popen') as record, \
                     mock.patch.object(benchmark.subprocess, 'run') as report:
                 record.return_value.wait.return_value = 0
@@ -239,7 +239,7 @@ class BrowserBenchmark(unittest.TestCase):
 
     def test_wait_timeline_counts_only_the_supervisor_and_delivered_statuses(self):
         with tempfile.TemporaryDirectory() as work:
-            args = SimpleNamespace(profile=False, wait_timeline=True, wait_profile=False, output=Path(work))
+            args = SimpleNamespace(profile=False, wait_timeline=True, wait_profile=False, session_stops=False, output=Path(work))
             with mock.patch.object(benchmark.subprocess, 'Popen') as record:
                 record.return_value.wait.return_value = 0
                 for ident, seconds in (('run-idle', 10), ('run', 25)):
@@ -254,7 +254,7 @@ class BrowserBenchmark(unittest.TestCase):
 
     def test_wait_profile_keeps_negative_results_and_the_syscall_caller(self):
         with tempfile.TemporaryDirectory() as work:
-            args = SimpleNamespace(profile=False, wait_timeline=False, wait_profile=True, output=Path(work))
+            args = SimpleNamespace(profile=False, wait_timeline=False, wait_profile=True, session_stops=False, output=Path(work))
             with mock.patch.object(benchmark.subprocess, 'Popen') as record:
                 record.return_value.wait.return_value = 0
                 row = {}
@@ -265,6 +265,22 @@ class BrowserBenchmark(unittest.TestCase):
                 self.assertIn('--no-unwind', cmd)
                 self.assertIn('--size-limit', cmd)
                 self.assertEqual(cmd[-1], row['waitProfile'])
+
+    def test_session_stops_include_services_and_new_children_only_in_this_tree(self):
+        snapshot = 'PID PPID CMD\n11 10 other\n40 30 audio worker\n20 10 supervisor\n30 20 systemd\n'
+        with tempfile.TemporaryDirectory() as work, mock.patch.object(benchmark, 'host', return_value=snapshot), \
+                mock.patch.object(benchmark, 'host_measurement') as record:
+            row = {}
+            with benchmark.sample_profile(SimpleNamespace(output=Path(work), session_stops=True), row, 20, 'video', 18):
+                cmd = record.call_args.args[0]
+                Path(work, 'stops-video.log').write_text('Recorded for 7.8 seconds.\nSamples recorded: 6,938. Samples lost: 0.')
+            self.assertEqual(row['stopProcesses'], {20: 'supervisor', 30: 'systemd', 40: 'audio worker'})
+            self.assertEqual((row['stopProfileSeconds'], row['stopSamples'], row['stopSamplesLost']), (7.8, 6938, 0))
+            self.assertEqual(cmd[cmd.index('-p')+1], '20,30,40')
+            self.assertNotIn('--no-inherit', cmd)
+            self.assertEqual(cmd[cmd.index('--tp-filter')+1], 'prev_state == 8')
+            with self.assertRaises(RuntimeError):
+                benchmark.session_processes(21, snapshot)
 
     def test_cdp_events_do_not_replace_the_exact_reply(self):
         protocol = self.protocol([dict(method='Page.loadEventFired'),

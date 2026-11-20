@@ -69,3 +69,7 @@ Difference consecutive CSV rows using their actual elapsed times; an empty wait
 is not a delivered status. Recording requires host tracepoint access.
 Use `--wait-profile` to distinguish empty, successful and failed waits by
 their return value and supervisor call site in a bounded simpleperf recording.
+Use `--session-stops` to attribute traced scheduler stops across the Shroot
+process tree, including init, desktop services, audio and browser workers.
+The recording includes new descendants and is capped at 20 MiB. A stop is not
+a syscall count or a CPU sample; use ordinary playback for timing.

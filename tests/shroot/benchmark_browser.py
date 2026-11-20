@@ -199,6 +199,24 @@ def host(command):
     return subprocess.check_output(['su', '-c', command], text=True, timeout=15)
 
 
+def session_processes(pid, listing):
+    children, names = {}, {}
+    for line in listing.splitlines()[1:]:  # Android ps header
+        number, parent, name = line.split(None, 2)
+        number = int(number)
+        children.setdefault(int(parent), []).append(number)
+        names[number] = name
+    if pid not in names:
+        raise RuntimeError('Supervisor exited before session profiling')
+    owned, pending = {}, [pid]
+    while pending:
+        parent = pending.pop()
+        if parent not in owned:
+            owned[parent] = names[parent]
+            pending.extend(children.get(parent, ()))
+    return owned
+
+
 def runtime_cpu(pid):
     rows = host(f'IFS= read -r row < /proc/{pid}/stat || exit 1; printf "%s\\n" "$row"; '
                 f'for f in /proc/{pid}/task/*/stat; do '
@@ -267,6 +285,25 @@ def host_measurement(command, target, seconds):
 
 @contextmanager
 def sample_profile(args, row, pid, ident, seconds):
+    if args.session_stops:
+        target = (args.output / ('stops-' + ident)).resolve()
+        processes = session_processes(pid, host('/system/bin/ps -A -o PID,PPID,CMD'))
+        row['stopProcesses'], row['stopProfile'] = processes, str(target) + '.data'
+        # -p includes all current threads; default inheritance covers new descendants.
+        command = ['/system/bin/simpleperf', 'record', '-p', ','.join(map(str, sorted(processes))),
+                   '--clockid', 'monotonic', '-e', 'sched:sched_switch', '--tp-filter', 'prev_state == 8',
+                   '--call-graph', 'dwarf,8', '--no-unwind', '--size-limit', '20M',
+                   '--duration', str(seconds), '--exit-with-parent', '-o', row['stopProfile']]
+        with host_measurement(command, target, seconds):
+            yield
+        log = Path(str(target) + '.log').read_text()
+        duration = re.search(r'Recorded for ([\d.]+) seconds', log)
+        counts = re.search(r'Samples recorded: ([\d,]+)\. Samples lost: ([\d,]+)', log)
+        if duration:
+            row['stopProfileSeconds'] = float(duration[1])
+        if counts:
+            row['stopSamples'], row['stopSamplesLost'] = (int(s.replace(',', '')) for s in counts.groups())
+        return
     if args.wait_profile:
         target = (args.output / ('wait-' + ident)).resolve()
         row['waitProfile'] = str(target) + '.data'
@@ -535,6 +572,8 @@ def main():
     parser.add_argument('--statistics', action='store_true', help='Instrumented admission proof, not timing baseline')
     parser.add_argument('--diagnostics', action='store_true', help='Detailed runtime transitions, not timing baseline')
     observation = parser.add_mutually_exclusive_group()
+    observation.add_argument('--session-stops', action='store_true',
+                             help='Attribute traced stops throughout the selected Shroot process tree')
     observation.add_argument('--profile', action='store_true', help='Profile the selected intervals with simpleperf, not a timing baseline')
     observation.add_argument('--wait-profile', action='store_true',
                              help='Capture a bounded slice of supervisor wait4 results and ARM64 caller addresses')
@@ -581,6 +620,7 @@ def main():
     report = dict(videoSha256=hashlib.sha256(video).hexdigest() if args.video else None,
                   url=args.url, executor=args.executor,
                   **runtime, profile=args.profile, waitTimeline=args.wait_timeline, waitProfile=args.wait_profile,
+                  sessionStops=args.session_stops,
                   samples=[], passed=False)
     try:
         for index in range(args.rounds):
@@ -594,7 +634,7 @@ def main():
                     raise
                 report['executor'] = row['executor']
                 brief = {k:v for k,v in row.items() if k not in
-                         ('idle','cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics')}
+                         ('idle','cpu','before','after','entryCounters','inputRoundTripMs','timeline','graphics','stopProcesses')}
                 if 'idle' in row:
                     brief['idle'] = {k: row['idle'][k] for k in ('seconds','supervisorPercent','processPercent')}
                 print('VIDEO_RESULT', json.dumps(brief), flush=True)
