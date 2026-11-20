@@ -4768,13 +4768,20 @@ if [ "${1:-}" = --ready ]; then
     # Called by the compositor after it publishes its child display endpoints.
     set --
     if session_manager; then set -- --systemd; fi
-    for variable in DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE PULSE_SERVER PIPEWIRE_REMOTE PIPEWIRE_RUNTIME_DIR; do
+    for variable in DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_DATA_DIRS PULSE_SERVER PIPEWIRE_REMOTE PIPEWIRE_RUNTIME_DIR; do
         if printenv "$variable" >/dev/null 2>&1; then set -- "$@" "$variable"; fi
     done
     exec dbus-update-activation-environment "$@"
 fi
 desktop=${1:?Expected xfce, weston, gnome, plasma-x11 or plasma-wayland}
 shift
+# A desktop can start without a login shell. Let the package add the selected
+# user's exports and any configured system installations, as it does at login.
+if [ -r /etc/profile.d/flatpak.sh ]; then
+    set +u
+    . /etc/profile.d/flatpak.sh
+    set -u
+fi
 [ ! -r /etc/profile.d/magicdesk-graphics.sh ] || . /etc/profile.d/magicdesk-graphics.sh
 [ ! -r /etc/profile.d/magicdesk-applications.sh ] || . /etc/profile.d/magicdesk-applications.sh
 if command -v magicdesk-flatpak-gl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then

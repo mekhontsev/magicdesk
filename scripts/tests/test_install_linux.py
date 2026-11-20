@@ -1256,6 +1256,11 @@ packages ninja meson pkgconf
         home = self.directory / 'home'
         home.mkdir()
         environment = dict(self.environment, HOME=str(home))
+        environment.pop('XDG_DATA_DIRS', None)
+        profiles = self.directory / 'profiles'
+        profiles.mkdir()
+        (profiles / 'flatpak.sh').write_text(
+            'export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/share}"\n')
         environment.pop('MAGICDESK_MESA_PREFIX', None)
         launcher = self.run_script('--print-desktop-session').stdout
         launcher = launcher.replace('/etc/profile.d/', str(self.directory / 'profiles') + '/')
@@ -1276,6 +1281,8 @@ packages ninja meson pkgconf
                     self.assertEqual(23, launched.returncode, launched.stderr)
                     captured = json.loads(launched.stdout)
                     self.assertEqual(program, captured['argv'][0])
+                    self.assertIn(str(home / '.local/share/flatpak/exports/share'),
+                                  captured['env']['XDG_DATA_DIRS'].split(':'))
                     self.assertEqual('a b', captured['argv'][-1])
                     self.assertEqual('abstract-gamepad', captured['env']['MAGICDESK_GAMEPAD_ENDPOINT'])
                     self.assertEqual('/tmp/android-pulse', captured['env']['MAGICDESK_AUDIO_PULSE'])
@@ -1310,7 +1317,7 @@ packages ninja meson pkgconf
             else:
                 self.assertIsNone(value['scope'])
 
-    def test_desktop_ready_publishes_only_present_display_and_audio_variables(self):
+    def test_desktop_ready_publishes_only_present_session_variables(self):
         publisher = self.directory / 'dbus-update-activation-environment'
         publisher.write_text('#!' + sys.executable + '\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n')
         publisher.chmod(0o755)
@@ -1322,13 +1329,16 @@ packages ninja meson pkgconf
             environment = dict(self.environment, XDG_RUNTIME_DIR='/run/user/1000',
                                DBUS_SESSION_BUS_ADDRESS='unix:path=/run/user/1000/bus' if systemd else 'unix:path=/private-bus',
                                WAYLAND_DISPLAY='wayland-1', PULSE_SERVER='unix:/session/audio')
+            environment.pop('XDG_DATA_DIRS', None)
+            if systemd:
+                environment['XDG_DATA_DIRS'] = '/user/exports/share:/usr/share'
             for key in ('DISPLAY', 'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'PIPEWIRE_REMOTE', 'PIPEWIRE_RUNTIME_DIR'):
                 environment.pop(key, None)
             result = subprocess.run(['sh', '-c', launcher, 'desktop', '--ready'],
                                     env=environment, capture_output=True, text=True, timeout=5)
             self.assertEqual(0, result.returncode, result.stderr)
-            self.assertEqual((['--systemd'] if systemd else []) + ['WAYLAND_DISPLAY', 'PULSE_SERVER'],
-                             json.loads(result.stdout))
+            self.assertEqual((['--systemd'] if systemd else []) + ['WAYLAND_DISPLAY']
+                             + (['XDG_DATA_DIRS'] if systemd else []) + ['PULSE_SERVER'], json.loads(result.stdout))
         setup = self.run_script('--print-system-setup').stdout
         self.assertIn('path=/usr/local/libexec/magicdesk-desktop-ready\n', setup)
         self.assertIn('exec magicdesk-desktop-session --ready\n', setup)
