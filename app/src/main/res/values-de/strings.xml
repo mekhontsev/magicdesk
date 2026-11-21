@@ -1018,6 +1018,7 @@
     <string name="console_termux_autolaunch_blocked">Termux wurde von der Firmware blockiert. Autostart oder Hintergrundaktivität für Termux erlauben und dieses Fenster erneut öffnen.</string>
     <string name="console_tmux_loading">tmux-Sitzungen werden geladen…</string>
     <string name="console_tmux_new_session">Neue tmux-Sitzung</string>
+    <string name="console_tmux_sessions">tmux-Sitzungen</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d Fenster</item>
         <item quantity="other">%d Fenster</item>
@@ -1230,4 +1231,12 @@
     <string name="linux_connection_scope">Wählen Sie die Dienste für das nächste Terminal in %1$s. Internet und Automatisierung enden mit dem Terminal oder beim Trennen.</string>
     <string name="linux_connection_internet">Vorübergehender Webzugriff für das nächste Terminal (kein lokales Netzwerk)</string>
     <string name="linux_connection_mcp">Autorisierten MCP-Clients erlauben, Linux zu untersuchen und zu steuern (einschließlich Befehlsausführung mit Shell-Berechtigung)</string>
+    <string name="console_more_actions">Weitere Aktionen</string>
+    <string name="console_browse_files">Sitzungsdateien durchsuchen</string>
+    <string name="console_redraw">Bildschirm neu zeichnen (Strg+L)</string>
+    <string name="console_clear_history">Terminalverlauf löschen</string>
+    <string name="console_clear_history_confirm">Gespeicherte Ausgabe und Befehlsverlauf dieses Terminals löschen?</string>
+    <string name="console_command_shortcut">Befehlsverknüpfung erstellen</string>
+    <string name="console_notification_settings">Benachrichtigungseinstellungen für das Terminal</string>
+    <string name="console_path_unknown">Der Pfad ist in dieser Sitzung nicht verfügbar.</string>
 </resources>

@@ -8,6 +8,9 @@ public final class TerminalOscPolicyTest {
         assertTrue(TerminalLink.parse("https://example.com/a;b?q=c").canOpen());
         assertEquals("/sdcard/a b.txt", TerminalLink.parse("file:///sdcard/a%20b.txt").localPath());
         assertTrue(TerminalLink.parse("file://localhost/sdcard/a").canOpen());
+        assertEquals("/home/a b", TerminalLink.parse("file://debian/home/a%20b","Debian").localPath());
+        assertFalse(TerminalLink.parse("file://remote/home/a","debian").canOpen());
+        assertFalse(TerminalLink.parse("file://name@debian/a","debian").canOpen());
         for (String value : new String[]{"file://other-host/etc/passwd", "file://localhost:80/a",
                 "file://user@localhost/a", "file:///a%00", "file:relative", "https://name@host/a",
                 "intent://x", "javascript:alert(1)", "content://secrets/a", "not a uri"}) {

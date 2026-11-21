@@ -30,6 +30,7 @@ final class ConsoleTerminalRegistry {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Map<String, Entry> ENTRIES = new LinkedHashMap<>();
     private static long focusSequence;
+    private static long nextSessionNumber;
 
     private ConsoleTerminalRegistry() {
     }
@@ -126,7 +127,7 @@ final class ConsoleTerminalRegistry {
         MagicDeskRuntime.refreshNotification();
     }
 
-    static void bindTmux(String id, String sessionId, long createdSeconds) {
+    static void bindTmux(String id, String sessionId, long createdSeconds, String name) {
         if (!TmuxSessionProvider.isSessionId(sessionId) || createdSeconds < 0) {
             throw new IllegalArgumentException("invalid tmux binding");
         }
@@ -134,6 +135,47 @@ final class ConsoleTerminalRegistry {
         if (entry == null) throw new IllegalArgumentException("terminal no longer exists");
         entry.tmuxSessionId = sessionId;
         entry.tmuxCreatedSeconds = createdSeconds;
+        entry.tmuxName = name == null ? "" : name;
+    }
+
+    /** Refresh display names from the same client catalog used to group picker rows. */
+    static void observeTmuxNames(TmuxSessionProvider.Snapshot catalog) {
+        if (catalog == null || !catalog.complete) return;
+        for (var terminal : list()) {
+            if (terminal.tmuxSessionId.isEmpty() || terminal.processId <= 0) continue;
+            var id = catalog.clients.get(terminal.processId);
+            var server = id == null ? null : catalog.find(id);
+            String name = server == null ? "" : server.name;
+            var entry = find(terminal.id);
+            if (entry != null && !entry.tmuxName.equals(name)) {
+                entry.tmuxName = name;
+                entry.onTitleChanged(entry.session.title());
+            }
+        }
+    }
+
+    static java.util.Map<String, Snapshot> observeGuestTmux(GuestEnvironmentCatalog.Entry guest, TmuxSessionProvider.Snapshot catalog) {
+        var clients = new java.util.HashMap<String, Snapshot>();
+        for (var terminal : list()) {
+            var entry = find(terminal.id);
+            if (entry == null || !guest.equals(entry.session.initialEnvironment) || entry.session.guestTmuxName == null) continue;
+            try {
+                String id = catalog.terminals.get(entry.session.outputEndpoint().tty());
+                var session = id == null ? null : catalog.find(id);
+                String name = session == null ? "" : session.name;
+                if (!entry.session.guestTmuxName.equals(name)) {
+                    entry.session.guestTmuxName = name;
+                    entry.onTitleChanged(entry.session.title());
+                }
+                if (session != null) clients.putIfAbsent(id, terminal);
+            } catch (IOException notReady) { /* A disconnected PTY is not a live client. */ }
+        }
+        return clients;
+    }
+
+    static GuestEnvironmentCatalog.Entry guestTmuxEnvironment(String id) {
+        var entry = find(id);
+        return entry == null || entry.session.guestTmuxName == null ? null : entry.session.initialEnvironment;
     }
 
     static void rename(String id, String name) {
@@ -530,6 +572,8 @@ final class ConsoleTerminalRegistry {
         final String userTitle;
         final String tmuxSessionId;
         final long tmuxCreatedSeconds;
+        final String sourceName;
+        final long number;
 
         Snapshot(
                 final String id,
@@ -544,7 +588,8 @@ final class ConsoleTerminalRegistry {
                 final String title,
                 final String backend,
                 final TerminalProcessInfo foregroundProcess,
-                final String userTitle, final String tmuxSessionId, final long tmuxCreatedSeconds) {
+                final String userTitle, final String tmuxSessionId, final long tmuxCreatedSeconds,
+                final String sourceName, final long number) {
             this.id = id;
             this.taskId = taskId;
             this.displayId = displayId;
@@ -561,22 +606,34 @@ final class ConsoleTerminalRegistry {
             this.userTitle = userTitle;
             this.tmuxSessionId = tmuxSessionId;
             this.tmuxCreatedSeconds = tmuxCreatedSeconds;
+            this.sourceName = sourceName;
+            this.number = number;
+        }
+
+        String taskLabel(android.content.Context context) {
+            return taskLabel(context.getString(DesktopExecBackend.parse(backend).title()));
         }
 
         String taskLabel(final String fallback) {
-            if (!userTitle.isEmpty()) return userTitle;
-            return TerminalTaskLabel.resolve(
-                    fallback, foregroundProcess, title);
+            String type = tmuxSessionId.isEmpty() ? fallback : "tmux";
+            if (!tmuxSessionId.isEmpty() && !sourceName.isEmpty()) return TerminalTaskLabel.named(sourceName, type);
+            if (!userTitle.isEmpty() || !sourceName.isEmpty())
+                return TerminalTaskLabel.named(userTitle.isEmpty() ? sourceName : userTitle, type);
+            String process = TerminalTaskLabel.resolve(type, foregroundProcess, title);
+            String name = (process.equals(type) ? "" : process + " ") + "#" + number;
+            return TerminalTaskLabel.named(name, type);
         }
     }
 
     private static final class Entry implements ConsoleTerminalSession.Listener {
         final String id;
+        final long number = ++nextSessionNumber; // Assigned under the registry lock; retained across window changes.
         final TerminalWindowAttachment window = new TerminalWindowAttachment();
         final ConsoleTerminalSession session;
         long lastFocusSequence;
         String userTitle = "";
         String tmuxSessionId = "";
+        String tmuxName = "";
         long tmuxCreatedSeconds;
         final TerminalNotifications.Session notifications;
 
@@ -637,7 +694,11 @@ final class ConsoleTerminalRegistry {
                     terminal.workingDirectory(),
                     terminal.title(),
                     terminal.backend().wireName,
-                    terminal.foregroundProcess(), userTitle, tmuxSessionId, tmuxCreatedSeconds);
+                    terminal.foregroundProcess(), userTitle, tmuxSessionId, tmuxCreatedSeconds,
+                    !tmuxSessionId.isEmpty() ? tmuxName : terminal.initialEnvironment == null
+                            ? "" : terminal.guestTmuxName == null ? terminal.initialEnvironment.name()
+                            : terminal.initialEnvironment.name() + " / " + (terminal.guestTmuxName.isEmpty()
+                                    ? "tmux" : TerminalTaskLabel.named(terminal.guestTmuxName, "tmux")), number);
         }
     }
 }

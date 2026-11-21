@@ -22,7 +22,10 @@ final class ConsoleTerminalWindow {
     private FrameLayout mTerminalContainer;
     private TextView mShellStatus;
     private TextView mSessions;
-    private ImageButton mShowToolbar, mClear, mCopy, mPaste, mHistory, mCreateShortcut, mOpenFiles, mAttachments;
+    private String mSessionIdentity = "";
+    private ImageButton mShowToolbar;
+    private final java.util.List<ImageButton> primary = new java.util.ArrayList<>();
+    private boolean attached, ready;
     private TextView mEmpty;
     private android.widget.ProgressBar mProgress;
     private LinearLayout mToolbar;
@@ -64,56 +67,25 @@ final class ConsoleTerminalWindow {
         UiAppearance.compound(mSessions, UiColor.TEXT);
         mSessions.setCompoundDrawablePadding(dp(4));
         mSessions.setOnClickListener(view -> TerminalSessionsDialog.showDropdown(mActivity, view, mSelectSession));
-        mToolbar.addView(mSessions, new LinearLayout.LayoutParams(dp(160), dp(44)));
-        mClear = createIconButton(
-                R.drawable.ic_clear_output,
-                R.string.console_clear,
-                view -> {
-                    mActions.clear();
-                });
-        mToolbar.addView(mClear, buttonParams());
-        mCopy = createIconButton(
-                R.drawable.ic_file_copy,
-                R.string.console_copy_output,
-                mActions::showCopyActions);
-        mToolbar.addView(mCopy, buttonParams());
-        mPaste = createIconButton(
-                R.drawable.ic_file_paste,
-                R.string.console_paste,
-                view -> mActions.pasteClipboard());
-        mToolbar.addView(mPaste, buttonParams());
-        mHistory = createIconButton(R.drawable.ic_history,
-                R.string.console_commands, view -> mActions.showCommandHistory());
-        mToolbar.addView(mHistory, buttonParams());
-        mToolbar.addView(createIconButton(R.drawable.ic_notifications,
-                R.string.console_notifications, view -> mActions.showNotificationSettings()), buttonParams());
-        mToolbar.addView(createIconButton(R.drawable.ic_font_size,
-                R.string.console_font_size, view -> ConsoleFontSizeDialog.show(mActivity,
-                        R.string.console_font_size, mTerminalView.fontSizeSp(),
-                        ConsolePreferences.fontSizeSp(mActivity), mTerminalView::setFontSizeSp)), buttonParams());
-        mCreateShortcut = createIconButton(
-                R.drawable.ic_add,
-                R.string.action_new_terminal_application,
-                view -> mCreateApplication.run());
-        mToolbar.addView(mCreateShortcut, buttonParams());
-        mOpenFiles = createIconButton(
-                R.drawable.ic_folder_open,
-                R.string.console_open_working_directory,
-                view -> mActions.openSelectedPathOrWorkingDirectory());
-        mToolbar.addView(mOpenFiles, buttonParams());
-        mAttachments = createIconButton(R.drawable.ic_attachment, R.string.console_session_files,
-                view -> mActions.showSessionFiles());
-        mToolbar.addView(mAttachments, buttonParams());
-        final ImageButton hideToolbar = createIconButton(
-                R.drawable.ic_arrow_up,
-                R.string.console_hide_toolbar,
-                view -> setToolbarVisible(false));
-        mToolbar.addView(hideToolbar, buttonParams());
+        mToolbar.addView(mSessions, new LinearLayout.LayoutParams(dp(160), dp(48)));
+        for (Command command : Command.values()) {
+            if (command.icon == 0) continue;
+            ImageButton button = createIconButton(command.icon, command.label, view -> run(command, view));
+            primary.add(button);
+            button.setTag(command);
+            mToolbar.addView(button, buttonParams());
+        }
+        mToolbar.addView(new android.widget.Space(mActivity),new LinearLayout.LayoutParams(0,1,1));
+        mToolbar.addView(createIconButton(R.drawable.ic_more, R.string.console_more_actions, this::showMore), buttonParams());
+        mToolbar.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> {
+            int count = Math.min(primary.size(),primarySlots(r-l, dp(120), dp(48)));
+            int width = Math.min(dp(160),Math.max(0,r-l-(count+1)*dp(48)));
+            var params=mSessions.getLayoutParams();
+            if (params.width!=width) { params.width=width; mSessions.setLayoutParams(params); }
+            for (int i=0; i<primary.size(); i++) primary.get(i).setVisibility(i<count ? View.VISIBLE : View.GONE);
+        });
         mToolbar.setVisibility(mToolbarVisible ? View.VISIBLE : View.GONE);
-        final android.widget.HorizontalScrollView toolbarScroll = new android.widget.HorizontalScrollView(mActivity);
-        toolbarScroll.setHorizontalScrollBarEnabled(false);
-        toolbarScroll.addView(mToolbar);
-        page.addView(toolbarScroll, new LinearLayout.LayoutParams(
+        page.addView(mToolbar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -199,7 +171,7 @@ final class ConsoleTerminalWindow {
     }
 
     private LinearLayout.LayoutParams buttonParams() {
-        return new LinearLayout.LayoutParams(dp(44), dp(44));
+        return new LinearLayout.LayoutParams(dp(48), dp(48));
     }
 
     private int dp(final int value) {
@@ -216,23 +188,71 @@ final class ConsoleTerminalWindow {
         mProgress.setContentDescription(mActivity.getString(R.string.console_progress, data.progressState(), data.progressPercent()));
     }
 
-    void updateActions(boolean attached, boolean ready) {
-        if (mClear == null || mCopy == null || mPaste == null) {
-            return;
+    private enum Command {
+        COPY(R.string.console_copy_output,R.drawable.ic_file_copy), PASTE(R.string.console_paste,R.drawable.ic_file_paste),
+        ATTACH(R.string.console_session_files,R.drawable.ic_attachment), HISTORY(R.string.console_commands,R.drawable.ic_history),
+        FILES(R.string.console_browse_files,R.drawable.ic_folder_open), REDRAW(R.string.console_redraw,0),
+        CLEAR(R.string.console_clear_history,0), SHORTCUT(R.string.console_command_shortcut,0),
+        FONT(R.string.console_font_size,0), NOTIFICATIONS(R.string.console_notification_settings,0), HIDE(R.string.console_hide_toolbar,0);
+        final int label,icon;
+        Command(int label,int icon) { this.label=label; this.icon=icon; }
+    }
+    static int primarySlots(int width,int titleWidth,int buttonWidth) {
+        return Math.max(0,(width-titleWidth)/buttonWidth-1); // Reserve the overflow button.
+    }
+    private boolean enabled(Command command) {
+        return switch (command) {
+            case COPY, HISTORY, CLEAR -> attached;
+            case PASTE, ATTACH, FILES, REDRAW, SHORTCUT -> ready;
+            default -> true;
+        };
+    }
+    private void run(Command command,View anchor) {
+        if (!enabled(command)) return;
+        switch (command) {
+            case COPY -> mActions.showCopyActions(anchor);
+            case PASTE -> mActions.pasteClipboard();
+            case ATTACH -> mActions.showSessionFiles();
+            case FILES -> mActions.openSelectedPathOrWorkingDirectory();
+            case HISTORY -> mActions.showCommandHistory();
+            case CLEAR -> mActions.confirmClearHistory();
+            case REDRAW -> mActions.redraw();
+            case SHORTCUT -> mCreateApplication.run();
+            case FONT -> ConsoleFontSizeDialog.show(mActivity,R.string.console_font_size,mTerminalView.fontSizeSp(),
+                    ConsolePreferences.fontSizeSp(mActivity),mTerminalView::setFontSizeSp);
+            case NOTIFICATIONS -> mActions.showNotificationSettings();
+            case HIDE -> setToolbarVisible(false);
         }
-        mClear.setEnabled(ready);
-        mCopy.setEnabled(attached);
-        mPaste.setEnabled(ready);
-        mHistory.setEnabled(attached);
-        mCreateShortcut.setEnabled(attached);
-        mOpenFiles.setEnabled(ready);
-        mAttachments.setEnabled(ready);
+    }
+    private void showMore(View anchor) {
+        var menu = new android.widget.PopupMenu(mActivity,anchor);
+        for (Command command : Command.values()) {
+            if (primary.stream().anyMatch(b -> b.getTag()==command && b.getVisibility()==View.VISIBLE)) continue;
+            menu.getMenu().add(command.label).setEnabled(enabled(command)).setOnMenuItemClickListener(item -> {
+                run(command,anchor); return true;
+            });
+        }
+        menu.show();
+    }
+    void updateActions(boolean attached, boolean ready) {
+        this.attached=attached; this.ready=ready;
+        for (var button:primary) button.setEnabled(enabled((Command)button.getTag()));
     }
 
     void updateSession(String label, boolean attached) {
         mSessions.setText(label);
+        updateSessionDescription();
         mEmpty.setVisibility(attached ? View.GONE : View.VISIBLE);
         if (!attached) mProgress.setVisibility(View.INVISIBLE);
+    }
+
+    private void updateSessionDescription() {
+        String action = mActivity.getString(R.string.terminal_sessions);
+        String label = mSessions.getText().toString();
+        String description = action + (label.isEmpty() || label.equals(action) ? "" : "\n" + label)
+                + (mSessionIdentity.isEmpty() ? "" : "\n" + mSessionIdentity);
+        mSessions.setTooltipText(description);
+        mSessions.setContentDescription(description);
     }
 
     void updateStatus(DesktopExecBackend mBackend, ShellAccess.Snapshot mSnapshot,
@@ -240,8 +260,8 @@ final class ConsoleTerminalWindow {
         if (mShellStatus == null || mSessions == null) return;
         if (mBackend == null) {
             mShellStatus.setVisibility(View.GONE);
-            mSessions.setTooltipText(mActivity.getString(R.string.terminal_sessions));
-            mSessions.setContentDescription(mActivity.getString(R.string.terminal_sessions));
+            mSessionIdentity = "";
+            updateSessionDescription();
             UiAppearance.text(mSessions, UiColor.TEXT);
             return;
         }
@@ -253,9 +273,8 @@ final class ConsoleTerminalWindow {
                 : termux ? mActivity.getString(R.string.console_shell_termux)
                 : unavailable ? mActivity.getString(R.string.console_title)
                 : mActivity.getString(root ? R.string.console_shell_root : R.string.console_shell_android, mSnapshot.uid);
-        final String description = mActivity.getString(R.string.terminal_sessions) + "\n" + identity;
-        mSessions.setTooltipText(description);
-        mSessions.setContentDescription(description);
+        mSessionIdentity = identity;
+        updateSessionDescription();
         UiAppearance.text(mSessions, root ? UiColor.ATTENTION : UiColor.TEXT);
 
         final String status = unavailable ? mActivity.getString(R.string.console_shell_unavailable,

@@ -57,8 +57,7 @@ public final class ConsoleContentReceiverActivity extends Activity {
         }
         choose.setText(snapshot == null ? getString(R.string.terminal_new) + " ("
                 + getString(CommandConsoleActivity.backend(intent).title()) + ")"
-                : snapshot.taskLabel(getString(R.string.console_title)) + " ("
-                        + getString(DesktopExecBackend.parse(snapshot.backend).title()) + ")");
+                : snapshot.taskLabel(this));
     }
 
     private void send(String text, String name, Consumer<Throwable> complete) {

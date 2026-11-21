@@ -43,8 +43,7 @@ final class TaskManagerApplications {
             for (var window : windows) claimed.add(window.taskId);
             final boolean termux = server != null || terminal != null && "termux".equals(terminal.backend);
             final int uid = termux ? endpoint.uid : ShellAccess.currentSnapshot().uid;
-            final String title = server != null ? server.name : terminal.taskLabel(context.getString(
-                    termux ? R.string.console_termux_title : R.string.console_title));
+            final String title = item.title(context);
             result.add(new Entry(server != null ? "tmux:" + server.id + ":" + server.createdSeconds : terminal.id,
                     title, server != null ? "tmux | " + server.windows + " windows | " + server.attachedClients + " clients"
                             : terminal.backend + " | " + terminal.workingDirectory,

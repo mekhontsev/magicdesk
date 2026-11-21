@@ -1021,6 +1021,7 @@
     <string name="console_termux_autolaunch_blocked">Termux was blocked by the firmware. Allow Auto-launch or background activity for Termux, then reopen this window.</string>
     <string name="console_tmux_loading">Loading tmux sessions&#8230;</string>
     <string name="console_tmux_new_session">New tmux session</string>
+    <string name="console_tmux_sessions">tmux sessions</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d window</item>
         <item quantity="other">%d windows</item>
@@ -1230,4 +1231,12 @@
     <string name="linux_connection_permission">Choose what %1$s can use in its next terminal. Find the new display under Graphical sessions in MagicDesk. Clients on the same X11 display can access each other’s windows. No command or file access is granted.</string>
     <string name="linux_connection_connect">Connect</string>
     <string name="linux_connection_pending">Connecting&#8230;</string>
+    <string name="console_more_actions">More actions</string>
+    <string name="console_browse_files">Browse session files</string>
+    <string name="console_redraw">Redraw screen (Ctrl+L)</string>
+    <string name="console_clear_history">Clear terminal history</string>
+    <string name="console_clear_history_confirm">Remove saved output and command history from this terminal?</string>
+    <string name="console_command_shortcut">Create command shortcut</string>
+    <string name="console_notification_settings">Terminal notification settings</string>
+    <string name="console_path_unknown">Path is unavailable in this session.</string>
 </resources>

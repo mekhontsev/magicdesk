@@ -11,7 +11,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
-/** On-demand access to persistent tmux sessions owned by the Termux UID. */
+/** Shared tmux wire format and commands; native Termux also retains server-owned files. */
 final class TmuxSessionProvider {
     private static final long RESULT_TIMEOUT_MILLIS = 5_000L;
     private static final int MAX_SESSION_NAME_LENGTH = 64;
@@ -46,18 +46,23 @@ final class TmuxSessionProvider {
         }
         for (var files : removed) files.close();
     }
-    private static final String LIST_COMMAND =
+    static final String SESSIONS_COMMAND =
             "if ! command -v tmux >/dev/null 2>&1; then\n"
             + "  printf '" + UNAVAILABLE_MARKER + "\\n'\n"
             + "  exit 0\n"
             + "fi\n"
             + "printf '" + AVAILABLE_MARKER + "\\n'\n"
-            + "if tmux list-sessions -F '"
+            + "if rows=$(LC_ALL=C tmux -u list-sessions -F '"
             + "#{session_id}\t#{session_name}\t#{session_windows}"
             + "\t#{session_attached}\t#{session_created}' "
-            + "2>/dev/null; then printf '" + COMPLETE_MARKER + "\\n'; fi\n"
-            + "tmux list-clients -F 'CLIENT\t#{client_pid}\t#{session_id}' 2>/dev/null || true\n"
-            + "tmux list-panes -a -F 'PANE\t#{pane_pid}\t#{session_id}' 2>/dev/null || true";
+            + "2>&1); then printf '%s\\n' \"$rows\" '" + COMPLETE_MARKER + "'; else\n"
+            + "  case $rows in 'no server running on '*|'error connecting to '*': No such file or directory'|"
+            + "'error connecting to '*' (No such file or directory)'|'error connecting to '*' (Connection refused)') ;;\n"
+            + "    *) printf '%s\\n' \"$rows\" >&2; exit 1;; esac\n"
+            + "  exit 0\nfi\n";
+    private static final String LIST_COMMAND = SESSIONS_COMMAND
+            + "tmux -u list-clients -F 'CLIENT\t#{client_pid}\t#{session_id}' 2>/dev/null || true\n"
+            + "tmux -u list-panes -a -F 'PANE\t#{pane_pid}\t#{session_id}' 2>/dev/null || true";
 
     private TmuxSessionProvider() {
     }
@@ -151,7 +156,7 @@ final class TmuxSessionProvider {
                 ? "" : output.replace("\r", "");
         final String[] lines = normalized.split("\n", -1);
         if (lines.length == 0 || UNAVAILABLE_MARKER.equals(lines[0])) {
-            return Snapshot.unavailable("tmux is not installed in Termux");
+            return Snapshot.unavailable("tmux is not installed");
         }
         if (!AVAILABLE_MARKER.equals(lines[0])) {
             throw new IllegalArgumentException(
@@ -159,6 +164,7 @@ final class TmuxSessionProvider {
         }
         final List<Session> sessions = new ArrayList<>();
         final java.util.Map<Long, String> clients = new java.util.LinkedHashMap<>();
+        final java.util.Map<String, String> terminals = new java.util.LinkedHashMap<>();
         final java.util.Map<String, java.util.Set<Integer>> panes = new java.util.LinkedHashMap<>();
         boolean complete = false;
         for (int index = 1; index < lines.length; index++) {
@@ -167,6 +173,11 @@ final class TmuxSessionProvider {
             }
             if (COMPLETE_MARKER.equals(lines[index])) { complete = true; continue; }
             final String[] fields = lines[index].split("\t", -1);
+            if (fields.length == 3 && "TTY".equals(fields[0])) {
+                if (!isSessionId(fields[2])) throw new IllegalArgumentException("invalid tmux terminal");
+                if (!fields[1].isEmpty()) terminals.put(fields[1], fields[2]);
+                continue;
+            }
             if (fields.length == 3 && "PANE".equals(fields[0])) {
                 final int pid = Integer.parseInt(fields[1]);
                 if (pid <= 0 || !isSessionId(fields[2])) throw new IllegalArgumentException("invalid tmux pane");
@@ -202,7 +213,7 @@ final class TmuxSessionProvider {
                         "invalid tmux session metadata", error);
             }
         }
-        return new Snapshot(true, complete, "", sessions, clients, panes);
+        return new Snapshot(true, complete, "", sessions, clients, panes, terminals);
     }
 
     static String attachCommand(final String sessionId) {
@@ -333,6 +344,7 @@ final class TmuxSessionProvider {
         final String detail;
         final List<Session> sessions;
         final java.util.Map<Long, String> clients;
+        final java.util.Map<String, String> terminals;
         final java.util.Map<String, java.util.Set<Integer>> panes;
 
         private Snapshot(
@@ -340,20 +352,21 @@ final class TmuxSessionProvider {
                 final boolean complete,
                 final String detail,
                 final List<Session> sessions, final java.util.Map<Long, String> clients,
-                final java.util.Map<String, java.util.Set<Integer>> panes) {
+                final java.util.Map<String, java.util.Set<Integer>> panes, java.util.Map<String, String> terminals) {
             this.available = available;
             this.complete = complete;
             this.detail = detail == null ? "" : detail;
             this.sessions = Collections.unmodifiableList(
                     new ArrayList<>(sessions));
             this.clients = java.util.Map.copyOf(clients);
+            this.terminals = java.util.Map.copyOf(terminals);
             final var copied = new java.util.LinkedHashMap<String, java.util.Set<Integer>>();
             panes.forEach((id, pids) -> copied.put(id, java.util.Set.copyOf(pids)));
             this.panes = java.util.Map.copyOf(copied);
         }
 
         static Snapshot unavailable(final String detail) {
-            return new Snapshot(false, false, detail, Collections.emptyList(), java.util.Map.of(), java.util.Map.of());
+            return new Snapshot(false, false, detail, Collections.emptyList(), java.util.Map.of(), java.util.Map.of(), java.util.Map.of());
         }
 
         Session findName(String name) {

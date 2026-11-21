@@ -1040,6 +1040,7 @@
     <string name="console_termux_autolaunch_blocked">Прошивка заблокировала Termux. Разрешите ему автозапуск или фоновую работу, затем откройте это окно снова.</string>
     <string name="console_tmux_loading">Загрузка сеансов tmux…</string>
     <string name="console_tmux_new_session">Новый сеанс tmux</string>
+    <string name="console_tmux_sessions">Сеансы tmux</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d окно</item>
         <item quantity="few">%d окна</item>
@@ -1254,4 +1255,12 @@
     <string name="linux_connection_scope">Выберите возможности для следующего терминала в %1$s. Доступ к интернету и автоматизации прекращается при завершении терминала или отключении.</string>
     <string name="linux_connection_internet">Временный веб-доступ для следующего терминала (без локальной сети)</string>
     <string name="linux_connection_mcp">Разрешить авторизованным MCP-клиентам просматривать и управлять Linux (включая выполнение команд при наличии права на shell)</string>
+    <string name="console_more_actions">Другие действия</string>
+    <string name="console_browse_files">Файлы сессии</string>
+    <string name="console_redraw">Перерисовать экран (Ctrl+L)</string>
+    <string name="console_clear_history">Очистить историю терминала</string>
+    <string name="console_clear_history_confirm">Удалить сохранённый вывод и историю команд этой консоли?</string>
+    <string name="console_command_shortcut">Создать ярлык команды</string>
+    <string name="console_notification_settings">Настройки уведомлений терминала</string>
+    <string name="console_path_unknown">Путь недоступен в этой сессии.</string>
 </resources>

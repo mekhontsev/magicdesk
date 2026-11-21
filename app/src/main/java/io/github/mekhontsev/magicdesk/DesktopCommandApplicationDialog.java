@@ -28,12 +28,18 @@ final class DesktopCommandApplicationDialog {
         final String command;
         final DesktopExecBackend backend;
         final String workingDirectory;
+        final GuestEnvironmentCatalog.Entry environment;
 
         InitialValues(
                 final String name,
                 final String command,
                 final DesktopExecBackend backend,
                 final String workingDirectory) {
+            this(name,command,backend,workingDirectory,null);
+        }
+
+        InitialValues(String name,String command,DesktopExecBackend backend,String workingDirectory,GuestEnvironmentCatalog.Entry environment) {
+            this.environment=environment;
             this.name = name == null ? "" : name;
             this.command = command == null ? "" : command;
             this.backend = backend == null
@@ -118,8 +124,10 @@ final class DesktopCommandApplicationDialog {
                 activity, form, R.string.command_app_name, initial.name);
 
         label(activity, form, R.string.command_app_backend);
-        final Spinner backend = spinner(activity, R.array.command_app_backends,
-                initial.backend == DesktopExecBackend.APP ? 5 : initial.backend.ordinal());
+        final boolean fromGuest=initial.environment!=null;
+        final Spinner backend = spinner(activity, R.array.command_app_backends, fromGuest
+                ? switch(initial.backend) { case TERMUX -> 3; case SHELL -> 4; case APP -> 6; }
+                : initial.backend == DesktopExecBackend.APP ? 5 : initial.backend.ordinal());
         form.addView(backend, matchWrap());
         final LinearLayout graphicsFields = new LinearLayout(activity);
         graphicsFields.setOrientation(LinearLayout.VERTICAL);
@@ -132,6 +140,7 @@ final class DesktopCommandApplicationDialog {
         graphicsFields.addView(wholeDesktop, matchWrap());
         form.addView(graphicsFields, matchWrap());
         final LinuxEnvironmentPicker linux = new LinuxEnvironmentPicker(activity);
+        if (fromGuest) linux.preselect(initial.environment);
         linux.setVisibility(View.GONE);
         form.addView(linux, matchWrap());
         final LinearLayout presentationFields = new LinearLayout(activity);
@@ -168,9 +177,9 @@ final class DesktopCommandApplicationDialog {
         form.addView(fileFields, matchWrap());
 
         backend.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            private boolean wasLinux;
-            private String hostDirectory = initial.workingDirectory;
-            private String guestDirectory = "";
+            private boolean wasLinux=fromGuest;
+            private String hostDirectory = fromGuest ? "" : initial.workingDirectory;
+            private String guestDirectory = fromGuest ? initial.workingDirectory : "";
 
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 boolean isLinux = isLinuxBackend(position);

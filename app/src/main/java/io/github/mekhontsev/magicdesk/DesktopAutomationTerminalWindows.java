@@ -339,9 +339,7 @@ final class DesktopAutomationTerminalWindows {
                 .put("userTitle", snapshot.userTitle)
                 .put("tmuxSessionId", snapshot.tmuxSessionId)
                 .put("backend", snapshot.backend)
-                .put("taskLabel", snapshot.taskLabel(
-                        "termux".equals(snapshot.backend)
-                                ? "Termux Console" : "Console"))
+                .put("taskLabel", snapshot.taskLabel(MagicDeskApplication.applicationContext()))
                 .put("foregroundProcess", new JSONObject()
                         .put("known", foreground.isKnown())
                         .put("processId", foreground.processId)

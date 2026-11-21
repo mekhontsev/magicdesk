@@ -10,7 +10,10 @@ public final class ConsoleTerminalActionsTest {
                 actions.mContentWorker.pending.run();
                 check(calls[0]==1, "active window did not execute content action");
                 actions.execute(() -> calls[0]++);
+                int[] cancelled={0};
+                actions.pathResources.reserve().attach(()->cancelled[0]++);
                 actions.close();
+                check(cancelled[0]==1,"window left scoped file access running");
                 actions.mContentWorker.pending.run();
                 actions.execute(() -> calls[0]++);
                 check(calls[0]==1 && actions.mContentWorker.submissions==2,
@@ -43,7 +46,14 @@ public final class ConsoleTerminalActionsTest {
                     }
                     void shutdownNow() { stopped=true; }
                 }
+                static class Paths {
+                    Runnable cancel;
+                    Paths reserve(){return this;}
+                    void attach(Runnable cancel){this.cancel=cancel;}
+                    void close(){if(cancel!=null)cancel.run();}
+                }
                 static class Actions implements AutoCloseable {
+                    final Paths pathResources=new Paths();
                     final Worker mContentWorker=new Worker(); volatile boolean mClosed;
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalActions", "execute", "close")
                 + "}\npublic static void verify() {\n" + body + "\n}");

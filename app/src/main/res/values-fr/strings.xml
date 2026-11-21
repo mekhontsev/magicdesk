@@ -1028,6 +1028,7 @@
     <string name="console_termux_autolaunch_blocked">Termux a été bloqué par le firmware. Autorisez le lancement automatique ou l\'activité en arrière-plan de Termux, puis rouvrez cette fenêtre.</string>
     <string name="console_tmux_loading">Chargement des sessions tmux…</string>
     <string name="console_tmux_new_session">Nouvelle session tmux</string>
+    <string name="console_tmux_sessions">Sessions tmux</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d fenêtre</item>
         <item quantity="other">%d fenêtres</item>
@@ -1242,4 +1243,12 @@
     <string name="linux_connection_scope">Sélectionnez les services pour le prochain terminal de %1$s. Internet et l’automatisation prennent fin à la fermeture du terminal ou à la déconnexion.</string>
     <string name="linux_connection_internet">Accès web temporaire pour le prochain terminal (sans réseau local)</string>
     <string name="linux_connection_mcp">Autoriser les clients MCP à inspecter et contrôler Linux (y compris l’exécution de commandes avec la permission shell)</string>
+    <string name="console_more_actions">Autres actions</string>
+    <string name="console_browse_files">Parcourir les fichiers de la session</string>
+    <string name="console_redraw">Redessiner l’écran (Ctrl+L)</string>
+    <string name="console_clear_history">Effacer l’historique du terminal</string>
+    <string name="console_clear_history_confirm">Supprimer la sortie enregistrée et l’historique des commandes de ce terminal ?</string>
+    <string name="console_command_shortcut">Créer un raccourci de commande</string>
+    <string name="console_notification_settings">Paramètres des notifications du terminal</string>
+    <string name="console_path_unknown">Chemin indisponible dans cette session.</string>
 </resources>

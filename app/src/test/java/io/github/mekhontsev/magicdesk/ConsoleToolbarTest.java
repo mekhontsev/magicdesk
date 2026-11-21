@@ -11,6 +11,10 @@ public final class ConsoleToolbarTest {
                     view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.GONE, "persistent Termux label");
                     check(view.mSessions.tooltip.equals("Sessions\\nTermux"), "missing Termux identity");
+                    view.mSessions.setText("main : tmux");
+                    view.updateSessionDescription();
+                    check(view.mSessions.description.equals("Sessions\\nmain : tmux\\nTermux"), "missing active session name");
+                    view.mSessions.setText("Sessions");
                     view.mBackend = DesktopExecBackend.APP;
                     view.mSnapshot = null;
                     view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
@@ -87,7 +91,8 @@ public final class ConsoleToolbarTest {
                 } }
                 static class View {
                     static final int VISIBLE=0, GONE=8;
-                    String text, tooltip, description; int visibility; UiColor color, tint;
+                    String text="", tooltip, description; int visibility; UiColor color, tint;
+                    String getText() { return text; }
                     void setText(String value) { text=value; }
                     void setVisibility(int value) { visibility=value; }
                     void setTooltipText(String value) { tooltip=value; }
@@ -98,9 +103,9 @@ public final class ConsoleToolbarTest {
                     View mShellStatus=new View(), mSessions=new View();
                     DesktopExecBackend mBackend;
                     Snapshot mSnapshot;
-                    String mTerminalStatus="";
+                    String mTerminalStatus="", mSessionIdentity="";
                     boolean mTerminalFailed;
                     String getString(String template, Object... args) { return String.format(template, args); }
-                """ + RuntimeSourceFixture.methods("ConsoleTerminalWindow", "updateStatus") + "}";
+                """ + RuntimeSourceFixture.methods("ConsoleTerminalWindow", "updateStatus", "updateSessionDescription") + "}";
     }
 }

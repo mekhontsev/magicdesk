@@ -1008,6 +1008,7 @@
     <string name="console_termux_autolaunch_blocked">固件阻止了 Termux。请允许 Termux 自启动或后台活动，然后重新打开此窗口。</string>
     <string name="console_tmux_loading">正在加载 tmux 会话…</string>
     <string name="console_tmux_new_session">新建 tmux 会话</string>
+    <string name="console_tmux_sessions">tmux 会话</string>
     <plurals name="console_tmux_windows">
         <item quantity="other">%d 个窗口</item>
     </plurals>
@@ -1218,4 +1219,12 @@
     <string name="linux_connection_scope">选择要连接到 %1$s 下一个终端的服务。终端结束或断开连接时，网络访问和自动化也将停止。</string>
     <string name="linux_connection_internet">允许下一个终端临时访问网页（不包括局域网）</string>
     <string name="linux_connection_mcp">允许已授权的 MCP 客户端检查和控制 Linux（具有 shell 权限时可执行命令）</string>
+    <string name="console_more_actions">更多操作</string>
+    <string name="console_browse_files">浏览会话文件</string>
+    <string name="console_redraw">重绘屏幕 (Ctrl+L)</string>
+    <string name="console_clear_history">清除终端历史记录</string>
+    <string name="console_clear_history_confirm">删除此终端保存的输出和命令历史记录？</string>
+    <string name="console_command_shortcut">创建命令快捷方式</string>
+    <string name="console_notification_settings">终端通知设置</string>
+    <string name="console_path_unknown">此会话无法访问该路径。</string>
 </resources>

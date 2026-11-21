@@ -1008,6 +1008,7 @@
     <string name="console_termux_autolaunch_blocked">ファームウェアにより Termux がブロックされました。Termux の自動起動またはバックグラウンド動作を許可してから、このウィンドウを開き直してください。</string>
     <string name="console_tmux_loading">tmux セッションを読み込み中…</string>
     <string name="console_tmux_new_session">新しい tmux セッション</string>
+    <string name="console_tmux_sessions">tmux セッション</string>
     <plurals name="console_tmux_windows">
         <item quantity="other">%d ウィンドウ</item>
     </plurals>
@@ -1218,4 +1219,12 @@
     <string name="linux_connection_scope">%1$s の次のターミナルに接続するサービスを選択します。ターミナルの終了または切断でインターネットと自動操作を停止します。</string>
     <string name="linux_connection_internet">次のターミナルに一時的なウェブアクセスを許可（ローカルネットワークを除く）</string>
     <string name="linux_connection_mcp">許可された MCP クライアントに Linux の調査と操作を許可（シェル権限によるコマンド実行を含む）</string>
+    <string name="console_more_actions">その他の操作</string>
+    <string name="console_browse_files">セッションのファイルを参照</string>
+    <string name="console_redraw">画面を再描画（Ctrl+L）</string>
+    <string name="console_clear_history">端末の履歴を消去</string>
+    <string name="console_clear_history_confirm">この端末の出力履歴とコマンド履歴を消去しますか？</string>
+    <string name="console_command_shortcut">コマンドのショートカットを作成</string>
+    <string name="console_notification_settings">端末の通知設定</string>
+    <string name="console_path_unknown">このセッションではパスを使用できません。</string>
 </resources>

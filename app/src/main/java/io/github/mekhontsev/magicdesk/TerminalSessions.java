@@ -14,7 +14,12 @@ import java.util.List;
 final class TerminalSessions {
     private TerminalSessions() { }
 
-    record Item(ConsoleTerminalRegistry.Snapshot terminal, TmuxSessionProvider.Session tmux) { }
+    record Item(ConsoleTerminalRegistry.Snapshot terminal, TmuxSessionProvider.Session tmux) {
+        boolean isCurrent(String terminalId) { return terminal != null && terminal.id.equals(terminalId); }
+        String title(Context context) {
+            return tmux != null ? TerminalTaskLabel.named(tmux.name, "tmux") : terminal.taskLabel(context);
+        }
+    }
 
     static void resumeMostRecent(final Activity activity) {
         // Resolve at invocation, not when SystemUI builds the notification.
@@ -38,6 +43,11 @@ final class TerminalSessions {
     }
 
     static List<Item> merge(List<ConsoleTerminalRegistry.Snapshot> terminals, TmuxSessionProvider.Snapshot tmux) {
+        return merge(terminals, tmux, null);
+    }
+
+    static List<Item> merge(List<ConsoleTerminalRegistry.Snapshot> terminals, TmuxSessionProvider.Snapshot tmux,
+            String currentTerminalId) {
         final List<Item> result = new ArrayList<>();
         final HashSet<String> merged = new HashSet<>();
         if (tmux != null && tmux.available) {
@@ -46,7 +56,9 @@ final class TerminalSessions {
                 for (final var terminal : terminals) {
                     if (!belongsTo(terminal, session, tmux)) continue;
                     merged.add(terminal.id);
-                    if (selected == null || terminal.focused || selected.taskId < 0 && terminal.taskId >= 0) selected = terminal;
+                    if (selected == null || terminal.id.equals(currentTerminalId)
+                            || !selected.id.equals(currentTerminalId) && (terminal.focused
+                                || selected.taskId < 0 && terminal.taskId >= 0)) selected = terminal;
                 }
                 result.add(new Item(selected, session));
             }

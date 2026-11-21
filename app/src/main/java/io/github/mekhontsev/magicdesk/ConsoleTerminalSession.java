@@ -18,6 +18,7 @@ import java.util.concurrent.RejectedExecutionException;
 /** One interactive PTY and emulator, independent of display and Activity lifetime. */
 final class ConsoleTerminalSession implements ConsoleTerminalInputConnection.Session {
     GuestEnvironmentCatalog.Entry initialEnvironment;
+    String guestTmuxName; // Last observed name; null for ordinary guest shells.
     interface Listener {
         void onScreenChanged();
 
@@ -193,6 +194,30 @@ final class ConsoleTerminalSession implements ConsoleTerminalInputConnection.Ses
         }
     }
 
+    ScopedTerminalTransport actionTransport() throws IOException {
+        synchronized (mLock) {
+            if (!mReady || mClosed || !(mTransport instanceof ScopedTerminalTransport scope))
+                throw new IOException("Terminal is not ready");
+            scope.execution.requireCurrent();
+            return scope;
+        }
+    }
+
+    String actionDirectory(OperationResources resources) throws IOException {
+        var scope=actionTransport();
+        if (initialEnvironment!=null) {
+            if (guestTmuxName != null)
+                return ConsolePathBrowser.paneDirectory(scope.execution, initialEnvironment, outputEndpoint(), resources);
+            String uri=mEmulator.getWorkingDirectoryUri();
+            var hint=TerminalLink.parse(uri);
+            String path=hint.fileHost()==null ? hint.localPath()
+                    : TerminalLink.parse(uri,new ConsolePathBrowser(this,resources).hostname()).localPath();
+            return path==null ? "" : path; // The host PTY's cwd is not a guest path.
+        }
+        if (!scope.managedTmux) return resolveWorkingDirectory();
+        return ConsolePathBrowser.paneDirectory(scope.execution,processId(),resources);
+    }
+
     boolean isReady() {
         synchronized (mLock) {
             return mReady && !mClosed;
@@ -319,10 +344,8 @@ final class ConsoleTerminalSession implements ConsoleTerminalInputConnection.Ses
         executeWriter(() -> resizeNow(rows, columns));
     }
 
-    void clear() {
-        mEmulator.getCommandHistory().clear();
-        mEmulator.getScreen().clearTranscript();
-        write(new byte[]{0x0C});
+    void clearHistory() {
+        mEmulator.clearHistory();
         mListener.onScreenChanged();
     }
 

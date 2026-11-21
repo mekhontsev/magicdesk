@@ -9,9 +9,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class ScopedTerminalTransport implements TerminalTransport {
     private final TerminalTransport terminal;
     private final Closeable scope;
+    final CommandExecution execution;
+    final boolean managedTmux;
     private final AtomicBoolean closed = new AtomicBoolean();
-    ScopedTerminalTransport(TerminalTransport terminal, Closeable scope) {
-        this.terminal = terminal; this.scope = scope;
+    ScopedTerminalTransport(TerminalTransport terminal, Closeable scope, CommandExecution execution, boolean managedTmux) {
+        this.terminal = terminal; this.scope = scope; this.execution=execution; this.managedTmux=managedTmux;
     }
     @Override public InputStream inputStream() { return terminal.inputStream(); }
     @Override public void write(byte[] data) throws IOException { terminal.write(data); }

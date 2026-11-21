@@ -26,6 +26,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private TermuxCommandResultReceiver.Registration request;
     private java.io.Closeable guestRequest;
     private List<GuestEnvironmentCatalog.Entry> guests = List.of();
+    private GuestEnvironmentCatalog.Entry preferred;
     private boolean graphical;
     private final TextView title;
     private int generation;
@@ -96,6 +97,12 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         if (value) load(); else cancel();
     }
 
+    void preselect(GuestEnvironmentCatalog.Entry entry) {
+        preferred=entry;
+        setBackend(entry.backend());
+        method.setSelection(kinds.indexOf(LinuxLaunchRecipe.Kind.MANAGED_GUEST));
+    }
+
     void setBackend(DesktopExecBackend value) {
         if (backend == value) return;
         backend = value;
@@ -163,7 +170,18 @@ final class LinuxEnvironmentPicker extends LinearLayout {
                 guestRequest = GuestEnvironmentCatalog.load(getContext(), backend, (entries, error) -> post(() -> {
                     if (expected != generation) return;
                     guests = entries;
+                    var desired=preferred!=null && preferred.backend()==backend ? preferred : null;
+                    if (desired!=null && entries.stream().noneMatch(item -> item.id().equals(desired.id()) && item.store().equals(desired.store()))) {
+                        guests=List.of();
+                        status.setText(error!=null ? ShellAccess.usefulMessage(error) : getContext().getString(R.string.guest_select));
+                        return; // Never substitute the first installed distribution for a removed environment.
+                    }
                     UiChoiceAdapter.bindAdapter(choices,new GuestEnvironmentLabel.Adapter(getContext(),guests,false));
+                    if (desired!=null) for (int i=0;i<guests.size();i++) {
+                        if (guests.get(i).id().equals(desired.id()) && guests.get(i).store().equals(desired.store())) {
+                            choices.setSelection(i); break;
+                        }
+                    }
                     status.setText(error == null ? getContext().getString(R.string.guest_empty) : ShellAccess.usefulMessage(error));
                     status.setVisibility(error != null || guests.isEmpty() ? View.VISIBLE : View.GONE);
                 }));

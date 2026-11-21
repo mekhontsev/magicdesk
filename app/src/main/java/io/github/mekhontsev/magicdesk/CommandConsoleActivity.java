@@ -26,6 +26,7 @@ public final class CommandConsoleActivity extends Activity
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_ATTACH_ONLY";
     private static final String EXTRA_TMUX_SESSION = "tmux_session";
     private static final String EXTRA_TMUX_CREATED = "tmux_created";
+    private static final String EXTRA_TMUX_NAME = "tmux_name";
     private static final String STATE_SESSION = "session_intent";
     private static final String EXTRA_EMPTY = "empty_terminal_window";
     private static final String STATE_FONT_SIZE = "font_size_sp";
@@ -38,6 +39,7 @@ public final class CommandConsoleActivity extends Activity
     private DesktopExecBackend mBackend;
     private String mTerminalStatus = "";
     private String mTerminalRegistryId = "";
+    String attachedTerminalId() { return mTerminalRegistryId; }
     private boolean mTerminalFailed;
     private boolean mPermissionRequested;
     private final VolumeKeyAction mBlackScreenKey = new VolumeKeyAction();
@@ -124,8 +126,19 @@ public final class CommandConsoleActivity extends Activity
     }
 
     static Intent createEnvironmentIntent(Context context,GuestEnvironmentCatalog.Entry entry) {
-        return createPreparedCommandIntent(context,GuestEnvironmentCatalog.login(entry),"",entry.backend())
+        return createEnvironmentIntent(context, entry, null);
+    }
+
+    static Intent createEnvironmentIntent(Context context, GuestEnvironmentCatalog.Entry entry, GuestTmux.Target target) {
+        var intent = createPreparedCommandIntent(context, target == null ? GuestEnvironmentCatalog.login(entry)
+                : target.command(entry), "", entry.backend())
                 .putExtra("guestEnvironment",new String[]{entry.name(),entry.id(),entry.source(),entry.store()});
+        return target == null ? intent : intent.putExtra("guestTmuxTarget", target.encode());
+    }
+
+    private static String guestTmuxName(Intent request) {
+        var fields = request.getStringArrayExtra("guestTmuxTarget");
+        return fields == null ? null : GuestTmux.Target.decode(fields).name();
     }
 
     private static GuestEnvironmentCatalog.Entry initialEnvironment(Intent request,DesktopExecBackend backend,String command) {
@@ -135,7 +148,9 @@ public final class CommandConsoleActivity extends Activity
             GuestEnvironmentLibrary.validateName(fields[0]);
             var entry=new GuestEnvironmentCatalog.Entry(fields[0],java.util.UUID.fromString(fields[1]).toString(),
                     fields[2],GuestEnvironment.absolute(fields[3],"environment store"),backend);
-            return GuestEnvironmentCatalog.login(entry).equals(command) ? entry : null;
+            String[] target = request.getStringArrayExtra("guestTmuxTarget");
+            String expected = target == null ? GuestEnvironmentCatalog.login(entry) : GuestTmux.Target.decode(target).command(entry);
+            return expected.equals(command) ? entry : null;
         } catch (IllegalArgumentException invalidPresentation) { return null; }
     }
 
@@ -163,7 +178,8 @@ public final class CommandConsoleActivity extends Activity
         return withTerminalId(createPreparedCommandIntent(context,
                 TmuxSessionProvider.sessionCommand(session, TmuxSessionProvider.attachCommand(session.id)),
                 TermuxIntegration.homeDirectory(context), DesktopExecBackend.TERMUX), ConsoleTerminalRegistry.nextId())
-                .putExtra(EXTRA_TMUX_SESSION, session.id).putExtra(EXTRA_TMUX_CREATED, session.createdSeconds);
+                .putExtra(EXTRA_TMUX_SESSION, session.id).putExtra(EXTRA_TMUX_CREATED, session.createdSeconds)
+                .putExtra(EXTRA_TMUX_NAME, session.name);
     }
 
     @Override
@@ -351,7 +367,7 @@ public final class CommandConsoleActivity extends Activity
         final var snapshot = ConsoleTerminalRegistry.status(mTerminalRegistryId);
         final String label = snapshot == null ? TerminalTaskLabel.resolve(fallback,
                 mSession == null ? TerminalProcessInfo.unknown() : mSession.foregroundProcess(), title)
-                : snapshot.taskLabel(fallback);
+                : snapshot.taskLabel(this);
         setTitle(label);
         DesktopTaskDescription.apply(this, label, R.drawable.ic_file_console);
         mWindow.updateSession(mSession == null ? getString(R.string.terminal_sessions) : label,
@@ -395,13 +411,10 @@ public final class CommandConsoleActivity extends Activity
     }
 
     private void createTerminalApplication() {
-        final String directory = mSession == null
-                ? initialDirectory(getIntent()) : mSession.workingDirectory();
-        DesktopCommandApplicationDialog.show(
-                this,
-                DesktopCommandApplicationDialog.InitialValues.empty(
-                        directory, mBackend),
-                null);
+        var session=mSession;
+        if (session!=null) mActions.withActionDirectory(session,directory ->
+                DesktopCommandApplicationDialog.show(this,new DesktopCommandApplicationDialog.InitialValues(
+                        "", "", session.backend(), directory, session.initialEnvironment),null));
     }
 
     private void selectSession(Intent request) {
@@ -410,7 +423,7 @@ public final class CommandConsoleActivity extends Activity
         if (session != null && session.taskId >= 0 && session.taskId != getTaskId()) {
             UiDialogs.builder(this).setTitle(R.string.terminal_move_here)
                     .setMessage(getString(R.string.terminal_move_confirm,
-                            session.taskLabel(getString(R.string.console_title))))
+                            session.taskLabel(this)))
                     .setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(R.string.terminal_move_here, (dialog, which) -> openSession(request)).show();
         } else openSession(request);
@@ -449,12 +462,13 @@ public final class CommandConsoleActivity extends Activity
                                 var session = new ConsoleTerminalSession(initialDirectory(request),
                                     mTerminalView.columns(), mTerminalView.rows(), mTerminalView.cellWidth(),
                                     mTerminalView.cellHeight(), requestedBackend, command,
-                                    terminalTransportFactory(requestedBackend, files), listener);
+                                    terminalTransportFactory(requestedBackend, files, tmuxId != null), listener);
                                 session.initialEnvironment=initialEnvironment(request,requestedBackend,command);
+                                if (session.initialEnvironment != null) session.guestTmuxName = guestTmuxName(request);
                                 session.setFiles(files, tmuxId == null);
                                 return session;
                             });
-            if (tmuxId != null) ConsoleTerminalRegistry.bindTmux(id, tmuxId, tmuxCreated);
+            if (tmuxId != null) ConsoleTerminalRegistry.bindTmux(id, tmuxId, tmuxCreated, request.getStringExtra(EXTRA_TMUX_NAME));
             // Registration revokes both former bindings before this window adopts the session.
             ConsoleTerminalRegistry.register(this, next, mTerminalView, id);
             mSession = next;
@@ -493,10 +507,11 @@ public final class CommandConsoleActivity extends Activity
         updateActions();
     }
 
-    private TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend backend, ConsoleSessionFiles files) {
+    private TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend backend, ConsoleSessionFiles files, boolean managedTmux) {
         final Context application = getApplicationContext();
         return (directory, rows, columns, startupCommand) -> {
-            var audio = LinuxAudio.prepare(application, new CommandExecution(application, backend));
+            var execution = new CommandExecution(application, backend);
+            var audio = LinuxAudio.prepare(application, execution);
             try {
                 var environment = new java.util.LinkedHashMap<>(audio.environment());
                 environment.putAll(files.prepare());
@@ -505,7 +520,7 @@ public final class CommandConsoleActivity extends Activity
                     case TERMUX -> TermuxPtyTransport.open(application, directory, rows, columns, startupCommand, environment);
                     case SHELL -> ShellAccess.openPty(directory, rows, columns, environment);
                 };
-                return new ScopedTerminalTransport(terminal, audio);
+                return new ScopedTerminalTransport(terminal, audio, execution, managedTmux);
             } catch (IOException | RuntimeException error) { audio.close(); throw error; }
         };
     }

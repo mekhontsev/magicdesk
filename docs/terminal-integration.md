@@ -51,7 +51,21 @@ including a tmux client, without recreating its session. Toolbar actions use
 bundled 24dp Lucide vectors with the same stroke weight and accessible labels.
 The first button opens the session picker; its tooltip identifies the backend and
 shell UID. Root sessions tint that button amber. Only startup, access or error
-messages occupy a status row.
+messages occupy a status row. The toolbar always keeps the session selector
+and **More actions** visible. Copy, Paste, attachments, command history and
+files move into that menu as the window narrows. **Redraw screen** sends
+Ctrl+L to the foreground program; **Clear terminal history** discards local
+scrollback and recorded commands after confirmation, without sending input.
+The notification settings entry opens the Android channel for terminal programs.
+
+**Browse session files** and local OSC 8 file links use the terminal executor.
+Native Shell uses Files; User, Termux and explicitly selected Shroot environments
+can browse directories read-only and open a temporary read-only copy in Android.
+Managed tmux uses the active pane's directory. A Shroot shell may report its
+directory with a local OSC 7 file URI. Without that hint browsing starts at the
+guest root, relative selections are not guessed and command shortcuts retain the
+guest's default working directory. **Create command shortcut** preselects the
+explicitly opened environment in the command editor.
 Finger swipes continue with Android's native fling physics after release. The
 same scroll route handles local history, tmux mouse reporting and alternate-screen
 arrow-key navigation. New input, selection, zoom, resize, focus loss or detach
@@ -152,6 +166,11 @@ client PIDs identify the current session even after switching inside tmux.
 Ordinary shells that happen to run tmux are not reclassified as managed clients.
 Discovery runs on demand, and missing Termux access does not hide local terminals.
 
+The console toolbar and picker show the name first, for example **main : tmux**
+or **Debian : User**. Unnamed terminals have a short number, such as **#2 : Shell**,
+which stays with the PTY when its window changes. A checkmark identifies the
+session shown in this specific console window, not every session with a client.
+
 The header dropdown shows the session's existing window or attaches a window on
 the Control Panel's own display; the Apps launcher uses its selected display.
 An empty dropdown still offers **New session**. A console dropdown switches the
@@ -164,6 +183,11 @@ Window recreation reattaches the selected session without replaying launch comma
 **New session** offers User, Shell, Termux, Shroot environments and tmux.
 Shroot entries retain their executor, for example **Debian (User)** or
 **Debian (Shell)**. Selecting an environment never changes the launch identity.
+Choose **New session → Shroot environments → environment → tmux sessions** to
+attach to a session or start a named one inside that Shroot environment. Discovery
+uses its configured guest account and default tmux socket; it does not scan
+other stores or custom sockets. A guest client is identified by its slave PTY
+inside that store. Its files and command shortcuts stay in the selected environment.
 Row actions include Rename, Detach and explicit, confirmed termination. A local name belongs
 to the retained terminal and takes precedence over OSC titles; tmux names belong
 to the tmux server. Ordinary Termux app tabs are not exposed by its command API.
@@ -178,11 +202,14 @@ Ending a session leaves its window available for selecting or creating another o
 Ending the terminal releases its entire UNIX session, including foreground and
 background jobs that ignore hangup. Processes that created an independent UNIX
 session, such as a tmux server, are not terminated by PTY cleanup.
-Closing a managed tmux window disconnects only its client by releasing that
+Closing a managed native Termux tmux window disconnects only its client by releasing that
 client's controlling PTY; the tmux server retains the session and its programs,
 subject to the user's tmux configuration. Configuration recreation and transfer
 to a replacement window do not disconnect a client. Explicit termination of a
 tmux session in the picker warns that all its windows and clients are affected.
+Guest tmux windows follow the ordinary Shroot terminal lifetime. Hiding the
+window retains the PTY. Detach inside tmux to leave the session running; stopping
+the Shroot launch that owns the server also stops its sessions.
 
 The bounded runtime event journal records terminal readiness, transport errors
 and closure causes for every executor, with PTY process identity and any managed

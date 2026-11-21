@@ -56,7 +56,7 @@ public final class ConsoleSessionRoutingTest {
     private static void verify(String body) throws Exception {
         RuntimeSourceFixture.verify("""
                 enum DesktopExecBackend { SHELL, TERMUX }
-                static final String EXTRA_TMUX_SESSION="tmux", EXTRA_TMUX_CREATED="created",
+                static final String EXTRA_TMUX_SESSION="tmux", EXTRA_TMUX_CREATED="created", EXTRA_TMUX_NAME="tmuxName",
                         EXTRA_ATTACH_ONLY="attach", EXTRA_EMPTY="empty";
                 interface Function<T,R> extends java.util.function.Function<T,R> {}
                 static class Intent {
@@ -81,7 +81,7 @@ public final class ConsoleSessionRoutingTest {
                     ConsoleSessionFiles(Object context, DesktopExecBackend backend) {}
                 }
                 static class ConsoleTerminalSession {
-                    String initialEnvironment;
+                    String initialEnvironment, guestTmuxName;
                     final DesktopExecBackend backend; final String startup; int starts;
                     ConsoleTerminalSession(String dir,int c,int r,int cw,int ch,DesktopExecBackend b,
                             String command,TerminalTransport.Factory f,Object listener) { backend=b;startup=command; }
@@ -100,7 +100,7 @@ public final class ConsoleSessionRoutingTest {
                         return result;
                     }
                     static String nextId() { return "new"; }
-                    static void bindTmux(String id,String tmux,long created) {}
+                    static void bindTmux(String id,String tmux,long created,String name) {}
                     static void register(Window window,ConsoleTerminalSession session,View view,String id) {
                         window.onTerminalDetached(); tasks.put(id,window.task); registrations++;
                     }
@@ -133,11 +133,12 @@ public final class ConsoleSessionRoutingTest {
                     void setIntent(Intent value){intent=value;}
                     void onTitleChanged(String title) {} void onMetadataChanged() {} void updateShellStatus() {} void updateActions() {}
                     void maybeStartSession(){mSession.starts++;}
-                    TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend b, ConsoleSessionFiles files){return null;}
+                    TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend b, ConsoleSessionFiles files, boolean tmux){return null;}
                     static String terminalId(Intent intent){return intent.id;}
                     static DesktopExecBackend backend(Intent intent){return intent.backend;}
                     static String initialDirectory(Intent intent){return "/";}
                     static String initialEnvironment(Intent intent,DesktopExecBackend backend,String command){return command;}
+                    static String guestTmuxName(Intent intent){return null;}
                     static String takeAutoRunCommand(Intent intent){String c=intent.command;intent.command="";return c;}
                     static Intent attachIntent(Window w,ConsoleTerminalRegistry.Snapshot session) {
                         return new Intent(session.id(),session.backend(),true,"");

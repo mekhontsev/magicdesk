@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.provider.DocumentsContract;
 import android.view.DragEvent;
 import android.view.View;
 import android.widget.Toast;
@@ -19,6 +18,7 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
     private final java.util.concurrent.ExecutorService mContentWorker =
             java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "MagicDeskTerminalContent"));
     private boolean mExportingImage;
+    private final OperationResources pathResources = new OperationResources();
     private volatile boolean mClosed;
 
     ConsoleTerminalActions(Activity activity, ConsoleTerminalView view, Supplier<ConsoleTerminalSession> session) {
@@ -29,6 +29,7 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
 
     @Override public void close() {
         mClosed = true;
+        pathResources.close();
         mContentWorker.shutdownNow();
     }
 
@@ -43,10 +44,18 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
         }
     }
 
-    void clear() {
-        if (mSession.get() == null) return;
-        mSession.get().clear();
-        mTerminalView.clearSelection();
+    void redraw() {
+        var session=mSession.get();
+        if (session!=null) session.write(new byte[]{0x0C});
+    }
+
+    void confirmClearHistory() {
+        var session=mSession.get();
+        if (session==null) return;
+        UiDialogs.builder(mActivity).setTitle(R.string.console_clear_history).setMessage(R.string.console_clear_history_confirm)
+                .setNegativeButton(android.R.string.cancel,null).setPositiveButton(R.string.console_clear,(d,w)->{
+                    if (!mClosed && mSession.get()==session) { session.clearHistory(); mTerminalView.clearSelection(); }
+                }).show();
     }
 
     void showSessionFiles() {
@@ -78,15 +87,28 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
     }
 
     @Override public void showLink(final com.termux.terminal.TerminalHyperlink link) {
-        final TerminalLink target = TerminalLink.parse(link.uri());
+        final var session=mSession.get();
+        var target=TerminalLink.parse(link.uri());
+        if (session==null) return;
+        if (target.fileHost()==null) { showLink(session,target); return; }
+        execute(()->{
+            String local=null;
+            try { local=new ConsolePathBrowser(session,pathResources).hostname(); }
+            catch (IOException | RuntimeException unavailable) { /* Unknown authority stays copy-only. */ }
+            var verified=TerminalLink.parse(link.uri(),local);
+            mActivity.runOnUiThread(()->{ if (current(session)) showLink(session,verified); });
+        });
+    }
+    private void showLink(ConsoleTerminalSession session,TerminalLink target) {
         final AlertDialog.Builder dialog = UiDialogs.builder(mActivity)
-                .setTitle(R.string.console_link).setMessage(link.uri())
-                .setNeutralButton(android.R.string.copy, (which, button) -> copyText(link.uri()))
+                .setTitle(R.string.console_link).setMessage(target.uri())
+                .setNeutralButton(android.R.string.copy, (which, button) -> copyText(target.uri()))
                 .setNegativeButton(android.R.string.cancel, null);
         if (target.canOpen()) { dialog.setPositiveButton(R.string.action_open, (which, button) -> {
+            if (!current(session)) return;
+            if (target.localPath()!=null) { browse(session,target.localPath(),true); return; }
             final int display = mActivity.getDisplay() == null ? 0 : mActivity.getDisplay().getDisplayId();
             execute(() -> {
-                if (target.localPath() != null) { loadAndOpenPath(target.localPath()); return; }
                 try {
                     final var result = new AndroidIntegrationGateway(mActivity).openContent(
                             AndroidContentPayload.text(mActivity.getString(R.string.console_link), target.uri(), false,
@@ -291,36 +313,87 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
         final var session = mSession.get();
         if (session == null) return;
         final String selected = mTerminalView.selectedText();
-        if (selected.isEmpty()) {
-            refreshWorkingDirectory(directory -> openFilesAt(
-                    createFilesDirectoryInfo(directory)));
-            return;
-        }
-        session.requestWorkingDirectory((directory, lookupError) -> {
-            if (mSession.get() != session) return;
-            final String resolved;
-            try {
-                resolved = ConsolePathText.resolveSelectedPath(
-                        directory, selected);
-            } catch (IllegalArgumentException error) {
-                showPathUnavailable(error);
-                return;
-            }
-            execute(() -> loadAndOpenPath(resolved));
+        if (selected.startsWith("/")) {
+            try { browse(session,ConsolePathText.resolveSelectedPath("/",selected)); }
+            catch (IllegalArgumentException invalid) { showPathUnavailable(invalid); }
+        } else withActionDirectory(session,dir -> {
+            if (dir.isEmpty() && !selected.isEmpty()) throw new IllegalArgumentException(mActivity.getString(R.string.console_path_unknown));
+            browse(session,selected.isEmpty() ? dir.isEmpty() ? "/" : dir : ConsolePathText.resolveSelectedPath(dir,selected));
         });
     }
 
-    private void loadAndOpenPath(final String path) {
-        try {
-            final ShellFileInfo file = ShellAccess.getShellFileInfo(path);
-            mActivity.runOnUiThread(() -> {
-                if (!mActivity.isFinishing() && !mActivity.isDestroyed()) {
-                    openFilesAt(file);
-                }
+    private boolean current(ConsoleTerminalSession session) {
+        return session!=null && !mClosed && mSession.get()==session && !mActivity.isFinishing() && !mActivity.isDestroyed();
+    }
+    private void pathError(ConsoleTerminalSession session,Throwable error) {
+        mActivity.runOnUiThread(()->{ if (current(session)) showPathUnavailable(error); });
+    }
+    void withActionDirectory(ConsoleTerminalSession session,Consumer<String> action) {
+        execute(()->{ try {
+            String dir=session.actionDirectory(pathResources);
+            mActivity.runOnUiThread(()->{
+                if (current(session)) try { action.accept(dir); } catch (RuntimeException error) { showPathUnavailable(error); }
             });
-        } catch (IOException | RuntimeException error) {
-            mActivity.runOnUiThread(() -> showPathUnavailable(error));
-        }
+        } catch (IOException | RuntimeException error) { pathError(session,error); } });
+    }
+    private void browse(ConsoleTerminalSession session,String path) {
+        browse(session,path,false);
+    }
+    private void browse(ConsoleTerminalSession session,String path,boolean openLink) {
+        int display=mActivity.getDisplay()==null ? 0 : mActivity.getDisplay().getDisplayId();
+        execute(()->{ try {
+            var scope=session.actionTransport();
+            if (scope.execution.backend==DesktopExecBackend.SHELL && session.initialEnvironment==null) {
+                final ShellFileInfo file=ShellAccess.getShellFileInfo(path);
+                if (openLink && !file.directory) {
+                    if (!current(session)) return;
+                    scope.execution.requireCurrent();
+                    viewFile(session,file.name,ShellFileGrantStore.create(mActivity,file,false),display);
+                    return;
+                }
+                mActivity.runOnUiThread(()->{ if (current(session)) {
+                    try { scope.execution.requireCurrent(); openFilesAt(file); }
+                    catch (RuntimeException failure) { showPathUnavailable(failure); }
+                }});
+                return;
+            }
+            var browser=new ConsolePathBrowser(session,pathResources);
+            var listing=browser.list(path);
+            mActivity.runOnUiThread(() -> {
+                if (!current(session)) return;
+                if (openLink && !listing.directory()) { openFile(session,browser,listing.path()); return; }
+                var dialog=UiDialogs.builder(mActivity).setTitle(listing.path()).setNegativeButton(android.R.string.cancel,null);
+                if (listing.directory()) {
+                    var entries=listing.children();
+                    dialog.setItems(entries.stream().map(e->e.name()+(e.directory()?"/":"")).toArray(String[]::new),
+                            (d,i)->{ if (current(session)) browse(session,ShellFilePathPolicy.normalizeShellAbsolute(listing.path()+"/"+entries.get(i).name())); });
+                    if (!listing.path().equals("/")) dialog.setNeutralButton(R.string.file_manager_up,(d,w)->{
+                        if (current(session)) browse(session,ShellFilePathPolicy.shellParent(listing.path()));
+                    });
+                } else {
+                    dialog.setPositiveButton(R.string.action_open,(d,w)->{ if (current(session)) openFile(session,browser,listing.path()); });
+                    dialog.setNeutralButton(R.string.file_manager_copy_path,(d,w)->{ if (current(session)) copyText(listing.path()); });
+                }
+                dialog.show();
+            });
+        } catch (IOException | RuntimeException | org.json.JSONException error) { pathError(session,error); } });
+    }
+    private void openFile(ConsoleTerminalSession session,ConsolePathBrowser browser,String path) {
+        int display=mActivity.getDisplay()==null ? 0 : mActivity.getDisplay().getDisplayId();
+        execute(()->{ try {
+            String name=path.substring(path.lastIndexOf('/')+1);
+            var uri=GeneratedContentProvider.publish(mActivity,name,out->
+                    browser.read(path,"[ -f \"$1\" ] && cat \"$1\"",out::write));
+            viewFile(session,name,uri,display);
+        } catch (IOException | RuntimeException | org.json.JSONException failure) { pathError(session,failure); } });
+    }
+    private void viewFile(ConsoleTerminalSession session,String name,android.net.Uri uri,int display)
+            throws IOException, org.json.JSONException {
+        if (!current(session)) return;
+        var content=AndroidContentPayload.uris(name,java.util.List.of(new AndroidContentPayload.UriItem(
+                uri,mActivity.getContentResolver().getType(uri))),java.util.List.of(),AndroidContentPayload.Origin.APPLICATION);
+        var result=new AndroidIntegrationGateway(mActivity).openContent(content,display);
+        if (!result.success) throw new IOException(result.message);
     }
 
     void refreshWorkingDirectory(final Consumer<String> action) {
@@ -380,29 +453,4 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
                 Toast.LENGTH_SHORT).show();
     }
 
-    private static ShellFileInfo createFilesDirectoryInfo(
-            final String absolutePath) {
-        final String normalized = ShellFilePathPolicy
-                .normalizeShellAbsolute(absolutePath);
-        final String name = "/".equals(normalized)
-                ? "/" : normalized.substring(normalized.lastIndexOf('/') + 1);
-        return new ShellFileInfo(
-                normalized,
-                name,
-                DocumentsContract.Document.MIME_TYPE_DIR,
-                "",
-                0L,
-                0L,
-                0L,
-                0L,
-                ShellAccess.SHELL_UID,
-                ShellAccess.SHELL_UID,
-                0,
-                true,
-                false,
-                true,
-                false,
-                true,
-                false);
-    }
 }

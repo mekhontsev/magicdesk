@@ -14,8 +14,7 @@ final class TaskTitle {
         final String fallback = builtIn != null ? context.getString(builtIn.fallbackLabelResId)
                 : app != null ? app.label : task.packageName;
         final ConsoleTerminalRegistry.Snapshot terminal = ConsoleTerminalRegistry.snapshotForTask(task.taskId);
-        return terminal == null ? fallback : terminal.taskLabel("termux".equals(terminal.backend)
-                ? context.getString(R.string.console_termux_title) : fallback);
+        return terminal == null ? fallback : terminal.taskLabel(context);
     }
 
     static String detail(final Context context, final TaskRepository.TaskEntry task) {

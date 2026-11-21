@@ -1028,6 +1028,7 @@
     <string name="console_termux_autolaunch_blocked">O Termux foi bloqueado pelo firmware. Permita a inicialização automática ou atividade em segundo plano para o Termux e reabra esta janela.</string>
     <string name="console_tmux_loading">Carregando sessões tmux…</string>
     <string name="console_tmux_new_session">Nova sessão tmux</string>
+    <string name="console_tmux_sessions">Sessões tmux</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d janela</item>
         <item quantity="other">%d janelas</item>
@@ -1242,4 +1243,12 @@
     <string name="linux_connection_scope">Escolha o que conectar ao próximo terminal de %1$s. A internet e a automação são encerradas ao terminar o terminal ou desconectar.</string>
     <string name="linux_connection_internet">Acesso temporário à web para o próximo terminal (sem rede local)</string>
     <string name="linux_connection_mcp">Permitir que clientes MCP autorizados inspecionem e controlem o Linux (incluindo comandos com a permissão de shell)</string>
+    <string name="console_more_actions">Mais ações</string>
+    <string name="console_browse_files">Explorar arquivos da sessão</string>
+    <string name="console_redraw">Redesenhar a tela (Ctrl+L)</string>
+    <string name="console_clear_history">Limpar histórico do terminal</string>
+    <string name="console_clear_history_confirm">Excluir a saída salva e o histórico de comandos deste terminal?</string>
+    <string name="console_command_shortcut">Criar atalho de comando</string>
+    <string name="console_notification_settings">Configurações de notificações do terminal</string>
+    <string name="console_path_unknown">Caminho indisponível nesta sessão.</string>
 </resources>
