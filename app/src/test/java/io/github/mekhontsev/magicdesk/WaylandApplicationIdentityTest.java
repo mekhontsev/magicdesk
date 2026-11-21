@@ -28,7 +28,12 @@ public final class WaylandApplicationIdentityTest {
             boolean application=true,closed;
             HostedApplicationLifetime applicationLifetime=new HostedApplicationLifetime();
             String id() { return "session"; }
-            static class GraphicalSessions { static void changed(String id, String operation) { } }
+            static class GraphicalSessions {
+                static class Session { int refreshes; void refresh() { refreshes++; } }
+                static Session current;
+                static Session find(String id) { check(id.equals("session"), "wrong session"); return current; }
+                static void changed(String id, String operation) { }
+            }
             boolean ready() { return !closed; }
             void recordUse(Object scope) { recorded++; }
             void close() { closed=true; }
@@ -45,7 +50,9 @@ public final class WaylandApplicationIdentityTest {
                 Fixture f=new Fixture();
                 f.changed();
                 check(!f.closed && !f.applicationLifetime.hadWindows() && f.recorded==0,"pending launch closed or recorded too early");
+                GraphicalSessions.current=new GraphicalSessions.Session();
                 f.catalog=List.of(new WaylandSession.Window(1,true)); f.changed();
+                check(GraphicalSessions.current.refreshes==1,"registered session was not refreshed");
                 check(f.applicationLifetime.hadWindows() && f.recorded==1 && f.MAIN.cancellations==1,"first window did not complete launch");
                 f.catalog=List.of(new WaylandSession.Window(1,true),new WaylandSession.Window(2,true)); f.changed();
                 check(f.recorded==1 && f.presentation.presented.equals(List.of(1L,2L)),"child window restarted launch");

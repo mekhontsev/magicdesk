@@ -23,11 +23,11 @@ public final class MagicDeskRuntimeService extends Service
     private static final String TAG = "MagicDeskWatcher";
     private static final String CHANNEL_ID = "magicdesk";
     private static final int NOTIFICATION_ID = 1;
-    private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
+    private static final int BLACK_SCREEN_REQUEST_CODE = 4;
     private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
     private static final int OPEN_TERMINAL_REQUEST_CODE = 3;
+    private static final int OPEN_TOUCHPAD_REQUEST_CODE = 5;
     private final PlatformDriver mPlatform = PlatformDrivers.current();
-    private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
 
     private Handler mHandler;
     private RuntimeDesktopSessionCoordinator mDesktopSession;
@@ -586,7 +586,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(target.workspaceDisplayId);
-        DesktopShellActivity.setLaunchWindowingMode(options, 5);
+        DesktopShellActivity.setLaunchWindowingMode(options, 1);
         startActivity(
                 DesktopShellActivity.createShowStartIntent(this, target),
                 options.toBundle());
@@ -603,6 +603,7 @@ public final class MagicDeskRuntimeService extends Service
         mDestroyed = true;
         MagicDeskRuntime.detach(this);
         ShellAccess.removeStateListener(mShellStateListener);
+        PhoneDisplayGuard.requestRestore();
         if (mDisplayCoordinator != null) {
             mDisplayCoordinator.stop();
         }
@@ -653,7 +654,6 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (mScreenWakeLock != null) mScreenWakeLock.release();
         mPlatform.stopRuntime();
-        mPhoneUi.requestPhoneScreenRestore();
     }
 
     @Override
@@ -681,15 +681,11 @@ public final class MagicDeskRuntimeService extends Service
                     if (mDisplayInput != null) {
                         mDisplayInput.scheduleDeviceRefresh();
                     }
-                } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
-                        && mPhoneUi.isPhoneScreenControlActive()) {
-                    DesktopOperations.setPhoneScreenOff(false, null);
                 }
             }
         };
         final IntentFilter filter =
                 new IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED);
-        filter.addAction(Intent.ACTION_SCREEN_ON);
         registerReceiver(mConfigurationReceiver, filter);
     }
 
@@ -821,7 +817,7 @@ public final class MagicDeskRuntimeService extends Service
         final PendingIntent openControlPanelPendingIntent =
                 phoneActivityPendingIntent(
                         OPEN_CONTROL_PANEL_REQUEST_CODE,
-                        ControlActivity.createLaunchIntent(this));
+                        ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.PANEL));
         final String text = mOperationStatus != null
                 ? mOperationStatus
                 : (!mInitialized
@@ -832,6 +828,21 @@ public final class MagicDeskRuntimeService extends Service
                         ? getString(R.string.notification_hw_connected)
                         : getString(R.string.notification_hw_disconnected));
 
+        final var content = RuntimeNotificationContent.create(this);
+        content.setTextViewText(R.id.notification_status, text);
+        content.setOnClickPendingIntent(R.id.notification_panel, openControlPanelPendingIntent);
+        content.setOnClickPendingIntent(R.id.notification_console, phoneActivityPendingIntent(
+                OPEN_TERMINAL_REQUEST_CODE,
+                ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.CONSOLE)));
+        content.setOnClickPendingIntent(R.id.notification_black_screen, phoneActivityPendingIntent(
+                BLACK_SCREEN_REQUEST_CODE,
+                ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.BLACK_SCREEN)));
+        content.setViewVisibility(R.id.notification_touchpad,
+                PhoneTouchpadController.canOpen() ? android.view.View.VISIBLE : android.view.View.GONE);
+        content.setOnClickPendingIntent(R.id.notification_touchpad, phoneActivityPendingIntent(
+                OPEN_TOUCHPAD_REQUEST_CODE,
+                ControlActivity.createLaunchIntent(this, ControlActivity.LaunchAction.TOUCHPAD)));
+
         final Notification.Builder builder =
                 new Notification.Builder(this, CHANNEL_ID);
         builder
@@ -839,27 +850,12 @@ public final class MagicDeskRuntimeService extends Service
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(text)
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .setShowWhen(false)
-                .setContentIntent(openControlPanelPendingIntent);
-        if (ConsoleTerminalRegistry.registeredCount() > 0) {
-            builder.addAction(
-                    R.drawable.ic_file_console,
-                    getString(R.string.notification_open_terminal),
-                    phoneActivityPendingIntent(
-                            OPEN_TERMINAL_REQUEST_CODE,
-                            TerminalNotificationActivity.resumeIntent(this)));
-        }
-        final int targetDisplayId = inputDisplayId();
-        if (ShellAccess.isReady()
-                && PhoneTouchpadController.isSupported(targetDisplayId)) {
-            builder.addAction(
-                        R.drawable.ic_touchpad,
-                        getString(R.string.notification_open_touchpad),
-                        phoneActivityPendingIntent(
-                                OPEN_TOUCHPAD_REQUEST_CODE,
-                                MagicDeskTouchpadActivity.createLaunchIntent(
-                                        this, targetDisplayId)));
-        }
+                .setContentIntent(openControlPanelPendingIntent)
+                .setStyle(new Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(content)
+                .setCustomBigContentView(content);
         return builder.build();
     }
 

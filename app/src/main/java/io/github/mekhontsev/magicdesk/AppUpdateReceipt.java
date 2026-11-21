@@ -30,6 +30,13 @@ final class AppUpdateReceipt {
         }
         receipt.put("state", state).put("detail", result.optString("detail"));
         if (result.has("installerStatus")) receipt.put("installerStatus", result.getInt("installerStatus"));
+        if (result.has("powerRestore")) {
+            String power = result.getString("powerRestore");
+            if (!java.util.Set.of("pending", "restored", "failed", "not_requested").contains(power)) {
+                throw new IOException("invalid update power restoration state");
+            }
+            receipt.put("powerRestore", power).put("powerRestoreError", result.optString("powerRestoreError"));
+        }
     }
 
     static void write(OutputStream stream, JSONObject result) throws IOException {

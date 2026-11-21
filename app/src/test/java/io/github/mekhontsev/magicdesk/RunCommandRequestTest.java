@@ -6,6 +6,18 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class RunCommandRequestTest {
+    @Test public void userAndShellRequireDistinctExplicitIdentities() throws Exception {
+        for (String backend : new String[]{"app", "shroot"}) {
+            var request = shell().put("backend", backend).put("executorUid", 10647);
+            if (backend.equals("shroot")) request.put("environmentId", "2e17c23d-f6c7-4c7b-b47a-74127b3a5bab");
+            assertEquals(10647, RunCommandRequest.parse(request.toString()).executorUid());
+        }
+        for (int uid : new int[]{0, 2000, 9999}) {
+            var request = shell().put("backend", "app").put("executorUid", uid);
+            assertThrows(Exception.class, () -> RunCommandRequest.parse(request.toString()));
+        }
+    }
+
     private JSONObject shell() throws Exception {
         return new JSONObject().put("version", 1).put("backend", "shell").put("executorUid", 2000).put("program", "/system/bin/sh");
     }

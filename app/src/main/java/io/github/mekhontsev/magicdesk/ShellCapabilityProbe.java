@@ -374,6 +374,9 @@ public final class ShellCapabilityProbe {
                 "framework.window_geometry",
                 observation.windowGeometry.label,
                 "windowing mode and freeform bounds");
+        append(report, "framework.window_geometry_adapter",
+                FrameworkWindowGeometry.adapted() ? "active" : "identity",
+                FrameworkWindowGeometry.diagnosticDetail());
         append(report,
                 "framework.immersive_request",
                 observation.immersiveRequest.label,

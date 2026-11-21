@@ -18,6 +18,11 @@ final class ShellActivityStartController implements AutoCloseable {
         void onError(String message);
     }
 
+    /** An intentional safety rejection, distinct from a failed optional observer. */
+    static final class StartRejectedException extends RuntimeException {
+        StartRejectedException(String message, Throwable cause) { super(message, cause); }
+    }
+
     interface Observer {
         void onActivityStarting(
                 Intent intent, String packageName, boolean allowed);
@@ -93,24 +98,7 @@ final class ShellActivityStartController implements AutoCloseable {
                 public boolean activityStarting(
                         final Intent intent,
                         final String packageName) {
-                    if (!mEnabled) {
-                        return true;
-                    }
-                    boolean allowed = true;
-                    for (final Listener listener : mListeners) {
-                        try {
-                            if (!listener.onActivityStarting(
-                                    intent, packageName)) {
-                                allowed = false;
-                                break;
-                            }
-                        } catch (RuntimeException error) {
-                            report("activity-start observer failed: "
-                                    + usefulMessage(error));
-                        }
-                    }
-                    notifyActivityStart(intent, packageName, allowed);
-                    return allowed;
+                    return allowActivityStart(intent, packageName);
                 }
 
                 @Override
@@ -176,6 +164,27 @@ final class ShellActivityStartController implements AutoCloseable {
                     return -1;
                 }
             };
+
+    private boolean allowActivityStart(final Intent intent, final String packageName) {
+        if (!mEnabled) { return true; }
+        boolean allowed = true;
+        for (final Listener listener : mListeners) {
+            try {
+                if (!listener.onActivityStarting(intent, packageName)) {
+                    allowed = false;
+                    break;
+                }
+            } catch (StartRejectedException error) {
+                report("activity-start rejected: " + usefulMessage(error));
+                allowed = false;
+                break;
+            } catch (RuntimeException error) {
+                report("activity-start observer failed: " + usefulMessage(error));
+            }
+        }
+        notifyActivityStart(intent, packageName, allowed);
+        return allowed;
+    }
 
     private boolean mInstalled;
     private volatile boolean mEnabled;
@@ -289,7 +298,10 @@ final class ShellActivityStartController implements AutoCloseable {
             cause = cause.getCause();
         }
         final String message = cause.getMessage();
-        return message == null || message.trim().isEmpty()
+        final String detail = message == null || message.trim().isEmpty()
                 ? cause.getClass().getSimpleName() : message;
+        final String context = error.getMessage();
+        return error != cause && context != null && !context.isBlank() && !context.equals(detail)
+                ? context + " | cause: " + detail : detail;
     }
 }

@@ -87,7 +87,7 @@ final class McpAccessPolicy {
             case "linux.list", "ui.inspect", "ui.wait", "ui.read_text", "graphics.inspect_window" -> Permission.CONTENT;
             case "appearance.apply", "appearance.preset", "appearance.reset", "appearance.preview", "appearance.confirm", "appearance.cancel", "appearance.import", "appearance.prune",
                     "graphics.open_window", "graphics.set_workspace", "graphics.set_scale", "start_desktop", "close_desktop", "create_display", "remove_display",
-                    "graphics.close_window", "graphics.detach_viewer", "set_task_state",
+                    "graphics.close_window", "graphics.detach_viewer", "graphics.set_offscreen", "graphics.close_session", "device.set_black_screen", "set_task_state",
                     "select_display_viewer",
                     "control_display", "move_task",
                     "launch_app", "set_app_presentation", "reset_app_presentation",

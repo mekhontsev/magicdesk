@@ -1,11 +1,13 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.Activity;
-import android.view.Display;
+import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /** Scopes a self-test desktop session away from the saved user workspace. */
 final class WorkspaceIsolationLease implements AutoCloseable {
     private boolean mClosed;
+    private boolean mStartAttempted;
 
     private WorkspaceIsolationLease() {
     }
@@ -14,28 +16,38 @@ final class WorkspaceIsolationLease implements AutoCloseable {
         return new WorkspaceIsolationLease();
     }
 
-    void adoptPreparedSession(final int displayId) {
+    void showReady(final DesktopDisplayTarget target) throws IOException {
         requireOpen();
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getDesktopTarget(displayId);
-        if (target == null || displayId < Display.DEFAULT_DISPLAY) {
-            throw new IllegalStateException(
-                    "prepared desktop target is unavailable for display="
-                            + displayId);
+        final CountDownLatch completed = new CountDownLatch(1);
+        final TaskRepository.ActionResult[] result = new TaskRepository.ActionResult[1];
+        final long runId = DesktopSelfTestRunState.snapshot().runId;
+        mStartAttempted = true;
+        DesktopSelfTestRunState.expectSessionClose(runId, target.workspaceDisplayId);
+        try {
+            DesktopOperations.showDesktop(target, DesktopSessionPolicy.ISOLATED_SELF_TEST, value -> {
+                result[0] = value;
+                completed.countDown();
+            });
+            // EVENT_WAIT: production Start completion, including rollback on failure.
+            // Cancellation is checked after completion so cleanup cannot overtake Start.
+            if (!completed.await(ExternalDisplayController.START_TIMEOUT_MS * 2L,
+                    TimeUnit.MILLISECONDS)) {
+                throw new IOException("production desktop start timed out");
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("desktop start wait interrupted", error);
+        } finally {
+            DesktopSelfTestRunState.resumeSessionCloseObservation(runId, target.workspaceDisplayId);
         }
-        DesktopRuntimeBridge.noteDesktopTarget(
-                target, DesktopSessionPolicy.ISOLATED_SELF_TEST);
-        AppWindowStateStore.beginSession(
-                DesktopRuntimeBridge.getWorkspaceRuntime(displayId),
-                DesktopSessionPolicy.ISOLATED_SELF_TEST);
+        if (result[0] == null || !result[0].success) {
+            throw new IOException("production desktop start failed: "
+                    + (result[0] == null ? "no result" : result[0].message));
+        }
     }
 
-    void showReady(
-            final Activity source,
-            final DesktopDisplayTarget target) {
-        requireOpen();
-        DesktopDisplayDrivers.forTarget(target).showReady(
-                source, target, DesktopSessionPolicy.ISOLATED_SELF_TEST);
+    boolean startAttempted() {
+        return mStartAttempted;
     }
 
     @Override

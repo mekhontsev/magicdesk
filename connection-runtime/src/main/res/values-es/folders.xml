@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Carpetas de Android</string>
+    <string name="folder_connect">Conectar carpeta</string>
+    <string name="folder_ro">Solo lectura</string>
+    <string name="folder_rw">Lectura y escritura</string>
+    <string name="folder_access">Acceso a la carpeta</string>
+    <string name="folder_unavailable">Permiso no disponible</string>
+    <string name="folder_forget">Olvidar conexión</string>
+    <string name="folder_forget_message">Las sesiones nuevas ya no montarán %1$s. Los archivos de Android no se eliminarán.</string>
+    <string name="folder_next">En sesiones nuevas: %1$s</string>
+</resources>

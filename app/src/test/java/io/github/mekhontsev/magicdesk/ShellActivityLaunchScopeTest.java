@@ -7,7 +7,7 @@ public final class ShellActivityLaunchScopeTest {
     public void explicitLaunchWithStrippedFlagsIsNotAPhoneMigration() throws Exception {
         verify("""
                 check(guard.findPhoneLaunchTarget(intent, "app") == task, "ordinary phone launch no longer migrates");
-                try (var scope = ShellActivityLaunchScope.begin(identity)) {
+                try (var scope = ShellActivityLaunchScope.begin(identity, 7)) {
                     check(guard.findPhoneLaunchTarget(intent, "app") == null, "intercepted our explicit launch");
                     Thread callback = new Thread(() -> check(
                             guard.findPhoneLaunchTarget(intent, "app") == null, "Binder thread lost provenance"));
@@ -22,7 +22,7 @@ public final class ShellActivityLaunchScopeTest {
     @Test
     public void aliasesMatchButAnotherActivityOrPackageDoesNot() throws Exception {
         verify("""
-                try (var scope = ShellActivityLaunchScope.begin(identity)) {
+                try (var scope = ShellActivityLaunchScope.begin(identity, 7)) {
                     check(ShellActivityLaunchScope.isActive(new Intent(alias), "app"), "lost alias identity");
                     check(ShellActivityLaunchScope.isActive(intent, "app"), "lost resolved identity");
                     check(!ShellActivityLaunchScope.isActive(new Intent(new ComponentName("app", "Other")), "app"),
@@ -37,16 +37,38 @@ public final class ShellActivityLaunchScopeTest {
     @Test
     public void failureAndNestedScopesReleaseOnlyTheirOwnLaunch() throws Exception {
         verify("""
-                try (var outer = ShellActivityLaunchScope.begin(identity)) {
-                    try (var inner = ShellActivityLaunchScope.begin(identity)) {
+                try (var outer = ShellActivityLaunchScope.begin(identity, 7)) {
+                    try (var inner = ShellActivityLaunchScope.begin(identity, 7)) {
                         throw new IllegalStateException("launch aborted");
                     } catch (IllegalStateException expected) { }
                     check(ShellActivityLaunchScope.isActive(intent, "app"), "inner cleanup released outer scope");
                 }
                 check(!ShellActivityLaunchScope.isActive(intent, "app"), "failed scope leaked");
-                var scope = ShellActivityLaunchScope.begin(identity);
+                var scope = ShellActivityLaunchScope.begin(identity, 7);
                 scope.close(); scope.close();
                 check(!ShellActivityLaunchScope.isActive(intent, "app"), "close was not idempotent");
+                """);
+    }
+
+    @Test
+    public void destinationMustBeExplicitAndUnambiguous() throws Exception {
+        verify("""
+                RuntimeException failure = new IllegalStateException("separator missing");
+                check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 7, failure), "inferred native destination");
+                try (var desktop = ShellActivityLaunchScope.begin(identity, 7)) {
+                    check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 0, failure), "confused phone and Desktop");
+                    try (var phone = ShellActivityLaunchScope.begin(identity, 0)) {
+                        check(ShellActivityLaunchScope.isActive(intent, "app"), "lost explicit provenance");
+                        check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 7, failure), "guessed ambiguous destination");
+                        check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 0, failure), "guessed ambiguous destination");
+                        phone.requireAdmitted();
+                    }
+                    desktop.requireAdmitted();
+                    check(ShellActivityLaunchScope.rejectOnDisplay(new Intent(alias), "app", 7, failure), "lost alias destination");
+                    try { desktop.requireAdmitted(); throw new AssertionError("timeout instead of rejection"); }
+                    catch (IllegalStateException rejected) { check(rejected == failure, "lost root cause"); }
+                }
+                check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 7, failure), "destination leaked");
                 """);
     }
 

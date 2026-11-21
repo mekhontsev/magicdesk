@@ -1,0 +1,39 @@
+plugins { id 'com.android.application' }
+
+configurations.matching { it.name in ['releaseRuntimeClasspath', 'releaseCompileClasspath',
+                                      'debugRuntimeClasspath', 'debugCompileClasspath'] }.configureEach {
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib'
+}
+android {
+    namespace = 'io.github.mekhontsev.magicdesk.guestapp'
+    compileSdk = 37
+    defaultConfig {
+        applicationId = 'io.github.mekhontsev.magicdesk.guesttemplate'
+        minSdk = 34
+        targetSdk = 37
+        testInstrumentationRunner = 'io.github.mekhontsev.magicdesk.documents.FolderInstrumentation'
+        versionCode = providers.gradleProperty('magicDeskVersionCode').get().toInteger()
+        versionName = providers.gradleProperty('magicDeskVersionName').get()
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    packaging { jniLibs { useLegacyPackaging = true } }
+    buildTypes {
+        offline { initWith release; matchingFallbacks = ['release'] }
+    }
+}
+dependencies {
+    implementation project(':terminal-runtime')
+    implementation project(':connection-runtime')
+    testImplementation 'junit:junit:4.13.2'
+}
+
+def icon = tasks.register('prepareTemplateIcon', Sync) {
+    from rootProject.file('app/src/main/res/mipmap-xxxhdpi/ic_launcher.png')
+    into layout.buildDirectory.dir('generated/templateIcon/drawable-nodpi')
+    rename { 'launcher_icon.png' }
+}
+android.sourceSets.main.res.srcDir layout.buildDirectory.dir('generated/templateIcon').get().asFile
+tasks.named('preBuild').configure { dependsOn icon }

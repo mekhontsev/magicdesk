@@ -15,6 +15,15 @@ Owners of native application surfaces, control-panel interaction and Desktop she
 
 ## Control Panel And Shared Placement
 
+`BlackScreenMode` temporarily covers Control Panel's existing content with an
+opaque black View. Public window attributes own minimum brightness and
+`FLAG_KEEP_SCREEN_ON`; no Activity, service, timer, vendor heartbeat or global
+setting is added. Volume key down/repeats/up are consumed, and an uncancelled
+key release restores the panel. Pause or destruction releases the mode and
+restores only the window fields it changed. The hidden panel retains its state;
+touch and generic motion are consumed before reaching its controls. System
+navigation remains an escape, not an application-enforced lock.
+
 The control panel uses `DisplayTableView`: one row per Android display with its
 identity, Desktop status, independent applications and Viewer links. The display list
 follows a full-width status and a shared row of clickable Access, Termux and Desktop
@@ -109,10 +118,14 @@ must not mistake that partial result for either no allocation or a ready portabl
 workspace. Shared creation does not initialize Desktop or acquire HOME/input.
 
 Every shared Start surface uses the same grid and `StartLaunchControls`: Current
-or an explicit display, App default / Desktop window / Desktop fullscreen /
-Independent, and an optional New window request. Desktop choices require an
-existing workspace on the destination. Independent applications are ordinary
-fullscreen tasks, even on a display hosting Desktop. Explicit selection of a
+or an explicit display, and App default / Window / Fullscreen / Independent.
+Display and mode menus are exclusive selections. New window is the last checkbox
+in application context menus, initially unchecked on every opening. It affects
+only Open commands from that menu and is never saved. Window and Fullscreen use Desktop
+when it exists on the destination, otherwise ordinary Activity placement.
+Independent always selects ordinary fullscreen, even alongside Desktop.
+Independent freeform requires Shell and the platform windowing policy;
+Nubia keeps it restricted to managed Desktop. Explicit selection of a
 recent task or terminal session reuses it. New window requests another Android
 task subject to the application's manifest, not another account or process.
 
@@ -251,6 +264,10 @@ package-scoped force stop retains its Android semantics and rejects MagicDesk.
   point to Phone Control Panel; its separate touchpad action opens the
   phone-side input panel. Both use direct, immutable Activity PendingIntents
   with display-0 launch options, never service or broadcast trampolines.
+  `RuntimeNotificationContent` resolves the custom panel's dimensions and text
+  sizes from the phone display before publishing `RemoteViews`. Its XML remains
+  the layout owner; weight, wrapping and system decorations remain dynamic.
+  Desktop density cannot become the scale of the phone's notification controls.
   A separate **Terminal** action is present while a local PTY session exists,
   with or without Desktop. Its Activity entry resolves the last focused terminal
   at click time and uses `TerminalSessions.open` to activate the existing window
@@ -867,9 +884,9 @@ shared half-character cannot become a replacement shell path.
 Optional Termux integration
 uses Termux's documented `RUN_COMMAND` intent and permission; it is not
 required by Files. Files can launch a new Termux-backed Console at its current
-shared directory. MagicDesk atomically installs a versioned native relay from
-the APK through `RUN_COMMAND_STDIN`; a random per-window token authenticates
-the relay's loopback connection before any terminal bytes are accepted.
+shared directory. Termux executes the relay directly from the installed APK's
+native directory; a random per-session token authenticates its loopback
+connection before any terminal bytes are accepted.
 MagicDesk does not mirror or mutate the Termux application's own PTY registry.
 When tmux is installed, its independent session registry is queried on demand by
 session pickers, Task Manager and automation, not by resource-sampling timers.
@@ -877,9 +894,10 @@ Bounded Termux commands use its documented `RUN_COMMAND_PENDING_INTENT`
 result channel. The result receiver is explicit, non-exported, one-shot, and
 bounded by a timeout; long-running PTY commands do not wait for process exit.
 Streaming `CommandExecution` uses one framed `ShellCommandSession` contract for
-shell and Termux. `CommandStream` owns its transport: a privileged-service pipe
-for shell, or an authenticated loopback relay bootstrapped through the selected
-Termux endpoint. Both drain stdout/stderr continuously and close their owned
+User, Shell and Termux. `CommandStream` owns its transport: a local pipe-shell
+process for User, a privileged-service pipe for Shell, or an authenticated
+loopback relay through the selected Termux endpoint. All drain stdout/stderr
+continuously and close their owned
 process session on cancellation; no PTY is allocated for background commands.
 
 ### Launch Dispatch
@@ -917,13 +935,16 @@ Ordinary local reuse and Activities supporting multiple windows do not acquire
 a privileged-service prerequisite. Files supports multiple windows directly.
 
 During a managed Activity dispatch, `ShellTaskLauncher` owns a bounded
-`ShellActivityLaunchScope` carrying its resolved launch identity. All workspace
+`ShellActivityLaunchScope` carrying its resolved launch identity and destination
+display. All workspace
 phone-migration and Activity-handoff guards consult that shared provenance,
 including on Binder callback threads; caller Intent flags are not reliable
 evidence of an explicit MagicDesk launch. The scope ends on success or failure,
 without a timer, and does not bypass unrelated Activity admission policies.
 It recognizes the requested component and its alias target, not every Activity
 in the package (except explicitly package-scoped selection surfaces).
+Fullscreen-boundary repair failures veto only a matching, unambiguous scoped
+destination; they cannot reject unrelated launches across the whole device.
 
 ## Viewport And Desktop Chrome
 
@@ -1100,8 +1121,8 @@ and the live `BuiltInWindowRegistry` presentation for Running, independent windo
 and Desktop switchers. Running resolves metadata on its existing task worker;
 rendering does not query packages. Refresh and tab selection request a new typed
 snapshot, as does resume; stopped instances discard pending results. Clicks and
-context-menu actions retain the exact task and destination, and New window is
-disabled for Running. An unavailable snapshot is an error, not a fabricated empty
+context-menu actions retain the exact task and destination; Running does not
+offer New window. An unavailable snapshot is an error, not a fabricated empty
 history. The phone uses only application search, without
 constructing the desktop file-search worker. `ApplicationCatalog` is shared by
 all Start windows in the application process/profile. Android discovery uses
@@ -1129,7 +1150,7 @@ retains the last successful snapshot.
 `ApplicationIconBinding` subscribes attached views, including recent launches,
 file shortcuts and application pickers; X11/Wayland hosts retain a subscription
 for their task presentation. Native client artwork takes precedence. Keys retain
-the Termux package or immutable guest environment ID; history never borrows an
+the Termux package or guest executor and immutable environment ID; history never borrows an
 icon from another installation. `ApplicationIconCache` coalesces demand, pins
 active entries and retains at most 256 idle hits/misses per provider. Source
 changes discard stale completions; explicit refresh and reconnection retry

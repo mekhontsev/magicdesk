@@ -11,6 +11,14 @@ import android.os.Bundle;
 import org.junit.Test;
 
 public final class FrameworkWindowingApiTest {
+    @Test public void tokenIdentitySurvivesNewParcelableWrappers() throws Exception {
+        final FrameworkWindowingApi api = FrameworkWindowingApi.inspect(FakeToken.class, FakeTransaction.class);
+        FakeToken first = new FakeToken(), second = new FakeToken();
+        second.binder = first.binder;
+        org.junit.Assert.assertNotSame(first, second);
+        org.junit.Assert.assertSame(api.tokenIdentity(first), api.tokenIdentity(second));
+        org.junit.Assert.assertNotSame(api.tokenIdentity(first), api.tokenIdentity(new FakeToken()));
+    }
     @Test
     public void resolvesAndInvokesPrimitiveOperations() throws Exception {
         final FrameworkWindowingApi api = FrameworkWindowingApi.inspect(
@@ -76,6 +84,8 @@ public final class FrameworkWindowingApiTest {
     }
 
     public static final class FakeToken {
+        android.os.IBinder binder = new android.os.Binder();
+        public android.os.IBinder asBinder() { return binder; }
     }
 
     public static class FakeTransaction {

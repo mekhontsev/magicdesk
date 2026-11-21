@@ -1,4 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="guest_install_application">Install Linux as an application</string>
+    <string name="settings_console_volume_black_screen">Volume keys enable black screen</string>
+    <string name="settings_request_home_role">Try to become the Home app</string>
+    <string name="console_app_title">User</string>
+    <string name="executor_android_shell">Shell</string>
+    <string name="black_screen">Black screen (keep awake)</string>
+    <string name="black_screen_hint">Black screen; press a volume key to exit</string>
     <string name="guest_environments">Shroot environments</string>
     <string name="guest_command_access">Allow control of MagicDesk and Android</string>
     <string name="guest_loading">Loading environments&#8230;</string>
@@ -37,6 +44,8 @@
     <string name="x11_title">X11</string>
     <string name="wayland_title">Wayland</string>
     <string name="graphics_title">Linux graphics</string>
+    <string name="phone_panel_power_off">Turn off the physical panel</string>
+    <string name="phone_panel_unavailable">Physical panel power control is unavailable</string>
     <string name="graphics_sessions">Sessions</string>
     <string name="graphics_windows">Application windows</string>
     <string name="graphics_new_session">New graphical session</string>
@@ -69,8 +78,8 @@
     <string name="display_tasks_unknown">Applications: unavailable</string>
     <string name="display_independent_apps">Independent applications</string>
     <string name="start_mode_default">Auto</string>
-    <string name="start_mode_windowed">Desktop window</string>
-    <string name="start_mode_fullscreen">Desktop fullscreen</string>
+    <string name="start_mode_windowed">Window</string>
+    <string name="start_mode_fullscreen">Fullscreen</string>
     <string name="start_mode_independent">Independent</string>
     <string name="start_new_window">New window</string>
     <string name="start_launch_mode">Launch mode</string>
@@ -216,7 +225,8 @@
     <string name="command_app_linux_command_hint">Empty for a terminal login shell</string>
     <string name="command_app_linux_method">Linux launcher</string>
     <string name="command_app_linux_script">Launcher script (absolute path)</string>
-    <string name="x11_keyboard_directory">XKB data directory (host path)</string>
+    <string name="x11_keyboard_directory">Keyboard data (XKB)</string>
+    <string name="graphics_keyboard_hint">Built-in (optional path override)</string>
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Custom script (chroot or other)</item>
@@ -246,11 +256,13 @@
     <string name="command_app_directory_invalid">Enter an absolute directory</string>
     <string name="command_app_mime_invalid">Enter valid MIME types separated by semicolons</string>
     <string-array name="command_app_backends">
-        <item>Android shell</item>
+        <item>Shell</item>
         <item>Termux</item>
         <item>Termux graphics</item>
         <item>Linux (Termux)</item>
-        <item>Linux (Shell / root)</item>
+        <item>Linux (Shell)</item>
+        <item>User</item>
+        <item>Linux (User)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>None</item>
@@ -640,14 +652,20 @@
     <string name="notification_hw_connected">Hardware keyboard connected</string>
     <string name="notification_hw_disconnected">No hardware keyboard</string>
     <string name="notification_automation_ready">Automation server ready</string>
-    <string name="notification_open_touchpad">Open touchpad</string>
-    <string name="notification_open_terminal">Terminal</string>
+    <string name="notification_open_control_panel">Control Panel</string>
+    <string name="notification_black_screen">Black screen</string>
     <string name="control_status_ready">Ready</string>
     <string name="capability_android_15_required">Requires Android 15 or newer</string>
     <string name="capability_access_required">Requires shell or root access</string>
     <string name="capability_termux_required">Requires Termux</string>
     <string name="capability_termux_permission_required">Requires Termux RUN_COMMAND permission</string>
-    <string name="capability_terminal_required">Requires Termux integration or shell access</string>
+    <string name="child_process_status">Process limit: %1$s</string>
+    <string name="child_process_title">Process limit</string>
+    <string name="child_process_unknown">unknown</string>
+    <string name="child_process_warning">Android may stop Linux processes</string>
+    <string name="child_process_explanation">When Linux runs many processes, Android may stop some of them. This setting affects all apps on the phone. Turning it off does not prevent low-memory kills.</string>
+    <string name="child_process_manual">In Developer options, look for “%1$s”. Some devices do not offer this switch.</string>
+    <string name="child_process_developer_options">Developer options</string>
     <string name="control_status_desktop_active">Desktop active</string>
     <string name="control_runtime_status">Access: %1$s</string>
     <string name="control_access_title">Access</string>
@@ -694,6 +712,7 @@
     <string name="control_app_settings">App settings</string>
     <string name="control_open_termux">Open Termux</string>
     <string name="access_restart_required">Exit MagicDesk and reopen it to apply startup settings.</string>
+    <string name="settings_window_geometry">Firmware window geometry</string>
     <string name="control_external_display_status">Output: %1$s</string>
     <string name="search_apps_hint">Search apps, files and actions</string>
     <string name="search_phone_apps_hint">Search apps</string>
@@ -806,6 +825,9 @@
     <string name="settings_nubia_projection_guard_summary">Temporarily disables Nubia casting software, its privacy shield and connection UI during HDMI or Miracast Desktop. Restores it after the last external Desktop closes; saved privacy settings stay unchanged.</string>
     <string name="settings_section_automation">Automation</string>
     <string name="settings_section_android">Android system</string>
+    <string name="settings_child_process_restrictions">Disable child process restrictions</string>
+    <string name="settings_child_process_description">Disables Android phantom process monitoring for all apps, including Termux and Linux sessions. This system-wide setting persists after closing MagicDesk. It does not prevent low-memory kills or manufacturer battery restrictions.</string>
+    <string name="settings_child_process_unavailable">Android child process monitoring setting is unavailable.</string>
     <string name="settings_system_desktop_mode">System desktop mode on external displays</string>
     <string name="settings_system_desktop_mode_apply_notice">Reconnect the external display to apply the change. Some devices may require an Android restart.</string>
     <string name="settings_system_desktop_mode_confirm">Change Android desktop mode on external displays? Enabling it may add system navigation bars. Reconnect the display after changing this setting; some devices may require an Android restart.</string>
@@ -1005,6 +1027,7 @@
     <string name="console_termux_autolaunch_blocked">Termux was blocked by the firmware. Allow Auto-launch or background activity for Termux, then reopen this window.</string>
     <string name="console_tmux_loading">Loading tmux sessions&#8230;</string>
     <string name="console_tmux_new_session">New tmux session</string>
+    <string name="console_tmux_sessions">tmux sessions</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d window</item>
         <item quantity="other">%d windows</item>
@@ -1187,4 +1210,39 @@
         <item quantity="one">%d attachment</item>
         <item quantity="other">%d attachments</item>
     </plurals>
+    <string name="graphics_offscreen">Offscreen</string>
+    <string name="graphics_closing">Waiting for applications to close</string>
+    <string name="graphics_cancel_close">Cancel pending close</string>
+    <string name="graphics_close_normally">Close normally</string>
+    <string name="graphics_output_width">Output width</string>
+    <string name="graphics_output_height">Output height</string>
+    <string name="graphics_detach_output">Release offscreen output</string>
+    <string name="graphics_force_stop_session">Stop this graphics session and disconnect its applications without saving?</string>
+    <string name="console_share_target">MagicDesk Console</string>
+    <string name="console_new_text">New text</string>
+    <string name="console_text">Text</string>
+    <string name="console_text_file">Attach text as a file</string>
+    <string name="console_content_sending">Sending…</string>
+    <string name="console_paste_lines_title">Insert multiple lines?</string>
+    <string name="console_paste_lines_message">This terminal has not enabled bracketed paste. Line breaks can execute commands.</string>
+    <string name="console_share_too_many">Too many shared files. Share fewer files at a time.</string>
+    <string name="linux_connection_title">Connect to MagicDesk</string>
+    <string name="linux_connection_audio">Audio only</string>
+    <string name="linux_connection_new_x11">Audio + new X11 display</string>
+    <string name="linux_connection_terminal">No audio or display</string>
+    <string name="linux_connection_scope">Choose what to connect to the next terminal in %1$s. Internet and automation end with that terminal or when you disconnect.</string>
+    <string name="linux_connection_internet">Temporary web access for the next terminal (no local network)</string>
+    <string name="linux_connection_mcp">Allow authorized MCP clients to inspect and control Linux (including command execution with the shell grant)</string>
+    <string name="linux_connection_graphics">Audio + %1$s: %2$s</string>
+    <string name="linux_connection_permission">Choose what %1$s can use in its next terminal. Find the new display under Graphical sessions in MagicDesk. Clients on the same X11 display can access each other’s windows. No command or file access is granted.</string>
+    <string name="linux_connection_connect">Connect</string>
+    <string name="linux_connection_pending">Connecting&#8230;</string>
+    <string name="console_more_actions">More actions</string>
+    <string name="console_browse_files">Browse session files</string>
+    <string name="console_redraw">Redraw screen (Ctrl+L)</string>
+    <string name="console_clear_history">Clear terminal history</string>
+    <string name="console_clear_history_confirm">Remove saved output and command history from this terminal?</string>
+    <string name="console_command_shortcut">Create command shortcut</string>
+    <string name="console_notification_settings">Terminal notification settings</string>
+    <string name="console_path_unknown">Path is unavailable in this session.</string>
 </resources>

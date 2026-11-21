@@ -58,11 +58,18 @@ by default. Grant it only to trusted apps: the chosen executor can have shell or
 root authority. Launcher exports authorize a retained entry, not arbitrary
 commands supplied by its caller.
 
-Shroot runs trusted Linux programs with the selected shell/root executor's
-authority. Its guest users, virtual root, OCI layers and browser-filter support
+Shroot runs trusted Linux programs with the selected User or Shell executor's
+authority. User retains MagicDesk's app UID; Shell retains its authorized service
+UID, including root when explicitly selected. Its guest users, virtual root,
+OCI layers and browser-filter support
 do not make it a container security boundary. A guest program can reach Android
 resources allowed to that executor. See [Shroot boundaries](docs/shroot.md#boundaries).
 Only opt trusted programs into the additional MagicDesk command channel.
+
+An [independent Linux APK](docs/linux-applications.md) is different: Android
+assigns the package its own UID and private data. That outer sandbox separates
+it from MagicDesk and other packages; it does not isolate programs from one
+another inside the same APK. Explicit file and display grants still matter.
 
 For ordinary crashes, display compatibility and feature requests, use
 [GitHub issues](https://github.com/mekhontsev/magicdesk/issues) or

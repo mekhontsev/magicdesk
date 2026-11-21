@@ -1,6 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_console_volume_black_screen">音量键开启黑屏</string>
+    <string name="settings_request_home_role">尝试设为主屏幕应用</string>
+    <string name="console_app_title">User</string>
+    <string name="executor_android_shell">Shell</string>
+    <string name="black_screen">黑屏（保持唤醒）</string>
+    <string name="black_screen_hint">黑屏；按音量键退出</string>
     <string name="guest_command_access">允许控制 MagicDesk 和 Android</string>
+    <string name="guest_install_application">将 Linux 安装为应用</string>
     <string name="guest_environments">Shroot 环境</string>
     <string name="guest_loading">正在加载环境&#8230;</string>
     <string name="guest_empty">尚未安装 Shroot 环境</string>
@@ -70,8 +77,8 @@
     <string name="display_tasks_unknown">应用：不可用</string>
     <string name="display_independent_apps">独立应用</string>
     <string name="start_mode_default">自动</string>
-    <string name="start_mode_windowed">桌面窗口</string>
-    <string name="start_mode_fullscreen">桌面全屏</string>
+    <string name="start_mode_windowed">窗口</string>
+    <string name="start_mode_fullscreen">全屏</string>
     <string name="start_mode_independent">独立</string>
     <string name="start_new_window">新建窗口</string>
     <string name="start_launch_mode">启动模式</string>
@@ -246,11 +253,13 @@
     <string name="command_app_directory_invalid">请输入目录的绝对路径</string>
     <string name="command_app_mime_invalid">请输入有效的 MIME 类型，用分号分隔</string>
     <string-array name="command_app_backends">
-        <item>Android Shell</item>
+        <item>Shell</item>
         <item>Termux</item>
         <item>Termux 图形界面</item>
         <item>Linux (Termux)</item>
-        <item>Linux (Shell / root)</item>
+        <item>Linux (Shell)</item>
+        <item>User</item>
+        <item>Linux (User)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>无</item>
@@ -633,14 +642,20 @@
     <string name="notification_hw_connected">实体键盘已连接</string>
     <string name="notification_hw_disconnected">未连接实体键盘</string>
     <string name="notification_automation_ready">自动化服务器已就绪</string>
-    <string name="notification_open_touchpad">打开触控板</string>
-    <string name="notification_open_terminal">终端</string>
+    <string name="notification_open_control_panel">控制面板</string>
+    <string name="notification_black_screen">黑屏</string>
     <string name="control_status_ready">就绪</string>
     <string name="capability_android_15_required">需要 Android 15 或更新版本</string>
     <string name="capability_access_required">需要 shell 或 root 权限</string>
     <string name="capability_termux_required">需要 Termux</string>
     <string name="capability_termux_permission_required">需要 Termux RUN_COMMAND 权限</string>
-    <string name="capability_terminal_required">需要 Termux 集成或 shell 权限</string>
+    <string name="child_process_status">进程限制：%1$s</string>
+    <string name="child_process_title">进程限制</string>
+    <string name="child_process_unknown">未知</string>
+    <string name="child_process_warning">Android 可能会终止 Linux 进程</string>
+    <string name="child_process_explanation">当 Linux 运行大量进程时，Android 可能会终止其中一部分。这项设置对手机上的所有应用生效。关闭限制并不能防止系统因内存不足而终止进程。</string>
+    <string name="child_process_manual">在开发者选项中查找“%1$s”。部分设备不提供此开关。</string>
+    <string name="child_process_developer_options">开发者选项</string>
     <string name="control_status_desktop_active">桌面运行中</string>
     <string name="control_runtime_status">权限：%1$s</string>
     <string name="control_access_title">权限</string>
@@ -797,6 +812,9 @@
     <string name="settings_nubia_projection_guard_summary">在 HDMI 或 Miracast 桌面运行期间，临时禁用努比亚投屏软件、隐私保护和连接界面。关闭最后一个外接桌面后恢复；已保存的隐私设置保持不变。</string>
     <string name="settings_section_automation">自动化</string>
     <string name="settings_section_android">Android 系统</string>
+    <string name="settings_child_process_restrictions">停用子进程限制</string>
+    <string name="settings_child_process_description">为所有应用（包括 Termux 和 Linux 会话）停用 Android 幻影进程监控。此系统设置在关闭 MagicDesk 后仍然保留，但无法防止因内存不足而终止进程，也无法绕过厂商的省电限制。</string>
+    <string name="settings_child_process_unavailable">Android 子进程监控设置不可用。</string>
     <string name="settings_system_desktop_mode">外接显示器的系统桌面模式</string>
     <string name="settings_system_desktop_mode_apply_notice">请重新连接外接显示器以应用更改。部分设备可能需要重启 Android。</string>
     <string name="settings_system_desktop_mode_confirm">更改外接显示器的 Android 桌面模式？启用后可能出现系统导航栏。更改后请重新连接显示器；部分设备可能需要重启 Android。</string>
@@ -996,6 +1014,7 @@
     <string name="console_termux_autolaunch_blocked">固件阻止了 Termux。请允许 Termux 自启动或后台活动，然后重新打开此窗口。</string>
     <string name="console_tmux_loading">正在加载 tmux 会话…</string>
     <string name="console_tmux_new_session">新建 tmux 会话</string>
+    <string name="console_tmux_sessions">tmux 会话</string>
     <plurals name="console_tmux_windows">
         <item quantity="other">%d 个窗口</item>
     </plurals>
@@ -1175,4 +1194,43 @@
     <plurals name="console_files_count">
         <item quantity="other">%d 个附件</item>
     </plurals>
+    <string name="graphics_offscreen">无屏幕</string>
+    <string name="graphics_closing">正在等待应用关闭</string>
+    <string name="graphics_cancel_close">取消待执行的关闭</string>
+    <string name="graphics_close_normally">正常关闭</string>
+    <string name="graphics_output_width">输出宽度</string>
+    <string name="graphics_output_height">输出高度</string>
+    <string name="graphics_detach_output">释放无屏幕输出</string>
+    <string name="graphics_force_stop_session">停止此图形会话并断开其应用而不保存？</string>
+    <string name="phone_panel_power_off">关闭屏幕电源</string>
+    <string name="phone_panel_unavailable">无法控制屏幕电源</string>
+    <string name="settings_window_geometry">固件窗口几何适配</string>
+    <string name="console_share_target">MagicDesk 控制台</string>
+    <string name="console_new_text">新建文本</string>
+    <string name="console_text">文本</string>
+    <string name="console_text_file">将文本作为文件附加</string>
+    <string name="console_content_sending">正在发送…</string>
+    <string name="console_paste_lines_title">插入多行文本？</string>
+    <string name="console_paste_lines_message">此终端未启用括号粘贴模式。换行可能会执行命令。</string>
+    <string name="console_share_too_many">共享文件过多。请减少每次共享的文件数量。</string>
+    <string name="linux_connection_title">连接到 MagicDesk</string>
+    <string name="linux_connection_audio">仅音频</string>
+    <string name="linux_connection_new_x11">音频和新的 X11 显示器</string>
+    <string name="graphics_keyboard_hint">内置数据（可指定其他路径）</string>
+    <string name="linux_connection_graphics">音频 + %1$s：%2$s</string>
+    <string name="linux_connection_permission">%1$s 可以使用所选的音频和图形会话。X11 客户端共享对其显示的访问权限。不会授予命令或文件访问权限。</string>
+    <string name="linux_connection_connect">连接</string>
+    <string name="linux_connection_pending">正在连接&#8230;</string>
+    <string name="linux_connection_terminal">无音频或显示器</string>
+    <string name="linux_connection_scope">选择要连接到 %1$s 下一个终端的服务。终端结束或断开连接时，网络访问和自动化也将停止。</string>
+    <string name="linux_connection_internet">允许下一个终端临时访问网页（不包括局域网）</string>
+    <string name="linux_connection_mcp">允许已授权的 MCP 客户端检查和控制 Linux（具有 shell 权限时可执行命令）</string>
+    <string name="console_more_actions">更多操作</string>
+    <string name="console_browse_files">浏览会话文件</string>
+    <string name="console_redraw">重绘屏幕 (Ctrl+L)</string>
+    <string name="console_clear_history">清除终端历史记录</string>
+    <string name="console_clear_history_confirm">删除此终端保存的输出和命令历史记录？</string>
+    <string name="console_command_shortcut">创建命令快捷方式</string>
+    <string name="console_notification_settings">终端通知设置</string>
+    <string name="console_path_unknown">此会话无法访问该路径。</string>
 </resources>

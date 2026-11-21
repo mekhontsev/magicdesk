@@ -18,6 +18,7 @@ final class ConsoleSessionFilesDialog {
     private final Activity activity;
     private final ConsoleSessionFiles files;
     private final Consumer<List<String>> insert;
+    private final Runnable compose;
     private final ListView list;
     private final TextView status;
     private final ImageButton add, remove, cancel;
@@ -26,12 +27,13 @@ final class ConsoleSessionFilesDialog {
     private final java.util.Set<String> selected = new java.util.HashSet<>();
     private final Runnable refresh = this::refresh;
 
-    static void show(Activity activity, ConsoleSessionFiles files, Consumer<List<String>> insert) {
-        new ConsoleSessionFilesDialog(activity, files, insert);
+    static void show(Activity activity, ConsoleSessionFiles files, Consumer<List<String>> insert, Runnable compose) {
+        new ConsoleSessionFilesDialog(activity, files, insert, compose);
     }
 
-    private ConsoleSessionFilesDialog(Activity activity, ConsoleSessionFiles files, Consumer<List<String>> insert) {
+    private ConsoleSessionFilesDialog(Activity activity, ConsoleSessionFiles files, Consumer<List<String>> insert, Runnable compose) {
         this.activity = activity; this.files = files; this.insert = insert;
+        this.compose = compose;
         LinearLayout content = new LinearLayout(activity);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(16), 0, dp(16), 0);
@@ -103,6 +105,9 @@ final class ConsoleSessionFilesDialog {
 
     private void addMenu(View anchor) {
         PopupMenu menu = new PopupMenu(activity, anchor);
+        menu.getMenu().add(R.string.console_new_text).setOnMenuItemClickListener(item -> {
+            dialog.dismiss(); compose.run(); return true;
+        });
         int[] labels = {R.string.file_manager_import_files, R.string.console_files_directory, R.string.console_files_camera};
         var sources = ConsoleSessionFiles.Source.values();
         for (int i = 0; i < sources.length; i++) {

@@ -1,0 +1,16 @@
+<resources>
+    <string name="net_title">ネットワーク</string>
+    <string name="net_host">Android のネットワーク</string>
+    <string name="net_bridge">ポート転送を使うネットワーク</string>
+    <string name="net_none">外部ネットワークなし</string>
+    <string name="net_add">ポートを追加</string>
+    <string name="net_save">新しいセッションに適用</string>
+    <string name="net_host_port">端末のポート</string>
+    <string name="net_guest_port">Linux のポート</string>
+    <string name="net_remove">ポートを削除</string>
+    <string name="net_external">他の端末からの接続を許可</string>
+    <string name="net_range">1～65535 のポートを入力してください</string>
+    <string name="net_apk_permission">ネットワークアクセスを許可</string>
+    <string name="net_apk_choice">この権限がない場合、Android は Linux アプリ全体の直接のネットワークソケットをブロックします。</string>
+    <string name="net_prepare">APK を準備</string>
+</resources>

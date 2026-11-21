@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.Intent;
-import android.content.UriPermission;
 import android.net.Uri;
 import android.os.SystemClock;
 
@@ -33,45 +32,18 @@ final class AndroidActivityResultStore {
         if (context == null) {
             return;
         }
-        final List<UriPermission> permissions;
         try {
-            permissions = context.getContentResolver()
-                    .getPersistedUriPermissions();
-        } catch (RuntimeException error) {
+            int released=new io.github.mekhontsev.magicdesk.documents.FolderMounts(context).releaseOrphans();
+            DesktopAutomationEventJournal.record("android-integration","orphaned-result-grants-released",
+                    true,"count="+released,null);
+        } catch (java.io.IOException | RuntimeException error) {
             DesktopAutomationEventJournal.record(
                     "android-integration",
                     "orphaned-result-grants-released",
                     false,
                     ShellAccess.usefulMessage(error),
                     null);
-            return;
         }
-        int released = 0;
-        for (final UriPermission permission : permissions) {
-            int modeFlags = 0;
-            if (permission.isReadPermission()) {
-                modeFlags |= Intent.FLAG_GRANT_READ_URI_PERMISSION;
-            }
-            if (permission.isWritePermission()) {
-                modeFlags |= Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
-            }
-            if (modeFlags == 0) {
-                continue;
-            }
-            try {
-                releasePersistedUri(context, permission.getUri(), modeFlags);
-                released++;
-            } catch (SecurityException | IllegalArgumentException
-                    | UnsupportedOperationException ignored) {
-                // The provider or Android may already have removed the grant.
-            }
-        }
-        DesktopAutomationEventJournal.record(
-                "android-integration",
-                "orphaned-result-grants-released",
-                true,
-                "count=" + released,
-                null);
     }
 
     static String begin(final Intent target) throws JSONException {
@@ -390,8 +362,7 @@ final class AndroidActivityResultStore {
             final Context context,
             final Uri uri,
             final int modeFlags) {
-        context.getContentResolver().takePersistableUriPermission(
-                uri, modeFlags);
+        new io.github.mekhontsev.magicdesk.documents.FolderMounts(context).takeTemporary(uri, modeFlags);
     }
 
     @SuppressLint("WrongConstant")
@@ -399,8 +370,7 @@ final class AndroidActivityResultStore {
             final Context context,
             final Uri uri,
             final int modeFlags) {
-        context.getContentResolver().releasePersistableUriPermission(
-                uri, modeFlags);
+        new io.github.mekhontsev.magicdesk.documents.FolderMounts(context).releaseTemporary(uri, modeFlags);
     }
 
     private static JSONObject diagnosticSummary(final Entry entry) {

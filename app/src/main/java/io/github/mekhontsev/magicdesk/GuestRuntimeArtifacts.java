@@ -20,15 +20,33 @@ import java.util.List;
 public final class GuestRuntimeArtifacts {
     // Static helpers can retain debug information in development APKs.
     static final int MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
-    public static final List<String> FILES = List.of("libmagicdesk_guest_bootstrap.so",
-            "libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so", "libmagicdesk_guest_service.so",
-            "libmagicdesk_guest_image.so", "libmagicdesk_command_client.so");
+    public static final List<String> FILES = List.of("libshroot_guest_bootstrap.so",
+            "libshroot_guest_supervisor.so", "libshroot_guest_run.so", "libshroot_guest_service.so",
+            "libshroot_guest_image.so", "libshroot_cli.so", "libmagicdesk_command_client.so");
+
+    static Path packaged(Path source) throws IOException {
+        if (!source.isAbsolute()) throw new IOException("Absolute APK library directory required");
+        for (String name : FILES) {
+            Path file = source.resolve(name);
+            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || !Files.isExecutable(file))
+                throw new IOException("Packaged guest helper is unavailable: " + file);
+        }
+        return source;
+    }
 
     public static Path prepare(Path source, Path root) throws IOException {
+        return prepare(source, root, FILES);
+    }
+
+    static Path commands(Path source, Path root) throws IOException {
+        return prepare(source, root, List.of("libmagicdesk_command_client.so")).resolve("commands");
+    }
+
+    private static Path prepare(Path source, Path root, List<String> files) throws IOException {
         if (!source.isAbsolute() || !root.isAbsolute()) throw new IOException("Absolute runtime paths required");
         var hashes = new LinkedHashMap<String, String>();
         MessageDigest digest = sha256();
-        for (String name : FILES) {
+        for (String name : files) {
             String hash = hash(source.resolve(name));
             hashes.put(name, hash);
             digest.update(hash.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
@@ -44,7 +62,7 @@ public final class GuestRuntimeArtifacts {
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
         try {
             Files.createDirectory(temporary.resolve("commands"));
-            for (String name : FILES) {
+            for (String name : files) {
                 Path file = artifact(temporary, name);
                 try (InputStream input = open(source.resolve(name));
                      var output = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
@@ -67,7 +85,7 @@ public final class GuestRuntimeArtifacts {
             }
             return target;
         } finally {
-            for (String name : FILES) Files.deleteIfExists(artifact(temporary, name));
+            for (String name : files) Files.deleteIfExists(artifact(temporary, name));
             Files.deleteIfExists(temporary.resolve("commands"));
             Files.deleteIfExists(temporary);
         }

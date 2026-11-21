@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Android 文件夹</string>
+    <string name="folder_connect">连接文件夹</string>
+    <string name="folder_ro">只读</string>
+    <string name="folder_rw">读写</string>
+    <string name="folder_access">文件夹权限</string>
+    <string name="folder_unavailable">权限不可用</string>
+    <string name="folder_forget">忘记此连接</string>
+    <string name="folder_forget_message">新会话将不再挂载 %1$s。Android 中的文件不会被删除。</string>
+    <string name="folder_next">新会话：%1$s</string>
+</resources>

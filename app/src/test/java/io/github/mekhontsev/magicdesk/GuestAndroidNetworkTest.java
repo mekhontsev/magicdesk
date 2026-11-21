@@ -53,6 +53,7 @@ public class GuestAndroidNetworkTest {
                     manager.active = new Object();
                     manager.properties.servers = List.of(java.net.InetAddress.getByName("192.0.2.2"));
                     check(resolver().equals("192.0.2.2"), "stale network cached");
+                    check(servers(new Context()).equals(List.of("192.0.2.2")), "app context changed DNS selection");
                     manager.properties.privateDns = true;
                     expectFailure("Android Private DNS");
                 }
@@ -60,6 +61,6 @@ public class GuestAndroidNetworkTest {
                     try { resolver(); throw new AssertionError("missing DNS failure"); }
                     catch (IOException error) { check(error.getMessage().contains(message), error.toString()); }
                 }
-                """ + RuntimeSourceFixture.methods("GuestAndroidNetwork", "resolver"));
+                """ + RuntimeSourceFixture.methods("GuestAndroidNetwork", "resolver", "servers"));
     }
 }

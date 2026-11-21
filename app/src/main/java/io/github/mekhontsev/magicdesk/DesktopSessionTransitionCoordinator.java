@@ -91,6 +91,11 @@ final class DesktopSessionTransitionCoordinator {
     boolean showDesktop(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
+        return showDesktop(target, policy, null);
+    }
+
+    boolean showDesktop(final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy, final TaskRepository.ActionCallback callback) {
         if (target == null
                 || target.workspaceDisplayId < Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
@@ -101,7 +106,7 @@ final class DesktopSessionTransitionCoordinator {
                     "display target is unsupported by the current platform");
         }
         return enqueueDesktopStart(() -> DesktopDisplayDrivers.forTarget(target)
-                .showReady(null, target, policy), null);
+                .showReady(null, target, policy), callback);
     }
 
     void closeDesktop(
@@ -239,7 +244,6 @@ final class DesktopSessionTransitionCoordinator {
             if (isSessionTransitionInProgress() || DesktopRuntimeBridge.hasWorkspaces()) {
                 return;
             }
-            mPhoneUi.setPhoneScreenOff(false, Display.INVALID_DISPLAY);
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         });
     }
@@ -291,10 +295,7 @@ final class DesktopSessionTransitionCoordinator {
         // power override too; neither runtime shutdown nor display loss follows.
         boolean phoneRestored = true;
         try {
-            phoneRestored = DesktopRuntimeBridge.workspaceDisplayIds().stream()
-                            .anyMatch(id -> id != target.workspaceDisplayId && id > 0)
-                    || !mPhoneUi.isPhoneScreenControlActive()
-                    || mPhoneUi.setPhoneScreenOff(false, Display.INVALID_DISPLAY);
+            phoneRestored = mPhoneUi.restorePhoneScreenForDisplay(target.workspaceDisplayId);
             if (!phoneRestored) {
                 recordCloseFailure("Could not restore phone screen",
                         new IllegalStateException("phone screen restore failed"));

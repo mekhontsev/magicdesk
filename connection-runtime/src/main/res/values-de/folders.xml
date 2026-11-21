@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Android-Ordner</string>
+    <string name="folder_connect">Ordner verbinden</string>
+    <string name="folder_ro">Nur lesen</string>
+    <string name="folder_rw">Lesen und schreiben</string>
+    <string name="folder_access">Ordnerzugriff</string>
+    <string name="folder_unavailable">Berechtigung fehlt</string>
+    <string name="folder_forget">Verbindung entfernen</string>
+    <string name="folder_forget_message">Neue Sitzungen binden %1$s nicht mehr ein. Die Dateien in Android werden nicht gelöscht.</string>
+    <string name="folder_next">In neuen Sitzungen: %1$s</string>
+</resources>

@@ -149,6 +149,15 @@ public final class DesktopStateStoreTest {
                 MagicDeskSettings.Values.fromJson(defaults.toJson()).compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
     }
 
+    @Test public void homePreferenceDefaultsToAttemptAndPreservesExplicitOff() throws Exception {
+        final MagicDeskSettings.Values settings = MagicDeskSettings.Values.defaults();
+        assertTrue(settings.requestHomeRole);
+        assertTrue(MagicDeskSettings.Values.fromJson(new org.json.JSONObject()).requestHomeRole);
+        settings.requestHomeRole = false;
+        assertFalse(settings.copy().requestHomeRole);
+        assertFalse(MagicDeskSettings.Values.fromJson(settings.toJson()).requestHomeRole);
+    }
+
     @Test
     public void invalidEntriesAreIgnored() throws Exception {
         final DesktopStateStore.State decoded = DesktopStateStore.decode(

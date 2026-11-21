@@ -24,19 +24,19 @@ The repository uses two permanent branches:
 Maintainers can commit directly to `develop`; per-task branches are not required.
 Keep changes reviewable and separate no-functional-change (NFC) refactoring from
 new behavior. CI verifies both branches and their pull requests, including
-documentation-only changes so required checks always complete. Linux `build`
-and `windows-smoke` checks are required for ordinary updates to `main`.
+documentation-only changes so required checks always complete. The Linux `build`
+check is required for ordinary updates to `main`.
 Administrators may merge a release into `main` before CI; publication still
-requires both checks on that exact commit. Both branches reject force pushes
+requires successful CI on that exact commit. Both branches reject force pushes
 and deletion; no second reviewer is required.
 
 Only a successful `develop` push updates the release-signed development APK.
 The rolling prerelease keeps its existing `development` tag and download URL;
 it is not a third branch. PR builds do not receive signing credentials. Changes
-must pass both Linux and Windows jobs before the development APK is published.
+must pass the Linux build and verification before the development APK is published.
 
 To release, merge the prepared changes into `main` with an ordinary merge.
-Main CI runs Linux and Windows checks and builds the signed APK with its final
+Main CI runs Linux checks and builds the signed APK with its final
 version; a preliminary `develop` build is not required. Complete the device
 checks required by the changed subsystems, then tag `vVERSION`, matching
 `magicDeskVersionName`. The release workflow checks tag/version identity,
@@ -73,6 +73,9 @@ Diagnostics.
 
 ## Build Environment
 
+Supported build hosts are Linux and Android/Termux. On Windows, use Linux in
+WSL2 with the Linux SDK/NDK and JDK; native Windows builds are not supported.
+
 - JDK 17 or newer
 - Android SDK platform and build tools 37
 - Android NDK 27.3.13750724, installed as **NDK (Side by side)**
@@ -81,13 +84,10 @@ Diagnostics.
   files for Wayland
 
 Initialize source dependencies with `git submodule update --init --recursive`.
-On Windows, the X11 host generators use MSYS2 Bison/patch and UCRT64 GCC;
-put their `usr/bin` and `ucrt64/bin` directories on `PATH`. The bundled mksh
-build also needs CMake 3.24+ and POSIX `sh`, `sed`, `sort` and `tr` on the host.
-Set `MAGICDESK_BUILD_SHELL` to the absolute MSYS2 `usr/bin/sh.exe` path;
-its generator wrapper puts the shell's companion tools first on `PATH`.
-Windows CI explicitly selects MSYS2 and builds mksh in a directory containing
-spaces before the complete Gradle build. Android native libraries still use
+The bundled mksh build also needs CMake 3.24+ and POSIX `sh`, `sed`, `sort` and
+`tr` on the host. `MAGICDESK_BUILD_SHELL` can select an explicit host shell.
+Linux CI checks the NDK mksh build in a directory containing spaces before the
+complete Gradle build. Android native libraries use
 the NDK, not the host compiler. Termux uses its packaged
 CMake, Ninja, Python, Bison, patch and Clang. The guest file helper is statically
 linked so it can run inside glibc or musl environments without their libraries;
@@ -104,23 +104,24 @@ If Gradle cannot locate the Android SDK, create an untracked
 sdk.dir=/absolute/path/to/android-sdk
 ```
 
-Termux builds use `$PREFIX/bin/clang` and `$PREFIX/bin/llvm-strip` and do not
-require the desktop NDK toolchain. APK packaging strips debug sections and
+Termux builds use `$PREFIX/bin/clang` and `$PREFIX/bin/llvm-strip`. They use
+the configured NDK's target-API link stubs, but do not execute its desktop tools.
+Termux's default dynamic libc stub can target an older API than the APK.
+APK packaging strips debug sections and
 unneeded symbols on every build host; compiler outputs remain available in
 build directories for diagnostics. Dynamic loader symbols and unwind data are
 retained. `scripts/verify-apks.sh` also checks the PTY helper's transfer size.
 On Linux, Wayland's pinned native dependencies are cross-compiled
 with the NDK as part of the Gradle build. The host protocol scanner is built
-separately; no system Wayland development libraries are required. On Windows,
-provide an exported ARM64 runtime from a Linux/Termux build through
-`-PmagicDeskWaylandRuntime=/path/to/runtime`. CI transfers that artifact between
-its Linux and Windows jobs. See [Wayland build details](docs/wayland.md#build).
+separately; no system Wayland development libraries are required. An exported
+ARM64 runtime can be reused through `-PmagicDeskWaylandRuntime=/path/to/runtime`.
+See [Wayland build details](docs/wayland.md#build).
 
 The current native helpers are ARM64-only. Both helper compiler paths target the
 APK's minimum SDK, API 34. Device coverage is per helper: the virtual mouse/uinput
 path is verified on Samsung SM-A528B/API 34; PTY and graphical runtime validation
 at that floor remains pending.
-Windows build smoke is not emulator coverage; an x86_64 emulator
+Build verification is not emulator coverage; an x86_64 emulator
 matrix needs matching helper binaries. See the API-level document for the
 remaining validation contract.
 
@@ -138,8 +139,6 @@ The optional kernel add-on is a separate application:
 ./gradlew :kernel-fixes:assembleDebug
 ```
 
-On Windows, use `gradlew.bat` instead of `./gradlew`.
-
 Run the complete local verification before submitting a change:
 
 ```sh
@@ -152,7 +151,7 @@ Identity-sensitive filesystem tests use Jimfs for inode and symlink semantics;
 transfer journals still use real temporary files. These are test-only
 dependencies and do not change Android storage behavior. Tests that execute
 POSIX shell commands or resolve live process directories require a Unix shell
-or procfs respectively; their pure validation cases also run on Windows.
+or procfs respectively.
 CI retains unit-test XML and HTML reports even when verification fails.
 
 Python client and SDK-audit fixtures use the standard library:
@@ -184,8 +183,8 @@ sh scripts/verify-native.sh
 
 They require a host C compiler and coreutils `timeout`, use only their own
 PTYs and controlled input fixtures, and do not access physical input devices.
-Linux CI runs the same script. The Windows build still compiles the Android
-native helpers through the NDK; it does not execute Linux host fixtures.
+Linux CI runs the same script and cross-compiles the Android helpers through
+the NDK.
 
 Debug and pull-request builds do not require release-signing credentials.
 

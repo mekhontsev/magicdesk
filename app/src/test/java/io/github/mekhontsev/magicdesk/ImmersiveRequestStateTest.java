@@ -9,6 +9,39 @@ import org.junit.Test;
 
 public final class ImmersiveRequestStateTest {
     @Test
+    public void resizeAndRestoreRelayoutCannotOverrideWindowedPlacement() throws Exception {
+        for (boolean restoring : new boolean[] {false, true}) {
+            verifyLifecycle("""
+                    f.handleImmersiveRequest(42, false, true, true);
+                    f.noteManualFreeformTransition(42);
+                    """ + (restoring ? "state.restoring = true;" : "state.mBoundsCommand = new Object();") + """
+                    f.handleImmersiveRequest(42, true, false, true);
+                    check(state.hasManualImmersiveOverride(), "relayout erased manual preference");
+                    check(!shouldEnterAppFullscreen(state), "relayout entered fullscreen");
+                    state.restoring = false; state.mBoundsCommand = null;
+                    check(!shouldEnterAppFullscreen(state), "completion replayed relayout request");
+                    f.handleImmersiveRequest(42, false, false, true);
+                    f.handleImmersiveRequest(42, true, false, true);
+                    check(shouldEnterAppFullscreen(state), "subsequent request was swallowed");
+                    """);
+        }
+    }
+
+    @Test
+    public void layoutAndInitialClientSampleShareWindowedProtection() throws Exception {
+        verifyLifecycle("""
+                state.mBoundsCommand = new Object();
+                f.handleImmersiveRequest(42, true, true, true);
+                check(state.hasManualImmersiveOverride(), "layout relayout was unprotected");
+                state.mBoundsCommand = null;
+                check(!shouldEnterAppFullscreen(state), "initial sample undid completed layout");
+                f.handleImmersiveRequest(42, false, false, true);
+                f.handleImmersiveRequest(42, true, false, true);
+                check(shouldEnterAppFullscreen(state), "layout swallowed later request");
+                """);
+    }
+
+    @Test
     public void windowedTaskKeepsGeometryAcrossDelayedRestartImmersiveRequest() throws Exception {
         verifyLifecycle("""
                 f.beginExplicitWindowedLaunch(42);
@@ -184,12 +217,16 @@ public final class ImmersiveRequestStateTest {
                 }
                 static class RuntimeState { void scheduleRefresh() {} }
                 static class DesktopTaskRuntimeState {
+                    Object mBoundsCommand;
+                    boolean restoring;
+                    boolean isFullscreenRestoreTransition() { return restoring; }
                     Boolean mImmersiveRequested;
                     boolean mImmersiveRequestForeground, mManualImmersiveOverride;
                     boolean mAppRequestedFullscreen, mStartupWindowed;
                     long mStartupWindowedDeadlineUptimeMillis = Long.MAX_VALUE;
                     boolean isFullscreenTransition() { return false; }
                 """ + RuntimeSourceFixture.methods("DesktopTaskRuntimeState",
+                "isWindowedTransition",
                 "updateImmersiveObservation", "clearImmersiveRequested",
                 "isImmersiveRequested", "isImmersiveRequestForeground",
                 "isAppRequestedFullscreen", "hasManualImmersiveOverride",

@@ -16,7 +16,7 @@ final class MagicDeskAppUpdates {
 
     private MagicDeskAppUpdates() { }
 
-    static synchronized JSONObject start(Context context, JSONObject args) throws IOException, JSONException {
+    static synchronized JSONObject start(Context context, JSONObject args, UiAutomation ui) throws IOException, JSONException {
         final String id = AutomationFileTransfers.identifier(args.getString("updateId"));
         final String sha = AutomationFileTransfers.digestArgument(args.getString("sha256"));
         final JSONObject previous = status(context, id);
@@ -53,7 +53,8 @@ final class MagicDeskAppUpdates {
             try (ParcelFileDescriptor output = ParcelFileDescriptor.open(resultFile(context, id),
                     ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE
                             | ParcelFileDescriptor.MODE_WRITE_ONLY)) {
-                AppUpdateWorkerConnection.begin(sessionId, userId, id, output);
+                final var power = AutomationMainThread.read(() -> ui.updatePowerState(ControlActivity.blackScreenEnabled()));
+                AppUpdateWorkerConnection.begin(sessionId, userId, id, output, power);
                 handedOff = true;
             }
         } catch (IOException | RuntimeException error) {

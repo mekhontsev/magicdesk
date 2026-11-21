@@ -66,13 +66,9 @@ final class RuntimeCapabilities {
 
     String missing(final Service service) {
         return switch (service) {
-            case AUTOMATION, BUILTIN_UI, DISPLAYS -> "";
+            case AUTOMATION, BUILTIN_UI, DISPLAYS, TERMINAL, GRAPHICS -> "";
             case SHELL, VIRTUAL_DISPLAY -> !mLimits.privilegedAllowed() ? "privileged_disabled" : mShell ? "" : "privileged_service";
             case TERMUX -> !mLimits.termux() ? "termux_disabled" : !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
-            case GRAPHICS -> mLimits.privilegedAllowed() && mShell
-                    || mLimits.termux() && mTermuxInstalled && mTermuxAuthorized ? "" : "graphics_executor";
-            case TERMINAL -> mLimits.privilegedAllowed() && mShell
-                    || mLimits.termux() && mTermuxInstalled && mTermuxAuthorized ? "" : "terminal_backend";
             case DESKTOP -> !supportsDesktop(mSdk) ? "android_15"
                     : !mLimits.desktop() ? "desktop_disabled" : !mLimits.privilegedAllowed() ? "privileged_disabled"
                     : !mShell ? "privileged_service" : switch (mDesktopSetup) {
@@ -95,8 +91,6 @@ final class RuntimeCapabilities {
             case "desktop_disabled" -> R.string.limit_desktop_disabled;
             case "termux" -> R.string.capability_termux_required;
             case "termux_run_command" -> R.string.capability_termux_permission_required;
-            case "terminal_backend" -> R.string.capability_terminal_required;
-            case "graphics_executor" -> R.string.capability_terminal_required;
             case "desktop_setup_checking" -> R.string.setup_status_checking;
             case "desktop_setup_unknown" -> R.string.control_desktop_unknown;
             case "desktop_setup" -> R.string.control_desktop_setup_required;

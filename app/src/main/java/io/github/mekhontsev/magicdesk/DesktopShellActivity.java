@@ -860,7 +860,9 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     private boolean hasRequiredHomeLease() {
-        return DesktopHomeRoleLease.isActiveForDisplay(getCurrentDisplayId());
+        return DesktopHomeRoleLease.isActiveForDisplay(getCurrentDisplayId())
+                && (this instanceof IndependentDesktopActivity)
+                        != DesktopHomeRoleLease.usesHomeRole(getCurrentDisplayId());
     }
 
     private DesktopDisplayTarget resolvedDesktopTarget() {
@@ -895,7 +897,9 @@ public abstract class DesktopShellActivity extends Activity
         if (target == null) {
             throw new IllegalArgumentException("desktop target is required");
         }
-        final Intent intent = target.isDefaultWorkspace()
+        final Intent intent = !DesktopHomeRoleLease.usesHomeRole(target.workspaceDisplayId)
+                ? IndependentDesktopActivity.createLaunchIntent(context)
+                : target.isDefaultWorkspace()
                 ? PhoneHomeActivity.createLaunchIntent(context)
                 : DesktopActivity.createLaunchIntent(context);
         return intent

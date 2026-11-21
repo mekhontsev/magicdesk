@@ -23,8 +23,7 @@ final class FrameworkDisplayWindowingApi {
         mUniqueId = info.getField("uniqueId");
         mType = info.getField("type");
         mVirtualDisplayType = android.view.Display.class.getField("TYPE_VIRTUAL").getInt(null);
-        mWindowManager = Class.forName("android.view.WindowManagerGlobal")
-                .getMethod("getWindowManagerService").invoke(null);
+        mWindowManager = FrameworkWindowServiceApi.get();
         final Class<?> windows = Class.forName("android.view.IWindowManager");
         mGetMode = windows.getMethod("getWindowingMode", Integer.TYPE);
         mSetMode = windows.getMethod("setWindowingMode", Integer.TYPE, Integer.TYPE);

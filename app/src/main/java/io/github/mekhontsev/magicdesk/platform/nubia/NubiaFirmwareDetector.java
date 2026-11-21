@@ -79,6 +79,7 @@ public final class NubiaFirmwareDetector {
         final EnumSet<PlatformComponent> components =
                 EnumSet.allOf(PlatformComponent.class);
         components.remove(PlatformComponent.EXTERNAL_INPUT);
+        components.remove(PlatformComponent.PHONE_UI);
         final EnumMap<PlatformComponent, String> componentEvidence =
                 new EnumMap<>(PlatformComponent.class);
         for (final PlatformComponent component : components) {
@@ -136,9 +137,6 @@ public final class NubiaFirmwareDetector {
         }
         if (NubiaCpuFreezerWorkingState.isAvailable()) {
             detected.put(PlatformComponent.BACKGROUND_WORK,
-                    "CPU-freezer working-state API detected");
-            detected.put(
-                    PlatformComponent.PHONE_UI,
                     "CPU-freezer working-state API detected");
         }
         if (InternalAudioSourceCapability.current().availability

@@ -1,5 +1,0 @@
-#ifndef MD_IMAGE_DIGEST_CONFIG_H
-#define MD_IMAGE_DIGEST_CONFIG_H
-#define MBEDTLS_SHA256_C
-#define MBEDTLS_MD_C
-#endif

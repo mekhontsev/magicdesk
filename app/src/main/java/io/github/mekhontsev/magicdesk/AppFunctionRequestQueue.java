@@ -20,6 +20,16 @@ final class AppFunctionRequestQueue implements AutoCloseable {
     FutureTask<Void> create(final Runnable action, final Runnable onCancelled) {
         final FutureTask<Void> request = new FutureTask<Void>(action, null) {
             @Override
+            public void run() {
+                final boolean closed;
+                synchronized (AppFunctionRequestQueue.this) { closed = mClosed; }
+                // Cancelling a running request can let the executor dequeue
+                // another one before close() reaches it.
+                if (closed) cancel(false);
+                else super.run();
+            }
+
+            @Override
             protected void done() {
                 synchronized (AppFunctionRequestQueue.this) {
                     mPending.remove(this);

@@ -29,9 +29,9 @@ public final class EventDrivenWaits {
         TERMINAL_REGISTRATION,
         TERMINAL_OUTPUT_DRAIN,
         SERVICE_BINDING,
-        UNIX_CONNECTION_HANDOFF,
         APP_UPDATE_HANDOFF,
         APP_UPDATE_RESULT,
+        APP_UPDATE_RESUME,
         SELF_TEST_GUARD_WINDOW
     }
 

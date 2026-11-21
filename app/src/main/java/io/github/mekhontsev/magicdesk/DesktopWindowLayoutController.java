@@ -121,6 +121,7 @@ final class DesktopWindowLayoutController {
             boolean allCurrent = valid && pending.stream()
                     .allMatch(change -> mStates.isCurrent(change.taskId, change.state));
             for (Pending change : pending) {
+                change.state.finishBoundsCommand(change.transition);
                 if (!valid || !mStates.isCurrent(change.taskId, change.state)
                         || !change.state.isBoundsTransition(change.transition)) continue;
                 change.state.clearBoundsTransition(change.transition);

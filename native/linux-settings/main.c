@@ -3,6 +3,7 @@
 #endif
 #include "portal.h"
 #include "bus_agent.h"
+#include "web_session.h"
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -94,6 +95,13 @@ static void launch(char **command) {
 }
 
 int main(int argc, char **argv) {
+    if (argc>=3 && !strcmp(argv[1],"--connected-login")) {
+        if (getenv("MAGICDESK_WEB_ENDPOINT") && md_web_session_start()) { perror("Temporary web proxy"); return 1; }
+        if (getenv("MAGICDESK_AUTOMATION_SOCKET") && md_bus_session_start(argv[0])) {
+            perror("Linux automation (requires dbus-run-session)"); return 1;
+        }
+        execvp(argv[2],argv+2); perror("Linux login shell"); return 127;
+    }
     if (argc == 3 && !strcmp(argv[1], "--session-agent")) {
         char *end; errno = 0;
         long fd = strtol(argv[2], &end, 10);

@@ -74,6 +74,11 @@ final class WaylandSessions {
         final String presentationKey;
         private volatile int scalePercent;
         final HostedWindowPresentation presentation;
+        final HostedOffscreen offscreen = new HostedOffscreen(window -> new WaylandSurfaceOutput(openOutput(window, 1, 1)),
+                () -> GraphicalSessions.changed(id(), "output_ready"));
+        final HostedSessionClose shutdown = new HostedSessionClose();
+        @Override public boolean backgroundOutput() { return offscreen.enabled(); }
+        @Override public void viewerAttached() { offscreen.close(); }
         private final Context context;
         private final OperationResources resources = new OperationResources();
         private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
@@ -188,7 +193,7 @@ final class WaylandSessions {
             WORK.execute(() -> {
                 try {
                     if (stopped()) { resource.close(); return; }
-                    var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, current::acceptClient,
+                    var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, 0, execution.commands.endpointFactory(), current::acceptClient,
                             error -> MAIN.post(() -> fail(error)));
                     resource.attach(endpoint);
                     MAIN.post(() -> clientEndpointReady(endpoint.name));
@@ -242,6 +247,12 @@ final class WaylandSessions {
         String error() { return error; }
         boolean stopped() { return state.equals("CLOSED") || state.equals("FAILED"); }
         @Override public boolean ready() { return state.equals("READY") && renderer != null && !renderer.isClosed(); }
+        GraphicalConnection connect(int uid, ExecutorSocketEndpoint.Factory factory, Runnable ended) throws IOException {
+            var current=renderer;
+            if (!ready() || current==null) throw new IOException("Wayland session is not ready");
+            var description=new android.os.Bundle(); description.putString("graphicsProtocol","wayland");
+            return GraphicalConnection.acquire(resources,uid,factory,current::acceptClient,description,ended);
+        }
         List<WaylandSession.Window> windows() { var current = renderer; return current == null ? List.of() : current.windows(); }
         java.util.concurrent.CompletableFuture<io.github.mekhontsev.magicdesk.wayland.WaylandWindowInspection> inspectWindow(long window, int limit) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
@@ -424,6 +435,8 @@ final class WaylandSessions {
 
         @Override public void changed() {
             if (Looper.myLooper() != Looper.getMainLooper()) { MAIN.post(this::changed); return; }
+            var session = GraphicalSessions.find(id());
+            if (session != null) session.refresh();
             var snapshot = windows();
             boolean first = !applicationLifetime.hadWindows();
             applicationLifetime.windows(!snapshot.isEmpty(), snapshot.stream().anyMatch(WaylandSession.Window::mapped));
@@ -470,6 +483,7 @@ final class WaylandSessions {
             if (stopped()) return;
             state = next; error = message;
             presentation.close();
+            offscreen.close();
             MAIN.removeCallbacks(timeout);
             MAIN.removeCallbacks(applicationTimeout);
             unregister();

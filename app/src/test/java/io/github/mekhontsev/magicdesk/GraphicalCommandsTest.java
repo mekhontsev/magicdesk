@@ -8,6 +8,78 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public final class GraphicalCommandsTest {
+    @Test public void launcherScaleUsesEveryExecutorAndPreservesRecentTermuxIdentity() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Activity { }
+                enum DesktopExecBackend { APP, SHELL, TERMUX }
+                static class DesktopApplicationShortcut {
+                    DesktopExecBackend execBackend; Object graphics; boolean exec = true;
+                    boolean hasExecLaunch() { return exec; }
+                }
+                static class IntegrationPackage {
+                    static final IntegrationPackage TERMUX = new IntegrationPackage();
+                    String selected() { return "com.current.termux"; }
+                }
+                static class CommandExecution {
+                    static boolean shellReady = true;
+                    String scope;
+                    CommandExecution(Activity activity, DesktopExecBackend backend) {
+                        if (backend == DesktopExecBackend.SHELL && !shellReady) throw new IllegalStateException("unavailable");
+                        if (backend == DesktopExecBackend.TERMUX) throw new AssertionError("Termux identity recaptured");
+                        scope = backend == DesktopExecBackend.APP ? "app:10123" : "shell:2000";
+                    }
+                }
+                public static void verify() {
+                    var app = new DesktopApplicationShortcut(); app.graphics = new Object();
+                    for (var backend : DesktopExecBackend.values()) {
+                        app.execBackend = backend;
+                        check(supports(app, "/launcher.desktop"), "executor excluded from scale");
+                    }
+                    app.graphics = null; check(!supports(app, "/launcher.desktop"), "nongraphical launcher scaled");
+                    app.graphics = new Object(); app.exec = false;
+                    check(!supports(app, "/launcher.desktop"), "Android launcher treated as Linux");
+                    app.exec = true; check(!supports(app, "") && !supports(null, "/launcher.desktop"), "missing identity accepted");
+                    var activity = new Activity();
+                    check(executorScope(activity, DesktopExecBackend.TERMUX, "com.previous.termux").equals("com.previous.termux"), "recent rebound");
+                    check(executorScope(activity, DesktopExecBackend.TERMUX, null).equals("com.current.termux"), "selected Termux lost");
+                    check(executorScope(activity, DesktopExecBackend.SHELL, null).equals("shell:2000"), "Shell scope differs from launch");
+                    CommandExecution.shellReady = false;
+                    check(executorScope(activity, DesktopExecBackend.APP, null).equals("app:10123"), "User requires Shell");
+                    try { executorScope(activity, DesktopExecBackend.SHELL, null); throw new AssertionError("identity guessed"); }
+                    catch (IllegalStateException expected) { }
+                }
+                """ + RuntimeSourceFixture.methods("GraphicalScaleDialog", "supports", "executorScope"));
+        for (String name : new String[]{"StartMenuContent", "DesktopContextMenuController"}) {
+            assertTrue(name, source(name).contains("GraphicalScaleDialog.supports("));
+            assertTrue(name, source(name).contains("GraphicalScaleDialog.show("));
+        }
+        String bind = RuntimeSourceFixture.methods("StartMenuContent", "bindContextMenu");
+        assertTrue(bind.contains("mHost.fileActions(menu, application.desktopFile)"));
+        assertFalse(bind.contains("mHost.fileContext("));
+    }
+
+    @Test public void offscreenUsesExistingInputAndCaptureGrantsAndExplicitTargets() throws Exception {
+        for (String operation : new String[]{"capture_screenshot", "sample_pixels", "send_key", "move_pointer",
+                "click_pointer", "input.key_chord", "input.gesture"}) {
+            var schema = AutomationCommandArguments.command(operation).getJSONObject("inputSchema");
+            assertTrue(operation, schema.getJSONObject("properties").has("graphicsSessionId"));
+            assertTrue(operation, schema.getJSONObject("properties").has("windowId"));
+        }
+        AutomationCommandArguments.check("input.key_chord", new JSONObject().put("graphicsSessionId", "test")
+                .put("keys", new org.json.JSONArray().put("ENTER")));
+        assertTrue(new McpAccessPolicy(Set.of("control")).allows("graphics.set_offscreen"));
+        assertFalse(new McpAccessPolicy(Set.of()).allows("graphics.close_session"));
+        assertTrue(new McpAccessPolicy(Set.of("input_tests")).allows("input.key_chord"));
+        assertTrue(new McpAccessPolicy(Set.of("content")).allows("capture_screenshot"));
+        String output = source("AutomationGraphicsOutput");
+        assertFalse(output.contains("requireService"));
+        assertFalse(output.contains("FrameworkUiAutomationApi"));
+        assertTrue(output.contains("AutomationInputSequence.keyChord"));
+        assertTrue(source("AndroidAutomationInput").contains("AutomationInputSequence.keyChord"));
+        String host = Files.readString(Path.of("../hosted-runtime/src/main/java/io/github/mekhontsev/magicdesk/hosted/HostedImageOutput.java"));
+        assertFalse(host.contains("VirtualDisplay"));
+        assertFalse(host.contains("Thread.sleep"));
+    }
     @Test public void authorizationSeparatesObservationExecutionAndPlacement() {
         var observation = new McpAccessPolicy(Set.of());
         assertTrue(observation.allows("graphics.list"));

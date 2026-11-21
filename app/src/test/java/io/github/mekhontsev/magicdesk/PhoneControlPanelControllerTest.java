@@ -82,7 +82,10 @@ public final class PhoneControlPanelControllerTest {
     @Test
     public void appsHasOneEntryPointWithOrWithoutDisplayInventory() throws Exception {
         final String status = RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus");
-        assertTrue(status.contains("parent.addView(mStatus, fullWidthWrapParams(0))"));
+        assertTrue(status.contains("summary.addView(mStatus, fullWidthWrapParams(0))"));
+        assertTrue(status.contains("summary.addView(mProcessLimit,"));
+        assertTrue(status.contains("parent.addView(summary, fullWidthWrapParams(0))"));
+        assertFalse(status.contains("integrations.addView(mProcessLimit"));
         assertTrue(status.contains("integrations.setOrientation(LinearLayout.HORIZONTAL)"));
         assertTrue(status.contains("integrations.addView(mRuntime, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))"));
         assertTrue(status.contains("integrations.addView(mTermux, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))"));
@@ -173,11 +176,12 @@ public final class PhoneControlPanelControllerTest {
         final String general = RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions");
         previous = -1;
         for (String name : new String[]{"mConnectWirelessDisplay", "mCreateDisplay", "mTouchpad",
-                "mReleaseInput", "mPhoneScreen"}) {
+                "mReleaseInput"}) {
             final int position = general.indexOf("addGridAction(sessionActions, " + name + ")");
             assertTrue(name, position > previous);
             previous = position;
         }
+        assertFalse(general.contains("mPhoneScreen"));
     }
 
     @Test

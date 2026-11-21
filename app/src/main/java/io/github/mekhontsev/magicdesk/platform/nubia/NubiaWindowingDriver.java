@@ -35,6 +35,12 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean supportsIndependentFreeform() {
+        // Vendor DesktopRepository and phone Recents need managed-session recovery.
+        return false;
+    }
+
+    @Override
     public String restrictionsPropertyKey() {
         return DesktopWindowingProperties.Property.DEVICE_RESTRICTIONS.key;
     }

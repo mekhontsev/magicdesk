@@ -6,16 +6,18 @@ import org.json.JSONObject;
 final class AutomationGuestEnvironments {
     static DesktopAutomationResult execute(String name, JSONObject args) {
         try {
+            CommandExecution execution = name.equals("guest.status") || name.equals("guest.cancel") ? null
+                    : new CommandExecution(MagicDeskApplication.applicationContext(), DesktopExecBackend.parse(args.optString("backend", "shell")));
             JSONObject data = switch (name) {
-                case "guest.list" -> new JSONObject().put("environments", new JSONArray(GuestEnvironmentOperations.read(args.optString("library", ""), "list", "--json")));
-                case "guest.inspect" -> new JSONObject(GuestEnvironmentOperations.read(args.optString("library", ""), "inspect", args.getString("name")));
-                case "guest.launches" -> new JSONObject().put("launches", new JSONArray(GuestEnvironmentOperations.read(
+                case "guest.list" -> new JSONObject().put("environments", new JSONArray(GuestEnvironmentOperations.read(execution, args.optString("library", ""), "list", "--json")));
+                case "guest.inspect" -> new JSONObject(GuestEnvironmentOperations.read(execution, args.optString("library", ""), "inspect", args.getString("name")));
+                case "guest.launches" -> new JSONObject().put("launches", new JSONArray(GuestEnvironmentOperations.read(execution,
                         args.optString("library", ""), "launches", args.getString("name"))));
                 case "guest.stop" -> {
-                    GuestEnvironmentOperations.read(args.optString("library", ""), "stop", args.getString("name"), args.getString("launchId"));
+                    GuestEnvironmentOperations.read(execution, args.optString("library", ""), "stop", args.getString("name"), args.getString("launchId"));
                     yield new JSONObject().put("accepted", true).put("launchId", args.getString("launchId"));
                 }
-                case "guest.start" -> GuestEnvironmentOperations.get().start(args.getJSONArray("arguments"), args.optString("library", ""));
+                case "guest.start" -> GuestEnvironmentOperations.get().start(args.getJSONArray("arguments"), args.optString("library", ""), execution);
                 case "guest.status" -> GuestEnvironmentOperations.get().require(args.getString("operationId"))
                         .observe(args.optLong("afterRevision", -1), args.optInt("timeoutMillis", 0));
                 case "guest.cancel" -> {

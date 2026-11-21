@@ -41,7 +41,7 @@ final class LinuxGamepads implements Closeable, InputManager.InputDeviceListener
 
     private LinuxGamepads(Context context, int uid) throws IOException {
         inputs = context.getSystemService(InputManager.class);
-        endpoint = new ExecutorSocketEndpoint(uid, socket -> {
+        endpoint = new ExecutorSocketEndpoint(uid, 0, ShellAccess::openUnixEndpoint, socket -> {
             Connection connection = new Connection(ParcelFileDescriptor.dup(socket.getFileDescriptor()));
             MAIN.post(() -> attach(connection));
         }, error -> {

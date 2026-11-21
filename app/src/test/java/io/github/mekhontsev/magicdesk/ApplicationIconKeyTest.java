@@ -30,4 +30,15 @@ public final class ApplicationIconKeyTest {
                 DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, false);
         assertNull(ApplicationIconKey.of(bare, "com.termux"));
     }
+
+    @Test public void identicalGuestIdsInSeparateExecutorsDoNotShareArtwork() {
+        String reference = "guest:" + A + ":editor.desktop";
+        var user = ApplicationIconKey.guest(reference, DesktopExecBackend.APP);
+        var shell = ApplicationIconKey.guest(reference, DesktopExecBackend.SHELL);
+        assertNotEquals(user, shell);
+        assertEquals(A, user.owner());
+        assertEquals(A, shell.owner());
+        assertEquals(reference, user.guestReference());
+        assertEquals(reference, shell.guestReference());
+    }
 }

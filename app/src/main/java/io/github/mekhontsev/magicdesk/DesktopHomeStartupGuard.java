@@ -42,7 +42,7 @@ final class DesktopHomeStartupGuard {
             Log.e(TAG, "could not disable MagicDesk HOME surfaces", error);
             return false;
         }
-        if (!ownsRole && lease == null && !resolvesToUs) {
+        if (!ownsRole && (lease == null || !lease.homeRole) && !resolvesToUs) {
             return false;
         }
         // Startup while holding HOME means the owning desktop process was

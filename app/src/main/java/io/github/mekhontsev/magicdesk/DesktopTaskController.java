@@ -307,6 +307,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     @Override
                     public void onFreeformBoundsChanged(
                             final int generation,
+                            final FrameworkTaskSnapshot previous,
                             final FrameworkTaskSnapshot task) {
                         final int displayId = task.displayId;
                         final Rect bounds = task.bounds;
@@ -314,6 +315,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (!mRunning || displayId != mDisplayId) {
                             return;
                         }
+                        mWindowTransitions.observeFreeformGeometry(previous, task);
                         if (stateKey != null
                                 && !isLayoutOwned(task.taskId)
                                 && !mNativeWindowBounds
@@ -556,6 +558,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final TaskRepository.Snapshot snapshot = mObservedTaskSnapshot;
         return mRunning && mTaskWatcherReady && displayId == mDisplayId
                 && snapshot != null && snapshot.available ? snapshot : null;
+    }
+
+    @Override
+    public int pendingTaskFocus(final int displayId) {
+        return mRunning && mTaskWatcherReady && displayId == mDisplayId
+                && mWorkspaceQueue.isRunning() ? mFocusingTaskId : -1;
     }
 
     private void publishTaskObservation(final TaskRepository.Snapshot snapshot) {

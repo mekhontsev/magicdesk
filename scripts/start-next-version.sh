@@ -18,8 +18,8 @@ if [ "$branch" != develop ]; then
 fi
 
 if ! printf '%s\n' "$version" \
-        | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
-    printf 'Version must use major.minor.patch[.revision] format: %s\n' "$version" >&2
+        | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then
+    printf 'Version must use major.minor[.patch[.revision]] format: %s\n' "$version" >&2
     exit 2
 fi
 case "$version_code" in
@@ -70,6 +70,12 @@ awk -v version="$version" -v code="$version_code" '
 ' "$properties" > "$temporary"
 mv "$temporary" "$properties"
 trap - EXIT HUP INT TERM
+
+notes="$project_dir/docs/releases/$version.md"
+if [ ! -e "$notes" ]; then
+    mkdir -p "$(dirname "$notes")"
+    printf '# MagicDesk %s\n' "$version" > "$notes"
+fi
 
 printf 'Started MagicDesk %s development cycle (versionCode %s).\n' \
     "$version" "$version_code"

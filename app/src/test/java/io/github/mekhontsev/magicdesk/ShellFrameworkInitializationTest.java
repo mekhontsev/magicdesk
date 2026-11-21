@@ -23,6 +23,7 @@ public final class ShellFrameworkInitializationTest {
                 launcher.deliver(0, service);
                 check(connection.connectedService() == service, "binding not published");
                 check(service.toggle == 1 && service.error.isEmpty(), "wrong setting snapshot");
+                check(service.geometry, "window geometry setting was not propagated");
                 check(reads == 1 && callbacks == 1, "repeated initialization");
                 check(connection.snapshot(launcher.inspect()).uid == 2000, "wrong observed UID");
                 """);
@@ -116,14 +117,15 @@ public final class ShellFrameworkInitializationTest {
                 static class IShellCommandService implements IBinder {
                     String build = "build";
                     int identity = 2000, toggle;
+                    boolean geometry;
                     String error;
                     String sourceId() { return build; }
                     int uid() { return identity; }
                     public boolean pingBinder() { return true; }
-                    void initializeFramework(int value, String failure) throws RemoteException {
+                    void initializeFramework(int value, String failure, boolean windowGeometry) throws RemoteException {
                         check(connection.connectedService() == null, "binding published before initialization");
                         if (rejectService) throw new RemoteException();
-                        toggle = value; error = failure;
+                        toggle = value; error = failure; geometry = windowGeometry;
                     }
                     static class Stub {
                         static IShellCommandService asInterface(IBinder binder) {
@@ -134,6 +136,7 @@ public final class ShellFrameworkInitializationTest {
                 static class MagicDeskApplication {
                     static Object applicationContext() { return appContext; }
                 }
+                static class FrameworkWindowGeometry { static boolean enabled() { return true; } }
                 static class FrameworkWindowingCompat {
                     static int readDesktopToggle(Object context) {
                         check(context == appContext, "Settings not read in app context");

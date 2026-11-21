@@ -16,6 +16,71 @@ public final class ShellFullscreenLaunchGuardTest {
             new ShellFullscreenLaunchGuard.Boundary(101, "plane-b", 11, "separator-b"));
 
     @Test
+    public void failedWorkspaceCannotVetoOtherDisplaysOrUnscopedLaunches() throws Exception {
+        RuntimeSourceFixture.verify("""
+                record Intent() { }
+                record LaunchActivityIdentity(String pkg) {
+                    boolean matchesStart(Intent intent, String name) { return intent != null && pkg.equals(name); }
+                }
+                """ + RuntimeSourceFixture.nestedClass("ShellActivityLaunchScope", "ShellActivityLaunchScope")
+                        .replace("final class ShellActivityLaunchScope", "static final class ShellActivityLaunchScope")
+                + """
+                static class ShellActivityStartController {
+                    interface Listener { boolean onActivityStarting(Intent intent, String name); }
+                    boolean mEnabled = true;
+                    Listener[] mListeners;
+                    final List<String> errors = new ArrayList<>();
+                    void report(String error) { errors.add(error); }
+                    void notifyActivityStart(Intent intent, String name, boolean allowed) { }
+                """ + RuntimeSourceFixture.nestedClass("ShellActivityStartController", "StartRejectedException")
+                + RuntimeSourceFixture.methods("ShellActivityStartController", "allowActivityStart", "usefulMessage")
+                + """
+                }
+                static class Guard implements ShellActivityStartController.Listener {
+                    record State(int displayId) { }
+                    State mState = new State(5);
+                    Throwable failure;
+                    void protect(State state) throws ReflectiveOperationException {
+                        if (failure instanceof ReflectiveOperationException error) throw error;
+                        if (failure instanceof RuntimeException error) throw error;
+                    }
+                """ + RuntimeSourceFixture.methods("ShellFullscreenLaunchGuard", "onActivityStarting")
+                + """
+                }
+                public static void verify() {
+                    Guard guard = new Guard();
+                    ShellActivityStartController controller = new ShellActivityStartController();
+                    controller.mListeners = new ShellActivityStartController.Listener[] {guard};
+                    Intent intent = new Intent();
+                    LaunchActivityIdentity identity = new LaunchActivityIdentity("app");
+                    check(controller.allowActivityStart(intent, "app"), "healthy launch rejected");
+                    for (Throwable error : List.of(new IllegalStateException("separator missing"),
+                            new ReflectiveOperationException("snapshot unavailable"))) {
+                        guard.failure = error;
+                        check(controller.allowActivityStart(intent, "app"), "native phone launch blocked");
+                        try (var phone = ShellActivityLaunchScope.begin(identity, 0)) {
+                            check(controller.allowActivityStart(intent, "app"), "explicit phone launch blocked");
+                        }
+                        try (var other = ShellActivityLaunchScope.begin(identity, 7)) {
+                            check(controller.allowActivityStart(intent, "app"), "another Desktop launch blocked");
+                        }
+                        try (var desktop = ShellActivityLaunchScope.begin(identity, 5)) {
+                            check(!controller.allowActivityStart(intent, "app"), "unsafe explicit launch accepted");
+                            check(controller.allowActivityStart(intent, "settings"), "unrelated diagnostics blocked");
+                        }
+                        check(controller.allowActivityStart(intent, "app"), "closed scope still rejects native launch");
+                        check(controller.errors.stream().allMatch(message -> message.contains("display=5")
+                                && message.contains("package=") && message.contains(error.getMessage())),
+                                "repair failure lost its context or root cause");
+                        check(controller.errors.stream().filter(message -> message.startsWith("activity-start rejected:")).count() == 1,
+                                "veto must be limited to the affected explicit destination");
+                        controller.errors.clear();
+                    }
+                }
+                """);
+    }
+
+    @Test
     public void restoresBothBoundariesWithoutChangingApplicationOrder() {
         assertEquals(List.of(3, -101, 11, 2, -100, 10, 1), repair(3, -101, 2, -100, 1, 10, 11));
     }
@@ -36,6 +101,86 @@ public final class ShellFullscreenLaunchGuardTest {
     @Test
     public void alreadyAdjacentHasNoTransaction() {
         assertTrue(repair(1, -100, 10, 2, -101, 11, 3).isEmpty());
+    }
+
+    @Test
+    public void repairRequiresALivePlaneAndMissingDefaultWorkspaceSeparator() {
+        assertTrue(ShellFullscreenTaskPlanes.needsSeparator(roots(3, -100, 2), 100, 10));
+        assertTrue(!ShellFullscreenTaskPlanes.needsSeparator(roots(3, -100, 10, 2), 100, 10));
+        assertTrue(!ShellFullscreenTaskPlanes.needsSeparator(roots(3, 2), 100, 10));
+    }
+
+    @Test public void preflightRepairsOnlyItsOwnLiveBoundary() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class FrameworkTaskSnapshot {
+                    int taskId, displayAreaFeatureId;
+                    FrameworkTaskSnapshot(int id, int area) { taskId=id; displayAreaFeatureId=area; }
+                }
+                static class FrameworkTaskSnapshotSource {
+                    static List<FrameworkTaskSnapshot> roots;
+                    static List<FrameworkTaskSnapshot> readRoots(Object service, int display) { return roots; }
+                }
+                static class TaskDisplayAreaHandle {
+                    enum Parent { DEFAULT_TASK_CONTAINER; int featureId() { return 1; } }
+                    int featureId() { return 100; } Object token() { return this; }
+                }
+                static class FrameworkRootTaskApi { static class Root {
+                    int taskId; Object token = new Object(); boolean local, present;
+                    boolean isOwnedEmptyRootOn(Object service, int display) { return local; }
+                    boolean isPresent(Object service) { return present; }
+                } }
+                static class ShellFullscreenLaunchGuard {
+                    record Boundary(int area, Object plane, int id, Object token) {}
+                    Boundary boundary;
+                    int protectedCount;
+                    void add(Object service, int display, Boundary b) { boundary=b; }
+                    void protect() { protectedCount++; }
+                }
+                static class FrameworkWindowingApi {
+                    Object newTransaction() { return this; } Class<?> transactionClass() { return getClass(); }
+                    void reparent(Object tx, Object token, Object parent, boolean top) {
+                        check(token == old.token && parent == null && !top, "moved another root or display");
+                    }
+                }
+                static class FrameworkRuntime {
+                    static FrameworkRuntime current() { return new FrameworkRuntime(); }
+                    FrameworkWindowingApi windowing() { return new FrameworkWindowingApi(); }
+                }
+                static class ShellWindowTransitionExecutor {
+                    static void applyAtomic(Object service, Class<?> type, Object tx) { moves++; }
+                }
+                static int moves;
+                static FrameworkRootTaskApi.Root old = new FrameworkRootTaskApi.Root();
+                int mDisplayId=6, created;
+                final ShellFullscreenLaunchGuard mLaunchGuard=new ShellFullscreenLaunchGuard();
+                final Map<TaskDisplayAreaHandle,FrameworkRootTaskApi.Root> mPlaneSeparators=new HashMap<>();
+                boolean anchorPresent=true;
+                void requirePlaneAnchor(Object s,int d,TaskDisplayAreaHandle p) {
+                    if (!anchorPresent) throw new IllegalStateException("missing anchor");
+                }
+                FrameworkRootTaskApi.Root createSeparator(Object s,int d) {
+                    created++; var r=new FrameworkRootTaskApi.Root(); r.taskId=99; return r;
+                }
+                """ + RuntimeSourceFixture.methods("ShellFullscreenTaskPlanes", "prepareLaunch", "needsSeparator") + """
+                public static void verify() throws Exception {
+                    Fixture f=new Fixture(); var p=new TaskDisplayAreaHandle();
+                    old.taskId=7; f.mPlaneSeparators.put(p,old);
+                    FrameworkTaskSnapshotSource.roots=List.of(new FrameworkTaskSnapshot(2,100));
+                    old.present=true;
+                    try { f.prepareLaunch(f,6); throw new AssertionError("migrated root replaced"); }
+                    catch (IllegalStateException expected) { }
+                    old.local=true;
+                    f.prepareLaunch(f,6);
+                    check(moves==1 && f.created==0 && f.mLaunchGuard.protectedCount==1, "lost retained root");
+                    old.local=false; old.present=false; f.anchorPresent=false;
+                    try { f.prepareLaunch(f,6); throw new AssertionError("recreated a departed plane"); }
+                    catch (IllegalStateException expected) { }
+                    f.anchorPresent=true; f.prepareLaunch(f,6);
+                    check(f.created==1 && f.mLaunchGuard.boundary.id()==99
+                            && f.mPlaneSeparators.get(p).taskId==99 && f.mLaunchGuard.protectedCount==2,
+                            "replacement did not reach both launch guard and cleanup owner");
+                }
+                """);
     }
 
     @Test

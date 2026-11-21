@@ -24,6 +24,7 @@ final class SettingsView {
         void setKeepDesktopAwake(boolean enabled);
         void setKeepScreenOn(boolean enabled);
         void setPhoneFullscreenByDefault(boolean enabled);
+        void setRequestHomeRole(boolean enabled);
 
         void setDisableAdaptiveBrightness(boolean enabled);
 
@@ -32,10 +33,12 @@ final class SettingsView {
 
         void setCompatibilityOption(DesktopCompatibilityPolicy.Option option, boolean enabled);
         void setProjectionDesktopOption(boolean enabled);
+        void setWindowGeometry(boolean enabled);
 
         void resetCompatibilityDefaults();
 
         void setSystemDesktopMode(boolean enabled);
+        void setChildProcessRestrictionsDisabled(boolean disabled);
 
         void setOpenFilesWithSingleClick(boolean enabled);
 
@@ -66,6 +69,7 @@ final class SettingsView {
         void setDesktopEnabled(boolean enabled);
 
         void configureConsoleFontSize();
+        void setConsoleVolumeBlackScreen(boolean enabled);
         void configureGraphicsRenderer();
 
         void openDeviceSetup();
@@ -86,6 +90,7 @@ final class SettingsView {
     private Switch mKeepDesktopAwake;
     private Switch mKeepScreenOn;
     private Switch mPhoneFullscreenByDefault;
+    private Switch mRequestHomeRole;
     private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
     private Switch mKeyboardOnAppDisplay;
@@ -93,7 +98,10 @@ final class SettingsView {
             new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
     private Switch mOpenFilesWithSingleClick;
     private Switch mSystemDesktopMode;
+    private Switch mChildProcessRestrictions;
+    private TextView mChildProcessStatus;
     private Switch mProjectionDesktopOption;
+    private Switch mWindowGeometry;
     private final PlatformProjectionDriver.DesktopOption mProjectionOption =
             PlatformDrivers.current().projection().desktopOption();
     private TextView mSystemDesktopModeStatus;
@@ -109,6 +117,7 @@ final class SettingsView {
     private final java.util.EnumMap<IntegrationPackage, TextView> mIntegrationPackages =
             new java.util.EnumMap<>(IntegrationPackage.class);
     private TextView mConsoleFontSize;
+    private Switch mConsoleVolumeBlackScreen;
     private TextView mGraphicsRenderer;
     private TextView mShellBackend;
     private TextView mMaximumAccess;
@@ -138,6 +147,10 @@ final class SettingsView {
         addSection(content, R.string.settings_section_desktop);
         mDesktopSettingsStatus = mUi.sectionTitle(R.string.capability_access_required);
         content.addView(mDesktopSettingsStatus);
+        mRequestHomeRole = addSwitch(content, R.string.settings_request_home_role);
+        mRequestHomeRole.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setRequestHomeRole(checked);
+        });
         mTaskbarAutoHide = addSwitch(
                 content, R.string.settings_taskbar_auto_hide);
         mTaskbarAutoHide.setOnCheckedChangeListener((button, checked) -> {
@@ -169,6 +182,10 @@ final class SettingsView {
         mConsoleFontSize.setTextSize(12);
         addAction(content, R.drawable.ic_font_size, R.string.settings_console_font_size,
                 mActions::configureConsoleFontSize, mConsoleFontSize);
+        mConsoleVolumeBlackScreen = addSwitch(content, R.string.settings_console_volume_black_screen);
+        mConsoleVolumeBlackScreen.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setConsoleVolumeBlackScreen(checked);
+        });
 
         addSection(content, R.string.graphics_title);
         mGraphicsRenderer = new TextView(mActivity);
@@ -229,6 +246,13 @@ final class SettingsView {
             });
         }
 
+        if (PlatformDrivers.current().windowing().hasScaledWindows()) {
+            mWindowGeometry = addSwitch(content, R.string.settings_window_geometry);
+            mWindowGeometry.setChecked(WindowGeometrySettings.enabled(mActivity));
+            mWindowGeometry.setOnCheckedChangeListener((button, checked) -> {
+                if (!mRendering) mActions.setWindowGeometry(checked);
+            });
+        }
         if (mProjectionOption != null) {
             mProjectionDesktopOption = addSwitch(content, mProjectionOption.titleResource());
             mProjectionDesktopOption.setOnCheckedChangeListener((button, checked) -> {
@@ -243,6 +267,12 @@ final class SettingsView {
         }
 
         addSection(content, R.string.settings_section_android);
+        mChildProcessRestrictions = addSwitch(content, R.string.settings_child_process_restrictions);
+        mChildProcessRestrictions.setEnabled(false);
+        mChildProcessRestrictions.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setChildProcessRestrictionsDisabled(checked);
+        });
+        mChildProcessStatus = addSystemSettingStatus(content);
         mSystemDesktopMode = addSwitch(content, R.string.settings_system_desktop_mode);
         mSystemDesktopMode.setEnabled(false);
         mSystemDesktopMode.setOnCheckedChangeListener((button, checked) -> {
@@ -250,13 +280,7 @@ final class SettingsView {
                 mActions.setSystemDesktopMode(checked);
             }
         });
-        mSystemDesktopModeStatus = new TextView(mActivity);
-        UiAppearance.text(mSystemDesktopModeStatus, UiColor.MUTED);
-        mSystemDesktopModeStatus.setTextSize(12);
-        mSystemDesktopModeStatus.setPadding(dp(8), dp(7), dp(8), dp(7));
-        content.addView(mSystemDesktopModeStatus, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        mSystemDesktopModeStatus = addSystemSettingStatus(content);
 
         addSection(content, R.string.settings_section_automation);
         mRunCommandEnabled = addSwitch(content, R.string.run_command_title);
@@ -394,6 +418,7 @@ final class SettingsView {
                 : mActivity.getString(R.string.settings_integration_restart_pending, configuredBackend.label));
         mConsoleFontSize.setText(mActivity.getString(R.string.console_font_size_value,
                 ConsolePreferences.fontSizeSp(mActivity)));
+        mConsoleVolumeBlackScreen.setChecked(ConsolePreferences.volumeBlackScreen(mActivity));
         mGraphicsRenderer.setText(GraphicalPreferences.rendererLabel(GraphicalPreferences.renderer(mActivity)));
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
             final String saved = integration.configured(mActivity);
@@ -408,11 +433,18 @@ final class SettingsView {
                 ? R.string.limit_desktop_disabled : R.string.capability_access_required);
         for (final Switch control : new Switch[] {mTaskbarAutoHide,
                 mOpenTouchpadAutomatically, mKeepDesktopAwake, mKeepScreenOn,
-                mPhoneFullscreenByDefault, mDisableAdaptiveBrightness}) {
+                mPhoneFullscreenByDefault, mRequestHomeRole, mDisableAdaptiveBrightness}) {
             control.setEnabled(mDesktopSettingsAvailable);
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
         mKeyboardOnAppDisplay.setEnabled(settings != null);
+        if (mWindowGeometry != null) {
+            boolean configured = WindowGeometrySettings.enabled(mActivity);
+            mWindowGeometry.setChecked(configured);
+            String label = mActivity.getString(R.string.settings_window_geometry);
+            mWindowGeometry.setText(configured == FrameworkWindowGeometry.enabled() ? label
+                    : mActivity.getString(R.string.settings_integration_restart_pending, label));
+        }
         if (mProjectionDesktopOption != null) {
             mProjectionDesktopOption.setChecked(mProjectionOption.isEnabled());
             mProjectionDesktopOption.setEnabled(mDesktopSettingsAvailable);
@@ -430,6 +462,7 @@ final class SettingsView {
             mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
             mKeepScreenOn.setChecked(settings.keepScreenOn);
             mPhoneFullscreenByDefault.setChecked(settings.phoneFullscreenByDefault);
+            mRequestHomeRole.setChecked(settings.requestHomeRole);
             mDisableAdaptiveBrightness.setChecked(settings.disableAdaptiveBrightness);
         }
         mMcpEnabled.setChecked(mcp.enabled);
@@ -470,6 +503,36 @@ final class SettingsView {
         }
         mSystemDesktopModeStatus.setText(statusResId);
         mRendering = false;
+    }
+
+    void revealChildProcessSetting() {
+        mChildProcessRestrictions.post(() -> {
+            var bounds = new android.graphics.Rect();
+            mChildProcessRestrictions.getDrawingRect(bounds);
+            mChildProcessRestrictions.requestRectangleOnScreen(bounds, true);
+        });
+    }
+
+    void renderChildProcessSetting(final Boolean disabled, final boolean editable, final int statusResId) {
+        mRendering = true;
+        mChildProcessRestrictions.setChecked(Boolean.TRUE.equals(disabled));
+        mChildProcessRestrictions.setEnabled(disabled != null && editable);
+        mChildProcessRestrictions.setAlpha(disabled != null && editable ? 1f : 0.5f);
+        if (statusResId == R.string.child_process_manual) {
+            String unknown = disabled == null ? mActivity.getString(R.string.settings_child_process_unavailable) + "\n" : "";
+            mChildProcessStatus.setText(unknown + IntegrationStatusDialogs.manualProcessLimitSetting(mActivity));
+        } else mChildProcessStatus.setText(statusResId);
+        mRendering = false;
+    }
+
+    private TextView addSystemSettingStatus(final LinearLayout content) {
+        final TextView status = new TextView(mActivity);
+        UiAppearance.text(status, UiColor.MUTED);
+        status.setTextSize(12);
+        status.setPadding(dp(8), dp(7), dp(8), dp(7));
+        content.addView(status, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return status;
     }
 
     private View createHeader() {

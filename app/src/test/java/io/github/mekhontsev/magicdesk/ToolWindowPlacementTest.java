@@ -8,24 +8,39 @@ public final class ToolWindowPlacementTest {
                 .replace("android.app.Activity", "Activity");
         RuntimeSourceFixture.verify("""
             record Intent() { }
-            record DesktopLaunchPresentation() { }
+            enum DesktopLaunchMode { WINDOWED, FULLSCREEN }
+            static class DesktopLaunchPresentation { DesktopLaunchMode mode = DesktopLaunchMode.FULLSCREEN; }
             static class Activity {
+                boolean isInMultiWindowMode() { return false; }
                 Display getDisplay() { return new Display(); } int getTaskId() { return 12; }
                 boolean isDestroyed() { return false; } boolean isFinishing() { return false; }
                 void runOnUiThread(Runnable work) { work.run(); }
             }
-            static class Display { int getDisplayId() { return 7; } }
+            static class Display { static int id = 7; int getDisplayId() { return id; } }
             static class Target { boolean desktop=true; }
-            record WindowPlacement(Target target,String uniqueId) { }
-            static final Target target=new Target();
-            static WindowPlacement windowPlacement(int display,int task) throws java.io.IOException {
-                check(display==7 && task==12,"source identity"); return new WindowPlacement(target,"stable");
+            static class ToolLaunchTarget {
+                static Target resolve(String placement, int display, Set<Integer> desktops) {
+                    check(placement.equals("phone") && display == 0, "phone destination");
+                    Target result = new Target(); result.desktop = false; return result;
+                }
             }
-            static class TaskCommandQueue { static void execute(Runnable work) { work.run(); } }
+            static class DesktopRuntimeBridge { static boolean hasWorkspace(int display) { return display == 7; } }
+            record WindowPlacement(Target target,String uniqueId, DesktopLaunchPresentation presentation) { }
+            static final Target target=new Target();
+            static final DesktopLaunchPresentation sourcePresentation = new DesktopLaunchPresentation();
+            static WindowPlacement windowPlacement(int display,int task) throws java.io.IOException {
+                check(display==7 && task==12,"source identity"); return new WindowPlacement(target,"stable",sourcePresentation);
+            }
+            static class TaskCommandQueue {
+                static int calls; static boolean blocked;
+                static void execute(Runnable work) { calls++; if (!blocked) work.run(); }
+            }
             static class BuiltInWindowLauncher { interface Callback { void onComplete(Throwable error); } }
-            static DesktopLaunchPresentation actual;
+            static DesktopLaunchPresentation actual; static int opens;
             static void open(Activity source,Intent intent,Target target,String identity,
-                    DesktopLaunchPresentation bounds,BuiltInWindowLauncher.Callback callback) { actual=bounds; callback.onComplete(null); }
+                    DesktopLaunchPresentation bounds,BuiltInWindowLauncher.Callback callback) {
+                opens++; actual=bounds; callback.onComplete(null);
+            }
             public static void verify() {
                 var bounds=new DesktopLaunchPresentation();
                 var source=new Activity(); var intent=new Intent();
@@ -35,6 +50,16 @@ public final class ToolWindowPlacementTest {
                 target.desktop=false;
                 openSibling(source,intent,bounds,done);
                 check(actual==null,"independent source must retain ordinary Android placement");
+                sourcePresentation.mode = DesktopLaunchMode.WINDOWED;
+                openSibling(source,intent,bounds,done);
+                check(actual==bounds,"independent freeform child lost explicit bounds");
+                openSibling(source,intent,null,done);
+                check(actual==sourcePresentation,"independent freeform child lost source presentation");
+                Display.id = 0; TaskCommandQueue.blocked = true;
+                int before = TaskCommandQueue.calls;
+                openSibling(source,intent,null,done);
+                check(opens==5 && actual==null && TaskCommandQueue.calls==before,
+                        "phone diagnostics depends on an external Desktop queue or task snapshot");
             }
             """ + method);
     }
@@ -146,7 +171,7 @@ public final class ToolWindowPlacementTest {
                     return bounds == null || area == null ? null : new RelativeWindowBounds(bounds);
                 }
             }
-            static class ToolLaunchTarget { int displayId = 7; }
+            static class ToolLaunchTarget { int displayId = 7; boolean desktop = true; }
             record WindowPlacement(ToolLaunchTarget target, DesktopLaunchPresentation presentation) { }
             record Display(int id) { int getDisplayId() { return id; } }
             static class Activity {
@@ -156,6 +181,7 @@ public final class ToolWindowPlacementTest {
                 Display getDisplay() { return display; }
                 Activity getWindowManager() { return this; }
                 Activity getCurrentWindowMetrics() { reads++; return this; }
+                Activity getMaximumWindowMetrics() { return this; }
                 Integer getBounds() { return bounds; }
             }
             static class DesktopRuntimeBridge {
@@ -179,6 +205,9 @@ public final class ToolWindowPlacementTest {
                 DesktopRuntimeBridge.area = null;
                 try { replacementPresentation(activity, placement); throw new AssertionError("missing work area accepted"); }
                 catch (IllegalStateException expected) { }
+                placement.target.desktop = false;
+                check(replacementPresentation(activity, placement).bounds.value == 570,
+                        "independent window replacement required Desktop work area");
                 activity.display = new Display(9);
                 try { replacementPresentation(activity, placement); throw new AssertionError("cross-display stale placement accepted"); }
                 catch (IllegalStateException expected) { }
@@ -209,6 +238,10 @@ public final class ToolWindowPlacementTest {
                 static boolean hasWorkspace(int id) { return active; }
                 static Set<Integer> workspaceDisplayIds() { return active ? Set.of(7) : Set.of(); }
             }
+            static class OrdinaryActivityLaunch {
+                static boolean available;
+                static boolean canLaunchWindowed() { return available; }
+            }
             static class TaskRepository {
                 static int reads;
                 static final Task task = new Task();
@@ -230,6 +263,12 @@ public final class ToolWindowPlacementTest {
                 check(TaskRepository.reads == 0 && ordinary.target.placement.equals("display"), "independent tool queried Desktop");
                 check(ordinary.presentation.mode == DesktopLaunchMode.FULLSCREEN && ordinary.presentation.bounds == null,
                         "independent replacement must remain ordinary");
+                OrdinaryActivityLaunch.available = true;
+                ApplicationTaskPlacement.owner = "independent";
+                var floating = windowPlacement(7, 11);
+                check(floating.target.placement.equals("display") && floating.presentation.mode == DesktopLaunchMode.WINDOWED
+                        && floating.presentation.bounds.value == 45, "independent freeform replaced by fullscreen");
+                ApplicationTaskPlacement.owner = "desktop";
                 DesktopRuntimeBridge.active = true;
                 var managed = windowPlacement(7, 11);
                 check(managed.target.placement.equals("desktop") && managed.uniqueId.equals("stable"), "destination ownership");

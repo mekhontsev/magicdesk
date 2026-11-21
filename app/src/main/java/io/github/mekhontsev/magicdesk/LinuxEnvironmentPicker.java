@@ -26,12 +26,13 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private TermuxCommandResultReceiver.Registration request;
     private java.io.Closeable guestRequest;
     private List<GuestEnvironmentCatalog.Entry> guests = List.of();
+    private GuestEnvironmentCatalog.Entry preferred;
     private boolean graphical;
     private final TextView title;
     private int generation;
     private boolean active;
     private DesktopExecBackend backend = DesktopExecBackend.TERMUX;
-    private List<LinuxLaunchRecipe.Kind> kinds = List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT);
+    private List<LinuxLaunchRecipe.Kind> kinds = methods(backend, false);
 
     LinuxEnvironmentPicker(Context context) {
         super(context);
@@ -96,13 +97,33 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         if (value) load(); else cancel();
     }
 
+    void preselect(GuestEnvironmentCatalog.Entry entry) {
+        preferred=entry;
+        setBackend(entry.backend());
+        method.setSelection(kinds.indexOf(LinuxLaunchRecipe.Kind.MANAGED_GUEST));
+    }
+
     void setBackend(DesktopExecBackend value) {
         if (backend == value) return;
         backend = value;
-        kinds = value == DesktopExecBackend.SHELL
-                ? List.of(LinuxLaunchRecipe.Kind.MANAGED_GUEST, LinuxLaunchRecipe.Kind.SCRIPT, LinuxLaunchRecipe.Kind.GUEST)
-                : List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT);
-        updateMethods();
+        refreshMethods();
+    }
+
+    static List<LinuxLaunchRecipe.Kind> methods(DesktopExecBackend backend, boolean graphical) {
+        if (backend != DesktopExecBackend.TERMUX)
+            return List.of(LinuxLaunchRecipe.Kind.MANAGED_GUEST, LinuxLaunchRecipe.Kind.SCRIPT, LinuxLaunchRecipe.Kind.GUEST);
+        return graphical ? List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT)
+                : List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.MANAGED_GUEST, LinuxLaunchRecipe.Kind.SCRIPT);
+    }
+
+    private void refreshMethods() {
+        var available = methods(backend, graphical);
+        if (!kinds.equals(available)) {
+            var previous = kinds.get(Math.max(0, method.getSelectedItemPosition()));
+            kinds = available;
+            updateMethods();
+            method.setSelection(Math.max(0, kinds.indexOf(previous)));
+        }
         if (active) load();
     }
 
@@ -114,12 +135,14 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     }
 
     void setGraphical(boolean graphical) {
+        if (this.graphical == graphical) return;
         this.graphical = graphical;
+        if (backend == DesktopExecBackend.TERMUX) refreshMethods();
         updateKeyboard();
     }
 
     private void updateKeyboard() {
-        keyboardFields.setVisibility(graphical && backend == DesktopExecBackend.SHELL
+        keyboardFields.setVisibility(graphical && backend != DesktopExecBackend.TERMUX
                 && kinds.get(Math.max(0, method.getSelectedItemPosition())) != LinuxLaunchRecipe.Kind.MANAGED_GUEST ? View.VISIBLE : View.GONE);
     }
 
@@ -128,7 +151,8 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         var kind = kinds.get(Math.max(0, method.getSelectedItemPosition()));
         boolean proot = kind == LinuxLaunchRecipe.Kind.PROOT;
         boolean managed = kind == LinuxLaunchRecipe.Kind.MANAGED_GUEST;
-        magicDesk.setVisibility(kind != LinuxLaunchRecipe.Kind.SCRIPT ? View.VISIBLE : View.GONE);
+        magicDesk.setVisibility(kind != LinuxLaunchRecipe.Kind.SCRIPT && !(managed && backend == DesktopExecBackend.TERMUX)
+                ? View.VISIBLE : View.GONE);
         prootFields.setVisibility(proot || managed ? View.VISIBLE : View.GONE);
         scriptFields.setVisibility(proot || managed ? View.GONE : View.VISIBLE);
         title.setText(managed ? R.string.guest_environments : R.string.command_app_proot_environment);
@@ -143,10 +167,21 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         status.setText(managed ? R.string.guest_loading : R.string.command_app_proot_loading);
         try {
             if (managed) {
-                guestRequest = GuestEnvironmentCatalog.load(getContext(), (entries, error) -> post(() -> {
+                guestRequest = GuestEnvironmentCatalog.load(getContext(), backend, (entries, error) -> post(() -> {
                     if (expected != generation) return;
                     guests = entries;
-                    UiChoiceAdapter.bind(choices, guests);
+                    var desired=preferred!=null && preferred.backend()==backend ? preferred : null;
+                    if (desired!=null && entries.stream().noneMatch(item -> item.id().equals(desired.id()) && item.store().equals(desired.store()))) {
+                        guests=List.of();
+                        status.setText(error!=null ? ShellAccess.usefulMessage(error) : getContext().getString(R.string.guest_select));
+                        return; // Never substitute the first installed distribution for a removed environment.
+                    }
+                    UiChoiceAdapter.bindAdapter(choices,new GuestEnvironmentLabel.Adapter(getContext(),guests,false));
+                    if (desired!=null) for (int i=0;i<guests.size();i++) {
+                        if (guests.get(i).id().equals(desired.id()) && guests.get(i).store().equals(desired.store())) {
+                            choices.setSelection(i); break;
+                        }
+                    }
                     status.setText(error == null ? getContext().getString(R.string.guest_empty) : ShellAccess.usefulMessage(error));
                     status.setVisibility(error != null || guests.isEmpty() ? View.VISIBLE : View.GONE);
                 }));
@@ -175,11 +210,13 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         if (kind == LinuxLaunchRecipe.Kind.MANAGED_GUEST) {
             Object selection = choices.getSelectedItem();
             if (!(selection instanceof GuestEnvironmentCatalog.Entry item)) throw new IllegalArgumentException(getContext().getString(R.string.guest_select));
-            return new LinuxLaunchRecipe.Environment(kind, item.store(), backend, "", magicDesk.isChecked());
+            return new LinuxLaunchRecipe.Environment(kind, item.store(), backend, "",
+                    backend != DesktopExecBackend.TERMUX && magicDesk.isChecked());
         }
         if (kind != LinuxLaunchRecipe.Kind.PROOT)
             return new LinuxLaunchRecipe.Environment(kind, script.getText().toString(),
-                    backend, keyboard.getText().toString(), kind == LinuxLaunchRecipe.Kind.GUEST && magicDesk.isChecked());
+                    backend, keyboardFields.getVisibility() == View.VISIBLE ? keyboard.getText().toString() : "",
+                    kind == LinuxLaunchRecipe.Kind.GUEST && magicDesk.isChecked());
         Object selected = choices.getSelectedItem();
         if (selected == null) throw new IllegalArgumentException(
                 getContext().getString(R.string.command_app_proot_select));

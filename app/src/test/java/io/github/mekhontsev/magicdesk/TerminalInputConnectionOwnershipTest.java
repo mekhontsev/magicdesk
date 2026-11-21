@@ -120,11 +120,11 @@ public final class TerminalInputConnectionOwnershipTest {
                     boolean isCursorKeysApplicationMode() { return false; }
                     boolean isKeypadApplicationMode() { return false; }
                 }
-                static class ConsoleTerminalSession {
+                static class ConsoleTerminalSession implements ConsoleTerminalInputConnection.Session {
                     StringBuilder output=new StringBuilder();
-                    void write(String s) { output.append(s); }
-                    void write(byte[] s) { for(byte b:s) output.append((char)b); }
-                    Emulator emulator() { return new Emulator(); }
+                    public void write(String s) { output.append(s); }
+                    public void write(byte[] s) { for(byte b:s) output.append((char)b); }
+                    public Emulator emulator() { return new Emulator(); }
                 }
                 static class ConsoleTerminalView extends View {
                     void resetAttachmentInput() {}
@@ -144,6 +144,7 @@ public final class TerminalInputConnectionOwnershipTest {
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView",
                         "attach", "onCheckIsTextEditor", "onCreateInputConnection") + "}"
                 + "static " + RuntimeSourceFixture.nestedClass("TerminalViewport", "TerminalViewport")
-                + "static " + RuntimeSourceFixture.nestedClass("ConsoleTerminalInputConnection", "ConsoleTerminalInputConnection");
+                + "static " + RuntimeSourceFixture.nestedClass("ConsoleTerminalInputConnection", "ConsoleTerminalInputConnection")
+                        .replace("com.termux.terminal.TerminalEmulator", "Emulator");
     }
 }

@@ -21,9 +21,18 @@ final class FrameworkRootTaskApi {
             token = HiddenTaskApi.getTaskToken(task);
         }
 
-        boolean close(final Object service) throws ReflectiveOperationException {
-            final Object task = find(service, -1, cookie);
-            if (task == null) { return true; }
+        boolean isPresent(final Object service) throws ReflectiveOperationException {
+            for (Object root : HiddenTaskApi.getRootTaskInfos(service, -1)) {
+                if (HiddenTaskApi.getTaskId(root) == taskId
+                        || HiddenTaskApi.hasTaskLaunchCookie(root, cookie)) return true;
+                for (int child : HiddenTaskApi.getRootTaskChildTaskIds(root)) {
+                    if (child == taskId) return true;
+                }
+            }
+            return false;
+        }
+
+        private void requireEmpty(final Object task) throws ReflectiveOperationException {
             if (HiddenTaskApi.getTaskId(task) != taskId
                     || !HiddenTaskApi.isEmptyTask(task)) {
                 throw new IllegalStateException("structural root has unexpected children: " + taskId);
@@ -34,6 +43,19 @@ final class FrameworkRootTaskApi {
             if (!(children instanceof java.util.List<?> list) || !list.isEmpty()) {
                 throw new IllegalStateException("structural root is not empty: " + taskId);
             }
+        }
+
+        boolean isOwnedEmptyRootOn(final Object service, int displayId) throws ReflectiveOperationException {
+            final Object task = find(service, displayId, cookie);
+            if (task == null) return false;
+            requireEmpty(task);
+            return true;
+        }
+
+        boolean close(final Object service) throws ReflectiveOperationException {
+            final Object task = find(service, -1, cookie);
+            if (task == null) return true;
+            requireEmpty(task);
             return (Boolean) organizer.getClass().getMethod("deleteRootTask",
                     FrameworkRuntime.current().windowing().tokenClass()).invoke(organizer, token);
         }

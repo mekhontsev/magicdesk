@@ -1,8 +1,12 @@
 import importlib.util
+import io
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import textwrap
 import unittest
 
 
@@ -198,8 +202,87 @@ class VersionChannelTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("detached HEAD", result.stderr)
 
+    def test_next_cycle_accepts_major_minor_version(self):
+        self.git("switch", "-qc", "develop")
+        result = self.run_next_version("2.3", "220")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("develop: 2.3 (220)", versions.verify(self.repo, "develop"))
+        self.assertEqual("# MagicDesk 2.3\n",
+                         (self.repo / "docs/releases/2.3.md").read_text(encoding="utf-8"))
+
+    def test_next_cycle_preserves_prepared_notes(self):
+        self.git("switch", "-qc", "develop")
+        notes = self.repo / "docs/releases/2.3.md"
+        notes.parent.mkdir(parents=True)
+        contents = "# MagicDesk 2.3\n\n- Prepared release notes.\n"
+        notes.write_text(contents, encoding="utf-8")
+        result = self.run_next_version("2.3", "220")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(contents, notes.read_text(encoding="utf-8"))
+
 
 class WorkflowBoundaryTest(unittest.TestCase):
+    def test_shared_linux_modules_have_standard_verification_gates(self):
+        development = (ROOT / "build.gradle").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        for module in ("terminal-runtime", "connection-runtime", "guest-template"):
+            with self.subTest(module=module):
+                self.assertIn(f"':{module}:testDebugUnitTest'", development)
+                self.assertIn(f"':{module}:lintDebug'", development)
+                self.assertEqual(workflow.count(f":{module}:lintRelease"), 2)
+
+    def test_linux_build_owns_verification_and_publication(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        build, publish = workflow.split("  publish-development:\n", 1)
+        self.assertIn("    runs-on: ubuntu-24.04", build)
+        self.assertIn("    needs:\n      - build\n    runs-on:", publish)
+        self.assertNotIn("windows-smoke", workflow)
+        self.assertNotIn("shell: pwsh", workflow)
+        self.assertIn('build="$RUNNER_TEMP/mksh build with spaces"', build)
+        self.assertIn('cmake --build "$build" --parallel 2', build)
+        self.assertIn("run: ./gradlew --no-daemon verifyDevelopment", build)
+        self.assertIn(":wayland-runtime:exportRuntime :audio-runtime:exportRuntime", build)
+        self.assertNotIn("gh run download", build)
+
+    def test_development_notes_come_from_verified_source_artifact(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        step = workflow.split("      - name: Prepare stable development assets\n", 1)[1].split("      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        for base_version, present in (("2.3", True), ("2.3.0.1", True), ("2.3", False)):
+            with self.subTest(base_version=base_version, present=present), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                download = root / "download"
+                download.mkdir()
+                version = base_version + "-dev.17.abcdef0"
+                (download / f"MagicDesk-{version}.apk").write_bytes(b"verified APK")
+                contents = f"# MagicDesk {base_version}\n\n- Implemented changes.\n"
+                with tarfile.open(download / "MagicDesk-source.tar.gz", "w:gz") as archive:
+                    if present:
+                        body = contents.encode("utf-8")
+                        member = tarfile.TarInfo(f"MagicDesk/docs/releases/{base_version}.md")
+                        member.size = len(body)
+                        archive.addfile(member, io.BytesIO(body))
+                environment = os.environ | {
+                    "GITHUB_SHA": "abcdef0123456789",
+                    "GITHUB_RUN_ID": "123",
+                    "GITHUB_RUN_NUMBER": "17",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "fixture/magicdesk",
+                    "GITHUB_OUTPUT": str(root / "output"),
+                }
+                result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                        cwd=root, env=environment, text=True, capture_output=True)
+                if not present:
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertFalse((root / "output").exists())
+                    continue
+                self.assertEqual(0, result.returncode, result.stderr)
+                notes = (root / "development-notes.md").read_text(encoding="utf-8")
+                self.assertIn("preliminary", notes)
+                self.assertIn(version, notes)
+                self.assertTrue(notes.endswith(contents))
+                self.assertEqual(b"verified APK", (root / "dist/MagicDesk-development.apk").read_bytes())
+
     def test_development_publication_uses_only_develop(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         publish = workflow.split("  publish-development:\n", 1)[1]

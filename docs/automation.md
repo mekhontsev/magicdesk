@@ -18,24 +18,15 @@ to launch shell, Termux and Shroot commands through the same execution, terminal
 and graphics services. It has its own Android permission and local opt-in;
 it does not consume MCP grants or expose the automation tool catalog.
 
-- [Local MCP Server](#local-mcp-server)
-- [Permissions](#permissions)
-- [Built-In CLI](#built-in-cli)
-- [Script Dialogs And Notifications](#script-dialogs-and-notifications)
-- [Result Contract](#result-contract)
-- [State and Observation](#state-and-observation)
-- [Display Preparation](#display-preparation)
-- [Control And Tool Commands](#control-and-tool-commands)
-- [Semantic UI Automation](#semantic-ui-automation)
-- [Linux Scope](#linux-scope)
-- [Typed D-Bus](#typed-d-bus)
-- [Appearance](#appearance)
-- [File Transfers and Updates](#file-transfers-and-updates)
-- [Android Integration](#android-integration)
-- [Events and Waits](#events-and-waits)
-- [Security Boundary](#security-boundary)
-- [Android App Functions](#android-app-functions)
-- [Self-Tests](#self-tests)
+| Task | Reference |
+| --- | --- |
+| Connect and authorize a client | [MCP server](#local-mcp-server), [permissions](#permissions), [security boundary](#security-boundary) |
+| Run commands from a script or Android agent | [Built-in CLI](#built-in-cli), [dialogs and notifications](#script-dialogs-and-notifications), [App Functions](#android-app-functions) |
+| Inspect state and wait for an operation | [Result contract](#result-contract), [observation](#state-and-observation), [events and waits](#events-and-waits) |
+| Choose a display or control a tool | [Display preparation](#display-preparation), [tool commands](#control-and-tool-commands), [appearance](#appearance) |
+| Inspect and drive applications | [Semantic UI automation](#semantic-ui-automation), [Linux scope](#linux-scope), [typed D-Bus](#typed-d-bus) |
+| Transfer files or update the app | [File transfers and updates](#file-transfers-and-updates), [Android integration](#android-integration) |
+| Run a managed Desktop self-test | [Self-tests](#self-tests) |
 
 ## Appearance
 
@@ -175,6 +166,17 @@ for Android's installation result independently of the old application process.
 It writes a bounded durable receipt, invokes the installer-only process entry
 after success, and exits. That entry is a `Theme.NoDisplay` Activity with no
 window or Recents entry; it starts enabled automation and immediately finishes.
+If phone keep-awake or black-screen mode was active at handoff, the worker
+bridges replacement with a bounded wake lock. The new process retains the
+original phone lease ID and expiration, and restores black mode through Control
+Panel. Its previous-app return action is not persisted: volume-key exit after
+replacement stays in the panel. The bridge is released after acknowledgement of the new lease and/or
+drawn black window, or after a bounded failure deadline. It does not enable
+previously inactive modes, wake/unlock a manually locked phone, or restore
+virtual displays. This is a one-update handoff, not a startup preference.
+During replacement, Android may briefly reveal the underlying application,
+which can restore its keyboard. The bridge preserves wakefulness, not continuous
+ownership of the screen; restored black mode hides the keyboard again.
 This does not rely on delivery of the package-replaced
 broadcast and adds no continuously running updater. The normal privileged command
 service retains its original lifetime. Neither the worker nor the new runtime
@@ -275,7 +277,7 @@ Run the script only after the download succeeds. The maintained
 tags also retain their exact scripts. The downloader itself never executes
 downloaded content. In shell consoles, `~` is
 `/data/local/tmp/magicdesk`; root uses its separate
-`/data/local/tmp/magicdesk-root/home`. Termux keeps its own home. This local
+`/data/local/tmp/magicdesk/root`. Termux keeps its own home. This local
 subcommand belongs to the Android `app_process` entry point, not the delegated
 Linux command client or MCP catalog.
 
@@ -481,8 +483,10 @@ The MCP catalog exposes unqualified tool names such as `get_state`; clients
 add the configured server name, so documentation uses `magicdesk.get_state`.
 
 `get_state.services` reports independent prerequisites, including `terminal`
-(shell or authorized Termux), `x11` (an available Shell or Termux executor) and `desktop`
-(API 35+, shell/root access, configured windowing and no pending Android restart).
+and `graphics` (available through User without a privileged service), and
+`desktop` (API 35+, shell/root access, configured windowing and no pending
+Android restart). Each launch additionally checks its selected executor;
+service availability never authorizes a silent switch to User.
 Desktop readiness uses the shared read-only setup observation, not process-local
 startup authorization. Its missing reasons distinguish `desktop_setup_checking`,
 `desktop_setup_unknown`, `desktop_setup` and `device_restart`. These are not
@@ -491,7 +495,7 @@ client grants or successful windowing probes; the normal start path still checks
 `basic` (valid WMShell help without that provider), or `unknown` (not observed).
 This is the same observation used for the panel's Limited/Unverified status,
 not an additional service prerequisite or a guarantee of native caption behavior.
-X11 startup additionally validates the selected executor and its keyboard data.
+X11 and Wayland startup additionally validate the selected executor and keyboard data.
 Local interactive launch without shell does not imply that background
 MCP placement or global task observation is available.
 
@@ -557,8 +561,8 @@ Requested state is not proof of a completed Android transition.
 DPI and file environment, and each X window's instance/class and host
 management. Tokens, Xauthority cookies and startup commands are omitted.
 `executor`, `executorUid` and `serverUid` distinguish command identity from
-the server: Shell/root sessions run their display server as the ordinary app UID.
-Launch a Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
+the server: User and Shell sessions run their display server as the ordinary app UID.
+Launch a User or Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
 entry script as `terminal.open`'s shell command for a terminal-only chroot.
 Neither route requires Desktop or a separate container-management MCP API.
 `runtime.graphicalSessions` counts
@@ -704,7 +708,8 @@ workspace uses a separate Viewer presentation edge to another output; that edge
 appears in `presentations`, not as a mutation of the workspace target.
 Output kinds are `built_in`, `wired`, `wireless`, and `simulated`; the `phone`
 launch/self-test target still means the system default display.
-`get_state.homeLease` reports shared phase, closing display and membership;
+`get_state.homeLease` reports shared phase, closing display, membership and
+`homeRole` (false for an ordinary host without launcher-role ownership);
 it is not a fresh Android role-holder query. `get_state.inputControl` independently reports
 `requestedDisplayId`, `readyDisplayId`, `transitioning` and `error`, including
 manual control without Desktop or on a different display. `keyboardPlacementError`
@@ -809,7 +814,7 @@ Viewer launch and attachment errors remain authoritative.
   setting. `desktop_active` alone does not establish Viewer readiness; inspect
   `list_displays.presentations` and the output UI after this navigation request.
 - `close_desktop(displayId)` closes only that workspace and leaves its display
-  connected and reusable. HOME is returned when the last workspace closes.
+  connected and reusable. An acquired HOME role is returned when the last workspace closes.
   Omitting a Desktop destination is permitted only when exactly one workspace
   exists. Multiple workspaces require an explicit display ID; the server does
   not silently choose the input display.
@@ -886,9 +891,10 @@ Viewer launch and attachment errors remain authoritative.
   a failed selection retries acquisition; repeating a ready selection is a no-op.
 - `move_task(taskId, displayId, placement, mode, uniqueId)` reuses an existing
   current-profile app task. `placement=auto` follows Desktop availability;
-  `desktop` requires a workspace and `display` selects independent fullscreen.
-  `mode=auto|windowed|fullscreen` controls managed placement; ordinary placement
-  is fullscreen. Same-display requests can change ownership or mode, not just
+  `desktop` requires a workspace and `display` selects independent placement.
+  `mode=auto|windowed|fullscreen` controls presentation; independent freeform
+  requires Shell access and supporting firmware (not stock Nubia windowing).
+  Same-display requests can change ownership or mode, not just
   focus. Optional `uniqueId` checks the destination identity. The task and its
   source are revalidated; launch acceptance must be followed by task/UI
   observation. This action never claims input. Built-ins also retain `open_builtin`
@@ -977,7 +983,10 @@ Normal commands include:
 
 Use `tools/list` as the authoritative command and argument catalog.
 
-`guest.list` and `guest.inspect` read the shell-owned named environment catalog.
+`guest.list` and `guest.inspect` read the named environment catalog of the
+explicit `backend=app|shell` (default `shell`). `app` is the UI's **User**
+executor; `shell` is **Shell**, including when its actual UID is 0.
+The same selector applies to `guest.start`, `guest.launches` and `guest.stop`.
 `guest.start` takes literal `shroot` arguments and returns an operation
 ID; `guest.status` waits for output/exit revisions and returns a bounded output
 tail, while `guest.cancel` cancels that operation's command tree. Accepted is not
@@ -996,10 +1005,11 @@ Stale records are reclaimed only after their lifetime lock is released.
 service used by **Linux graphics**. Starting selects an explicit protocol and
 executor and returns a session ID before readiness; it does not open an Android
 host. Its optional `connection` selects `auto`, Wayland-only `inherited`, or
-Shell-only `routed` admission for independent guest connections. The latter
+User/Shell `routed` admission for independent guest connections. The latter
 requires explicit address routes supplied by the guest launch adapter; it is
 not a general cross-UID pathname socket. See [guest connections](shroot.md#graphical-connections).
-`keyboardDirectory` accepts a host path or `guest:/absolute/store`; the latter
+`keyboardDirectory` is optional: User/Shell default to built-in layouts and Termux
+uses its prefix. An explicit value accepts a host path or `guest:/absolute/store`; the latter
 uses bounded export of `/usr/share/X11/xkb` from the selected guest namespace.
 `graphics.list` supplies native window IDs; `graphics.open_window` uses the
 ordinary tool placement options. X11 accepts window ID zero for its
@@ -1014,12 +1024,45 @@ other windows. An application-owned session can end when its last window closes;
 a retained server remains available even if its startup client exits with an
 error. `graphics.detach_viewer` closes only the selected whole-desktop
 Android viewer; the server and clients remain. `graphics.stop` stops the session.
+`graphics.close_session` requests normal closure of the current top-level clients
+and stops the server once its window catalog is empty. Save/cancel dialogs remain
+usable; `cancel=true` withdraws the pending server closure. It is not a guest OS
+shutdown and does not promise to stop background jobs. Explicit `graphics.stop`
+disconnects clients without waiting for their confirmation.
 These operations do not require Desktop. Android focus, arrangement and closure
 continue to use `focus_task`, `arrange_task` and `close_task` with the host task ID.
 `set_task_state` explicitly sets fullscreen, work-area maximization or concealment
 on an existing managed task through the same catalog gateway as Linux panels.
 It returns acceptance; `wait_for_state` confirms actual state. No command starts
 Desktop implicitly, and CLI commands come from the same schema and executor.
+
+### Graphics Without An Android Screen
+
+`graphics.start` accepts `offscreen: {width: 1280, height: 720}`.
+For an existing session, use `graphics.set_offscreen` with its `sessionId`,
+`enabled: true`, `width: 1280` and `height: 720`. This detaches Android
+viewers without closing clients. Remove any Desktop shell integration first.
+No Android display, virtual display or Activity is created. X11 retains one
+desktop output (window ID zero); Wayland retains outputs for mapped top-level
+windows and their dialogs. A whole Wayland desktop still requires a nested
+compositor, just as in an Android viewer.
+
+Wait for `wait_for_state(condition="graphics_output_ready", sessionId=ID)`;
+`graphics.list` reports output dimensions, readiness, frame sequence and errors.
+Readiness confirms an available frame, not that a particular application has
+finished rendering. Observe its native window or accessible UI separately.
+The usual `capture_screenshot`, `sample_pixels`, `move_pointer`, `click_pointer`,
+`send_key`, `input.key_chord` and `input.gesture` accept `graphicsSessionId` and
+an optional native `windowId` instead of Android display/task selectors. Select
+`windowId` explicitly when several outputs exist. Coordinates are output pixels;
+keyboard and pointer events enter the existing native protocol adapters.
+Linux AT-SPI/D-Bus commands continue to use their separate `linux.list` identity.
+
+`graphics.open_window` transfers presentation back to a normal Android viewer,
+including on an explicitly created virtual display. The session and executor
+remain the same. Disabling offscreen mode releases its outputs without opening
+a viewer. **Linux graphics** exposes these same session and closure controls.
+Offscreen mode does not itself hold the phone awake.
 
 `magicdesk.set_app_presentation` accepts an `appIdentity` from `list_apps` and a scale from
 50 through 200 percent. The percentage is display-independent; MagicDesk
@@ -1111,7 +1154,9 @@ has its own current directory and environment, and is owned by the shared
 command runtime. At most eight such sessions may exist at once.
 Console IDs are opaque and cannot select another session after a process restart.
 `console.open` with `linuxSessionId` from `linux.list` enters that connected
-session's user, namespaces and display environment. Omit it for Android shell.
+session's user, namespaces and display environment. Otherwise select
+`backend=app|shell|termux` (default `shell`); the backend cannot be combined
+with `linuxSessionId`, which already owns its execution identity.
 There is no global current distribution or implicit fallback. `console.list`
 shows retained identities and availability. `console.cancel` cancels owned jobs
 but retains the console ID; its next command starts a fresh shell in the same
@@ -1139,8 +1184,9 @@ notification and bounded live-screen link spans. `terminal.read` accepts
 returns `available=false` rather than a fabricated empty result. See
 [terminal integration](terminal-integration.md) for coordinates and limits.
 
-`terminal.open` accepts an optional `backend` of `shell` or `termux`. The
-default is `shell`. A Termux terminal requires the installed Termux app, its
+`terminal.open` accepts an optional `backend` of `app`, `shell` or `termux`.
+The default is `shell`; `app` runs under MagicDesk's UID without Shizuku or root.
+A Termux terminal requires the installed Termux app, its
 external-command setting, and the `RUN_COMMAND` permission; after launch all
 other `terminal.*` operations are backend-independent.
 
@@ -1270,11 +1316,13 @@ Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 | `input.gesture` | Explicit-display touch tap, long press, swipe or drag through bounded point lists. |
 | `input.key_chord` | Press ordered Android key names, release them in reverse order, including on failure. |
 | `device.keep_awake` | Acquire or renew bounded display work. Phone mode needs no shell; owned virtual-display mode requires shell, not Desktop. |
+| `device.set_black_screen` | With `enabled=true`, bring Control Panel to the phone foreground and apply its black, minimum-brightness, touch-blocking keep-awake mode. Requires `control`, an awake unlocked phone and Android launch permission, not shell or Desktop. Success confirms window focus and applied policy. `enabled=false` only removes the mode, without foregrounding anything. A volume-button press and release exits and returns to the previously foreground app, unless entered from the panel or restored after an update. `get_state.runtime.blackScreenEnabled` reports current state. |
 | `device.release_awake` | Release the exact lease token. |
 
 `linux.list`, `ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text
 from other apps; password text and descriptions are redacted. The other commands
-require `input_tests`, except `ui.prepare`, `linux.inspect` and `linux.launch` as listed above. These grants are independent for local and network
+require `input_tests`, except `ui.prepare`, `linux.inspect`, `linux.launch` and
+`device.set_black_screen` as listed above. These grants are independent for local and network
 clients. UI strings and entered text are not logged or added to diagnostics.
 Content revoked during a wait is not returned to the client.
 
@@ -1470,6 +1518,10 @@ startup may need an explicit new launch, for example:
 independent `shell` grant. It runs in the guest session, not inside an existing
 application's sandbox. For containers supply their normal launcher, such as
 `["flatpak","run","org.chromium.Chromium","--force-renderer-accessibility"]`.
+[Linux capsules](linux-applications.md#optional-magicdesk-connection) can opt
+in from **Connect to MagicDesk**. Select the session with the capsule's Android
+package name in `linux.list`. No network or display grant is required.
+
 Normal sandbox accessibility proxies must allow the AT-SPI connection. No
 `--no-sandbox`, host-bus escape, patched browser or automatic flag insertion is
 used. Accepted launch means exec succeeded, not that its UI is ready. Use
@@ -1491,11 +1543,16 @@ connection and cancels dependent consoles without switching to Android shell.
 
 Device coverage: native Termux Qt and GTK4 over both X11 and Wayland, Debian GTK3 under UID-2000 Shroot,
 and Firefox in Debian Flatpak have been exercised on Android 16, including
-semantic actions and event-driven observation. The common console tests cover
+semantic actions and event-driven observation. Ubuntu 24.04 under Termux PRoot
+also passes the GTK3 semantic UI and console fixtures: X11 as guest root and
+Wayland as guest UID 1000. This covers Unicode editing, button actions, password
+redaction and guest context retention; AT-SPI text-change events also work with
+offscreen output and no Android viewer. It does not establish system-bus or
+sandbox compatibility for arbitrary PRoot applications. The common console tests cover
 captured UID/display, persistent state, cancellation and peer loss without host
 fallback. Termux's GTK3 package
 disables its ATK bridge; installing that package alone does not expose GTK3 UI.
-API 34 and PRoot device coverage remain separate from these results. Prepared
+API 34 device coverage remains separate from these results. Prepared
 root chroots retain the executor UID for abstract-socket admission; a login
 that changes the real UID needs an explicitly mapped delegated endpoint.
 
@@ -1562,6 +1619,10 @@ independent privileged worker, which writes a durable receipt before starting th
 new automation runtime. `app.update_status(updateId)` returns that exact operation's
 state; a lost response during replacement is not evidence of installation
 failure and must not cause a new update request.
+The receipt's `powerRestore` is `not_requested`, `pending`, `restored`, or
+`failed`, with `powerRestoreError` on failure. Installation success and power
+restoration are separate outcomes; wait for restoration to leave `pending`
+before continuing an unattended workflow.
 
 The host client uploads/downloads binary data directly, without filling the AI
 conversation with base64. Its `update` command closes desktop through production
@@ -1607,7 +1668,7 @@ before execution instead of falling back to the current profile.
 `source=desktop|termux|guest`, an optional `query` and a bounded `limit`. `desktop`
 reads the Desktop folder; `termux` refreshes the installed application catalog
 through the selected Termux endpoint's `RUN_COMMAND`. `guest` refreshes installed
-applications from named guest environments through the selected shell executor,
+applications from both the User library and the available Shell library,
 without executing Linux. All require the MCP
 `shell` grant, not a running Desktop. Unavailable Termux access is an error,
 not an empty catalog or a fallback to another identity.
@@ -1616,7 +1677,7 @@ Pass a returned `source` and `desktopPath` to `launch_desktop_entry`, with
 optional `files`, `placement`, `displayId`, `mode`, `instance` and `bounds`.
 Termux paths must match its current catalog; private files are never read through
 Android shell. Guest paths are synthetic catalog keys, not Android files; they must
-match the current catalog and capture the immutable environment identity.
+match the current catalog and capture the executor and immutable environment identity.
 Discovered guest recipes use their own Linux Exec arguments, without mapping
 optional Android `files` into the guest. Start caches guest entries and icons
 until explicit refresh. Start and automation share the recipe coordinator and destination
@@ -1645,10 +1706,12 @@ selects ordinary display 0; `display` requires a display id; `desktop` requires
 an active session. Ordinary placement can coexist with Desktop on the same
 display without joining it. This applies to application launches, Intents, URI/file/share
 and clipboard actions, published shortcuts and notification Activity actions.
-Ordinary launches use fullscreen Activity options and do not acquire HOME,
-provision Desktop, or initialize its organizer/input/session coordinators.
-They reject windowed mode, relative bounds and exact managed-task reuse before
-dispatch. Reusable explicit Activities are matched by application identity,
+Ordinary launches default to fullscreen. Explicit `mode=windowed` uses freeform
+Activity options with default or relative bounds, provided Shell is ready and
+the platform permits independent freeform. Stock Nubia windowing requires
+managed Desktop instead. No ordinary launch acquires HOME, provisions Desktop,
+or initializes its organizer/input/session coordinators. Exact managed-task
+reuse (`preferredTaskId`) still requires Desktop. Reusable explicit Activities are matched by application identity,
 preferring the destination display; an existing managed task is released by its
 owner before ordinary placement. Android's manifest and Intent semantics remain
 authoritative for creation and reuse.
@@ -1668,7 +1731,8 @@ observer, polling loop, or guessed delay is started for ordinary launches.
 
 Activity presentation has four independent inputs: `mode`, relative `bounds`,
 `instance`, and optional `preferredTaskId`. Bounds use a `0..10000` scale
-within the desktop work area and require `mode=windowed`. `instance` is exactly
+within the available work area (the display bounds without Desktop) and require
+`mode=windowed`. `instance` is exactly
 `reuse` or `new`; document-task flags are not accepted as a substitute.
 Known manifest restrictions (`singleTask`, `singleInstance`, or
 `documentLaunchMode=never`) reject `new` before dispatch when a matching task
@@ -1926,10 +1990,22 @@ display. The reference excludes translucent pixels and waits for presentation
 effects to complete; it does not assume an opaque background or available blur.
 Missing, occluded and partially covered content remains a failure. These
 on-demand visual checks do not change the theme, window state or input assertions.
-Phone and external test preparation waits for the selected workspace's registered
-HOME host and completion of the production start operation. Target selection alone
-does not admit window checks or cleanup. The wait observes existing host and
-transition events; the normal window, render and input assertions still follow.
+Every target first opens and closes an independent freeform fixture on the selected
+display, before acquiring HOME or starting Desktop. `FREEFORM-INDEPENDENT` checks
+the application's first frame, actual windowing mode, visibility, bounds and cleanup;
+accepting a launch alone is not a pass. It uses the shared shell launch and WCT
+freeform transition, without enabling freeform settings or acquiring a Desktop
+session. These results describe independent window support separately from the
+managed workspace checks that follow.
+Desktop startup then runs through the production queue inside the recorded test.
+Its completion callback includes unrecoverable host or role-cleanup failures; these fail
+`DESKTOP-001` without discarding earlier probe results or waiting for a nonexistent
+host. HOME refusal alone can use the ordinary host through the production fallback.
+Successful startup must still publish the selected workspace's host
+before managed window checks run. Cancellation and failure retain unconditional
+fixture/display cleanup, without presenting HOME when Desktop was never attempted.
+Startup rollback is recorded as a failure, not user cancellation, so its report
+is saved. Explicit Stop and subsequent loss of an established session still cancel.
 `get_state.readiness` reports awake, lock, and privileged-service prerequisites and explicit
 required actions; unknown lock observations never mean ready. `get_state.app`
 includes a source build identity, process instance id, and installation time,

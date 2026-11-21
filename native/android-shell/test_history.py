@@ -26,7 +26,7 @@ class Session:
 
     def command(self, command):
         marker = f"__history_receipt_{uuid.uuid4().hex}__".encode()
-        self.process.stdin.write(command.encode() + b"\nprintf '%s\\n' " + marker + b"\n")
+        self.process.stdin.write(command.encode() + b"\nprint -r -- " + marker + b"\n")
         self.process.stdin.flush()
         # EVENT_WAIT: stdout receipt after execution; expiry fails this fixture.
         deadline = time.monotonic() + 5
@@ -92,9 +92,19 @@ class HistoryTest(unittest.TestCase):
         for command in ("from_session_one", "from_session_two", "from_session_one_again"):
             self.assertIn("echo " + command, history)
 
+    def test_empty_history_header_retains_its_file_identity(self):
+        history = self.home / "history"
+        history.write_bytes(b"\xab\xcd")
+        identity = history.stat().st_ino
+        first = self.session()
+        first.command("echo saved_to_empty_history")
+        self.assertEqual(identity, history.stat().st_ino)
+        second = self.session()
+        self.assertIn("saved_to_empty_history", second.command("fc -ln -32"))
+
     def test_multiline_input_is_restored_without_being_executed(self):
         first = self.session()
-        first.command("printf '%s\\n' 'first line\nsecond line'")
+        first.command("print -r -- 'first line\nsecond line'")
         first.command("echo once >> \"$HOME/executions\"")
         first.close()
         history = self.session().command("fc -ln -32")
@@ -108,6 +118,9 @@ class HistoryTest(unittest.TestCase):
             first.command(f"echo previous_{index:03}")
         second = self.session()
         second.command("echo after_compaction_from_second")
+        data = (self.home / "history").read_bytes()
+        self.assertNotIn(b"echo previous_000\0", data)
+        self.assertIn(b"echo previous_039\0", data)
         first.command("echo after_compaction_from_first")
         first.close()
         second.close()
@@ -155,8 +168,8 @@ class ExecutionTest(unittest.TestCase):
         return path
 
     def test_sh_and_mksh_resolve_to_the_same_packaged_shell(self):
-        result = self.run_command("""sh -c 'printf "%s\\n" "$KSH_VERSION"'; """
-                                  """mksh -c 'printf "%s\\n" "$KSH_VERSION"'""")
+        result = self.run_command("""sh -c 'print -r -- "$KSH_VERSION"'; """
+                                  """mksh -c 'print -r -- "$KSH_VERSION"'""")
         self.assertEqual(0, result.returncode, result.stderr)
         versions = result.stdout.splitlines()
         self.assertEqual(2, len(versions))
@@ -164,30 +177,32 @@ class ExecutionTest(unittest.TestCase):
         self.assertIn("MagicDesk", versions[0])
 
     def test_text_executable_without_shebang_reenters_mksh(self):
-        script = self.executable("no-shebang", 'printf "%s\\n<%s>\\n" "$KSH_VERSION" "$1"\n')
+        script = self.executable("no-shebang", 'print -r -- "$KSH_VERSION"; print -r -- "<$1>"\n')
         result = self.run_command('"$1" "$2"', script, "argument with spaces")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("MagicDesk", result.stdout)
         self.assertTrue(result.stdout.endswith("<argument with spaces>\n"))
 
     def test_explicit_shebang_is_respected(self):
-        interpreter = self.executable("chosen-interpreter", f'#!{SHELL}\nprintf "chosen:<%s>:<%s>\\n" "$1" "$2"\n')
-        script = self.executable("explicit", f'#!{interpreter}\nprintf "must not run"\n')
+        # The kernel does not support whitespace in a shebang interpreter path.
+        shell_link = self.home / "mksh"
+        interpreter = self.executable("chosen-interpreter", f'#!{shell_link}\nprint -r -- "chosen:<$1>:<$2>"\n')
+        script = self.executable("explicit", f'#!{interpreter}\nprint -r -- "must not run"\n')
         result = self.run_command('"$1" "$2"', script, "literal argument")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(f"chosen:<{script}>:<literal argument>\n", result.stdout)
 
     def test_missing_explicit_interpreter_does_not_fall_back(self):
-        script = self.executable("missing", f'#!{self.home}/absent\nprintf "must not run"\n')
+        script = self.executable("missing", f'#!{self.home}/absent\nprint -r -- "must not run"\n')
         result = self.run_command('"$1"', script)
         self.assertNotEqual(0, result.returncode)
         self.assertNotIn("must not run", result.stdout)
 
     def test_noninteractive_commands_do_not_load_rc_or_save_history(self):
         rc = self.home / "rc"
-        rc.write_text('printf "interactive rc loaded\\n"\nHISTFILE=$HOME/history\n')
+        rc.write_text('print -r -- "interactive rc loaded"\nHISTFILE=$HOME/history\n')
         self.environment["ENV"] = str(rc)
-        result = self.run_command('printf "background command\\n"')
+        result = self.run_command('print -r -- "background command"')
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("background command\n", result.stdout)
         self.assertFalse((self.home / "history").exists())

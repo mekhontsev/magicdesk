@@ -40,8 +40,7 @@ final class TerminalNotifications {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         final Notification notification = new Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_file_console)
-                .setContentTitle(session.taskLabel(context.getString("termux".equals(session.backend)
-                        ? R.string.console_termux_title : R.string.console_title)))
+                .setContentTitle(session.taskLabel(context))
                 .setContentText(message)
                 .setStyle(new Notification.BigTextStyle().bigText(message))
                 .setContentIntent(open).setAutoCancel(true).setOnlyAlertOnce(true)

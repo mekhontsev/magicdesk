@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Pastas do Android</string>
+    <string name="folder_connect">Conectar pasta</string>
+    <string name="folder_ro">Somente leitura</string>
+    <string name="folder_rw">Leitura e gravação</string>
+    <string name="folder_access">Acesso à pasta</string>
+    <string name="folder_unavailable">Permissão indisponível</string>
+    <string name="folder_forget">Esquecer conexão</string>
+    <string name="folder_forget_message">As novas sessões não montarão mais %1$s. Os arquivos no Android não serão excluídos.</string>
+    <string name="folder_next">Em novas sessões: %1$s</string>
+</resources>

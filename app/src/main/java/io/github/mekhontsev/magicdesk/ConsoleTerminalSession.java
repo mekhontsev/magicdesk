@@ -16,7 +16,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
 /** One interactive PTY and emulator, independent of display and Activity lifetime. */
-final class ConsoleTerminalSession {
+final class ConsoleTerminalSession implements ConsoleTerminalInputConnection.Session {
+    GuestEnvironmentCatalog.Entry initialEnvironment;
+    String guestTmuxName; // Last observed name; null for ordinary guest shells.
     interface Listener {
         void onScreenChanged();
 
@@ -111,6 +113,7 @@ final class ConsoleTerminalSession {
     private boolean mStarted;
     private boolean mClosed;
     private boolean mReady;
+    private final java.util.concurrent.CompletableFuture<Void> mInputReady = new java.util.concurrent.CompletableFuture<>();
     private boolean mReceivedOutput;
     private boolean mStartupCommandSent;
     private boolean mProcessRefreshPosted;
@@ -170,7 +173,7 @@ final class ConsoleTerminalSession {
         mEmulator.getGraphics().setByteBudget(Runtime.getRuntime().maxMemory() / 4);
     }
 
-    TerminalEmulator emulator() {
+    public TerminalEmulator emulator() {
         return mEmulator;
     }
 
@@ -191,15 +194,55 @@ final class ConsoleTerminalSession {
         }
     }
 
+    ScopedTerminalTransport actionTransport() throws IOException {
+        synchronized (mLock) {
+            if (!mReady || mClosed || !(mTransport instanceof ScopedTerminalTransport scope))
+                throw new IOException("Terminal is not ready");
+            scope.execution.requireCurrent();
+            return scope;
+        }
+    }
+
+    String actionDirectory(OperationResources resources) throws IOException {
+        var scope=actionTransport();
+        if (initialEnvironment!=null) {
+            if (guestTmuxName != null)
+                return ConsolePathBrowser.paneDirectory(scope.execution, initialEnvironment, outputEndpoint(), resources);
+            String uri=mEmulator.getWorkingDirectoryUri();
+            var hint=TerminalLink.parse(uri);
+            String path=hint.fileHost()==null ? hint.localPath()
+                    : TerminalLink.parse(uri,new ConsolePathBrowser(this,resources).hostname()).localPath();
+            return path==null ? "" : path; // The host PTY's cwd is not a guest path.
+        }
+        if (!scope.managedTmux) return resolveWorkingDirectory();
+        return ConsolePathBrowser.paneDirectory(scope.execution,processId(),resources);
+    }
+
     boolean isReady() {
         synchronized (mLock) {
             return mReady && !mClosed;
         }
     }
 
+    void awaitInputReady() throws Exception {
+        // EVENT_WAIT: first PTY output and startup command ordering, or terminal failure.
+        mInputReady.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        if (!isReady()) throw new IOException("Terminal session closed");
+    }
+
     long processId() {
         synchronized (mLock) {
             return mProcessId;
+        }
+    }
+
+    String diagnosticIdentity() {
+        synchronized (mLock) {
+            // The endpoint retains birth identity after EOF clears the live PID.
+            return mOutputEndpoint == null ? "pid=" + mProcessId
+                    : "pid=" + mOutputEndpoint.processId()
+                            + " startTicks=" + mOutputEndpoint.startTicks()
+                            + " tty=" + mOutputEndpoint.tty();
         }
     }
 
@@ -243,7 +286,7 @@ final class ConsoleTerminalSession {
         executeWriter(() -> openPty(directory, rows, columns));
     }
 
-    void write(final String text) {
+    public void write(final String text) {
         if (text != null && !text.isEmpty()) {
             write(text.getBytes(StandardCharsets.UTF_8));
         }
@@ -258,7 +301,7 @@ final class ConsoleTerminalSession {
         return true;
     }
 
-    void write(final byte[] data) {
+    public void write(final byte[] data) {
         if (data == null || data.length == 0) {
             return;
         }
@@ -301,10 +344,8 @@ final class ConsoleTerminalSession {
         executeWriter(() -> resizeNow(rows, columns));
     }
 
-    void clear() {
-        mEmulator.getCommandHistory().clear();
-        mEmulator.getScreen().clearTranscript();
-        write(new byte[]{0x0C});
+    void clearHistory() {
+        mEmulator.clearHistory();
         mListener.onScreenChanged();
     }
 
@@ -410,6 +451,7 @@ final class ConsoleTerminalSession {
                 return;
             }
             mClosed = true;
+            mInputReady.completeExceptionally(new IOException("Terminal session closed"));
             mReady = false;
             mProcessId = -1L;
             mForegroundProcess = TerminalProcessInfo.unknown();
@@ -437,6 +479,7 @@ final class ConsoleTerminalSession {
             transport = mTransportFactory.open(
                     directory, rows, columns, mStartupCommand);
         } catch (IOException error) {
+            mInputReady.completeExceptionally(error);
             postError(error);
             return;
         }
@@ -547,6 +590,7 @@ final class ConsoleTerminalSession {
             if (mNotificationChanged) { mNotificationChanged = false; mListener.onNotification(mNotification); }
             mListener.onScreenChanged();
             sendStartupCommandIfReady();
+            mInputReady.complete(null);
             scheduleForegroundProcessRefresh();
         }
     }

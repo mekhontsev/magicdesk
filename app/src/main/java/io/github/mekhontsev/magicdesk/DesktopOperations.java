@@ -56,36 +56,6 @@ public final class DesktopOperations {
         void onComplete(boolean touchpadMissing, boolean restored);
     }
 
-    static void setPhoneScreenOff(final boolean screenOff,
-            final ResultCallback callback) {
-        OPERATIONS.execute(new Runnable() {
-            @Override
-            public void run() {
-                boolean success = false;
-                try {
-                    final int desktopDisplayId = screenOff
-                            ? MagicDeskRuntime.inputDisplayId()
-                            : android.view.Display.INVALID_DISPLAY;
-                    success = PHONE_UI.setPhoneScreenOff(
-                            screenOff, desktopDisplayId);
-                    Log.i(TAG, "Shell phone display off="
-                            + screenOff + " success=" + success);
-                    if (!success) {
-                        CompatibilityDiagnostics.record(
-                                "PHONE-SCREEN-002",
-                                "Could not change the phone screen state",
-                                "shell=" + ShellAccess.statusLabel()
-                                        + " screenOff=" + screenOff);
-                    }
-                } finally {
-                    if (callback != null) {
-                        callback.onComplete(success);
-                    }
-                }
-            }
-        });
-    }
-
     static boolean showMagicDesk() {
         return TRANSITIONS.showPreferredDesktop();
     }
@@ -108,6 +78,11 @@ public final class DesktopOperations {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         return TRANSITIONS.showDesktop(target, policy);
+    }
+
+    static boolean showDesktop(final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy, final TaskRepository.ActionCallback callback) {
+        return TRANSITIONS.showDesktop(target, policy, callback);
     }
 
     static boolean presentDesktopWorkspace(

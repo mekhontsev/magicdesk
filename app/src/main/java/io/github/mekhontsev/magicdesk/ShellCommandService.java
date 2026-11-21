@@ -35,8 +35,6 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     private static final String TAG = "MagicDeskShell";
     private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
     private static final long STREAM_STOP_GRACE_MILLIS = 1_000L;
-    private static final String PTY_HELPER_NAME =
-            "libmagicdesk_pty_bridge.so";
     private final Context mContext;
     private final Map<Long, OwnedStreamSession> mStreams =
             new ConcurrentHashMap<>();
@@ -78,16 +76,17 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
-    @Override public IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) {
-        try { return new ShellUnixEndpoint(name, expectedUid, ioTimeoutMillis, receiver); }
-        catch (IOException error) { throw new IllegalStateException("Cannot create Unix endpoint", error); }
+    @Override public IUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) {
+        try { return new UnixSocketEndpoint(name, expectedUid, ioTimeoutMillis, receiver,
+                RuntimeDataPaths.privileged(Os.getuid()).temporary()); }
+        catch (IOException error) { throw FailureDiagnostics.binderFailure("Cannot create Unix endpoint", error); }
     }
 
     @Override public String getSystemNightMode(final int userId) {
         final long identity = Binder.clearCallingIdentity();
         try { return FrameworkRuntime.current().systemTheme().read(userId).name(); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Cannot read system theme", error);
+            throw FailureDiagnostics.binderFailure("Cannot read system theme", error);
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
@@ -95,7 +94,15 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().systemTheme().write(userId, SystemNightMode.valueOf(mode)); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Cannot change system theme", error);
+            throw FailureDiagnostics.binderFailure("Cannot change system theme", error);
+        } finally { Binder.restoreCallingIdentity(identity); }
+    }
+
+    @Override public boolean getChildProcessMonitoringDefault() {
+        final long identity = Binder.clearCallingIdentity();
+        try { return FrameworkRuntime.current().childProcesses().readDefault(); }
+        catch (ReflectiveOperationException | IOException error) {
+            throw FailureDiagnostics.binderFailure("Cannot read child process monitoring", error);
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
@@ -103,13 +110,13 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().displayBrightness().preserveCurrentBrightness(displayId); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Cannot preserve display brightness", error);
+            throw FailureDiagnostics.binderFailure("Cannot preserve display brightness", error);
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
     @Override public void configureCommandEnvironment(String endpoint, String apk) {
         try { CommandShellEnvironment.configure(endpoint, apk, mContext.getApplicationInfo().nativeLibraryDir); }
-        catch (IOException error) { throw new IllegalStateException("Cannot prepare shell commands", error); }
+        catch (IOException error) { throw FailureDiagnostics.binderFailure("Cannot prepare shell commands", error); }
     }
 
     @Override public String executeUiAutomation(final IBinder ownerToken,
@@ -124,8 +131,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
-    public void initializeFramework(final int desktopToggle, final String settingError) {
+    public void initializeFramework(final int desktopToggle, final String settingError,
+            final boolean windowGeometry) {
         FrameworkWindowingCompat.initialize(desktopToggle, settingError);
+        FrameworkWindowGeometry.initialize(windowGeometry);
     }
 
     @Override public DesktopDisplayInfo[] listDesktopDisplays() {
@@ -171,7 +180,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             return FrameworkRuntime.current().displayWindowing().read(displayId);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("cannot read display default mode", error);
+            throw FailureDiagnostics.binderFailure("cannot read display default mode display=" + displayId, error);
         }
     }
 
@@ -182,7 +191,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             FrameworkRuntime.current().displayWindowing().set(
                     displayId, uniqueId, mode);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("cannot set display default mode", error);
+            throw FailureDiagnostics.binderFailure(
+                    "cannot set display default mode display=" + displayId + " mode=" + mode, error);
         }
     }
 
@@ -259,7 +269,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             return new FrameworkSecondaryHomeApi(userId).capture(mContext);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("SECONDARY_HOME resolution failed", error);
+            throw FailureDiagnostics.binderFailure("SECONDARY_HOME resolution failed user=" + userId, error);
         }
     }
 
@@ -268,7 +278,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             new FrameworkSecondaryHomeApi(userId).claim();
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("SECONDARY_HOME selection failed", error);
+            throw FailureDiagnostics.binderFailure("SECONDARY_HOME selection failed user=" + userId, error);
         }
     }
 
@@ -277,7 +287,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             new FrameworkSecondaryHomeApi(userId).restore(mContext, componentName);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("SECONDARY_HOME restoration failed", error);
+            throw FailureDiagnostics.binderFailure("SECONDARY_HOME restoration failed user=" + userId, error);
         }
     }
 
@@ -287,7 +297,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             return ShellAndroidIntegrationGateway.resolveActivity(
                     mContext, intent);
         } catch (android.content.pm.PackageManager.NameNotFoundException error) {
-            throw new IllegalStateException(
+            throw FailureDiagnostics.binderFailure(
                     "shell package context is unavailable", error);
         }
     }
@@ -296,22 +306,23 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     public void launchActivityOnDisplay(
             final Intent intent,
             final int displayId,
-            final boolean fullscreen) {
+            final boolean fullscreen, final Rect bounds) {
         try {
             FrameworkActivityLaunchApi.launch(
-                    HiddenTaskApi.getService(), intent, displayId, fullscreen);
+                    HiddenTaskApi.getService(), intent, displayId, fullscreen, bounds);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
+            throw FailureDiagnostics.binderFailure(
                     "shell Activity launch failed", error);
         }
     }
 
     @Override
-    public void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId) {
+    public void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId,
+            final Rect bounds) {
         try {
-            FrameworkActivityLaunchApi.send(mContext, intent, displayId);
+            FrameworkActivityLaunchApi.send(mContext, intent, displayId, bounds);
         } catch (ReflectiveOperationException | android.app.PendingIntent.CanceledException error) {
-            throw new IllegalStateException("shell pending Activity launch failed", error);
+            throw FailureDiagnostics.binderFailure("shell pending Activity launch failed", error);
         }
     }
 
@@ -322,17 +333,24 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     @Override public void resizeTaskBounds(int displayId, int[] taskIds, Rect[] bounds) {
         try { TaskWindowingCommand.resizeBounds(HiddenTaskApi.getService(), displayId, taskIds, bounds); }
         catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException("task bounds change failed", error);
+            throw FailureDiagnostics.binderFailure("task bounds change failed", error);
+        }
+    }
+
+    @Override public boolean normalizeTaskScale(FrameworkTaskSnapshot expected, float retainedScale) {
+        try { return TaskWindowingCommand.normalizeTaskScale(HiddenTaskApi.getService(), expected, retainedScale); }
+        catch (ReflectiveOperationException | RuntimeException error) {
+            throw FailureDiagnostics.binderFailure("native window resize failed", error);
         }
     }
 
     @Override public void moveOrdinaryTask(final int taskId, final int sourceDisplayId,
-            final int targetDisplayId, final int userId) {
+            final int targetDisplayId, final int userId, final Rect bounds) {
         try {
             FrameworkActivityLaunchApi.moveTask(HiddenTaskApi.getService(), taskId,
-                    sourceDisplayId, targetDisplayId, userId);
+                    sourceDisplayId, targetDisplayId, userId, bounds);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException("ordinary task transfer failed", error);
+            throw FailureDiagnostics.binderFailure("ordinary task transfer failed", error);
         }
     }
 
@@ -558,21 +576,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                     ParcelFileDescriptor.createPipe();
             readSide = pipe[0];
             writeSide = pipe[1];
-            final File helper = new File(
-                    mContext.getApplicationInfo().nativeLibraryDir,
-                    PTY_HELPER_NAME);
-            final String shell = AndroidShell.path(mContext);
-            ProcessBuilder builder = ShellExecutionEnvironment.processBuilder(
-                    mContext,
-                    true,
-                    helper.getAbsolutePath(),
-                    Integer.toString(rows),
-                    Integer.toString(columns),
-                    workingDirectory,
-                    shell);
-            builder.environment().putAll(TerminalLaunchEnvironment.decode(environment));
-            builder.environment().put("SHELL", shell);
-            builder.environment().put(AndroidShell.PATH_ENV, shell);
+            ProcessBuilder builder = ProcessPtyTransport.builder(mContext, workingDirectory, rows, columns,
+                    TerminalLaunchEnvironment.decode(environment));
             process = builder.redirectErrorStream(true).start();
             final PtyStreamSession session = new PtyStreamSession(
                     requestId, process, writeSide, ownerToken);
@@ -619,13 +624,14 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             final int workRight,
             final int workBottom,
             final int desktopHostTaskId,
+            final boolean homeRole,
             final DesktopCompatibilityPolicy compatibility) {
         mTaskObserverManager.configure(
                 callback,
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
-                desktopHostTaskId, compatibility);
+                desktopHostTaskId, homeRole, compatibility);
     }
 
     @Override
@@ -662,7 +668,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().hostedSurface().order(surface, relative); }
         catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("Hosted surface ordering is unavailable", error);
+            throw FailureDiagnostics.binderFailure("Hosted surface ordering is unavailable", error);
         } finally {
             if (surface != null) surface.release();
             if (relative != null) relative.release();
@@ -974,6 +980,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
+    public String readWindowGeometryDiagnostics(final FrameworkTaskSnapshot[] tasks) {
+        return FrameworkWindowGeometryDiagnostics.capture(tasks);
+    }
+
+    @Override
     public String getFrameworkRuntimeDiagnostics() {
         return FrameworkRuntime.current().diagnosticDetail()
                 + "; surfaceTransactionQueue="
@@ -1191,7 +1202,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             try {
                 return DesktopInputRoutingOwnership.ports().toArray(new String[0]);
             } catch (IOException error) {
-                throw new IllegalStateException("cannot read input routing ownership", error);
+                throw FailureDiagnostics.binderFailure("cannot read input routing ownership", error);
             }
         }
     }
@@ -1201,7 +1212,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         try {
             return FrameworkRuntime.current().inputRouting().keyboardDeviceIds(displayId);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("cannot observe routed keyboard devices", error);
+            throw FailureDiagnostics.binderFailure("cannot observe routed keyboard devices", error);
         }
     }
 
@@ -1656,7 +1667,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             try {
                 session.close();
             } catch (IOException error) {
-                throw new IllegalStateException("cannot restore input routing", error);
+                throw FailureDiagnostics.binderFailure("cannot restore input routing", error);
             }
         }
         mInputRoutingSession = null;
@@ -1908,21 +1919,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         @Override
         void copyOutput(final InputStream input, final OutputStream output)
                 throws IOException {
-            final StringBuilder header = new StringBuilder();
-            int value = -1;
-            while (header.length() < 192
-                    && (value = input.read()) >= 0
-                    && value != '\n') {
-                header.append((char) value);
-            }
-            if (value != '\n'
-                    || !header.toString().startsWith("MAGICDESK_PTY ")) {
-                shellPidReady.countDown();
-                throw new IOException("invalid PTY helper handshake");
-            }
             try {
-                endpoint = PtyEndpoint.parse(
-                        header.substring("MAGICDESK_PTY ".length()));
+                endpoint = PtyControlProtocol.readEndpoint(input);
             } catch (IOException error) {
                 shellPidReady.countDown();
                 throw new IOException("invalid PTY shell process", error);

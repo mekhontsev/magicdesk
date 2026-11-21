@@ -313,13 +313,13 @@ final class ShellTaskActivityModeGuard implements
                         mRefreshFullscreenCaption.getAsBoolean());
             } else if (correction.decision
                     == TaskActivityModeState.Decision.RESTORE_BOUNDS) {
-                // The native task-resize path preserves mode, focus and order,
-                // and cooperates with an in-flight window transition.
-                HiddenTaskApi.resizeTaskBounds(
+                // Observations use display coordinates; the shared command owns
+                // firmware conversion and retains the native unscaled path.
+                TaskWindowingCommand.resizeBounds(
                         mService,
                         correction.record.displayId,
-                        correction.record.taskId,
-                        correction.bounds);
+                        new int[] {correction.record.taskId},
+                        new Rect[] {correction.bounds});
             } else {
                 ShellPreparedTaskTransition.applyFreeform(
                         mService,

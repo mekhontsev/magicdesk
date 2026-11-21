@@ -4,7 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assume.assumeTrue;
 
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.util.HashMap;
@@ -14,6 +16,8 @@ import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 
 public final class ShellExecutionEnvironmentTest {
+    @Rule public final TestFileSystem files = TestFileSystem.unix();
+
     @Test
     public void interactiveEnvironmentIsStableAndSanitized() {
         final Map<String, String> environment = new HashMap<>();
@@ -29,20 +33,21 @@ public final class ShellExecutionEnvironmentTest {
         environment.put("EXECSHELL", "/unexpected/script-shell");
 
         ShellExecutionEnvironment.apply(
-                environment, ShellAccess.SHELL_UID, true, "/runtime/shell", "/home/shell", "/apk/libmagicdesk_mksh.so");
+                environment, ShellAccess.SHELL_UID, true, new RuntimeDataPaths(files.path("/home/shell")), "/apk/libmagicdesk_mksh.so");
 
         assertEquals("/home/shell", environment.get("HOME"));
-        assertEquals("/runtime/shell/tmp", environment.get("TMPDIR"));
+        assertEquals("/home/shell/cache/tmp", environment.get("TMPDIR"));
         assertEquals("xterm-256color", environment.get("TERM"));
         assertEquals("truecolor", environment.get("COLORTERM"));
-        assertEquals("/home/shell/.config/shellrc", environment.get("ENV"));
-        assertEquals("/home/shell/.local/share", environment.get("XDG_DATA_HOME"));
-        assertEquals("/home/shell/.cache", environment.get("XDG_CACHE_HOME"));
-        assertEquals("/home/shell/.local/state", environment.get("XDG_STATE_HOME"));
-        assertEquals("/runtime/shell", environment.get("MAGICDESK_RUNTIME"));
+        assertEquals("/home/shell/files/config/shellrc", environment.get("ENV"));
+        assertEquals("/home/shell/files/share", environment.get("XDG_DATA_HOME"));
+        assertEquals("/home/shell/cache", environment.get("XDG_CACHE_HOME"));
+        assertEquals("/home/shell/files/state", environment.get("XDG_STATE_HOME"));
+        assertEquals("/home/shell/no_backup/runtime", environment.get("MAGICDESK_RUNTIME"));
+        assertEquals("/home/shell/linux", environment.get("MAGICDESK_GUEST_HOME"));
         assertEquals("shell", environment.get("USER"));
         assertTrue(environment.get("PATH").startsWith(
-                "/runtime/shell/bin:/system/bin"));
+                "/home/shell/files/bin:/system/bin"));
         assertFalse(environment.containsKey("TERMUX_VERSION"));
         assertFalse(environment.containsKey("SHELL_CMD__PACKAGE_NAME"));
         assertFalse(environment.containsKey("PREFIX"));
@@ -64,7 +69,7 @@ public final class ShellExecutionEnvironmentTest {
         environment.put("HISTSIZE", "99999");
 
         ShellExecutionEnvironment.apply(
-                environment, ShellAccess.ROOT_UID, false, "/runtime/root", "/runtime/root/home", "/apk/libmagicdesk_mksh.so");
+                environment, ShellAccess.ROOT_UID, false, new RuntimeDataPaths(files.path("/runtime/root")), "/apk/libmagicdesk_mksh.so");
 
         assertEquals("root", environment.get("USER"));
         assertEquals("dumb", environment.get("TERM"));
@@ -73,13 +78,19 @@ public final class ShellExecutionEnvironmentTest {
         assertFalse(environment.containsKey("HISTFILE"));
         assertFalse(environment.containsKey("HISTSIZE"));
         assertEquals("/apk/libmagicdesk_mksh.so", environment.get("SHELL"));
-        assertEquals("/runtime/root/bin", environment.get("MAGICDESK_TOOLS"));
+        assertEquals("/runtime/root/files/bin", environment.get("MAGICDESK_TOOLS"));
+    }
+
+    @Test
+    public void diagnosticsDescribeAndroidPrivilegedRoots() {
+        // Diagnostics intentionally use the fixed Android paths, not a test root.
+        assumeTrue("Android root paths require a Unix host", RuntimeDataPaths.SHELL_ROOT.isAbsolute());
         assertTrue(ShellExecutionEnvironment.diagnostics(ShellAccess.ROOT_UID)
-                .contains("/data/local/tmp/magicdesk-root/home"));
+                .contains("/data/local/tmp/magicdesk/root"));
         assertTrue(ShellExecutionEnvironment.diagnostics(ShellAccess.SHELL_UID)
                 .contains("home=/data/local/tmp/magicdesk,"));
         assertTrue(ShellExecutionEnvironment.diagnostics(ShellAccess.SHELL_UID)
-                .contains("tools=/data/local/tmp/magicdesk-shell/bin"));
+                .contains("tools=/data/local/tmp/magicdesk/files/bin"));
     }
 
     @Test

@@ -137,34 +137,98 @@ guestFilesTask.configure {
 
 def cmakeAndroidTarget = {
     def compiler = resolveNativeCompilerCommand()
-    termuxNativeHost ? [
+    if (termuxNativeHost) {
+        // Termux's libc stub targets its own minimum API. Use NDK stubs for
+        // the APK API; desktop NDK executables are not run on this host.
+        def libraries = findNdkHomes().collectMany { home ->
+            def prebuilts = new File(home, 'toolchains/llvm/prebuilt').listFiles()
+            (prebuilts ?: []).collect { prebuilt ->
+                new File(prebuilt, "sysroot/usr/lib/aarch64-linux-android/${android.defaultConfig.minSdk}")
+            }
+        }.find { new File(it, 'libc.so').isFile() }
+        if (libraries == null) throw new GradleException(
+                'Android API link stubs are missing; install the configured NDK or set ANDROID_NDK_HOME')
+        def flags = "-fno-termux-rpath -L\"${libraries.absolutePath}\""
+        return [
             "-DCMAKE_C_COMPILER=${compiler[0]}", "-DCMAKE_ASM_COMPILER=${compiler[0]}",
             "-DCMAKE_C_FLAGS=${compiler[1]}", "-DCMAKE_ASM_FLAGS=${compiler[1]}",
-            '-DCMAKE_EXE_LINKER_FLAGS=-fno-termux-rpath'
-    ] : [
+            "-DCMAKE_EXE_LINKER_FLAGS=${flags}", "-DCMAKE_SHARED_LINKER_FLAGS=${flags}"
+        ]
+    }
+    return [
             "-DCMAKE_TOOLCHAIN_FILE=${findNdkHomes()[0]}/build/cmake/android.toolchain.cmake",
             '-DANDROID_ABI=arm64-v8a', "-DANDROID_PLATFORM=android-${android.defaultConfig.minSdk}"
     ]
 }
 
 def guestBuild = layout.buildDirectory.dir('shroot').get().asFile
+def guestFixtures = providers.gradleProperty('MAGICDESK_GUEST_FIXTURES').orElse('false').get()
+if (!(guestFixtures in ['true', 'false'])) {
+    throw new GradleException('MAGICDESK_GUEST_FIXTURES must be true or false')
+}
+gradle.taskGraph.whenReady { graph ->
+    if (guestFixtures == 'true' && graph.allTasks.any {
+        it.project == project && it.name in ['assembleRelease', 'bundleRelease', 'packageRelease']
+    }) throw new GradleException('Guest fixtures are debug-only')
+}
 def configureGuest = tasks.register('configureGuestRuntime', Exec) {
-    inputs.files rootProject.file('native/shroot/CMakeLists.txt'), rootProject.file('native/shroot/image-dependencies.cmake')
+    inputs.files rootProject.fileTree('native/shroot') {
+        include 'CMakeLists.txt', '*.cmake', 'cmake/**', 'lwip/CMakeLists.txt', 'tests/*.cmake'
+    }
     inputs.property 'nativeTarget', nativeTarget
+    inputs.property 'guestFixtures', guestFixtures
     outputs.file new File(guestBuild, 'build.ninja')
     doFirst {
         commandLine(['cmake', '-S', rootProject.file('native/shroot'), '-B', guestBuild,
-                '-G', 'Ninja', "-DANDROID_PLATFORM_LEVEL=${android.defaultConfig.minSdk}"] + cmakeAndroidTarget())
+                '-G', 'Ninja', "-DANDROID_PLATFORM_LEVEL=${android.defaultConfig.minSdk}",
+                "-DSHROOT_BUILD_TESTS=${guestFixtures}"] + cmakeAndroidTarget())
     }
 }
 def buildGuest = tasks.register('buildGuestRuntime', Exec) {
     dependsOn configureGuest
-    commandLine 'cmake', '--build', guestBuild, '--target', 'bootstrap', 'supervisor', 'run', 'service', 'image', '--parallel', '2'
+    commandLine 'cmake', '--build', guestBuild, '--target', 'shroot-cli', 'bootstrap', 'supervisor', 'run', 'service', 'image', '--parallel', '2'
 }
 def packageGuest = tasks.register('packageGuestRuntime', Copy) {
     dependsOn buildGuest
-    from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so', 'libmagicdesk_guest_image.so' }
+    from(guestBuild) { include 'libshroot_guest_bootstrap.so', 'libshroot_guest_supervisor.so', 'libshroot_guest_run.so', 'libshroot_guest_service.so', 'libshroot_guest_image.so' }
+    from(new File(guestBuild, 'shroot')) { rename { 'libshroot_cli.so' } }
     into new File(nativeOutputRoot, 'arm64-v8a')
+    doFirst {
+        delete fileTree(new File(nativeOutputRoot, 'arm64-v8a')) {
+            include 'libmagicdesk_guest_*.so', 'libmagicdesk_shroot.so'
+            exclude 'libmagicdesk_guest_files.so'
+        }
+    }
+}
+
+if (guestFixtures == 'true') {
+    // Fixture receipts compare exact ELF bytes with the installed APK bundle.
+    android.packaging.jniLibs.keepDebugSymbols.add('**/libshroot_guest_*.so')
+    android.packaging.jniLibs.keepDebugSymbols.add('**/libshroot_cli.so')
+    def fixtures = layout.buildDirectory.dir('guestFixtures').get().asFile
+    android.sourceSets.debug.jniLibs.srcDir fixtures
+    def buildFixtures = tasks.register('buildGuestFixtures', Exec) {
+        dependsOn buildGuest
+        commandLine 'cmake', '--build', guestBuild, '--parallel', '4'
+    }
+    def preparedFixtures = tasks.register('buildPreparedGuestFixtures', Exec) {
+        dependsOn buildGuest
+        commandLine 'cmake', '--build', guestBuild, '--target', 'shroot-prepared-fixtures', '--parallel', '4'
+    }
+    def packageFixtures = tasks.register('packageGuestFixtures', Sync) {
+        dependsOn buildFixtures, preparedFixtures
+        from(guestBuild) {
+            include 'libshroot_guest_*.so'
+            exclude 'libshroot_guest_bootstrap.so', 'libshroot_guest_supervisor.so',
+                    'libshroot_guest_run.so', 'libshroot_guest_service.so', 'libshroot_guest_image.so'
+        }
+        from(guestBuild) {
+            include 'md-*-test'
+            rename { 'libshroot_guest_prepared_' + it.substring(3).replace('-', '_') + '.so' }
+        }
+        into new File(fixtures, 'arm64-v8a')
+    }
+    tasks.configureEach { if (name == 'preDebugBuild') dependsOn packageFixtures }
 }
 
 def commandBuild = layout.buildDirectory.dir('commandClient').get().asFile
@@ -190,7 +254,7 @@ def shellBuild = layout.buildDirectory.dir('androidShell').get().asFile
 def shellLicenses = layout.buildDirectory.dir('androidShellLicenses').get().asFile
 android.sourceSets.main.assets.srcDir shellLicenses
 def configureShell = tasks.register('configureAndroidShell', Exec) {
-    inputs.files rootProject.fileTree('native/android-shell') { include '*.cmake', 'CMakeLists.txt' }
+    inputs.files rootProject.fileTree('native/android-shell') { include '*.cmake', '*.patch', 'CMakeLists.txt' }
     inputs.property 'nativeTarget', nativeTarget
     inputs.property 'buildShell', providers.environmentVariable('MAGICDESK_BUILD_SHELL').orElse('')
     outputs.file new File(shellBuild, 'build.ninja')
@@ -220,6 +284,7 @@ android.sourceSets.main.assets.srcDir guestLicenses
 def packageGuestLicenses = tasks.register('packageGuestRuntimeLicenses', Sync) {
     dependsOn configureGuest
     from new File(guestBuild, 'licenses')
+    from(rootProject.file('native/shroot/LICENSE')) { rename { 'Shroot-GPL-3.0.txt' } }
     into new File(guestLicenses, 'licenses/guest-images')
 }
 

@@ -47,10 +47,11 @@ final class DesktopSelfTestWindowSuite {
     static void run(
             final Context appContext,
             final DesktopSelfTestTarget target,
-            final int displayId,
+            final DesktopDisplayTarget displayTarget,
             final DesktopSelfTestResult result,
             final WorkspaceIsolationLease workspaceLease)
             throws AbortSelfTest {
+        final int displayId = displayTarget.workspaceDisplayId;
         verifyDisplayGeometry(appContext, displayId, target, result);
 
         final int targetDisplayId = displayId;
@@ -58,16 +59,10 @@ final class DesktopSelfTestWindowSuite {
         samplePhoneUiBestEffort();
         final TaskStackParser.Entry preparedDesktop = require(
                 result, "DESKTOP-001", "Prepare desktop session", () -> {
-            if (target == DesktopSelfTestTarget.SIMULATED) {
-                // Use the production session launch with isolated test preferences.
-                if (workspaceLease == null) {
-                    throw new IOException(
-                            "workspace isolation lease is unavailable");
-                }
-                workspaceLease.showReady(
-                        null,
-                        DesktopDisplayTarget.simulated(targetDisplayId));
+            if (workspaceLease == null) {
+                throw new IOException("workspace isolation lease is unavailable");
             }
+            workspaceLease.showReady(displayTarget);
             final DesktopSessionSnapshot session =
                     DesktopRuntimeBridge.getSessionSnapshot(targetDisplayId);
             if (session.activeWorkspaceDisplayId() != targetDisplayId

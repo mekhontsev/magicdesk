@@ -123,16 +123,29 @@ final class ApplicationCatalog {
         int uid = ShellAccess.isReady() ? ShellAccess.currentSnapshot().uid : -1;
         if (uid != guestOwner) {
             guestOwner = uid;
-            guest.reset(uid < 0 ? "Privileged command service is unavailable" : "");
+            guest.reset("");
         }
-        return uid == 2000 || uid == 0;
+        return true;
     }
 
     private void loadGuestSource(ApplicationCatalogSource.Completion<DesktopApplicationRepository.Entry> complete) {
         int owner = guestOwner;
         IO.execute(() -> {
             try {
-                var result = GuestApplicationRecords.parse(GuestEnvironmentOperations.read("", "applications"));
+                var entries = new java.util.ArrayList<DesktopApplicationRepository.Entry>();
+                var errors = new java.util.ArrayList<String>();
+                var backends = new java.util.ArrayList<DesktopExecBackend>();
+                backends.add(DesktopExecBackend.APP);
+                if (owner >= 0) backends.add(DesktopExecBackend.SHELL);
+                for (var backend : backends) {
+                    try {
+                        var execution = new CommandExecution(context, backend);
+                        var source = GuestApplicationRecords.parse(GuestEnvironmentOperations.read(execution, "", "applications"), backend);
+                        entries.addAll(source.entries());
+                        if (!source.error().isEmpty()) errors.add(backend.wireName + ": " + source.error());
+                    } catch (Exception failure) { errors.add(backend.wireName + ": " + ShellAccess.usefulMessage(failure)); }
+                }
+                var result = new GuestApplicationRecords.Snapshot(List.copyOf(entries), String.join("; ", errors));
                 MAIN.post(() -> {
                     inspectGuest();
                     if (owner != guestOwner) return;

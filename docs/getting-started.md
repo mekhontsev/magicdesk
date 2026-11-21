@@ -60,8 +60,9 @@ the selected server may need restarting, depending on its startup method. Missin
 access does not prevent ordinary UI or independently authorized Termux
 sessions from opening.
 
-The control panel shows a full-width status and clickable **Access**, **Termux**
-and **Desktop** summaries. Access reports the connected service as shell, root
+Beside the current status, **Process limit** shows whether Android restricts
+child processes. Tap it for details. The **Access**, **Termux** and **Desktop**
+summaries remain on their own row. Access reports the connected service as shell, root
 or none, with an explicit authorization action. Termux distinguishes missing
 prerequisites, an available service and a verified command connection; see
 [Linux application setup](#open-linux-applications).
@@ -89,14 +90,17 @@ Android and retains saved **Recent** entries. Android decides whether each app
 may launch on the destination. Global running-task queries and transfers of
 existing tasks require the privileged service.
 
-Outside Desktop these are ordinary fullscreen Activities. If the destination
-already has a MagicDesk Desktop session, the tools use its managed window path.
-Neither action starts a session implicitly or requires Desktop provisioning.
+Outside managed Desktop, independent launches default to fullscreen. An
+explicit **Window** selection can request freeform on the selected screen
+when Shell and the firmware support it; stock Nubia requires managed Desktop
+for this. A destination with an active Desktop uses its managed window path.
+Opening a tool does not start or provision Desktop.
 
-Files and Android-shell Console need the authorized privileged service. Termux Console needs
-Termux, external app commands enabled in its configuration, and MagicDesk's
-Termux `RUN_COMMAND` permission. Termux and Android-shell sessions use different
-UIDs and filesystem access.
+**User** consoles run under MagicDesk's own app UID without Shizuku or root.
+**Shell** consoles and Files need the authorized privileged service.
+**Termux Console** needs Termux, external app commands enabled in its configuration,
+and MagicDesk's Termux `RUN_COMMAND` permission. Each executor retains its own
+UID, home directory and filesystem access.
 
 Closing an ordinary terminal window detaches it. **Terminal sessions** can reopen
 the same retained session; **End session** terminates it. Retention lasts only
@@ -105,9 +109,10 @@ inside Termux provide a separate lifetime for longer-running programs. Closing
 a managed tmux window releases only its client PTY; opening the session again
 attaches a new client without restarting its programs.
 
-Android-shell sessions use MagicDesk's bundled mksh. Up/Down recalls commands
-from earlier sessions; `fc -l` lists the shell history. It is stored separately
-for shell and root in `~/.local/state/shell_history`. This retains commands, not
+User and Shell sessions use MagicDesk's bundled mksh. Up/Down recalls commands
+from earlier sessions; `fc -l` lists the shell history. Each actual executor
+stores its own history in `$XDG_STATE_HOME/shell_history`
+(`$HOME/files/state/shell_history`). This retains commands, not
 running programs or their output: APK replacement still ends local PTYs.
 Commands containing secrets can be saved; `unset HISTFILE` disables disk history
 for the current shell. Termux and Linux shells keep their own history settings.
@@ -119,16 +124,18 @@ See [Workstation tools](workstation-tools.md).
 1. Open MagicDesk's control panel.
 2. Tap the terminal icon beside **Settings** at the top. This opens
    **Terminal sessions**.
-3. Choose **New session > Console**.
+3. Choose **New session > User** for MagicDesk's app UID, or **Shell** for the
+   configured privileged service, normally UID 2000.
 
-This guide calls that session **MagicDesk Console**. It runs the Android shell
-with MagicDesk's configured privileged access, normally UID 2000. If **Console**
-is missing from the choices, complete the [privileged-service setup](#install).
-You do not need to start MagicDesk Desktop.
+This guide calls either session **MagicDesk Console**. **User** needs no privileged
+service. If **Shell** is missing, complete the [privileged-service setup](#install).
+Shell remains named **Shell** when its actual access is root; Control Panel shows
+that access separately. You do not need to start MagicDesk Desktop.
 
-Choose **Console** for `shroot` commands and the Linux installer, not **Termux
-Console** or **Shroot environments**. Those choices open shells in Termux or an
-installed Linux environment instead.
+Choose **User** or **Shell** for `shroot` commands and the Linux installer, not
+**Termux Console** or **Shroot environments**. Those choices open shells in
+Termux or an installed Linux environment instead. The selected executor is saved
+for new consoles; existing sessions and saved launchers keep their own selection.
 
 Commands marked as running **inside Linux** belong in a terminal in that
 environment, opened through **Shroot environments** or `shroot login NAME`.
@@ -175,8 +182,9 @@ use **New command app > Termux graphics**, select Wayland and enter its command.
 See [Wayland session controls](wayland.md#session-controls) for examples.
 In **New command app**, choose
 **Linux (Termux)** for an installed proot-distro environment or a custom entry
-script. Choose **Linux (Shell / root)** for a prepared chroot without Termux.
-Chroot entry requires actual root access; graphical Shell launchers also need
+script. Choose **Linux (User)** or **Linux (Shell)** for the corresponding Shroot
+library. **Linux (Shell)** also accepts a prepared chroot without Termux.
+Chroot entry requires actual root access; custom graphical launchers also need
 an Android-visible XKB data directory. MagicDesk supplies the terminal, X11 server
 and Wayland compositor, while your Linux environment supplies its programs.
 See [Embedded X11](x11.md), [Embedded Wayland](wayland.md) and
@@ -185,13 +193,14 @@ See [Embedded X11](x11.md), [Embedded Wayland](wayland.md) and
 ## Install Linux With Shroot
 
 Shroot runs ARM64 Linux distributions and OCI images through MagicDesk's
-authorized shell service. It needs neither Termux nor Android root. Its kernel
+User or Shell executor. It needs neither Termux nor Android root; User also
+needs no Shizuku or Shevery. Its kernel
 requirements are checked when launched; unsupported kernels do not disable
 MagicDesk's other tools. Shroot is experimental and not a security sandbox:
 install only trusted images and programs.
 
-Open [MagicDesk Console](#open-the-android-shell-console) after configuring
-Shizuku, Shevery or direct root, then run:
+Open [MagicDesk Console](#open-the-android-shell-console), select **User** or
+**Shell**, then run:
 
 ```sh
 magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/scripts/install_linux.sh ~/install_linux.sh
@@ -200,12 +209,13 @@ sh ~/install_linux.sh
 
 The URL is the maintained installer on `main`. Repeating the download replaces
 the script only after a successful transfer, without changing installed Linux
-environments. Under shell UID 2000, `~` is `/data/local/tmp/magicdesk/`; root
-consoles use `/data/local/tmp/magicdesk-root/home`. Download before executing
-so the script can read your answers from the terminal; do not pipe it into `sh`.
+environments. User uses MagicDesk's private app data directory as `~`.
+Shell UID 2000 uses `/data/local/tmp/magicdesk/`; Shell with UID 0 uses
+`/data/local/tmp/magicdesk/root`. Linux installations live in `~/linux`.
+Run resume and management commands with the same executor as the installation.
+Download before executing so the script can read your answers from the terminal; do not pipe it into `sh`.
 For unreleased installer changes, use `develop` with the development APK.
-For the script shipped with a specific release, replace `main` with its tag,
-for example `v2.0.2`.
+To match a specific APK, use its release tag instead of the branch name.
 
 Choose a distribution, environment name, GUI profile, graphics driver,
 compiler job count, language and optional user. Installation and
@@ -237,7 +247,8 @@ MagicDesk APK while the installer is running: its console PTY will end.
 ### Launch Installed Linux
 
 Installation prepares an environment; it does not open its GUI automatically.
-Keep your configured privileged access available. Neither Termux nor a MagicDesk
+For Shell installations, keep the configured privileged access available.
+User installations remain app-owned. Neither Termux nor a MagicDesk
 Desktop session is required, and you do not need to rerun the installer to launch
 Linux again.
 
@@ -475,10 +486,52 @@ for the privileged service. MagicDesk is not offered as an inactive HOME choice.
 When there was no explicit HOME holder at session start, Android may show its
 launcher chooser again; MagicDesk does not choose a replacement on the user's behalf.
 
-The persistent notification opens Phone Control Panel. Its separate touchpad
-action opens the phone input surface when external input control is available.
-While a retained terminal exists, a **Terminal** action resumes the most recently
-focused terminal even without Desktop, rather than creating another shell.
+Tapping the persistent notification's **MagicDesk** name and status opens
+**Control Panel**. Its compact view provides **Console** and **Black screen**
+icons, with no expansion required.
+**Open touchpad** appears as a third icon when an external input target and its
+pointer transport are ready, including manual display control without Desktop.
+Each icon first brings Control Panel to the phone foreground. Console and
+touchpad actions dismiss its previous dialogs without closing terminal sessions.
+**Console** resumes the most recently focused retained terminal on the phone,
+without creating another PTY or changing its executor. If none remains, it opens
+the existing **New session** chooser. **Black screen** enters the keep-awake mode
+described below. **Open touchpad** opens the existing phone touchpad for the
+current input target after bringing the panel forward. Touchpad also remains
+available from the panel.
+
+The **Black screen (keep awake)** icon beside Console in Control Panel keeps
+the phone awake with a black screen at minimum window brightness. Touches are
+ignored; press and release either volume button to exit without changing volume.
+Entering from the notification or MCP returns to the previously foreground
+application on volume-key exit; entering from Control Panel stays in the panel.
+The return action exists only in memory: after an APK update restores black
+mode, exiting stays in Control Panel. Leaving the panel also ends the mode,
+without switching applications. It needs no Shizuku,
+root or Desktop, including when using Termux or PRoot. System brightness and
+screen-timeout settings are unchanged. This is not a lock screen: Android's
+navigation and power button remain available. It prevents ordinary screen-off
+sleep, not every vendor restriction or process termination; the display remains
+powered and battery consumption is higher than with the screen off.
+
+**Settings > Console > Volume keys enable black screen** optionally makes a
+volume-button press and release enter this mode from a phone console. Another
+press and release returns to the same console, retaining its PTY and programs.
+This is off by default and applies equally to User, Shell and Termux sessions;
+console windows on external displays keep normal volume-key behavior.
+
+Long-press the same icon for **Turn off the physical panel**, available with
+privileged access and supported Android display-power commands. This switches
+off the panel while holding CPU work awake; it needs neither Desktop nor an
+external display. Wake the phone with its power button to release the override.
+Normal exit and loss of the controlling connection also restore display power.
+Unlike the black-screen mode, this does not keep a foreground window active;
+firmware may still restrict individual background applications. Nubia work
+hints provide optional additional protection, not a prerequisite.
+
+Tap the Console icon for terminal sessions; long-press it for **Linux graphics**
+and its retained X11/Wayland sessions. Neither manager starts a Linux distribution
+merely by opening it.
 
 ## Scale And Output
 
@@ -508,7 +561,16 @@ own external-display policy. It is not a MagicDesk session requirement and may
 add system decorations. Follow its reconnect/restart guidance; Close does not
 toggle it.
 
+To disable Android phantom-process monitoring for Termux and Linux programs,
+use **Settings > Android system > Disable child process restrictions**. Changing
+it from MagicDesk requires the authorized Shell service, but not Desktop.
+Without Shell, tap **Process limit** to open Android's developer options and
+look for the switch, if offered by the firmware. This is a
+system-wide, persistent setting, not protection from low-memory kills or
+manufacturer battery restrictions. MagicDesk does not change it automatically.
+
 ## Automation
+
 
 Enable loopback MCP in Settings for a local client. Network access is a separate
 opt-in with its own interface, port, token and permission set. Copy connection

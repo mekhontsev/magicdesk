@@ -3,6 +3,9 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.os.Build;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -17,6 +20,7 @@ final class CompatibilitySnapshot {
     final PlatformCapabilitySnapshot capabilities;
     final JSONObject onboarding;
     final long selfTestLastModifiedMillis;
+    final List<IntegrationPackageSnapshot> integrations;
 
     private CompatibilitySnapshot(
             final PlatformDevice device,
@@ -24,25 +28,43 @@ final class CompatibilitySnapshot {
             final FirmwareProfileCatalog.Entry firmwareProfile,
             final PlatformCapabilitySnapshot capabilities,
             final JSONObject onboarding,
-            final long selfTestLastModifiedMillis) {
+            final long selfTestLastModifiedMillis,
+            final List<IntegrationPackageSnapshot> integrations) {
         this.device = device;
         this.platform = platform;
         this.firmwareProfile = firmwareProfile;
         this.capabilities = capabilities;
         this.onboarding = onboarding;
         this.selfTestLastModifiedMillis = selfTestLastModifiedMillis;
+        this.integrations = List.copyOf(integrations);
     }
 
     static CompatibilitySnapshot capture(
             final Context context,
             final DeviceSetupManager.Audit audit) {
+        final List<IntegrationPackageSnapshot> integrations = new ArrayList<>();
+        for (final IntegrationPackage integration : IntegrationPackage.values()) {
+            integrations.add(IntegrationPackageSnapshot.capture(context, integration));
+        }
         return new CompatibilitySnapshot(
                 PlatformDevice.current(),
                 audit.platform,
                 audit.firmwareProfile,
                 PlatformCapabilitySnapshot.capture(context, audit.platform),
                 onboardingJson(context),
-                DesktopSelfTestResult.lastModifiedMillis(context));
+                DesktopSelfTestResult.lastModifiedMillis(context), integrations);
+    }
+
+    void appendIntegrations(final StringBuilder report) {
+        for (final IntegrationPackageSnapshot integration : integrations) integration.appendReport(report);
+    }
+
+    private JSONObject integrationsJson() throws JSONException {
+        final JSONObject result = new JSONObject();
+        for (final IntegrationPackageSnapshot integration : integrations) {
+            result.put(integration.key(), integration.toJson());
+        }
+        return result;
     }
 
     void appendSelection(final StringBuilder report) {
@@ -88,6 +110,7 @@ final class CompatibilitySnapshot {
                     .put("schemaVersion", SCHEMA_VERSION)
                     .put("device", deviceJson())
                     .put("platform", platformJson())
+                    .put("integrations", integrationsJson())
                     .put("capabilities",
                             capabilities.toJson().getJSONArray("capabilities"))
                     .put("windowTransitions",

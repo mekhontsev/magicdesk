@@ -33,4 +33,23 @@ public class GuestConfigurationTest {
         }
         assertThrows(IllegalArgumentException.class, () -> HostedKeyboardSource.parse("guest:relative"));
     }
+
+    @Test public void termuxShrootUsesStandaloneCliWithoutChangingExecutorOrSelectingByName() throws Exception {
+        var backend = DesktopExecBackend.TERMUX;
+        var root = "/termux/store with spaces";
+        var entry = GuestEnvironmentCatalog.parse(new org.json.JSONArray().put(new org.json.JSONObject()
+                .put("name", "debian").put("source", "debian:stable").put("store", root)
+                .put("id", "2178931c-dffa-4b0e-86cc-55a672dc7196")).toString(), backend).get(0);
+        assertEquals(backend, entry.backend());
+        assertEquals("'shroot' 'login' '/termux/store with spaces'", GuestEnvironmentCatalog.login(entry));
+        assertEquals("'shroot' 'stop' '/termux/store with spaces' 'token'", GuestEnvironmentCatalog.storeCommand(entry, "stop", "token"));
+        var env = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.MANAGED_GUEST, root, backend, "");
+        var recipe = LinuxLaunchRecipe.build("Debian", env, "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL);
+        assertEquals(backend, recipe.execBackend);
+        assertEquals(GuestEnvironmentCatalog.login(entry) + " '--'",
+                DesktopExecTemplate.expandArguments(recipe.exec, DesktopLaunchArguments.empty(), "Debian", "", ""));
+        assertTrue(LinuxEnvironmentPicker.methods(backend, false).containsAll(
+                List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.MANAGED_GUEST)));
+        assertFalse(LinuxEnvironmentPicker.methods(backend, true).contains(LinuxLaunchRecipe.Kind.MANAGED_GUEST));
+    }
 }

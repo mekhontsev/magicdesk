@@ -47,7 +47,8 @@ public class TermuxApplicationRecordsTest {
     }
 
     @Test public void presentationIsIndependentFromTheExecutor() {
-        assertEquals(2, DesktopExecBackend.values().length);
+        assertEquals(3, DesktopExecBackend.values().length);
+        assertEquals(DesktopExecBackend.APP, DesktopExecBackend.parse("app"));
         assertThrows(IllegalArgumentException.class, () -> DesktopExecBackend.parse("x11"));
     }
 

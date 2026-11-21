@@ -88,7 +88,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                 boolean focused,
                 List<FrameworkTaskSnapshot> previousTasks);
         void onFreeformBoundsChanged(
-                FrameworkTaskSnapshot task);
+                FrameworkTaskSnapshot previous, FrameworkTaskSnapshot task);
         void onError(String error);
     }
 
@@ -621,7 +621,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                 if (!entry.getValue().equals(
                         mLastFreeformBounds.get(entry.getKey()))) {
                     boundsChanges.add(new FreeformBoundsEvent(
-                            entry.getKey().intValue(), entry.getValue()));
+                            mLastFreeformBounds.get(entry.getKey()), entry.getValue()));
                 }
             }
             mLastWindowingModes.clear();
@@ -659,7 +659,7 @@ final class FrameworkTaskObservationSource implements Closeable {
         }
         for (final FreeformBoundsEvent event : boundsChanges) {
             mPublications.executeIfCurrent(configuration, () -> mListener.onFreeformBoundsChanged(
-                    event.state.task));
+                    event.previous == null ? null : event.previous.task, event.state.task));
         }
         for (final WindowingModeEvent event : modeChanges) {
             mPublications.executeIfCurrent(configuration, () -> mListener.onWindowingModeChanged(
@@ -762,13 +762,13 @@ final class FrameworkTaskObservationSource implements Closeable {
     }
 
     private static final class FreeformBoundsEvent {
-        final int taskId;
+        final FreeformBoundsState previous;
         final FreeformBoundsState state;
 
         FreeformBoundsEvent(
-                final int taskId,
+                final FreeformBoundsState previous,
                 final FreeformBoundsState state) {
-            this.taskId = taskId;
+            this.previous = previous;
             this.state = state;
         }
     }
@@ -818,13 +818,18 @@ final class FrameworkTaskObservationSource implements Closeable {
                     && java.util.Objects.equals(task.packageName, state.task.packageName)
                     && java.util.Objects.equals(task.rootComponent, state.task.rootComponent)
                     && java.util.Objects.equals(task.topPackage, state.task.topPackage)
+                    && java.util.Objects.equals(task.topActivityName, state.task.topActivityName)
+                    && task.densityDpi == state.task.densityDpi
+                    && Float.compare(task.windowScale, state.task.windowScale) == 0
+                    && task.logicalBounds.equals(state.task.logicalBounds)
                     && task.bounds.equals(state.task.bounds);
         }
 
         @Override
         public int hashCode() {
             return java.util.Objects.hash(task.userId, task.packageName,
-                    task.rootComponent, task.topPackage, task.bounds);
+                    task.rootComponent, task.topPackage, task.topActivityName, task.densityDpi,
+                    task.windowScale, task.logicalBounds, task.bounds);
         }
     }
 

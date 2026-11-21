@@ -26,7 +26,8 @@ final class DesktopCompatibilitySettings {
                     final PlatformProjectionDriver.DesktopOption option =
                             PlatformDrivers.current().projection().desktopOption();
                     final boolean platformSaved = option == null || option.reset();
-                    return MagicDeskSettings.resetCompatibilityOptions() && platformSaved;
+                    return MagicDeskSettings.resetCompatibilityOptions() && platformSaved
+                            && WindowGeometrySettings.save(context, true);
                 });
     }
 

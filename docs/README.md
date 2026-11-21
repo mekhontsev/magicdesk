@@ -13,6 +13,7 @@ coverage, not a chronological development log.
 | Files, content, task management and independent tools | [Workstation tools](workstation-tools.md) |
 | Consoles, retained sessions and tmux | [Terminal integration](terminal-integration.md) |
 | Install Linux, run applications and containers | [Shroot](shroot.md) |
+| Install a distro as its own Android app; grant folders, web access or automation | [Linux Capsules](linux-applications.md) |
 | Compare Shroot, PRoot and native execution | [Benchmarks and measurement scope](shroot-benchmarks.md) |
 | Launch recipes and shortcuts | [Desktop entries](desktop-entries.md) |
 | Themes, panels, wallpapers and customization | [Native appearance](appearance.md) |
@@ -24,7 +25,7 @@ coverage, not a chronological development log.
 | Interface | Guide |
 | --- | --- |
 | MCP, CLI, permissions, observations and self-tests | [Automation](automation.md) |
-| Android applications invoking shell/Termux commands | [External command API](run-command.md) |
+| Android applications invoking User, Shell or Termux commands | [External command API](run-command.md) |
 | X11 applications and desktops | [X11](x11.md) |
 | Wayland applications, desktops and panels | [Wayland](wayland.md) |
 | Shared rendering and GPU boundaries | [Graphics](graphics.md) |
@@ -49,27 +50,34 @@ Start with [contributing](../CONTRIBUTING.md) and the
 The focused contracts remain authoritative for
 [Android API levels](runtime-api-levels.md), [privilege boundaries](privilege-modes.md),
 [fullscreen/focus](fullscreen-transitions.md), [window layout](window-layout.md),
-and [Shroot native internals](../native/shroot/README.md).
-Use [Shroot fixtures](../native/guest-exec-lab/README.md) for Linux checks and
-the [device validation matrix](testing-backlog.md) for Android coverage and the
-[distribution matrix](../native/guest-exec-lab/validation-matrix.md) for per-OS
-Linux acceptance. Its [evidence ledger](../native/guest-exec-lab/distribution-evidence.md)
-keeps exact application receipts separate from the status tables. Desktop
-self-tests do not replace protocol, installer or guest-runtime workflows.
+and [Shroot native internals](https://github.com/mekhontsev/shroot/blob/develop/architecture.md).
+For verification, choose the owner of the behavior:
+
+| What are you testing? | Where to start |
+| --- | --- |
+| Android tools, displays and managed Desktop | [Device coverage and outstanding checks](testing-backlog.md) |
+| Packaged APK, installer, catalog or graphical sessions | [MagicDesk integration tests](../tests/shroot/README.md) and [recipe workflows](../tests/shroot/recipe-workflows.md) |
+| Standalone native engine | [Shroot fixture guide](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md) |
+| An application on a particular distribution and executor | [Distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md) and [supporting receipts](https://github.com/mekhontsev/shroot/blob/develop/tests/distribution-evidence.md) |
 
 ## Evidence And Project Policy
 
 - [Device-porting workflow](ai-assisted-device-porting.md)
-- [Paused graphics-adaptation research](../native/guest-exec-lab/README.md#graphics-adaptation-paused)
+- [KWin and Weston package adaptation: scope, tests and limits](../tests/shroot/compositor-adaptation.md)
 - [Nubia vendor API audit](nubia-vendor-audit.md)
+- [Honor windowing API audit](honor-vendor-audit.md)
 - [Chrome custom-caption investigation](chrome-custom-caption-investigation.md)
 - [Independent XR resolution add-on](xr-resolution-fix.md)
 - [Artwork](artwork.md), [licensing](licensing.md),
   [third-party notices](../THIRD_PARTY_NOTICES.md), [security](../SECURITY.md)
 
-Version-specific notes live in `docs/releases/VERSION.md`. Published notes retain
-their historical scope; drafts are explicitly marked as pending acceptance.
-Neither replaces the current feature or compatibility contract.
+Version-specific notes live in `docs/releases/VERSION.md`. Maintain the next
+version's file on `develop` with concise, implemented changes. CI includes it
+from the verified source archive in the rolling prerelease, marked as preliminary;
+the same file becomes the numbered release notes. `scripts/start-next-version.sh`
+creates the next file without overwriting existing notes. Published notes retain
+their historical scope and do not replace the current feature or compatibility
+contract.
 
 Keep reproducible fixture instructions, current evidence and the reasons for
 safety constraints in their owning guides. Fixed-bug stories, retired mechanisms

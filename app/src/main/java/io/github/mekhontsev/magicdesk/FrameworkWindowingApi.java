@@ -20,6 +20,7 @@ final class FrameworkWindowingApi {
     private final Class<?> mTransactionClass;
     private final Map<String, Method> mMethods;
     private final String mError;
+    private Method mTokenBinder;
 
     private FrameworkWindowingApi(
             final Class<?> tokenClass,
@@ -95,6 +96,12 @@ final class FrameworkWindowingApi {
     Class<?> tokenClass() throws ReflectiveOperationException {
         requireAvailable();
         return mTokenClass;
+    }
+
+    synchronized android.os.IBinder tokenIdentity(Object token) throws ReflectiveOperationException {
+        requireAvailable();
+        if (mTokenBinder == null) mTokenBinder = mTokenClass.getMethod("asBinder");
+        return (android.os.IBinder) mTokenBinder.invoke(token);
     }
 
     Class<?> transactionClass() throws ReflectiveOperationException {

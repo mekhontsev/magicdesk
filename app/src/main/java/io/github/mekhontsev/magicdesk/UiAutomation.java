@@ -16,5 +16,7 @@ final class UiAutomation implements AutoCloseable {
         return linuxTarget ? linux.execute(operation, args) : android.execute(operation, args);
     }
     JSONObject awakeState() throws JSONException { return android.awakeState(); }
+    AppUpdatePowerState updatePowerState(boolean blackScreen) { return android.updatePowerState(blackScreen); }
+    void restoreUpdatePower(AppUpdatePowerState state) { android.restoreUpdatePower(state); }
     @Override public void close() { linux.close(); android.close(); }
 }

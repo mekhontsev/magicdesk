@@ -22,11 +22,11 @@ final class LinuxLaunchRecipe {
             if (backend == null) throw new IllegalArgumentException("Select an executor");
             if (kind == Kind.PROOT && backend != DesktopExecBackend.TERMUX)
                 throw new IllegalArgumentException("proot-distro requires Termux");
-            if ((kind == Kind.GUEST || kind == Kind.MANAGED_GUEST) && backend != DesktopExecBackend.SHELL)
-                throw new IllegalArgumentException("Shroot requires the Shell executor");
+            if (kind == Kind.GUEST && backend == DesktopExecBackend.TERMUX)
+                throw new IllegalArgumentException("Unmanaged guest roots require the MagicDesk launcher");
             if (magicDesk && kind == Kind.SCRIPT)
                 throw new IllegalArgumentException("Prepared scripts supply their own command client mapping");
-            keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
+            keyboardDirectory = HostedKeyboardSource.normalize(keyboardDirectory);
         }
     }
 
@@ -108,8 +108,6 @@ final class LinuxLaunchRecipe {
             }
             host.append(" -- ").append(String.join(" ", guest.stream().map(LinuxLaunchRecipe::q).toList()));
         }
-        if (graphical && environment.backend() == DesktopExecBackend.SHELL && environment.keyboardDirectory().isEmpty())
-            throw new IllegalArgumentException("Enter the XKB data directory in the prepared Linux environment");
         List<String> invocation = environment.magicDesk()
                 ? List.of("magicdesk-connect", "--", "sh", "-c", host.toString()) : List.of("sh", "-c", host.toString());
         String exec = DesktopExecTemplate.encodeArguments(invocation);
@@ -131,6 +129,8 @@ final class LinuxLaunchRecipe {
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
         boolean graphical = presentation != Presentation.TERMINAL;
         boolean managed = environment.kind() == Kind.MANAGED_GUEST;
+        if (graphical && environment.backend() == DesktopExecBackend.TERMUX)
+            throw new IllegalArgumentException("Termux Shroot terminal recipes do not host a MagicDesk graphical session");
         String keyboard = environment.keyboardDirectory().isEmpty() ? "guest:" + environment.target() : environment.keyboardDirectory();
         var identity = new GuestEnvironment(environment.target(), managed ? "" : "/tmp", user, managed);
         String cwd = directory.isEmpty() && !managed ? "/" : directory;
@@ -141,11 +141,11 @@ final class LinuxLaunchRecipe {
                         ? managed ? List.of() : List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc", command));
         plan = new GuestLaunchPlan(plan.environment(), plan.directory(), plan.command(), environment.magicDesk(), plan.network());
         String exec = DesktopExecTemplate.encodeArguments(graphical
-                ? List.of("env", "MAGICDESK_GUEST_LABEL=" + name, "sh", "-c",
-                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments());
+                ? List.of("env", "SHROOT_GUEST_LABEL=" + name, "sh", "-c",
+                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments(environment.backend().shrootCli()));
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
-                exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, !graphical)
+                exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(), !graphical)
                 .withLiteralExec(true).withGraphics(graphical ? new GraphicalLaunchOptions(protocol,
                         presentation == Presentation.DESKTOP, keyboard, "",
                         "GUEST:" + environment.target().length() + ":" + environment.target() + ":" + user, GraphicalConnectionMode.ROUTED) : null);

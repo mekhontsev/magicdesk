@@ -298,6 +298,7 @@ final class AppearanceSettings implements AutoCloseable {
             case ACCENT -> R.string.appearance_color_accent;
             case DANGER -> R.string.appearance_color_danger;
             case ATTENTION -> R.string.appearance_color_attention;
+            case SUCCESS -> R.string.appearance_color_success;
             case HOVER -> R.string.appearance_color_hover;
             case DESKTOP_TEXT -> R.string.appearance_color_desktop_text;
             case TRANSPARENT -> R.string.appearance_color_transparent;

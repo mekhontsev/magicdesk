@@ -63,7 +63,7 @@ final class X11Sessions {
 
     private static Session start(Context context, String name, String command, String directory, String desktopFile,
             RecentApplicationStore.Entry recipe, DesktopExecBackend backend, GraphicalLaunchOptions graphics) {
-        if (graphics.connectionMode() == GraphicalConnectionMode.ROUTED && backend != DesktopExecBackend.SHELL)
+        if (graphics.connectionMode() == GraphicalConnectionMode.ROUTED && backend == DesktopExecBackend.TERMUX)
             throw new IllegalArgumentException("Routed connections require the selected Shell executor");
         Context app = context.getApplicationContext();
         X11Execution execution = new X11Execution(app, backend, graphics.keyboardDirectory());
@@ -189,6 +189,11 @@ final class X11Sessions {
         private volatile List<X11Session.Window> windows = List.of();
         private Listener clipboardOwner;
         final HostedWindowPresentation presentation;
+        final HostedOffscreen offscreen = new HostedOffscreen(window -> new X11SurfaceOutput(openOutput(window)),
+                () -> GraphicalSessions.changed(id(), "output_ready"));
+        final HostedSessionClose shutdown = new HostedSessionClose();
+        @Override public boolean backgroundOutput() { return offscreen.enabled(); }
+        @Override public void viewerAttached() { offscreen.close(); }
         private final HostedWindowOwners windowControlOwners = new HostedWindowOwners();
 
         Session(Context context, X11Execution execution, String name, String command,
@@ -211,6 +216,17 @@ final class X11Sessions {
         int scalePercent() { return scalePercent; }
         String fileEnvironment() { return launch.fileEnvironment; }
         boolean canExecuteHostCommand() { return launch.fileEnvironment.isEmpty(); }
+        GraphicalConnection connect(int uid, ExecutorSocketEndpoint.Factory factory, Runnable ended) throws java.io.IOException {
+            IX11Server current;
+            synchronized (this) {
+                if (!ready() || server==null) throw new java.io.IOException("X11 session is not ready");
+                current=server;
+            }
+            var description=new Bundle(); description.putString("graphicsProtocol","x11");
+            description.putString("display",display);
+            description.putByteArray("xauthority",java.util.Base64.getDecoder().decode(launch.stdin.trim()));
+            return GraphicalConnection.acquire(resources,uid,factory,current::acceptClient,description,ended);
+        }
         synchronized void host(int taskId, long window, boolean focused) {
             if (focused) hosts.remove(taskId);
             hosts.put(taskId, window);
@@ -532,7 +548,7 @@ final class X11Sessions {
                 if (graphics.connectionMode() == GraphicalConnectionMode.ROUTED) {
                     var resource = resources.reserve();
                     try {
-                        var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, process::acceptClient, this::fail);
+                        var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, 0, execution.commands.endpointFactory(), process::acceptClient, this::fail);
                         resource.attach(endpoint);
                         clientEndpoint = endpoint.name;
                     } catch (java.io.IOException | RuntimeException failure) { resource.close(); throw failure; }
@@ -604,6 +620,7 @@ final class X11Sessions {
             MAIN.post(() -> {
                 LAUNCHES.remove(id());
                 presentation.close();
+                offscreen.close();
                 for (Session session : list()) session.changed();
             });
             DesktopAutomationEventJournal.record("x11", "session_finished", terminal != State.FAILED,
@@ -621,6 +638,8 @@ final class X11Sessions {
 
         private void changed() {
             MAIN.post(() -> {
+                var session = GraphicalSessions.find(id());
+                if (session != null) session.refresh();
                 for (Listener listener : listeners) listener.onChanged();
                 presentWindows();
                 GraphicalSessions.changed(id(), "changed");

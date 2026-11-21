@@ -64,15 +64,16 @@ public final class UiPresentationContractTest {
     }
 
     @Test
-    public void applicationSettingsUseTheDesktopOnlyOnTheCurrentDisplay()
+    public void settingsToolsFollowTaskOwnershipInsteadOfDisplayPresence()
             throws IOException {
-        final String source = read("SettingsActivity.java");
-        final String launch = source.substring(source.indexOf("public void openApplicationSettings()"),
-                source.indexOf("public void openDiagnostics()"));
-        assertTrue(launch.contains("final android.view.Display display = getDisplay();"));
-        assertTrue(launch.contains("DesktopRuntimeBridge.hasWorkspace(displayId)"));
-        assertTrue(launch.contains("&& DesktopRuntimeBridge.openApplicationSettings(displayId, null)"));
-        assertTrue(launch.contains("startActivityOnCurrentDisplay("));
+        final String launch = RuntimeSourceFixture.methods("SettingsActivity",
+                "openApplicationSettings", "openDiagnostics", "openTool");
+        assertTrue(launch.contains("openTool(AppPresentationSettingsActivity.createIntent(this))"));
+        assertTrue(launch.contains("openTool(DiagnosticsActivity.createIntent(this))"));
+        assertTrue(launch.contains("ToolApplications.openSibling(this, intent"));
+        assertFalse(launch.contains("DesktopRuntimeBridge"));
+        final String phone = RuntimeSourceFixture.methods("ControlActivity", "openSettings");
+        assertTrue(phone.contains("ToolLaunchTarget.resolve(\"phone\", 0"));
     }
 
     private static String read(final String name) throws IOException {

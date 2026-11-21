@@ -31,6 +31,18 @@ public final class DesktopSelfTestCleanupOrchestrationTest {
     @Test public void shellLossDuringCleanupCannotReportPass() throws Exception {
         verify("ShellAccess.loseOnClose = true; run(result, DesktopSelfTestTarget.PHONE, 0, null); check(result.state == DesktopSelfTestResult.State.FAIL, \"shell loss reported PASS\");");
     }
+    @Test public void independentProbeCleanupDoesNotAcquireOrPresentHome() throws Exception {
+        verify("""
+                DesktopRuntimeBridge.active = false;
+                DesktopHomeRoleLease.lease = null;
+                run(result, DesktopSelfTestTarget.SIMULATED, 7, new SimulatedDisplayLease(), false);
+                check(events.contains("remove"), "probe fixtures retained");
+                check(events.contains("lease-close"), "probe display retained");
+                check(!events.contains("close-request"), "independent probe closed Desktop");
+                check(!events.contains("verify-home"), "independent probe required HOME presentation");
+                check(result.state == DesktopSelfTestResult.State.PASS, result.detail);
+                """);
+    }
     private static void verify(final String scenario) throws Exception {
         RuntimeSourceFixture.verify("""
                 static final List<String> events = new ArrayList<>();
@@ -93,6 +105,8 @@ public final class DesktopSelfTestCleanupOrchestrationTest {
                 static void waitForNoLiveDesktopTasks(int display) throws IOException {}
                 static void waitForDesktopRepositoryEmpty(int display) throws IOException {}
                 static void waitForTaskAbsentFromDesktopRepository(int display, int task) throws IOException {}
+                static void run(DesktopSelfTestResult result, DesktopSelfTestTarget target,
+                        int display, SimulatedDisplayLease lease) { run(result, target, display, lease, true); }
                 public static void verify() { DesktopSelfTestResult result = new DesktopSelfTestResult();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods("DesktopSelfTestCleanup",
                 "run", "closeDesktopSessionAndWait", "requireShell"));

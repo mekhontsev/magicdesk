@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Папки Android</string>
+    <string name="folder_connect">Подключить папку</string>
+    <string name="folder_ro">Только чтение</string>
+    <string name="folder_rw">Чтение и запись</string>
+    <string name="folder_access">Доступ к папке</string>
+    <string name="folder_unavailable">Нет разрешения</string>
+    <string name="folder_forget">Забыть подключение</string>
+    <string name="folder_forget_message">В новых сессиях папка %1$s больше не будет подключаться. Файлы в Android не удаляются.</string>
+    <string name="folder_next">В новых сессиях: %1$s</string>
+</resources>

@@ -28,7 +28,7 @@ Terminal=true
 
 The built-in **New command app** editor creates this same format from the
 Desktop or Files background menu and from the Console toolbar. Creating an app
-from Console preselects that Console's Android-shell or Termux backend and its
+from Console preselects that Console's User, Shell or Termux backend and its
 current directory. An executable file or shell script can prefill the editor
 through **Add as terminal app**. Ordinary command entries are stored under
 `/storage/emulated/0/Desktop` and appear in Start. Linux launchers use the save
@@ -37,8 +37,9 @@ locations described below; all remain editable Desktop Entry files.
 Select **Linux (Termux)** to create a guest launcher. **PRoot (proot-distro)**
 lists installed environments only when selected, through the configured Termux
 application's `RUN_COMMAND` service. **Custom script (chroot or other)** instead
-accepts the absolute path of an executable entry script. **Linux (Shell / root)**
-uses the same script contract through the authorized command service. All offer
+accepts the absolute path of an executable entry script. **Linux (Shell)**
+uses the same script contract through the authorized command service;
+**Linux (User)** uses MagicDesk's app UID without that service. All offer
 **Terminal** (an empty command opens the guest login shell), **Graphical application**,
 or **Linux desktop**, with an X11/Wayland protocol selector for graphics.
 Enter a command already installed in that environment.
@@ -58,9 +59,10 @@ Termux Linux entries are saved in the selected Termux environment's
 `${XDG_DATA_HOME:-$HOME/.local/share}/applications/magicdesk-NAME.desktop`,
 so the editor and shared launch services need Termux integration, not MagicDesk's
 shell/root service or Desktop. A custom chroot script may separately require
-root authorization for its own setup and entry. Shell Linux entries are saved
-as ordinary Desktop files, without Termux. Graphical Shell entries additionally
-specify an Android-visible XKB data directory from the prepared environment.
+root authorization for its own setup and entry. User and Shell Linux entries
+are saved as ordinary Desktop files, without Termux. These custom entries need
+shell file access to save, independently of their launch executor. Graphical
+entries also specify an Android-visible XKB data directory from the prepared environment.
 Start refreshes after saving; Recent retains the launch recipe and its selected
 executor, including the package identity for Termux. Identical saves do not
 create duplicates, and a different entry with the same name is not overwritten.
@@ -68,9 +70,10 @@ These launchers use ordinary
 `Exec`, `Terminal`, `X-MagicDesk-Graphics` and `X-MagicDesk-GraphicsMode`;
 PRoot and custom scripts use their selected executor, not a separate command backend.
 
-**Shroot (experimental)** selects a named environment from MagicDesk's library
-or an explicitly prepared store through the Shell executor. It shares the same
-terminal/application/desktop, user and directory controls. Named environments
+**Shroot (experimental)** selects a named environment or an explicitly prepared
+store through the selected User or Shell executor. Each has its own library.
+Identical distribution names do not identify the same installation. Shroot shares
+the terminal/application/desktop, user and directory controls. Named environments
 also publish installed application entries to Start; see
 [Shroot environments](shroot.md#named-environments). The selected store
 identity belongs to the recipe, not to a global current distribution.
@@ -102,8 +105,8 @@ guest paths for nested desktop sessions. Shroot's CLI supplies abstract-socket
 routes itself. See [Linux audio](audio.md) and the prepared chroot example.
 
 The script is an entry adapter for an already prepared environment, not a
-container installer. It runs as the selected Termux UID or the already-authorized
-shell service UID and receives:
+container installer. It runs as the selected User, Shell or Termux identity and
+receives:
 
 ```text
 /absolute/entry-script [--user NAME] [--work-dir /guest/path] [-- PROGRAM ARG...]
@@ -133,8 +136,8 @@ directory. The Linux editor emits `X-MagicDesk-FileEnvironment`, an explicit
 environment/user identity retained in Recent and used to isolate launch correlation.
 This is a MagicDesk desktop-entry extension, not a freedesktop standard key.
 
-The experimental [guest runtime](shroot.md) uses normal Shell entries
-with a prepared store. Its X11 and Wayland recipes declare
+The [guest runtime](shroot.md) uses ordinary User or Shell entries with a
+prepared store owned by that executor. Its X11 and Wayland recipes declare
 `X-MagicDesk-GraphicsConnection=routed`: explicit guest addresses connect through
 the captured executor's admission endpoint, without requiring an app-private
 host path inside that namespace. `inherited` selects a single Wayland connection.
@@ -165,7 +168,7 @@ prepared-rootfs example with launch-scoped mounts. MagicDesk never acquires root
 on an individual recipe's behalf. Both PRoot and chroot use this guest file
 contract; ordinary Termux applications do not need it.
 
-Fixed-purpose scripts can be used directly as ordinary Shell or Termux command
+Fixed-purpose scripts can be used directly as ordinary User, Shell or Termux command
 entries, with optional X11 or Wayland presentation. They need the option/argv contract only
 to use the Linux editor's shared user, directory and command fields.
 
@@ -214,23 +217,24 @@ A literal percent must be written as `%%` in either mode.
 
 `Terminal` selects how the command is presented:
 
-- `Terminal=true` opens a command window for the selected backend. The shell
-  and Termux backends both use MagicDesk Console with their respective PTY
-  transports.
+- `Terminal=true` opens MagicDesk Console using the selected User, Shell or
+  Termux PTY transport.
 - Missing or false `Terminal` starts graphical presentation when configured, otherwise
   runs the command in the background. Launch completion or failure is reported
   through the calling UI or automation result.
 
-The default backend is the Android shell identity authorized for MagicDesk:
+An entry without an explicit backend uses Shell, the authorized command service:
 
 ```ini
 X-MagicDesk-ExecBackend=shell
 ```
 
-Shell commands run through MagicDesk's bundled mksh with `-c`. Their programs,
-filesystem access, environment, and UID are those of the active shell service,
-not those of a regular Android application and not those of Termux. With
-`Terminal=true`, the command opens in MagicDesk Console. Background commands use
+Select `X-MagicDesk-ExecBackend=app` for User execution without privileged access.
+User and Shell run MagicDesk's bundled mksh with `-c`, under the app UID or
+active service identity respectively. Each retains its own HOME, tools and Linux
+library; a failed command never switches backend. This entry-level default is
+independent of the saved executor selected for new interactive consoles.
+With `Terminal=true`, the command opens in MagicDesk Console. Background commands use
 the same interpreter without interactive history or terminal startup hooks.
 The Android tool directory's `sh` and `mksh` names select this executable;
 explicit interpreter paths and script shebangs are not rewritten. Guest Linux
@@ -242,7 +246,7 @@ The standard optional `Path` field selects an absolute working directory:
 Path=/storage/emulated/0/project
 ```
 
-For the shell backend it becomes Console's initial directory or a checked
+For User and Shell it becomes Console's initial directory or a checked
 `cd` before a background command. For the Termux backend it is passed as the
 working directory of Termux's `RUN_COMMAND` request. A relative or malformed
 path invalidates the entry.
@@ -440,8 +444,10 @@ used by apps that need to submit their own commands.
 - `fullscreen`: request a true fullscreen task.
 
 Unknown or missing values use `auto`. Window modes apply to an Android target
-or to the Android host created for a graphical recipe. They require managed Desktop
-placement for windowed mode; independent placement remains fullscreen.
+or to the Android host created for a graphical recipe. Independent placement
+defaults to fullscreen; an explicit Window selection can request freeform
+without Desktop when Shell and the firmware support it. Stock Nubia windowing
+requires managed Desktop.
 They do not alter a generic background shell process. Start's explicit mode
 selection can override the recipe's default for that launch.
 

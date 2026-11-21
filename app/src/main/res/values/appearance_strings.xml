@@ -7,6 +7,7 @@
     <string name="appearance_color_accent">Accent</string>
     <string name="appearance_color_danger">Danger</string>
     <string name="appearance_color_attention">Attention</string>
+    <string name="appearance_color_success">Success</string>
     <string name="appearance_color_hover">Hover</string>
     <string name="appearance_color_desktop_text">Desktop text</string>
     <string name="appearance_color_transparent">Transparent</string>

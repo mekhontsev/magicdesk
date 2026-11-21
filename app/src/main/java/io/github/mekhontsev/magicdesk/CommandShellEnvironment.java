@@ -18,17 +18,37 @@ final class CommandShellEnvironment {
     private CommandShellEnvironment() { }
 
     static void configure(String endpoint, String apk, String libraries) throws IOException {
+        configure(endpoint, apk, libraries, Path.of(ShellExecutionEnvironment.prepareToolsDirectory()), false);
+    }
+
+    static void configureLocal(android.content.Context context, String endpoint) throws IOException {
+        var paths = RuntimeDataPaths.selected(android.system.Os.getuid(), context.getDataDir().toPath());
+        paths.prepare();
+        configure(endpoint, context.getApplicationInfo().sourceDir, context.getApplicationInfo().nativeLibraryDir,
+                paths.tools(), true);
+    }
+
+    private static void configure(String endpoint, String apk, String libraries, Path directory, boolean interpreted) throws IOException {
         if (endpoint == null || !endpoint.contains(":") || apk == null || !apk.startsWith("/")) {
             throw new IllegalArgumentException("Invalid command environment");
         }
-        final Path directory = Path.of(ShellExecutionEnvironment.prepareToolsDirectory());
         final String shell = AndroidShell.path(libraries);
         AndroidShell.installAliases(directory, shell);
         install(directory.resolve("magicdesk"), AndroidShell.script(shell, BODY));
         install(directory.resolve("magicdesk-connect"), AndroidShell.script(shell, CONNECT_BODY));
         install(directory.resolve(GuestLaunchPlan.TOOL), AndroidShell.script(shell, GuestRuntimeCommand.BODY));
+        if (interpreted) {
+            Path functions = directory.resolve("functions");
+            Files.createDirectories(functions);
+            for (String name : new String[]{"magicdesk", "magicdesk-connect", GuestLaunchPlan.TOOL}) {
+                Files.setPosixFilePermissions(directory.resolve(name),
+                        java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+                install(functions.resolve(name), name + "() { \"$MAGICDESK_ANDROID_SHELL\" \"$MAGICDESK_TOOLS/"
+                        + name + "\" \"$@\"; }\n");
+            }
+        }
         Files.deleteIfExists(directory.resolve("magicdesk-guest"));
-        sValues = new Values(endpoint, apk, libraries);
+        sValues = new Values(endpoint, apk, libraries, interpreted ? directory.resolve("functions").toString() : null);
     }
 
     private static void install(Path script, String contents) throws IOException {
@@ -53,6 +73,7 @@ final class CommandShellEnvironment {
         environment.remove("MAGICDESK_COMMAND_CLIENT");
         environment.remove("MAGICDESK_COMMAND_BRIDGE");
         environment.remove(GuestRuntimeCommand.LIBRARIES_ENV);
+        environment.remove("FPATH");
         if (values == null) return;
         environment.put(MagicDeskCli.ENDPOINT_ENV, values.endpoint);
         environment.put("MAGICDESK_COMMAND_BUILD", BuildConfig.SOURCE_ID);
@@ -60,6 +81,7 @@ final class CommandShellEnvironment {
         environment.put("MAGICDESK_COMMAND_BRIDGE", values.libraries + "/libmagicdesk_command_bridge.so");
         environment.put(APK_ENV, values.apk);
         environment.put(GuestRuntimeCommand.LIBRARIES_ENV, values.libraries);
+        if (values.functions != null) environment.put("FPATH", values.functions);
     }
 
     static String termuxSetup(String endpoint, String apk, String libraries) {
@@ -82,5 +104,5 @@ final class CommandShellEnvironment {
                 + "export PATH=\"$md_bin:$PATH\"\n";
     }
 
-    private record Values(String endpoint, String apk, String libraries) { }
+    private record Values(String endpoint, String apk, String libraries, String functions) { }
 }

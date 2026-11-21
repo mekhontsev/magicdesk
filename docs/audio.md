@@ -10,7 +10,7 @@ Android audio capture or Linux sound device is required.
 ## Ownership and Transport
 
 The selected command executor admits connections. Shell uses its existing
-`ShellUnixEndpoint`; Termux uses an authenticated `app_process` endpoint broker
+`UnixSocketEndpoint`; Termux uses an authenticated `app_process` endpoint broker
 under its own UID. The broker passes each accepted socket FD once. Neither
 Binder nor Java forwards PCM packets. Owner death closes admission and revokes
 that owner's connected clients without disconnecting other launches.
@@ -70,6 +70,12 @@ Shroot routes `/tmp/magicdesk-audio/pipewire` and `/tmp/magicdesk-audio/pulse` t
 the authorized abstract endpoints; shell does not need to create filesystem
 socket nodes on Android. No launcher silently changes privilege identity.
 
+Independent Linux APKs use the same routed audio admission under their own UID.
+Their broker creates abstract endpoints only; long private application paths do
+not become Unix socket paths. Native and PRoot clients retain their required
+filesystem endpoints. The optional connection grants protocol access, not host
+commands or files, and revocation leaves unrelated audio owners running.
+
 `install_linux.sh` installs PipeWire client support with GUI profiles. Individual
 applications connect directly. The shared `magicdesk-desktop-session` launcher
 uses `magicdesk-audio-session`, which owns a guest PipeWire core, WirePlumber and
@@ -112,8 +118,8 @@ PipeWire configuration.
 
 `audio-runtime/native-deps` pins PipeWire sources and checksums, minimal Bionic
 compatibility patches and explicit FD admission. The Android module packages
-only its library allowlist and license texts. Windows builds consume
-`:audio-runtime:exportRuntime` with `-PmagicDeskAudioRuntime=PATH`.
+only its library allowlist and license texts. A runtime exported with
+`:audio-runtime:exportRuntime` can be reused with `-PmagicDeskAudioRuntime=PATH`.
 
 - `audio-runtime/tests/ring.c`: wraparound, bounds, gain and concurrent transfer.
 - `audio-runtime/tests/smoke.py`: real Pulse and native PipeWire playback through

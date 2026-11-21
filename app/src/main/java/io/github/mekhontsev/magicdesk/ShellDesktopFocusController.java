@@ -220,11 +220,39 @@ final class ShellDesktopFocusController implements AutoCloseable {
         }
         final CommitTarget target = watchCommitTarget(taskId);
         try {
-            return call(() -> convergeAfterCommitOnWorker(
-                    target, barrier, sampleRequester));
+            return call(() -> {
+                boolean converged = convergeAfterCommitOnWorker(target, barrier, sampleRequester);
+                if (!converged && !target.cancelled) recordFailedCommit(taskId);
+                return converged;
+            });
         } finally {
             releaseCommitTarget(target);
         }
+    }
+
+    private void recordFailedCommit(int targetTaskId) {
+        StringBuilder detail = new StringBuilder("display=").append(mDisplayId)
+                .append(" target=").append(targetTaskId);
+        try {
+            // Failure-only, bounded snapshots: retain facts before a later report changes focus.
+            detail.append(" ").append(TaskInputWindowParser.describeFocus(
+                    FrameworkInputSnapshotSource.readLocal(), mDisplayId));
+            detail.append(" tasks(top-first)=");
+            for (FrameworkTaskSnapshot task : FrameworkTaskSnapshotSource.readWindowState(
+                    mTaskService, mDisplayId, 16)) {
+                detail.append('[').append(task.taskId).append("/root=").append(task.rootTaskId)
+                        .append("/area=").append(task.displayAreaFeatureId)
+                        .append("/mode=").append(task.windowingMode)
+                        .append("/visible=").append(task.visible)
+                        .append("/focused=").append(task.focused).append(']');
+            }
+        } catch (IOException | ReflectiveOperationException | RuntimeException error) {
+            detail.append(" captureError=").append(error.getClass().getSimpleName());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            detail.append(" captureInterrupted");
+        }
+        InputFocusCommitAwaiter.recordFailure(detail.toString());
     }
 
     /** Completes a structural task commit without claiming input focus. */
@@ -301,17 +329,12 @@ final class ShellDesktopFocusController implements AutoCloseable {
 
     private static boolean isDesktopHostSnapshot(
             final FrameworkTaskSnapshot task) {
-        return task.activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME
+        return task.activityType != 0
                 && (BuildConfig.APPLICATION_ID.equals(task.topPackage)
                         || BuildConfig.APPLICATION_ID.equals(
                                 task.packageName))
-                && (isDesktopHostComponentName(task.topActivityName)
-                        || isDesktopHostComponentName(task.componentName));
-    }
-
-    private static boolean isDesktopHostComponentName(
-            final String componentName) {
-        return DesktopHostComponents.isHostComponentName(componentName);
+                && (task.activityType == DesktopHostComponents.hostActivityType(task.topActivityName)
+                        || task.activityType == DesktopHostComponents.hostActivityType(task.componentName));
     }
 
     private void enqueueFocusReconciliation(
@@ -849,9 +872,9 @@ final class ShellDesktopFocusController implements AutoCloseable {
             final int activityType,
             final String packageName,
             final String className) {
-        return activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME
+        return activityType != 0
                 && BuildConfig.APPLICATION_ID.equals(packageName)
-                && DesktopHostComponents.isHostClassName(className);
+                && activityType == DesktopHostComponents.activityTypeForClass(className);
     }
 
     static boolean requiresInputFocusRefresh(

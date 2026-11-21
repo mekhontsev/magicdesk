@@ -44,11 +44,15 @@ behavior, static verification and remaining device coverage.
   `GraphicalSessions` supplies shared manager and automation controls. Protocol
   owners retain their catalogs; `HostedWindowPresentation` owns Android placement
   reservations and replacement hosts for both protocols.
-- `ToolApplications` and `ToolLaunchTarget` select ordinary fullscreen Activity
+- `ToolApplications` and `ToolLaunchTarget` select ordinary Activity
   placement or the existing managed Desktop launch path. Phone control-panel
   tools do not acquire HOME or require Desktop provisioning. Background launches
   and privileged cross-display placement use the shell service; ordinary phone
   launches and interactive app-only external launches use public Activity options.
+  Fresh built-in phone tasks use that local path even while Desktop is active,
+  without joining its command queue or reusing a managed task. Control Panel
+  selects ordinary phone placement for Settings; child tools follow their source
+  task's ownership, not merely the presence of a workspace on the same display.
   `InteractiveActivityLaunch` owns that UI choice. Without shell, a live Activity
   can request any accessible display, subject to Android's Intent-specific
   launch check and secondary-Activity feature. Pinned destinations retain identity
@@ -59,6 +63,11 @@ behavior, static verification and remaining device coverage.
   a missing own task is distinct from one that needs privileged placement.
   The Android integration gateway uses the same placement selection for
   third-party Activities, content, shortcuts and notification actions.
+  Ordinary launches default to fullscreen. Explicit freeform uses the same
+  privileged Activity transport, with bounds and STANDARD activity type, without
+  acquiring HOME or Desktop. `PlatformWindowingDriver` owns firmware admission;
+  Nubia requires managed Desktop for its task/Recents recovery. The launcher
+  and automation share this policy, including retained-window placement.
 - `DisplayOperations` creates and lists display resources without starting
   Desktop. A viewer, an owned virtual display and a Desktop session have separate
   lifetimes. Removal still observes the existing session cleanup boundary.
@@ -80,6 +89,13 @@ behavior, static verification and remaining device coverage.
   independent tools and automation on an unsupported SDK.
 
 ## Design Principles
+
+Command execution selects **User**, **Shell** or **Termux** independently of
+terminal/graphics presentation and Linux storage. `CommandExecution` captures
+the actual UID, home and endpoint authority; retained sessions never switch
+executor on reconnect or failure. User and Shell share the native PTY/pipe
+protocol and managed Shroot storage. Shell remains named Shell when running
+with UID 0; root authority is not a request for a native-root guest engine.
 
 MagicDesk follows these constraints:
 
@@ -128,14 +144,17 @@ do not own desktop UI or session state. Runtime composition occurs only in the
 | Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Terminal emulator | `terminal-emulator/` | Local byte-stream parser, screen buffers and terminal graphics |
+| Terminal Android runtime | `terminal-runtime/` | Shared renderer/input interface, native PTY framing and process ownership |
+| Connection runtime | `connection-runtime/` | Explicit executor-owned Unix endpoints, Binder FD admission and revocable streams |
 | Shared graphical runtime | `hosted-runtime/` | Server lifecycle, Vulkan/software composition, buffer transport and Android frame presentation |
 | Linux audio runtime | `audio-runtime/` | PipeWire protocols, mixing and AAudio output in the private audio process |
 | X11 Android runtime | `x11-runtime/` | Server entry point, Binder connection, JNI and Android renderer adapters |
 | X11 native engine | `vendor/magicdesk-x11/lorie/src/main/cpp/` | X server, protocol and adapters to shared multi-output graphics |
 | Wayland runtime | `wayland-runtime/` | wlroots compositor, protocol state, client admission and Android adapters |
-| Shroot native runtime | `native/shroot/` | Optional ARM64 Linux execution, supervision, inode namespace and OCI image tools under the selected command identity |
-| Linux environment manager | `GuestEnvironmentLibrary`, `GuestOciRegistry` | Named stores, verified public OCI acquisition and shared image dependencies; existing PTY/graphics services own launch presentation |
+| Shroot native runtime | Pinned [`native/shroot`](https://github.com/mekhontsev/shroot) submodule | Independent ARM64 engine, CLI and C API. The APK packages the native helpers; each launch runs under the selected executor. |
+| Linux environment manager | Native Shroot catalog/API; `GuestEnvironmentLibrary` adapter | Native named stores, verified public OCI acquisition and shared image dependencies; existing PTY/graphics services own launch presentation |
 | Launcher template | `launcher-template/` | Build-time unsigned Activity APK used to export launcher entries; not a standalone product |
+| Linux application template | `guest-template/` | Independent Android UID, private Shroot runtime/store, retained terminal and optional host connections |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
@@ -184,8 +203,9 @@ These constraints define the supported implementation paths:
   chords/system keys to a focused whole-Linux-desktop host. Ordinary typing and
   pointer motion retain Android dispatch. Power and volume keys remain Android's.
   Phone pointer injection is a separate virtual device, not physical relay.
-- Phone-screen-off process protection uses only the transient vendor
-  service-working heartbeat; no persistent freezer whitelist is installed.
+- Physical phone-panel control uses shared Android commands and a scoped CPU
+  wake lock. Optional process protection uses only transient vendor
+  service-working hints; no persistent freezer whitelist is installed.
 - ZTE audio source `80` is a `MediaRecorder` path. Replacing it with
   `AudioRecord` fails in AudioFlinger even for a privileged UserService.
 
@@ -242,12 +262,12 @@ also builds its server/renderer library. CI verifies
 that the main APK contains the required helpers and no `.ko`, and that the Kernel
 Fixes APK contains exactly the reviewed module and no main-app native helper.
 
-The APK, main-app helpers and graphical runtimes cover ARM64 only. Linux
-and Windows CI both target Android ARM64; package checks reject other native ABIs.
+The APK, main-app helpers and graphical runtimes cover ARM64 only. Linux CI
+targets Android ARM64; package checks reject other native ABIs.
 Both helper compiler paths and graphical runtimes target the APK's API 34 minimum.
 Wayland dependencies are pinned source builds through the Android NDK on Linux
-and the Android toolchain in Termux. Linux CI exports the verified dependency
-prefix for Windows CI; Windows consumes it through `magicDeskWaylandRuntime`.
+and the Android toolchain in Termux. An exported dependency prefix can be reused
+through `magicDeskWaylandRuntime`; CI verifies that export on Linux.
 The build does not require an installed Termux runtime on the target device.
 See [Wayland build instructions](wayland.md#build).
 Compilation does not establish native compatibility. Device coverage is documented in

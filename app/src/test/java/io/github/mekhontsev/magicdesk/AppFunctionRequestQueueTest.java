@@ -66,6 +66,20 @@ public final class AppFunctionRequestQueueTest {
         }
     }
 
+    @Test public void shutdownRejectsDequeueDuringCancellationCallbacks() {
+        final var executor = Executors.newSingleThreadExecutor();
+        final var requests = new AppFunctionRequestQueue(executor);
+        final var actions = new AtomicInteger();
+        final var next = new java.util.concurrent.atomic.AtomicReference<Runnable>();
+        requests.create(() -> { }, () -> next.get().run());
+        final var queued = requests.create(actions::incrementAndGet, () -> { });
+        next.set(queued);
+        requests.close();
+        assertTrue(queued.isCancelled());
+        assertEquals(0, actions.get());
+        assertEquals(0, requests.pendingCount());
+    }
+
     @Test(timeout = 5000)
     public void shutdownCancelsRunningQueuedAndNotYetSubmittedRequests() throws Exception {
         final var executor = Executors.newSingleThreadExecutor();

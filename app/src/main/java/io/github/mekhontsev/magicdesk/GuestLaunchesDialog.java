@@ -13,8 +13,8 @@ final class GuestLaunchesDialog {
                 .setNegativeButton(android.R.string.cancel, null).create();
         dialog.show();
         try {
-            var request = new CommandExecution(activity, DesktopExecBackend.SHELL).start(
-                    GuestEnvironmentCatalog.command("image", "launches", environment.store()), "", "Guest launches", null,
+            var request = new CommandExecution(activity, environment.backend()).start(
+                    GuestEnvironmentCatalog.storeCommand(environment, "launches"), "", "Guest launches", null,
                     (code, output, error) -> activity.runOnUiThread(() -> {
                         if (!dialog.isShowing() || activity.isFinishing() || activity.isDestroyed()) return;
                         try {
@@ -47,8 +47,8 @@ final class GuestLaunchesDialog {
 
     private static void stop(Activity activity, GuestEnvironmentCatalog.Entry environment, String id) {
         try {
-            new CommandExecution(activity, DesktopExecBackend.SHELL).start(
-                GuestEnvironmentCatalog.command("image", "stop", environment.store(), id), "", "Stop guest launch", null,
+            new CommandExecution(activity, environment.backend()).start(
+                GuestEnvironmentCatalog.storeCommand(environment, "stop", id), "", "Stop guest launch", null,
                 (code, output, error) -> activity.runOnUiThread(() -> {
                     if (activity.isFinishing() || activity.isDestroyed()) return;
                     if (error != null || code != 0) failure(activity, error == null ? output : ShellAccess.usefulMessage(error));

@@ -1,33 +1,32 @@
 package io.github.mekhontsev.magicdesk.platform.android;
 
 import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
+import io.github.mekhontsev.magicdesk.PhoneDisplayGuard;
 import android.content.Context;
 
-/** No-op phone UI integration for the Generic Android profile. */
+/** Shared Android panel power with optional platform background-work protection. */
 final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     @Override
     public boolean isPhoneScreenOff(final Context context) {
-        return false;
+        return PhoneDisplayGuard.isScreenOff();
     }
 
     @Override
     public boolean isPhoneScreenControlActive() {
-        return false;
-    }
-
-    @Override
-    public boolean setPhoneScreenOff(
-            final boolean screenOff,
-            final int desktopDisplayId) {
-        return false;
+        return PhoneDisplayGuard.isActive();
     }
 
     @Override
     public void requestPhoneScreenRestore() {
+        PhoneDisplayGuard.requestRestore();
+    }
+
+    @Override public boolean restorePhoneScreenForDisplay(int displayId) {
+        return PhoneDisplayGuard.restoreForDisplay(displayId);
     }
 
     @Override
     public boolean isAvailable() {
-        return false;
+        return PhoneDisplayGuard.isAvailable();
     }
 }

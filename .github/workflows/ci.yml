@@ -52,7 +52,6 @@ jobs:
           cache: gradle
 
       - name: Verify native host fixtures
-        if: runner.os == 'Linux'
         timeout-minutes: 3
         env:
           CC: clang
@@ -68,6 +67,15 @@ jobs:
       - name: Verify APK boundary fixtures
         run: python3 -m unittest discover -s scripts/tests -p test_verify_apks.py
 
+      - name: Verify Shroot application integration
+        env:
+          PYTHONPATH: tests/shroot
+        run: |
+          python3 scripts/tests/test_command_shroot.py
+          python3 -m unittest discover -s tests/shroot/unit
+          python3 -m unittest discover -s tests/shroot -p 'test_*fixture*.py'
+          python3 tests/shroot/test_boot_helpers.py
+
       - name: Verify branch and version fixtures
         run: python3 -m unittest discover -s scripts/tests -p test_release_workflow.py
 
@@ -75,7 +83,6 @@ jobs:
         run: python3 -m unittest discover -s scripts/tests -p test_wayland_build.py
 
       - name: Verify Linux installer fixtures
-        if: runner.os == 'Linux'
         run: |
           python3 -m unittest discover -s scripts/tests -p test_install_linux.py
           python3 -m unittest discover -s scripts/tests -p test_flatpak_gl.py
@@ -83,6 +90,17 @@ jobs:
 
       - name: Graphics native host tools
         uses: ./.github/actions/setup-graphics-build
+
+      - name: Verify native shell build with spaces in paths
+        shell: bash
+        run: |
+          build="$RUNNER_TEMP/mksh build with spaces"
+          toolchain="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          cmake -S native/android-shell -B "$build" -G Ninja \
+            "-DCMAKE_TOOLCHAIN_FILE=$toolchain" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-34
+          cmake --build "$build" --parallel 2
+          test -f "$build/libmagicdesk_mksh.so"
 
       - name: Package corresponding source
         run: python3 scripts/package-source.py dist/MagicDesk-source.tar.gz
@@ -93,6 +111,9 @@ jobs:
         shell: bash
         run: |
           python3 scripts/verify-version.py --channel "$VERSION_CHANNEL"
+
+      - name: Verify debug APKs
+        run: ./gradlew --no-daemon verifyDevelopment
 
       - name: Restore release keystore
         if: github.event_name == 'push'
@@ -126,6 +147,9 @@ jobs:
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
+            :terminal-runtime:lintRelease \
+            :connection-runtime:lintRelease \
+            :guest-template:lintRelease \
             :x11-runtime:testDebugUnitTest \
             :x11-runtime:lintRelease \
             :hosted-runtime:testDebugUnitTest \
@@ -145,6 +169,9 @@ jobs:
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
+            :terminal-runtime:lintRelease \
+            :connection-runtime:lintRelease \
+            :guest-template:lintRelease \
             :x11-runtime:testDebugUnitTest \
             :x11-runtime:lintRelease \
             :hosted-runtime:testDebugUnitTest \
@@ -160,24 +187,8 @@ jobs:
       - name: Verify independent X11 host
         run: ./gradlew --no-daemon -p x11-runtime/example :app:assembleDebug :app:lintDebug
 
-      - name: Export Android Wayland runtime
+      - name: Verify Android runtime exports
         run: ./gradlew --no-daemon :wayland-runtime:exportRuntime :audio-runtime:exportRuntime
-
-      - name: Share verified audio runtime with Windows build
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: audio-android-runtime
-          if-no-files-found: error
-          retention-days: 7
-          path: audio-runtime/build/runtime/
-
-      - name: Share verified Wayland runtime with Windows build
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: wayland-android-runtime
-          if-no-files-found: error
-          retention-days: 7
-          path: wayland-runtime/build/runtime/
 
       - name: Verify signed APK and package boundaries
         if: github.event_name == 'push'
@@ -249,108 +260,10 @@ jobs:
             **/build/test-results/**/*.xml
             **/build/reports/tests/**
 
-  windows-smoke:
-    needs: build
-    runs-on: windows-2025
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          submodules: recursive
-
-      - name: Set up JDK
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Validate Android SDK components
-        shell: pwsh
-        run: |
-          $required = @(
-            "$env:ANDROID_SDK_ROOT\platforms\android-37.0\android.jar",
-            "$env:ANDROID_SDK_ROOT\build-tools\37.0.0\aapt2.exe",
-            "$env:ANDROID_SDK_ROOT\ndk\27.3.13750724\toolchains\llvm\prebuilt\windows-x86_64\bin\clang.exe"
-          )
-          foreach ($path in $required) {
-            if (-not (Test-Path $path -PathType Leaf)) {
-              throw "Required Android SDK component not found: $path"
-            }
-          }
-
-      - name: Download Android Wayland runtime
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          gh run download "$env:GITHUB_RUN_ID" --repo "$env:GITHUB_REPOSITORY" --name wayland-android-runtime --dir "$env:RUNNER_TEMP/wayland-runtime"
-          gh run download "$env:GITHUB_RUN_ID" --repo "$env:GITHUB_REPOSITORY" --name audio-android-runtime --dir "$env:RUNNER_TEMP/audio-runtime"
-
-      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
-        with:
-          msystem: UCRT64
-          install: bison patch mingw-w64-ucrt-x86_64-gcc
-
-      - name: X11 native host tools
-        shell: msys2 {0}
-        run: |
-          cygpath -w /ucrt64/bin >> "$GITHUB_PATH"
-          cygpath -w /usr/bin >> "$GITHUB_PATH"
-          # Do not resolve the Windows WSL bash launcher in JVM shell tests.
-          printf 'MAGICDESK_TEST_BASH=%s\n' "$(cygpath -w /usr/bin/bash.exe)" >> "$GITHUB_ENV"
-          printf 'MAGICDESK_BUILD_SHELL=%s\n' "$(cygpath -w /usr/bin/sh.exe)" >> "$GITHUB_ENV"
-
-      - name: Python native build tools
-        shell: pwsh
-        run: |
-          python -m pip install meson==1.9.1 ninja
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Verify native shell build with spaces in paths
-        shell: pwsh
-        run: |
-          $build = "$env:RUNNER_TEMP/mksh build with spaces"
-          $toolchain = "$env:ANDROID_SDK_ROOT/ndk/27.3.13750724/build/cmake/android.toolchain.cmake"
-          cmake -S native/android-shell -B "$build" -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$toolchain" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-34
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build "$build" --parallel 2
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path "$build/libmagicdesk_mksh.so" -PathType Leaf)) {
-            throw "Native shell build did not produce the Android executable"
-          }
-
-      - name: Verify Windows build
-        # libdbus is cross-built as a client library; no message-bus executable is packaged.
-        shell: pwsh
-        run: |
-          .\gradlew.bat --no-daemon "-PmagicDeskWaylandRuntime=$env:RUNNER_TEMP/wayland-runtime" "-PmagicDeskAudioRuntime=$env:RUNNER_TEMP/audio-runtime" verifyDevelopment
-
-      - name: Verify independent X11 host
-        shell: pwsh
-        run: .\gradlew.bat --no-daemon -p x11-runtime/example :app:assembleDebug :app:lintDebug
-
-      - name: Upload Windows test reports
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: windows-test-reports
-          if-no-files-found: warn
-          retention-days: 14
-          path: |
-            **/build/test-results/**/*.xml
-            **/build/reports/tests/**
-
   publish-development:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     needs:
       - build
-      - windows-smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -396,19 +309,18 @@ jobs:
           )
           cat > development-notes.md <<EOF
           This is the latest release-signed development build from \`develop\`.
-          It contains unreleased code and may be less stable than a numbered release.
+          The notes below are preliminary. This build may be less stable than a numbered release.
 
           - Version: \`$version\`
           - Commit: [\`${GITHUB_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
           - CI run: [\`$GITHUB_RUN_NUMBER\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
 
-          MagicDesk includes first-class multi-window Termux integration. Each
-          Termux-backed Console is an independent native Android desktop window
-          with its own PTY, shell, lifecycle, saved geometry, and live foreground
-          program label.
-
           The APK uses the same signing certificate as official MagicDesk releases.
+
           EOF
+          base_version=${version%%-dev.*}
+          tar -xOzf download/MagicDesk-source.tar.gz \
+            "MagicDesk/docs/releases/$base_version.md" >> development-notes.md
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Publish rolling development prerelease

@@ -199,6 +199,8 @@ public final class TerminalEmulator {
 
     /** Holds OSC and device control arguments, which can be strings. */
     private final StringBuilder mOSCOrDeviceControlArgs = new StringBuilder();
+    private volatile String workingDirectoryUri = "";
+    public String getWorkingDirectoryUri() { return workingDirectoryUri; }
 
     /**
      * True if the current escape sequence should continue, false if the current escape sequence should be terminated.
@@ -419,6 +421,12 @@ public final class TerminalEmulator {
 
     public TerminalBuffer getScreen() {
         return mScreen;
+    }
+
+    /** Discard local history even when a full-screen program owns the alternate screen. */
+    public void clearHistory() {
+        mCommands.clear();
+        mMainBuffer.clearTranscript();
     }
 
     public TerminalCommandHistory getCommandHistory() { return mCommands; }
@@ -2165,6 +2173,9 @@ public final class TerminalEmulator {
             case 2: // Change window title to T.
                 setTitle(textParameter);
                 break;
+            case 7:
+                workingDirectoryUri = textParameter;
+                break;
             case 8:
                 mHyperlink = TerminalHyperlink.parse(textParameter);
                 break;
@@ -2681,6 +2692,7 @@ public final class TerminalEmulator {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
+        workingDirectoryUri = "";
         resetScrollPresentation();
         mUnderlineColor = mSavedStateMain.mSavedUnderlineColor = mSavedStateAlt.mSavedUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
         mGraphics.reset();
@@ -2742,6 +2754,10 @@ public final class TerminalEmulator {
         }
     }
 
+    public boolean isBracketedPasteEnabled() {
+        return isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
+    }
+
     /** If DECSET 2004 is set, prefix paste with "\033[200~" and suffix with "\033[201~". */
     public void paste(String text) {
         // First: Always remove escape key and C1 control characters [0x80,0x9F]:
@@ -2750,7 +2766,7 @@ public final class TerminalEmulator {
         text = text.replaceAll("\r?\n", "\r");
 
         // Then: Implement bracketed paste mode if enabled:
-        boolean bracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
+        boolean bracketed = isBracketedPasteEnabled();
         if (bracketed) mSession.write("\033[200~");
         mSession.write(text);
         if (bracketed) mSession.write("\033[201~");

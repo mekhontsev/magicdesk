@@ -17,7 +17,7 @@ final class ExecutorEndpointBroker implements Closeable {
     final ExecutorSocketEndpoint.Factory factory;
 
     ExecutorEndpointBroker(Context context, CommandExecution commands, Consumer<Throwable> failed) throws IOException {
-        if (commands.termux == null) { factory = ShellAccess::openUnixEndpoint; return; }
+        if (commands.termux == null) { factory = commands.endpointFactory(); return; }
         String nonce = UUID.randomUUID().toString();
         CompletableFuture<IExecutorUnixEndpoints> ready = new CompletableFuture<>();
         BroadcastReceiver receiver = new BroadcastReceiver() {

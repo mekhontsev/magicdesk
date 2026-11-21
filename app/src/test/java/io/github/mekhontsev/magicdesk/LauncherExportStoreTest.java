@@ -58,6 +58,16 @@ public final class LauncherExportStoreTest {
         assertThrows(IllegalArgumentException.class, () -> new LauncherExportStore.Target("guest", "/a", "", -1, -1, 0));
         assertThrows(IllegalArgumentException.class, () -> new LauncherExportStore.Target("guest", "relative", "", -1, 2000, 0));
         assertThrows(IllegalArgumentException.class, () -> new LauncherExportStore.Target("unknown", "/a", "", -1, 2000, 0));
+        assertThrows(IllegalArgumentException.class, () -> new LauncherExportStore.Target("environment", "/a", "com.termux", 10601, 2000, 0));
+    }
+
+    @Test public void privateEnvironmentCannotActAsADelegatedLauncher() throws Exception {
+        var shell=store().put(new LauncherExportStore.Target("environment","/linux/store","",-1,2000,0),"Alpine",CERT);
+        var user=store().put(new LauncherExportStore.Target("environment","/linux/store","",-1,10647,0),"Alpine",CERT);
+        assertNotEquals(shell.id(),user.id());
+        assertTrue(user.packageName("example.host").startsWith("example.host.linux.e"));
+        assertThrows(SecurityException.class,() -> LauncherExportStore.callerId("example.host",user.packageName("example.host")));
+        assertEquals(user,store().get(user.id()));
     }
 
     @Test public void mismatchedRecordIdAndOversizedRecordFailClosed() throws Exception {

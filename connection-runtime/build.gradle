@@ -1,0 +1,17 @@
+plugins { id 'com.android.library' }
+
+android {
+    namespace = 'io.github.mekhontsev.magicdesk.connections'
+    compileSdk = 37
+    defaultConfig { minSdk = 34 }
+    buildFeatures { aidl = true }
+    aidlPackagedList.addAll(['IUnixEndpoint', 'IUnixConnectionReceiver', 'IExecutorUnixEndpoints', 'ILinuxConnection']
+            .collect { "io/github/mekhontsev/magicdesk/${it}.aidl" })
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    testOptions { unitTests.returnDefaultValues = true }
+}
+
+dependencies { testImplementation 'junit:junit:4.13.2' }

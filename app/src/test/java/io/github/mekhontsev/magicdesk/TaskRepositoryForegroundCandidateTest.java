@@ -6,6 +6,16 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class TaskRepositoryForegroundCandidateTest {
+    @Test public void desktopHostsNeverCountAsForegroundApplications() {
+        for (final String host : new String[] { ".DesktopActivity", ".PhoneHomeActivity",
+                ".IndependentDesktopActivity" }) {
+            assertFalse(TaskRepository.isForegroundApplicationCandidate(
+                    BuildConfig.APPLICATION_ID + "/" + host, ""));
+            assertFalse(TaskRepository.isForegroundApplicationCandidate(
+                    "", BuildConfig.APPLICATION_ID + "/" + BuildConfig.APPLICATION_ID + host));
+        }
+    }
+
     @Test
     public void acceptsApplicationTask() {
         assertTrue(TaskRepository.isForegroundApplicationCandidate(

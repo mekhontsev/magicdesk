@@ -8,6 +8,101 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class TmuxSessionProviderTest {
+    @Test public void realServerRetainsFieldSeparatorsInCLocale() throws Exception {
+        var available = new ProcessBuilder("sh", "-c", "command -v tmux >/dev/null").start();
+        org.junit.Assume.assumeTrue("tmux not installed on build host", available.waitFor() == 0);
+        var dir = java.nio.file.Files.createTempDirectory("md-tmux-");
+        String socket = dir.resolve("server").toString();
+        try {
+            var command = new ProcessBuilder("sh", "-c", """
+                    socket=$1
+                    tmux() { command tmux -S "$socket" -f /dev/null "$@"; }
+                    tmux new-session -d -s 'locale test' 'sleep 30' || exit 1
+                    """ + TmuxSessionProvider.SESSIONS_COMMAND, "sh", socket).redirectErrorStream(true);
+            command.environment().remove("TMUX");
+            command.environment().put("LC_ALL", "C");
+            var process = command.start();
+            assertTrue(process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(output, 0, process.exitValue());
+            var list = TmuxSessionProvider.parse(output);
+            assertTrue(list.complete);
+            assertEquals("locale test", list.sessions.get(0).name);
+        } finally {
+            new ProcessBuilder("tmux", "-S", socket, "kill-server").start().waitFor();
+            java.nio.file.Files.deleteIfExists(java.nio.file.Path.of(socket));
+            java.nio.file.Files.deleteIfExists(dir);
+        }
+    }
+    @Test public void guestDiscoveryUsesClientTtyNotHostPidOrSessionName() {
+        var catalog = TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n"
+                + "$0\tmain\t1\t1\t1234\nTTY\t/dev/pts/4\t$0\n__MAGICDESK_TMUX_COMPLETE__\n");
+        assertEquals("main", catalog.find(catalog.terminals.get("/dev/pts/4")).name);
+        assertTrue(catalog.clients.isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> TmuxSessionProvider.parse(
+                "__MAGICDESK_TMUX_AVAILABLE__\nTTY\t/dev/pts/4\tbad-id\n"));
+    }
+
+    @Test public void guestOperationsRetainStoreExecutorAndCreationIdentity() {
+        var session = new TmuxSessionProvider.Session("$1", "same name", 1, 0, 42);
+        var attach = GuestTmux.Target.attach(session);
+        assertEquals(attach, GuestTmux.Target.decode(attach.encode()));
+        var create = GuestTmux.Target.create("team's work");
+        assertEquals(create, GuestTmux.Target.decode(create.encode()));
+        assertThrows(IllegalArgumentException.class, () -> GuestTmux.Target.decode(new String[]{"$1", "-1", "bad"}));
+        for (var backend : DesktopExecBackend.values()) {
+            var guest = new GuestEnvironmentCatalog.Entry("a", "id", "src", "/store with spaces", backend);
+            String prefix = GuestEnvironmentCatalog.storeCommand(guest, "exec");
+            assertTrue(GuestTmux.query(guest).startsWith(prefix + " '--network' 'none' "));
+            assertTrue(attach.command(guest).startsWith(prefix + " '--' "));
+            assertTrue(attach.command(guest).contains("#{session_created}"));
+            assertTrue(create.command(guest).contains("new-session -s"));
+        }
+    }
+    @Test public void explicitEndRecordsRequestBeforeExecutionAndDistinguishesFailure() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Context { }
+                static class Session { String id="$1"; long createdSeconds=12; }
+                record FilesKey(String packageName, int uid, String id, long created) { }
+                static class ConsoleSessionFiles { boolean closed; void close() { closed=true; } }
+                static class TermuxIntegration {
+                    static class Endpoint { String packageName="com.termux"; int uid=123; }
+                    static Endpoint inspect(Context context) { return new Endpoint(); }
+                }
+                static class TmuxSessionProvider { }
+                static class ShellCommandLine { static String quote(String text) { return "'"+text+"'"; } }
+                static class ShellAccess { static String usefulMessage(Throwable error) { return error.getMessage(); } }
+                static class DesktopAutomationEventJournal {
+                    static List<String> events=new ArrayList<>();
+                    static void record(String type,String op,boolean ok,String detail) { events.add(op+":"+ok+":"+detail); }
+                }
+                static Map<FilesKey,ConsoleSessionFiles> FILES=new HashMap<>();
+                static Throwable failure;
+                static String sessionCommand(Session session,String command) { return command; }
+                static void run(Context context,String command,java.util.function.Consumer<Throwable> callback) {
+                    check(DesktopAutomationEventJournal.events.get(0).equals(
+                            "end-requested:true:tmuxSessionId=$1 createdSeconds=12"), "request logged after execution");
+                    check(command.equals("tmux kill-session -t '$1'"), "wrong tmux session selected");
+                    callback.accept(failure);
+                }
+                """ + RuntimeSourceFixture.methods("TmuxSessionProvider", "end") + """
+                public static void verify() {
+                    var files=new ConsoleSessionFiles();
+                    FILES.put(new FilesKey("com.termux",123,"$1",12),files);
+                    failure=new IOException("test refusal");
+                    end(new Context(),new Session(),error -> check(error==failure,"failure swallowed"));
+                    check(!files.closed && FILES.size()==1,"failed end removed session files");
+                    check(DesktopAutomationEventJournal.events.get(1).equals(
+                            "end-result:false:tmuxSessionId=$1 createdSeconds=12 error=test refusal"), "failed result not recorded");
+                    DesktopAutomationEventJournal.events.clear();failure=null;
+                    end(new Context(),new Session(),error -> check(error==null,"successful end failed"));
+                    check(files.closed && FILES.isEmpty(),"successful end did not release files");
+                    check(DesktopAutomationEventJournal.events.get(1).equals(
+                            "end-result:true:tmuxSessionId=$1 createdSeconds=12"), "successful result not recorded");
+                }
+                """);
+    }
+
     @Test public void onlySuccessfulDiscoveryCanRetireSessionFiles() {
         assertFalse(TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n").complete);
         assertFalse(TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n$0\twork\t1\t0\t1\n").complete);
@@ -31,7 +126,7 @@ public final class TmuxSessionProviderTest {
 
         assertFalse(snapshot.available);
         assertTrue(snapshot.sessions.isEmpty());
-        assertEquals("tmux is not installed in Termux", snapshot.detail);
+        assertEquals("tmux is not installed", snapshot.detail);
     }
 
     @Test

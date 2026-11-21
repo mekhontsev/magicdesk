@@ -2,6 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.content.Intent;
+import android.app.Activity;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -12,9 +14,40 @@ import java.util.List;
 final class TerminalSessions {
     private TerminalSessions() { }
 
-    record Item(ConsoleTerminalRegistry.Snapshot terminal, TmuxSessionProvider.Session tmux) { }
+    record Item(ConsoleTerminalRegistry.Snapshot terminal, TmuxSessionProvider.Session tmux) {
+        boolean isCurrent(String terminalId) { return terminal != null && terminal.id.equals(terminalId); }
+        String title(Context context) {
+            return tmux != null ? TerminalTaskLabel.named(tmux.name, "tmux") : terminal.taskLabel(context);
+        }
+    }
+
+    static void resumeMostRecent(final Activity activity) {
+        // Resolve at invocation, not when SystemUI builds the notification.
+        final var session = ConsoleTerminalRegistry.mostRecent();
+        if (session == null) {
+            TerminalSessionsDialog.create(activity);
+            return;
+        }
+        open(activity, CommandConsoleActivity.attachIntent(activity, session),
+                ToolLaunchTarget.resolve("auto", android.view.Display.DEFAULT_DISPLAY,
+                        DesktopRuntimeBridge.workspaceDisplayIds()), null,
+                error -> activity.runOnUiThread(() -> {
+                    if (error == null || activity.isFinishing() || activity.isDestroyed()
+                            || !activity.hasWindowFocus()) return;
+                    if (ConsoleTerminalRegistry.status(session.id) == null) {
+                        TerminalSessionsDialog.create(activity);
+                    } else {
+                        Toast.makeText(activity, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+                    }
+                }));
+    }
 
     static List<Item> merge(List<ConsoleTerminalRegistry.Snapshot> terminals, TmuxSessionProvider.Snapshot tmux) {
+        return merge(terminals, tmux, null);
+    }
+
+    static List<Item> merge(List<ConsoleTerminalRegistry.Snapshot> terminals, TmuxSessionProvider.Snapshot tmux,
+            String currentTerminalId) {
         final List<Item> result = new ArrayList<>();
         final HashSet<String> merged = new HashSet<>();
         if (tmux != null && tmux.available) {
@@ -23,7 +56,9 @@ final class TerminalSessions {
                 for (final var terminal : terminals) {
                     if (!belongsTo(terminal, session, tmux)) continue;
                     merged.add(terminal.id);
-                    if (selected == null || terminal.focused || selected.taskId < 0 && terminal.taskId >= 0) selected = terminal;
+                    if (selected == null || terminal.id.equals(currentTerminalId)
+                            || !selected.id.equals(currentTerminalId) && (terminal.focused
+                                || selected.taskId < 0 && terminal.taskId >= 0)) selected = terminal;
                 }
                 result.add(new Item(selected, session));
             }
@@ -69,7 +104,7 @@ final class TerminalSessions {
                 final var session = id == null ? null : ConsoleTerminalRegistry.status(id);
                 if (session != null && session.taskId >= 0) {
                     final var local = target.desktop ? InteractiveActivityLaunch.OwnTaskResult.NEEDS_PLACEMENT
-                            : InteractiveActivityLaunch.showOwnTask(context, session.taskId, target.displayId);
+                            : InteractiveActivityLaunch.showOwnTask(context, session.taskId, target.displayId, presentation);
                     if (local == InteractiveActivityLaunch.OwnTaskResult.SHOWN) {
                         callback.onComplete(null);
                         return;

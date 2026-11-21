@@ -98,7 +98,8 @@ public final class StartSearchControllerTest {
     @Test
     public void utilitySearchResultsUseSharedPlacement() throws IOException {
         final String source = read("StartMenuController.java");
-        assertTrue(source.contains("StartEntryLauncher.open(mActivity, result, mContent.destination()"));
+        assertTrue(source.contains("StartEntryLauncher.open(mActivity, result, destination"));
+        assertTrue(read("StartMenuContent.java").contains("mHost.open(result, destination(), presentation())"));
         final String launcher = read("StartEntryLauncher.java");
         assertTrue(launcher.contains("entry.builtIn.launchTarget.resolve"));
         assertTrue(launcher.contains("ToolApplications.open(activity, intent, placement(destination)"));

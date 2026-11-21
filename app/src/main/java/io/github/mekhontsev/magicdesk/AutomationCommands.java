@@ -40,6 +40,7 @@ final class AutomationCommands implements AutoCloseable {
     }
 
     DesktopAutomationStateReader stateReader() { return mAutomation.stateReader(); }
+    void restoreUpdatePower(AppUpdatePowerState state) { mUi.restoreUpdatePower(state); }
 
     private synchronized UserInteractions interactions() {
         if (mClosed) throw new IllegalStateException("command runtime is closed");
@@ -75,6 +76,11 @@ final class AutomationCommands implements AutoCloseable {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final JSONObject data;
+        if (name.equals("device.set_black_screen")) return AutomationBlackScreen.execute(args);
+        if (args.has("graphicsSessionId")) return AutomationGraphicsOutput.execute(name, args);
+        if (args.has("windowId") && java.util.Set.of("capture_screenshot", "sample_pixels", "send_key",
+                "move_pointer", "click_pointer", "input.gesture", "input.key_chord").contains(name))
+            throw new IllegalArgumentException("windowId requires graphicsSessionId");
         if (name.startsWith("appearance.")) return AutomationAppearance.execute(name, args);
         if (name.startsWith("graphics.")) return AutomationGraphics.execute(name, args);
         if (name.startsWith("guest.")) return AutomationGuestEnvironments.execute(name, args);
@@ -98,7 +104,7 @@ final class AutomationCommands implements AutoCloseable {
         }
         if (name.equals("app.update") || name.equals("app.update_status")) {
             try {
-                return DesktopAutomationResult.success("ok", name.equals("app.update") ? MagicDeskAppUpdates.start(mContext, args)
+                return DesktopAutomationResult.success("ok", name.equals("app.update") ? MagicDeskAppUpdates.start(mContext, args, mUi)
                         : MagicDeskAppUpdates.status(mContext, args.getString("updateId")));
             } catch (java.io.IOException error) {
                 return DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,

@@ -10,6 +10,14 @@ FetchContent_Declare(mksh
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(mksh)
 
+find_program(PATCH patch REQUIRED)
+set(history_source "${CMAKE_CURRENT_BINARY_DIR}/histrap.c")
+configure_file("${mksh_SOURCE_DIR}/histrap.c" "${history_source}" COPYONLY)
+execute_process(COMMAND "${PATCH}" --batch --fuzz=0 "${history_source}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/history.patch" COMMAND_ERROR_IS_FATAL ANY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/history.patch")
+
 # Use upstream's generator, not a second implementation of its option tables.
 if(DEFINED ENV{MAGICDESK_BUILD_SHELL} AND NOT "$ENV{MAGICDESK_BUILD_SHELL}" STREQUAL "")
     file(TO_CMAKE_PATH "$ENV{MAGICDESK_BUILD_SHELL}" MKSH_BUILD_SHELL)
@@ -31,11 +39,12 @@ foreach(table sh_flags rlimits ulimits)
     list(APPEND generated_tables "${CMAKE_CURRENT_BINARY_DIR}/${table}.gen")
 endforeach()
 
-set(source_names lalloc.c edit.c eval.c exec.c expr.c funcs.c histrap.c jobs.c
+set(source_names lalloc.c edit.c eval.c exec.c expr.c funcs.c jobs.c
     lex.c main.c misc.c shf.c syn.c tree.c ulimit.c var.c)
 foreach(name IN LISTS source_names)
     list(APPEND sources "${mksh_SOURCE_DIR}/${name}")
 endforeach()
+list(APPEND sources "${history_source}")
 add_executable(android_shell ${sources} ${generated_tables})
 set_target_properties(android_shell PROPERTIES OUTPUT_NAME libmagicdesk_mksh.so)
 target_include_directories(android_shell PRIVATE "${mksh_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
@@ -44,14 +53,14 @@ target_compile_options(android_shell PRIVATE -Os -fPIE -fwrapv -fno-strict-alias
 target_link_options(android_shell PRIVATE -pie -Wl,-z,noexecstack -Wl,-z,max-page-size=16384 -Wl,-s)
 
 # Fixed Android/Bionic API-34+ configuration, based on AOSP's mksh Android.bp.
-# No configure-time target executables, platform-private libraries or source patches.
+# No configure-time target executables or platform-private libraries.
 # ENOEXEC text scripts re-enter this executable, never a firmware shell.
 target_compile_definitions(android_shell PRIVATE
     MKSH_BUILDSH MKSH_BUILD_R=593 _GNU_SOURCE SETUID_CAN_FAIL_WITH_EAGAIN
     DEBUG_LEAKS MKSH_ASSUME_UTF8 MKSH_DONT_EMIT_IDSTRING
     KSH_VERSIONNAME_VENDOR_EXT=" MagicDesk"
     MKSH_DEFAULT_PROFILEDIR="/system/etc" MKSHRC_PATH="~/.mkshrc"
-    MKSH_DEFAULT_EXECSHELL="/proc/self/exe" MKSH_DEFAULT_TMPDIR="/data/local/tmp"
+    MKSH_DEFAULT_EXECSHELL="/proc/self/exe" MKSH_DEFAULT_TMPDIR="/data/local/tmp/magicdesk/cache/tmp"
     MKSH_DEFPATH_OVERRIDE="/system/bin:/system/xbin"
     HAVE_STRING_POOLING=2
     HAVE_ATTRIBUTE_BOUNDED=0 HAVE_ATTRIBUTE_FORMAT=1 HAVE_ATTRIBUTE_NORETURN=1
@@ -74,7 +83,7 @@ target_compile_definitions(android_shell PRIVATE
 
 # Include embedded notices too (expr.c contains Unicode's notice after its header).
 file(GLOB notice_sources "${mksh_SOURCE_DIR}/*.c" "${mksh_SOURCE_DIR}/*.h" "${mksh_SOURCE_DIR}/*.opt")
-set(notices "MirBSD Korn Shell R59c, unmodified upstream sources\n\n")
+set(notices "MirBSD Korn Shell R59c with MagicDesk persistent-history patch\n\n")
 foreach(source IN LISTS notice_sources)
     file(READ "${source}" contents)
     string(REPLACE ";" "\\;" contents "${contents}")

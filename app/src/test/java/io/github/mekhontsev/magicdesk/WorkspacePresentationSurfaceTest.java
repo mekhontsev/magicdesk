@@ -46,9 +46,6 @@ public final class WorkspacePresentationSurfaceTest {
                     static void focusTasks(Object service, int display, int[] tasks) {
                         throw new AssertionError("owned presentation submitted twice");
                     }
-                    static void focusTasksWithSurfaceCommit(Object service, int display, int[] tasks) {
-                        focusTasks(service, display, tasks);
-                    }
                 }
                 final ShellFullscreenTaskArea mFullscreenTaskArea = new ShellFullscreenTaskArea();
                 public static void verify() throws Exception {

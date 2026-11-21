@@ -222,6 +222,13 @@ final class DesktopWindowTransitionController {
         final Boolean previous =
                 state.updateImmersiveObservation(
                         requestingImmersive, foreground);
+        final boolean windowedTransitionRequest = requestingImmersive
+                && state.isWindowedTransition();
+        if (windowedTransitionRequest) {
+            // Relayout can hide system bars without a new user fullscreen action.
+            // Retain that sample, but do not let it undo the geometry command.
+            state.setManualImmersiveOverride(true);
+        }
         if (initialSample) {
             // The shell launch returns once the task exists, before a cold
             // client publishes its initial insets state. The same bounded
@@ -245,7 +252,7 @@ final class DesktopWindowTransitionController {
         final boolean startupWindowedRequest = newImmersiveRequest
                 && state.consumeStartupWindowed(
                         SystemClock.uptimeMillis());
-        if (shouldClearManualImmersiveOverride(
+        if (!windowedTransitionRequest && shouldClearManualImmersiveOverride(
                 newImmersiveRequest, startupWindowedRequest)) {
             state.setManualImmersiveOverride(false);
         } else if (startupWindowedRequest) {
@@ -253,7 +260,8 @@ final class DesktopWindowTransitionController {
         }
         DesktopWindowTransitionProvenance.noteImmersiveObservation(taskId,
                 requestingImmersive, initialSample, foreground,
-                startupWindowedRequest ? "kept-startup-windowed" : "reconcile", state);
+                windowedTransitionRequest ? "kept-windowed-transition"
+                        : startupWindowedRequest ? "kept-startup-windowed" : "reconcile", state);
         mRuntimeState.scheduleRefresh();
     }
 
@@ -451,6 +459,35 @@ final class DesktopWindowTransitionController {
             final TaskRepository.ActionCallback callback) {
         noteManualFreeformTransition(task.taskId);
         mNativeWindowBounds.requestBounds(task, targetBounds, false, callback);
+    }
+
+    void observeFreeformGeometry(FrameworkTaskSnapshot previous, FrameworkTaskSnapshot task) {
+        if (!FrameworkWindowGeometry.adapted()
+                || !PlatformDrivers.current().windowing().hasNativeScaleCommit()
+                || !mRuntimeState.isRunning() || task.displayId != mRuntimeState.displayId()
+                || !NativeWindowScaleCorrection.candidate(previous, task)) return;
+        DesktopTaskRuntimeState state = mTaskStates.state(task.taskId);
+        if (state.layoutOwnership().isOwned() || state.isFullscreenTransition()
+                || state.isWindowedTransition() || state.boundsTransition() != null) return;
+        // This event owns one request, not a retained size constraint. A later native
+        // change or explicit placement invalidates its captured geometry in the executor.
+        DesktopTaskRuntimeState.BoundsTransition command = state.beginBoundsTransition(task.bounds, false);
+        state.setManualImmersiveOverride(true);
+        TaskRepository.normalizeTaskScale(task, previous.windowScale,
+                () -> mTaskStates.isCurrent(task.taskId, state) && state.isBoundsCommand(command)
+                        && !state.isFullscreenTransition(),
+                result -> mHandler.post(() -> {
+                    state.finishBoundsCommand(command);
+                    state.clearBoundsTransition(command);
+                    if (!mTaskStates.isCurrent(task.taskId, state)) return;
+                    if (!result.success) {
+                        CompatibilityDiagnostics.record("WINDOW-SCALE-001", "Native window resize failed",
+                                "task=" + task.taskId + ": " + result.message);
+                    }
+                    Log.i(TAG, "native scale correction task=" + task.taskId
+                            + " success=" + result.success + " result=" + result.message);
+                    mRuntimeState.scheduleRefresh();
+                }));
     }
 
     private void snapFullscreenTask(
@@ -843,6 +880,7 @@ final class DesktopWindowTransitionController {
                 && state.isImmersiveRequestForeground()
                 && !state.isAppRequestedFullscreen()
                 && !state.hasManualImmersiveOverride()
+                && !state.isWindowedTransition()
                 && !state.isFullscreenTransition();
     }
 

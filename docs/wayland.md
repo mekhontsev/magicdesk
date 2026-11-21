@@ -32,7 +32,8 @@ libraries (`libc`, `libm`, `libdl`, `libandroid`, `liblog`). The host renderer u
 `ANativeWindow` API and does not link wlroots or load Termux libraries.
 
 The launch integration shares the X11 execution model: Termux is an optional
-client executor; shell clients use the explicitly authorized command identity,
+client executor; User clients run as MagicDesk's app UID without Shizuku, and
+Shell clients use the explicitly authorized command identity,
 while their compositor runs under MagicDesk's app UID, never an elevated renderer
 UID. Termux clients use the compositor's private named socket, allowing each
 program and its children to establish independent connections. UID-2000 shell
@@ -41,14 +42,14 @@ connection, not a shareable endpoint for unrelated clients. Root clients normall
 use a session-owned named endpoint with descriptor admission, described below.
 The launch recipe selects the connection contract through
 `X-MagicDesk-GraphicsConnection`, independently of executor UID. `inherited`
-selects one existing FD; `routed` selects the experimental
+selects one existing FD; `routed` selects the
 [guest runtime's admission endpoint](shroot.md#graphical-connections).
-That endpoint supports independent guest clients under UID 2000: the shell
-service accepts connections, checks peer UID and transfers connected descriptors
+That endpoint supports independent guest clients under User and Shell: the
+selected executor accepts connections, checks peer UID and transfers connected descriptors
 to the compositor. `mdw_server_accept` consumes each FD on the protocol event
 loop, including on failure. Protocol traffic and shared buffers do not go through
 Binder or a stream proxy. The server lifecycle closes pending admission FDs.
-Desktop, HOME and root are not prerequisites for the Termux path.
+Desktop, HOME and root are not prerequisites for User or Termux.
 
 An app-UID compositor's private socket directory is not a shell-client launch
 transport. The native `mdw_server_connect` API creates an already connected
@@ -175,6 +176,11 @@ remains explicit, without a different UID or system-policy fallback.
   admit each output separately. Once scene output selection is established,
   frame callbacks are flushed before composition so clients can prepare their
   next frame concurrently. Clock changes retain pending damage.
+- Presentation feedback includes unchanged visible content and borrowed family
+  outputs. The shared output commit binds pending requests through wlroots;
+  feedback-only commits reuse retained pixels without rendering or exporting a
+  new buffer. Timestamps describe software presentation, not physical scanout.
+  Output visibility, frame credit and GPU readiness still gate admission.
 - A presentation generation identifies an output viewport and its retained
   Android Surface. Stale frames are acknowledged without presentation, and stale
   viewport failures cannot reject a newer request. `FramePresentation` completes
@@ -502,7 +508,8 @@ whole-desktop presentation and the same **Interface scale** control. The prefere
 adjusts each Android host's automatic scale and updates its output and client
 limits together. Start's installed-app context menu and `graphics.set_scale`
 share the same profile, keyed by executor and launcher path within the Android
-profile. Ad-hoc sessions retain their percentage only until stopped. Nested
+profile, for User, Shell and Termux launchers. Ad-hoc sessions retain their
+percentage only until stopped. Nested
 compositors and applications remain responsible for their toolkit preferences.
 
 For a nested desktop, select **Nested Linux desktop** in the manager, or set
@@ -580,12 +587,12 @@ To export only the portable runtime libraries and licenses:
 ./gradlew :wayland-runtime:exportRuntime
 ```
 
-The result is `wayland-runtime/build/runtime`. Windows builds consume this
-directory through `-PmagicDeskWaylandRuntime=/path/to/runtime`; their NDK still
-builds the Android host renderer. Linux/Termux may use the same explicit override.
+The result is `wayland-runtime/build/runtime`. Linux/Termux builds can reuse this
+directory through `-PmagicDeskWaylandRuntime=/path/to/runtime`; the selected
+Android toolchain still builds the host renderer.
 The exported artifact contains no build-machine tools or pkg-config files.
-CI builds the runtime on Linux and transfers it to the Windows job from the
-same workflow run. Missing or invalid runtime artifacts fail the build instead
+CI builds and verifies runtime exports on Linux.
+Missing or invalid runtime artifacts fail the build instead
 of producing an incomplete APK.
 
 ## Verification
@@ -629,7 +636,9 @@ render admission without consuming frame credit. The window fixture covers
 minimum-size coordinate mapping, unchanged metadata, rendering backpressure and
 hidden-output suspend/resume.
 It also checks scaled single-pixel buffer colors and presentation feedback,
-including the absence of hardware timing flags.
+including the absence of hardware timing flags. Chained feedback-only commits
+must advance presentation timestamps in ordinary and borrowed-family output
+paths without exporting a pixel buffer for each request.
 The shell fixture checks explicit admission, separate application/shell catalogs,
 logical output discovery, resizing, scale and removal without exposing render-only targets,
 initial configure delivery before the client's sync roundtrip and asynchronous
@@ -747,7 +756,7 @@ Recent, managed placement, fullscreen/restore and cancelling a close confirmatio
 GTK clipboard text and file drag-and-drop pass in both directions with Android,
 including PRoot Ubuntu and Alpine chroot recipes with file-content hash verification.
 The chroot GTK client and guest-file helper run as UID 65534; the renderer stays
-under the MagicDesk app UID. `tests/gtk-guest-content.py` provides text/email/PIN
+under the MagicDesk app UID. [The GTK input fixture](../wayland-runtime/tests/gtk-guest-content.py) provides text/email/PIN
 fields, clipboard actions, file drag endpoints and a dependent dialog for these
 checks. Same-session
 drags between Android hosts insert once. The X11 regression covers clipboard and
@@ -773,7 +782,7 @@ to text-input-v3.
 `HostedGuestEditorInstrumentation` exercises a real GTK3 or Qt guest through its Android
 host: composition, Unicode correction, field switching, private PINs, caret geometry,
 IME-inset delivery and a size-constrained dialog. Prepare an independent
-non-phone display and a command launching `tests/gtk-guest-content.py` with the
+non-phone display and a command launching `wayland-runtime/tests/gtk-guest-content.py` with the
 session's Wayland socket available inside the guest, then run:
 
 ```sh
@@ -788,7 +797,7 @@ delivery. The Qt fixture is `tests/toolkits/editor.qml` (`-e entryY 95`), launch
 with `QT_QPA_PLATFORM=wayland` and `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3`.
 Optional `-e guestStore STORE -e keyboard XKB_DIRECTORY` selects the packaged
 guest runtime through the existing shell launch recipe instead of Termux.
-`native/guest-exec-lab/test_qt.py` prepares that invocation on an independent
+`tests/shroot/test_qt.py` prepares that invocation on an independent
 display, preserves the selected Android IME and records its protocol trace.
 
 The caller needs instrumentation permission. `--no-restart` retains the running

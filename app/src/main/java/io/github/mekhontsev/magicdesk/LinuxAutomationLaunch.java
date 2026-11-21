@@ -23,29 +23,48 @@ final class LinuxAutomationLaunch implements Closeable {
             task -> new Thread(task, "Linux automation admission"));
     private final OperationResources resources = new OperationResources();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final String token, helper;
+    private final String token;
+    private String helper;
     private ExecutorSocketEndpoint endpoint;
     private ExecutorSocketEndpoint.Factory factory;
 
-    LinuxAutomationLaunch(Context context, CommandExecution commands, String graphicsId, String environment) throws IOException {
+    private LinuxAutomationLaunch() {
         byte[] random = new byte[32]; new java.security.SecureRandom().nextBytes(random);
         token = java.util.HexFormat.of().formatHex(random);
+    }
+    LinuxAutomationLaunch(Context context, CommandExecution commands, String graphicsId, String environment) throws IOException {
+        this();
         helper = context.getApplicationInfo().nativeLibraryDir + "/libmagicdesk_linux_settings.so";
         try {
             var brokerSlot = resources.reserve();
             var broker = new ExecutorEndpointBroker(context, commands, ignored -> close()); brokerSlot.attach(broker);
-            factory = broker.factory;
-            var endpointSlot = resources.reserve();
-            endpoint = new ExecutorSocketEndpoint(commands.uid, 5000, broker.factory, fd -> {
-                ParcelFileDescriptor owned = ParcelFileDescriptor.dup(fd.getFileDescriptor());
-                // Admission never blocks the Binder thread on an untrusted peer.
-                admitting.add(owned);
-                try { admissions.execute(() -> admit(owned, commands.uid, graphicsId, environment)); }
-                catch (java.util.concurrent.RejectedExecutionException error) { admitting.remove(owned); owned.close(); }
-            }, ignored -> close());
-            endpointSlot.attach(endpoint);
-            if (closed.get()) throw new IOException("Linux automation admission closed");
+            open(commands.uid,broker.factory,graphicsId,environment);
         } catch (IOException | RuntimeException error) { close(); throw error; }
+    }
+
+    LinuxAutomationLaunch(int uid, ExecutorSocketEndpoint.Factory factory,String graphicsId,String environment) throws IOException {
+        this();
+        try { open(uid,factory,graphicsId,environment); }
+        catch (IOException | RuntimeException error) { close(); throw error; }
+    }
+
+    private void open(int uid,ExecutorSocketEndpoint.Factory source,String graphicsId,String environment) throws IOException {
+        factory = source;
+        var endpointSlot = resources.reserve();
+        endpoint = new ExecutorSocketEndpoint(uid, 5000, source, fd -> {
+            ParcelFileDescriptor owned = ParcelFileDescriptor.dup(fd.getFileDescriptor());
+            // Admission never blocks the Binder thread on an untrusted peer.
+            admitting.add(owned);
+            try { admissions.execute(() -> admit(owned, uid, graphicsId, environment)); }
+            catch (java.util.concurrent.RejectedExecutionException error) { admitting.remove(owned); owned.close(); }
+        }, ignored -> close());
+        endpointSlot.attach(endpoint);
+        if (closed.get()) throw new IOException("Linux automation admission closed");
+    }
+
+    void describe(android.os.Bundle description) {
+        description.putString("automationEndpoint",endpoint.name);
+        description.putString("automationToken",token);
     }
 
     private void admit(ParcelFileDescriptor socket, int uid, String graphicsId, String environment) {

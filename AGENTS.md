@@ -4,6 +4,31 @@ Re-read this file after context compaction or session recovery before continuing
 repository work. Preserve unrelated uncommitted changes; Git history changes
 require the user's authorization.
 
+## Defect Follow-Through
+
+When fixing a defect, audit analogous paths across the owning mechanism and its
+callers, not only nearby code. Check other entry points, executors, lifecycle
+stages and failure paths that share the same assumption. Fix affected variants
+through their shared owner where appropriate, and add focused regression tests.
+Do not treat the original reproduction passing as proof that related paths are
+correct; report any applicable paths that remain unverified.
+
+After each distribution matrix run, check the result against that distribution's
+recipe in `scripts/install_linux.sh`. Check that product prerequisites come
+from the recipe rather than incidental lab setup. Run the installer tests and
+exercise the relevant install or resume path; an installed-store or resume
+check does not establish that a clean install works.
+
+## Performance Work
+
+Trace work back to the operation that produced it. Before tuning a queue,
+poll or IPC round trip, ask whether the caller can finish locally with the
+state and authority it already has. Delegate only the part that needs another
+owner. Apply the rule by operation and capability, not by application name.
+Measure the complete workload, including its helpers: reducing one thread's
+CPU by moving work elsewhere is not a win. Check latency and user-visible
+results as well as CPU.
+
 ## Documentation
 
 Keep maintained Markdown focused on current behavior, ownership, limitations,
@@ -11,6 +36,11 @@ instructions and qualifying test evidence. Do not accumulate fixed-bug stories,
 retired implementation descriptions or step-by-step experiment history; Git
 and run artifacts retain those details. Keep the rationale for current safety
 constraints. Release notes are the dedicated place for version-specific changes.
+
+Document APK packaging, installer recipes, Android services and graphical
+integration here. Link to Shroot for standalone commands, kernel contracts
+and engine qualification. Keep recipe-specific fixture payloads beside their
+MagicDesk drivers; sharing an executor does not make a fixture an engine test.
 
 ## Branch Workflow
 
@@ -24,10 +54,13 @@ require the user's authorization.
 
 CI verifies both branches and PRs targeting either one. Only successful pushes
 to `develop` update the rolling `development` prerelease; that tag is not a
-branch. `main` requires the Linux `build` and `windows-smoke` checks for ordinary
+branch. `main` requires the Linux `build` check for ordinary
 contributors; administrators may merge release commits before CI, but publication
 always requires successful checks on the exact main commit. `develop`
 accepts direct commits; failed CI prevents publication, not further fixes.
+
+Supported build hosts are Linux and Android/Termux. Windows users build inside
+WSL2 using Linux tools; do not add native Windows build jobs or prerequisites.
 
 ## Device Support Work
 
@@ -58,8 +91,13 @@ An explicitly managed tmux window releases only its client PTY; tmux owns the
 server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
-Experimental guest execution lives in native-only `native/shroot`;
+Guest execution lives in the independent native Shroot project, pinned at
+`native/shroot`;
 app-side launch adapters use the existing shell, PTY and graphics services.
+User (MagicDesk app UID) and Shell are first-class executors of the same
+Shroot engine. Adapt to each executor's host capabilities through shared owners,
+preserving native fast paths where available. User execution must not require
+the privileged service.
 Read `docs/shroot.md` before changing that boundary. Never load its
 syscall adapter into ART or make its kernel capabilities a shared-startup
 requirement. Each launch retains its selected identity and environment;
@@ -73,8 +111,8 @@ explicit failure, and coverage. Do not silently raise that minimum. Kernel
 version and available NDK headers do not prove capability or firmware permission;
 guest-only probes must leave other MagicDesk services independent.
 
-Embedded X11 and Wayland are shared services. An explicitly selected Termux or
-shell executor supplies programs; protocol runtimes own the X server or Wayland
+Embedded X11 and Wayland are shared services. An explicitly selected User, Shell
+or Termux executor supplies programs; protocol runtimes own the X server or Wayland
 compositor, while `hosted-runtime` owns shared graphics and frame presentation.
 Shell-hosted display servers run as MagicDesk's app UID; a prepared chroot is entered
 by the already-authorized command service, never by elevating the renderer.
@@ -109,7 +147,8 @@ grants. Keep the full MCP tool catalog discoverable; unavailable operations
 must fail explicitly without disabling independent services or changing system
 state. On API 34, reject Desktop and its self-tests before display preparation
 or HOME changes. Prefer ordinary app APIs when sufficient; use the shared
-privileged service otherwise. UID 2000 remains the baseline. Shizuku and direct
+privileged service otherwise. UID 2000 is the baseline identity for that
+privileged service, not a requirement for User execution. Shizuku and direct
 `su` are startup transports, not alternative feature implementations. Keep
 backend selection and the independent RuntimeLimits access ceiling at startup; never
 silently elevate or switch identity for an individual operation. Root is not

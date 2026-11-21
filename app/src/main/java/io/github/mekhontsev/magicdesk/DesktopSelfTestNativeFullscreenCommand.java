@@ -6,10 +6,22 @@ import android.graphics.Rect;
 public final class DesktopSelfTestNativeFullscreenCommand {
     private DesktopSelfTestNativeFullscreenCommand() {}
 
+    static boolean isFixtureBesideDesktop(
+            final FrameworkTaskSnapshot task, final FrameworkTaskSnapshot host) {
+        return task != null && host != null
+                && host.activityType != 0
+                && host.activityType == DesktopHostComponents.hostActivityType(host.componentName)
+                && host.windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN
+                && DesktopSelfTestComponents.isFixtureComponent(task.componentName)
+                && task.windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM
+                && task.rootTaskId == task.taskId
+                && task.displayAreaFeatureId == host.displayAreaFeatureId;
+    }
+
     public static void main(final String[] args) {
         try {
             if (args.length != 3) {
-                throw new IllegalArgumentException("expected display, fixture and HOME task IDs");
+                throw new IllegalArgumentException("expected display, fixture and desktop host task IDs");
             }
             final int displayId = Integer.parseInt(args[0]);
             final int taskId = Integer.parseInt(args[1]);
@@ -19,11 +31,8 @@ public final class DesktopSelfTestNativeFullscreenCommand {
                     service, displayId, taskId);
             final FrameworkTaskSnapshot home = FrameworkTaskSnapshotSource.findTask(
                     service, displayId, homeTaskId);
-            if (task == null || home == null || !home.isHome()
-                    || !DesktopSelfTestComponents.isFixtureComponent(task.componentName)
-                    || task.windowingMode != 5 || task.rootTaskId != taskId
-                    || task.displayAreaFeatureId != home.displayAreaFeatureId) {
-                throw new IllegalStateException("expected a freeform fixture beside its HOME");
+            if (!isFixtureBesideDesktop(task, home)) {
+                throw new IllegalStateException("expected a freeform fixture beside its desktop host");
             }
             final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
             final Object transaction = windowing.newTransaction();

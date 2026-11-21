@@ -1,4 +1,5 @@
 """Installer orchestration without modifying the host or downloading packages."""
+import configparser
 import errno
 import gzip
 import io
@@ -100,11 +101,16 @@ if Path(sys.argv[0]).name == "magicdesk":
 if stage == "list":
     print(os.environ.get("TEST_ENVIRONMENTS", ""))
 if stage in ("exec", "login"):
-    if args[-3:] == ['/bin/sh', '-c', ':'] and os.environ.get('TEST_NIXOS_UNACTIVATED'):
+    bootstrap = Path(os.environ['TEST_PAYLOAD'] + '.bootstrap')
+    initial = os.environ.get('TEST_NIXOS_UNACTIVATED') and not bootstrap.exists()
+    if initial and stage == 'login':
         sys.exit(1)
-    if stage == 'exec' and args[-2].endswith('-bash-interactive-5.3p9/bin/bash'):
-        Path(os.environ['TEST_PAYLOAD'] + '.bootstrap').write_text(sys.stdin.read())
-        sys.exit(0)
+    if stage == 'exec' and any(a.endswith('-bash-interactive-5.3p9/bin/bash') for a in args):
+        script = sys.stdin.read()
+        if 'exec "$system/activate"' in script:
+            bootstrap.write_text(script)
+            sys.exit(0)
+        sys.exit(0 if initial and os.environ.get('TEST_DISTRO') == 'nixos' else 1)
     if args[1] == "unpack":
         if args[-1] == "/mnt":
             Path(os.environ["TEST_PAYLOAD"] + ".reader").write_text(sys.stdin.read())
@@ -529,18 +535,61 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         self.assertIn('unshare --mount --pid --fork --mount-proc --uts --ipc --cgroup', helper)
         self.assertIn('[ "$$" = 1 ]', helper)
         self.assertIn('tty >/dev/null', helper)
-        self.assertIn('exec /sbin/openrc-init', helper)
-        self.assertIn('exec /sbin/init', helper)
+        self.assertIn('[ "$init_command" = /sbin/openrc-init ]', helper)
+        self.assertEqual(2, helper.count('exec "$init_command"'))
         self.assertIn('exec script -q -e', helper)
-        self.assertIn('[ -x /usr/lib/systemd/systemd ]', helper)
+        self.assertIn('for candidate in /sbin/openrc-init /usr/lib/systemd/systemd /lib/systemd/systemd', helper)
         self.assertLess(helper.index('for tool in unshare mount mountpoint script'),
                         helper.index('exec unshare'))
         self.assertNotIn('StandardInput=tty-force', helper)
         self.assertIn('for node in kmsg fuse', prepare)
+        self.assertLess(prepare.index('test "$$" = 1'), prepare.index('umask 022'))
+        self.assertLess(prepare.index('umask 022'), prepare.index('mkdir'))
         for persistent in ('/var', '/etc/runlevels', '/etc/rancher', '/var/lib/rancher'):
             self.assertNotIn('tmpfs ' + persistent + '\n', helper)
         subprocess.run(['sh', '-n'], input=helper, text=True, check=True)
         self.assertLess(setup.index('\ninstall_init_session\n'), setup.index('\ngui_services=no'))
+
+    def test_init_session_selects_installed_init_without_sysv_alias(self):
+        helper = self.run_script('--print-init-session').stdout
+        selection = helper[helper.index('init_command=\n'):
+                           helper.index('if [ "${1:-}" != --namespace-init ]')]
+        paths = ('/sbin/openrc-init', '/usr/lib/systemd/systemd', '/lib/systemd/systemd',
+                 '/nix/var/nix/profiles/system/systemd/lib/systemd/systemd', '/sbin/init')
+        for mask in range(1 << len(paths)):
+            with self.subTest(mask=mask):
+                root = self.directory / ('init-' + str(mask))
+                script = re.sub('|'.join(map(re.escape, paths)),
+                                lambda match: str(root / match.group().lstrip('/')), selection)
+                expected = None
+                for index, path in enumerate(paths):
+                    target = root / path.lstrip('/')
+                    if mask & (1 << index):
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text('#!/bin/sh\nexit 0\n')
+                        target.chmod(0o755)
+                        if expected is None and index < 4:
+                            expected = str(target)
+                result = subprocess.run(['sh', '-eu', '-c', script + '\nprintf "%s" "$init_command"'],
+                                        text=True, capture_output=True, timeout=5)
+                self.assertEqual(0 if expected else 1, result.returncode, result.stderr)
+                self.assertEqual(expected or '', result.stdout)
+                if expected is None:
+                    self.assertIn('Install systemd or OpenRC', result.stderr)
+
+    def test_init_session_activates_installed_nixos_after_private_mounts(self):
+        helper = self.run_script('--print-init-session').stdout
+        prepare = self.run_script('--print-init-prepare').stdout
+        activation = '/nix/var/nix/profiles/system/activate'
+        self.assertLess(prepare.index('mount -t tmpfs -o mode=755 tmpfs /run'),
+                        prepare.index(activation))
+        self.assertLess(helper.index(activation), helper.index('mkdir -p /run/systemd/system/default.target.wants'))
+        self.assertIn(':/nix/var/nix/profiles/system/sw/bin', prepare)
+        self.assertNotIn('nixos-rebuild', helper)
+        module = self.run_script('--print-nixos-module').stdout
+        self.assertIn('${./magicdesk-files/magicdesk-init}', module)
+        self.assertIn('[ init bashInteractive', module)
+        self.assertIn(helper, self.run_script('--print-nixos-setup').stdout)
 
     def test_init_session_preserves_command_arguments(self):
         helper = self.run_script('--print-init-session').stdout
@@ -551,6 +600,125 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                                 text=True, capture_output=True, check=True)
         command = result.stdout.removeprefix('#!/bin/sh\n').removesuffix('\n')
         self.assertEqual(['exec', *arguments], shlex.split(command))
+
+    def test_init_session_restarts_only_the_default_login_console(self):
+        helper = self.run_script('--print-init-session').stdout
+        policy = helper[helper.index('console_restart=no\n'):
+                        helper.index("{\n    printf '#!/bin/sh\\nexec'")]
+        service = helper[helper.index("    {\n        printf '#!/sbin/openrc-run"):
+                         helper.index('    chmod 755 /etc/init.d/magicdesk-session')]
+        unit = helper[helper.index('cat > /run/systemd/system/magicdesk-session.service'):
+                      helper.index('ln -s ../magicdesk-session.service')]
+        service_path = self.directory / 'session.openrc'
+        unit_path = self.directory / 'session.service'
+        service = service.replace('/etc/init.d/magicdesk-session', str(service_path))
+        unit = unit.replace('/run/systemd/system/magicdesk-session.service', str(unit_path))
+        for arguments in ([], ['/bin/true'], ['/bin/false'], ['/bin/sh', '-l']):
+            with self.subTest(arguments=arguments):
+                subprocess.run(['sh', '-ec', policy + service + unit, 'fixture', *arguments],
+                               check=True, timeout=5)
+                openrc, systemd = service_path.read_text(), unit_path.read_text()
+                self.assertEqual(not arguments, 'supervisor=supervise-daemon' in openrc)
+                self.assertEqual(bool(arguments), 'command_background=yes' in openrc)
+                self.assertIn('Restart=' + ('no' if arguments else 'always'), systemd)
+                self.assertIn('Environment="PATH=' + os.environ['PATH'] + '"', systemd)
+                self.assertIn('command=$(command -v script)', openrc)
+                self.assertIn("-c 'exec /bin/sh /run/magicdesk-init-session'", openrc)
+                subprocess.run(['sh', '-n', str(service_path)], check=True, timeout=5)
+
+    def test_init_prepares_recovery_configuration_before_loading_units(self):
+        prepare = self.run_script('--print-init-prepare').stdout
+        helper = self.run_script('--print-init-session').stdout
+        start = prepare.index('if [ -f /usr/lib/initcpio/hooks/etc_overlay ]')
+        fragment = prepare[start:prepare.index("# Libvirt's host-wide AIO tuning")]
+        self.assertLess(helper.index(fragment), helper.index('exec "$init_command"'))
+        root = self.directory / 'recovery-init'
+        root.mkdir()
+        hook = root / 'etc_overlay'
+        marker = root / 'mounted'
+        calls = root / 'mounts'
+        fragment = fragment.replace('/usr/lib/initcpio/hooks/etc_overlay', str(hook))
+        fragment = fragment.replace('/var/lib/overlays/etc', str(root / 'overlay'))
+        fragment = fragment.replace('/run/md-init-resolver.', str(root / 'resolver.'))
+        functions = ('mountpoint() { if [ "$2" = /etc ]; then test -e "$MARKER"; '
+                     'else test "$RESOLVER" = yes; fi; }\n'
+                     'mount() { printf "%s\\n" "$*" >> "$CALLS"; }\n')
+        env = {**os.environ, 'MARKER': str(marker), 'CALLS': str(calls)}
+        for present, mounted, resolver, expected in ((False, False, False, False),
+                (True, False, False, True), (True, False, True, True), (True, True, True, False)):
+            with self.subTest(present=present, mounted=mounted, resolver=resolver):
+                if present:
+                    hook.touch()
+                if mounted:
+                    marker.touch()
+                calls.unlink(missing_ok=True)
+                subprocess.run(['sh', '-eu', '-c', functions + fragment],
+                               env=dict(env, RESOLVER='yes' if resolver else 'no'), check=True, timeout=5)
+                self.assertEqual(expected, calls.exists())
+                if expected:
+                    self.assertTrue((root / 'overlay/upper').is_dir())
+                    self.assertTrue((root / 'overlay/work').is_dir())
+                    self.assertIn('lowerdir=/etc,upperdir=', calls.read_text())
+                    actions = calls.read_text().splitlines()
+                    if resolver:
+                        self.assertEqual(3, len(actions))
+                        saved = actions[0].removeprefix('--move /etc/resolv.conf ')
+                        self.assertEqual('--move ' + saved + ' /etc/resolv.conf', actions[-1])
+                        self.assertFalse(Path(saved).exists())
+                        self.assertTrue(actions[1].endswith(' overlay /etc'))
+                    else:
+                        self.assertEqual(1, len(actions))
+                        self.assertTrue(actions[0].endswith(' overlay /etc'))
+
+    def test_init_preserves_launch_uplink_with_overridable_runtime_profile(self):
+        prepare = self.run_script('--print-init-prepare').stdout
+        fragment = prepare[prepare.index('# The launch configures eth0'):]
+        directory = self.directory / 'network'
+        fragment = fragment.replace('/run/systemd/network', str(directory))
+        subprocess.run(['sh', '-eu', '-c', fragment], check=True, timeout=5)
+        profile, = directory.iterdir()
+        self.assertEqual('80-magicdesk-uplink.network', profile.name)
+        config = configparser.ConfigParser()
+        config.read(profile)
+        self.assertEqual({'name': 'eth0'}, dict(config['Match']))
+        self.assertEqual({'dhcp': 'no', 'ipv6acceptra': 'no',
+                          'linklocaladdressing': 'no', 'keepconfiguration': 'static'},
+                         dict(config['Network']))
+        self.assertNotIn('/etc/systemd/network', fragment)
+
+    def test_init_makes_only_host_libvirt_aio_tuning_optional(self):
+        prepare = self.run_script('--print-init-prepare').stdout
+        fragment = prepare[prepare.index("# Libvirt's host-wide AIO tuning"):
+                           prepare.index('# The launch configures eth0')]
+        root = self.directory / 'sysctl-policy'
+        fragment = re.sub(r'/(?:usr/local/lib|usr/lib|lib|run)/sysctl\.d',
+                          lambda match: str(root) + match[0], fragment)
+        source = root / 'usr/lib/sysctl.d/60-libvirtd.conf'
+        source.parent.mkdir(parents=True)
+        lines = (
+            ('# Vendor tuning', '# Vendor tuning'),
+            (' fs.aio-max-nr = 1048576', '-fs.aio-max-nr = 1048576'),
+            ('fs/aio-max-nr=2097152', '-fs/aio-max-nr=2097152'),
+            ('\tfs.aio-max-nr\t= 32 # tuning', '-fs.aio-max-nr\t= 32 # tuning'),
+            ('-fs.aio-max-nr = 8', '-fs.aio-max-nr = 8'),
+            ('\t-fs/aio-max-nr=16', '\t-fs/aio-max-nr=16'),
+            ('fs.aio-nr = 9', 'fs.aio-nr = 9'),
+            ('fsXaio-max-nr = 10', 'fsXaio-max-nr = 10'),
+            ('# fs.aio-max-nr = 11', '# fs.aio-max-nr = 11'),
+            ('net.ipv4.ip_forward = 1', 'net.ipv4.ip_forward = 1'),
+        )
+        original = ''.join(before + '\n' for before, _ in lines)
+        expected = ''.join(after + '\n' for _, after in lines)
+        source.write_text(original)
+        administrator = root / 'etc/sysctl.d/60-libvirtd.conf'
+        administrator.parent.mkdir(parents=True)
+        administrator.write_text('fs.aio-max-nr = 4096\n')
+        output = root / 'run/sysctl.d/60-libvirtd.conf'
+        for _ in range(2):
+            subprocess.run(['sh', '-eu', '-c', fragment], check=True, timeout=5)
+            self.assertEqual(expected, output.read_text())
+            self.assertEqual(original, source.read_text())
+            self.assertEqual('fs.aio-max-nr = 4096\n', administrator.read_text())
 
     def test_arch_mirror_fallback_preserves_custom_lists_and_is_idempotent(self):
         setup = self.run_script('--print-system-setup').stdout
@@ -699,7 +867,7 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         result = self.run_script('--print-system-setup')
         self.assertEqual(0, result.returncode, result.stderr)
         setup = result.stdout
-        self.assertRegex(setup, r'dnf\) packages [^\n]* iptables-nft ;;')
+        self.assertRegex(setup, r'dnf\)\s+packages [^\n]* iptables-nft\n')
         selection = 'alternatives --set iptables /usr/bin/iptables-nft'
         self.assertGreater(setup.index(selection), setup.index('packages $extras'))
 
@@ -785,6 +953,47 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         self.assertEqual('/dev/null', os.readlink(output / 'proc-sys-fs-binfmt_misc.automount'))
         self.assertFalse((output / 'systemd-binfmt.service').exists())
         self.assertFalse((output / 'proc-sys-fs-binfmt_misc.mount').exists())
+
+    def test_rpm_setup_restores_package_declared_helper_capabilities(self):
+        setup = self.run_script('--print-system-setup').stdout
+        start = setup.index('case "$family" in', setup.index('setup_locked=no'))
+        fragment = setup[start:setup.index('\nesac', start) + len('\nesac')]
+        for family, package in (('dnf', 'shadow-utils'), ('zypper', 'shadow')):
+            for status in (0, 23):
+                with self.subTest(family=family, status=status):
+                    script = f'''family={family}
+packages() {{ printf 'packages %s\\n' "$*"; }}
+refresh_packages() {{ :; }}
+rpm() {{ printf 'rpm %s\\n' "$*"; return {status}; }}
+chmod() {{ exit 99; }}
+''' + fragment
+                    result = subprocess.run(['sh', '-eu', '-c', script], capture_output=True,
+                                            text=True, timeout=5)
+                    self.assertEqual(status, result.returncode, result.stderr)
+                    lines = result.stdout.splitlines()
+                    self.assertIn(package, lines[0].split())
+                    self.assertEqual('rpm --setcaps ' + package, lines[1])
+                    self.assertEqual(2, len(lines))
+
+    def test_pacman_setup_restores_package_declared_helper_capabilities(self):
+        setup = self.run_script('--print-system-setup').stdout
+        start = setup.index('case "$family" in', setup.index('setup_locked=no'))
+        fragment = setup[start:setup.index('\nesac', start) + len('\nesac')]
+        for status in (0, 23):
+            with self.subTest(status=status):
+                script = f'''family=pacman
+arch_mirror_fallback() {{ :; }}
+refresh_packages() {{ :; }}
+packages() {{ printf 'packages %s\\n' "$*"; }}
+pacman() {{ printf 'pacman %s\\n' "$*"; return {status}; }}
+chmod() {{ exit 99; }}
+setcap() {{ exit 99; }}
+''' + fragment
+                result = subprocess.run(['sh', '-eu', '-c', script], capture_output=True,
+                                        text=True, timeout=5)
+                self.assertEqual(status, result.returncode, result.stderr)
+                self.assertEqual(['packages ca-certificates bash coreutils util-linux tzdata gzip',
+                                  'pacman -S --noconfirm shadow'], result.stdout.splitlines())
 
     def test_pacman_keeps_installed_dependency_providers(self):
         setup = self.run_script('--print-system-setup').stdout
@@ -1052,6 +1261,11 @@ packages ninja meson pkgconf
         home = self.directory / 'home'
         home.mkdir()
         environment = dict(self.environment, HOME=str(home))
+        environment.pop('XDG_DATA_DIRS', None)
+        profiles = self.directory / 'profiles'
+        profiles.mkdir()
+        (profiles / 'flatpak.sh').write_text(
+            'export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/share}"\n')
         environment.pop('MAGICDESK_MESA_PREFIX', None)
         launcher = self.run_script('--print-desktop-session').stdout
         launcher = launcher.replace('/etc/profile.d/', str(self.directory / 'profiles') + '/')
@@ -1072,6 +1286,8 @@ packages ninja meson pkgconf
                     self.assertEqual(23, launched.returncode, launched.stderr)
                     captured = json.loads(launched.stdout)
                     self.assertEqual(program, captured['argv'][0])
+                    self.assertIn(str(home / '.local/share/flatpak/exports/share'),
+                                  captured['env']['XDG_DATA_DIRS'].split(':'))
                     self.assertEqual('a b', captured['argv'][-1])
                     self.assertEqual('abstract-gamepad', captured['env']['MAGICDESK_GAMEPAD_ENDPOINT'])
                     self.assertEqual('/tmp/android-pulse', captured['env']['MAGICDESK_AUDIO_PULSE'])
@@ -1106,7 +1322,7 @@ packages ninja meson pkgconf
             else:
                 self.assertIsNone(value['scope'])
 
-    def test_desktop_ready_publishes_only_present_display_and_audio_variables(self):
+    def test_desktop_ready_publishes_only_present_session_variables(self):
         publisher = self.directory / 'dbus-update-activation-environment'
         publisher.write_text('#!' + sys.executable + '\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n')
         publisher.chmod(0o755)
@@ -1118,13 +1334,16 @@ packages ninja meson pkgconf
             environment = dict(self.environment, XDG_RUNTIME_DIR='/run/user/1000',
                                DBUS_SESSION_BUS_ADDRESS='unix:path=/run/user/1000/bus' if systemd else 'unix:path=/private-bus',
                                WAYLAND_DISPLAY='wayland-1', PULSE_SERVER='unix:/session/audio')
+            environment.pop('XDG_DATA_DIRS', None)
+            if systemd:
+                environment['XDG_DATA_DIRS'] = '/user/exports/share:/usr/share'
             for key in ('DISPLAY', 'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'PIPEWIRE_REMOTE', 'PIPEWIRE_RUNTIME_DIR'):
                 environment.pop(key, None)
             result = subprocess.run(['sh', '-c', launcher, 'desktop', '--ready'],
                                     env=environment, capture_output=True, text=True, timeout=5)
             self.assertEqual(0, result.returncode, result.stderr)
-            self.assertEqual((['--systemd'] if systemd else []) + ['WAYLAND_DISPLAY', 'PULSE_SERVER'],
-                             json.loads(result.stdout))
+            self.assertEqual((['--systemd'] if systemd else []) + ['WAYLAND_DISPLAY']
+                             + (['XDG_DATA_DIRS'] if systemd else []) + ['PULSE_SERVER'], json.loads(result.stdout))
         setup = self.run_script('--print-system-setup').stdout
         self.assertIn('path=/usr/local/libexec/magicdesk-desktop-ready\n', setup)
         self.assertIn('exec magicdesk-desktop-session --ready\n', setup)
@@ -1631,10 +1850,37 @@ packages ninja meson pkgconf
         self.assertEqual(['prune'], self.calls()[-1])
         self.assertFalse(list(self.directory.glob('magicdesk-import-*')))
 
+    def test_post_import_failures_clean_converter_and_offer_resume(self):
+        for distro, failure in (('steamos', 'dns'), ('armtix', 'validate')):
+            with self.subTest(distro=distro):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script('--yes', '--distro', distro, TEST_FAIL=failure)
+                self.assertEqual(23, result.returncode, result.stderr)
+                self.assertIn(f'--name {distro} --resume', result.stderr)
+                self.assertEqual(failure == 'dns', f'shroot dns {distro} system --replace' in result.stderr)
+                self.assertEqual([['remove', 'unpack'], ['prune']], self.calls()[-2:])
+                self.assertFalse(list(self.directory.glob('magicdesk-import-*')))
+
     def test_steamos_existing_name_is_rejected_before_fetching(self):
         result = self.run_script('--yes', '--distro', 'steamos', TEST_ENVIRONMENTS='steamos\tsource\t/store')
         self.assertNotEqual(0, result.returncode)
         self.assertIn('already exists', result.stderr)
+        self.assertEqual([['--probe'], ['list']], self.calls())
+
+    def test_first_rootfs_install_in_an_explicit_library(self):
+        result = self.run_script('--yes', '--distro', 'alpine', TEST_DISTRO='alpine',
+                                 MAGICDESK_GUEST_HOME=str(self.directory / 'new-library'),
+                                 TEST_FAIL='list')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn(['list'], self.calls())
+        self.assertTrue(any(c[0] == 'install' and '--rootfs' in c for c in self.calls()))
+
+    def test_existing_explicit_library_list_error_precedes_download(self):
+        root = self.directory / 'library'
+        root.mkdir()
+        result = self.run_script('--yes', '--distro', 'alpine', TEST_FAIL='list',
+                                 MAGICDESK_GUEST_HOME=str(root))
+        self.assertNotEqual(0, result.returncode)
         self.assertEqual([['--probe'], ['list']], self.calls())
 
     def test_steamos_work_cannot_overlap_read_only_cache(self):
@@ -1737,7 +1983,7 @@ packages ninja meson pkgconf
                        'opensuse', 'void', 'armtix', 'openkylin', 'deepin', 'manjaro', 'nixos'):
             with self.subTest(distro=distro):
                 self.log.unlink(missing_ok=True)
-                result = self.run_script('--yes', '--resume', '--name', 'work',
+                result = self.run_script('--yes', '--distro', distro, '--name', 'work',
                                          '--gpu', 'turnip', TEST_DISTRO=distro)
                 self.assertEqual(0, result.returncode, result.stderr)
                 if distro == 'nixos':
@@ -1911,7 +2157,9 @@ packages ninja meson pkgconf
         self.assertIn('sandbox = true;', script)
         self.assertNotIn('export NIX_CONFIG=', script)
         self.assertIn('patchShebangs --build .', script)
-        self.assertEqual(1, script.count('unshare --mount'))
+        init_helper = self.run_script('--print-init-session').stdout.strip()
+        self.assertEqual(1, script.count(init_helper))
+        self.assertEqual(1, script.replace(init_helper, '', 1).count('unshare --mount'))
         self.assertIn('"$system/sw/bin/bash" -s -- "$system" "$@"', script)
         pts = script.index('mount -t devpts -o newinstance,ptmxmode=0666,mode=0620 devpts /dev/pts')
         activate = script.index('\n/run/current-system/activate\n')
@@ -1935,7 +2183,8 @@ packages ninja meson pkgconf
         self.assertFalse(any(c[0] in ('install', 'download', 'dns') for c in self.calls()))
         setups = [c for c in self.calls() if c[0] == 'login' and '-s' in c]
         self.assertEqual(1, len(setups))
-        self.assertEqual('keep', setups[0][-10])
+        self.assertEqual(['keep', 'keep'], setups[0][-10:-8])
+        self.assertEqual('keep', setups[0][-1])
         script = self.payload.read_text()
         self.assertIn('old.desktops ++', script)
         self.assertIn('old.packages ++', script)
@@ -1944,6 +2193,80 @@ packages ninja meson pkgconf
         self.assertIn('Add ./magicdesk.nix to the imports', script)
         self.assertNotIn('cat > configuration.nix', script)
         self.assertNotIn('nix-collect-garbage -', script)
+
+    def test_nixos_resume_accepts_explicit_defaults(self):
+        result = self.run_script('--yes', '--resume', '--name', 'existing', '--protocol', 'both',
+                                 '--jobs', '4', TEST_DISTRO='nixos')
+        self.assertEqual(0, result.returncode, result.stderr)
+        setup = self.system_setup_call()
+        self.assertEqual(('both', '4'), (setup[-9], setup[-1]))
+
+    @unittest.skipUnless(hasattr(os, 'openpty'), 'PTY required')
+    def test_interactive_nixos_resume_distinguishes_blank_from_explicit_defaults(self):
+        args = ('--resume', '--name', 'existing', '--gui', 'plasma', '--gpu', 'keep',
+                '--locale', 'keep', '--timezone', 'keep', '--fonts', 'keep')
+        for jobs, protocol, expected in (('', '', ('keep', 'keep')), ('4', 'both', ('both', '4'))):
+            with self.subTest(jobs=jobs, protocol=protocol):
+                self.log.unlink(missing_ok=True)
+                self.questions(f'{jobs}\ny\n\n{protocol}\n\n\ny\n'.encode(), args=args, TEST_DISTRO='nixos')
+                setup = self.system_setup_call()
+                self.assertEqual(expected, (setup[-9], setup[-1]))
+
+    def test_nixos_publishes_candidate_only_after_rebuild(self):
+        setup = self.run_script('--print-nixos-setup').stdout
+        rebuild = setup[setup.index('nixos-rebuild boot'):setup.index("echo 'Activating the installed")]
+        stub = self.directory / 'nixos-rebuild'
+        stub.write_text('#!' + sys.executable + '\n' + """
+import os, sys
+from pathlib import Path
+key, candidate = sys.argv[sys.argv.index('-I') + 1].split('=', 1)
+assert key == 'magicdesk-installer-settings'
+assert Path(candidate).read_text() == 'candidate'
+assert sys.argv[sys.argv.index('--cores') + 1] == '3'
+canonical = Path('magicdesk-settings.json')
+assert (canonical.read_text() if canonical.exists() else '') == os.environ['PREVIOUS']
+sys.exit(int(os.environ['BUILD_STATUS']))
+""")
+        stub.chmod(0o755)
+        canonical = self.directory / 'magicdesk-settings.json'
+        candidate = self.directory / 'magicdesk-settings.json.new'
+        for previous in ('', 'last good'):
+            canonical.unlink(missing_ok=True)
+            if previous:
+                canonical.write_text(previous)
+            for status in (23, 0):
+                with self.subTest(previous=previous, status=status):
+                    candidate.write_text('candidate')
+                    result = subprocess.run(['sh', '-ec', 'jobs=3\n' + rebuild], cwd=self.directory,
+                                            env=dict(self.environment, PREVIOUS=previous, BUILD_STATUS=str(status)),
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(status, result.returncode, result.stderr)
+                    self.assertEqual(previous if status else 'candidate',
+                                     canonical.read_text() if canonical.exists() else '')
+
+    def test_apt_service_policy_is_scoped_and_preserves_existing_policy(self):
+        setup = self.run_script('--print-system-setup').stdout
+        policy = self.directory / 'policy-rc.d'
+        function = setup[setup.index('nonbooted_apt()'):setup.index('\npackages()')]
+        function = function.replace('policy=/usr/sbin/policy-rc.d', 'policy=$TEST_POLICY')
+
+        def run(body):
+            return subprocess.run(['sh', '-ec', function + '\nnonbooted_apt sh -ec "$1"', 'sh', body],
+                                  env=dict(self.environment, TEST_POLICY=str(policy)), cwd=self.directory,
+                                  capture_output=True, text=True, timeout=5)
+
+        for status in (0, 23):
+            result = run('rc=0; sh "$TEST_POLICY" || rc=$?; test "$rc" = 101; '
+                         'unset MAGICDESK_PACKAGE_SETUP; sh "$TEST_POLICY"; exit ' + str(status))
+            self.assertEqual(status, result.returncode, result.stderr)
+            self.assertEqual([], list(self.directory.glob('policy-rc.d*')))
+        policy.symlink_to('missing-admin-policy')
+        self.assertEqual(0, run('test -L "$TEST_POLICY" && ! test -e "$TEST_POLICY"').returncode)
+        self.assertEqual('missing-admin-policy', os.readlink(policy))
+        policy.unlink()
+        self.assertEqual(0, run('rm "$TEST_POLICY"; echo admin > "$TEST_POLICY"').returncode)
+        self.assertEqual(0, run('test "$(cat "$TEST_POLICY")" = admin').returncode)
+        self.assertEqual('admin\n', policy.read_text())
 
     def test_nixos_module_uses_native_generations_and_shared_helpers(self):
         module = self.run_script('--print-nixos-module').stdout
@@ -2032,11 +2355,19 @@ packages ninja meson pkgconf
         self.assertFalse(Path(str(self.payload) + '.kwin').exists())
 
     def test_nixos_unactivated_image_uses_stock_activation_in_private_mounts(self):
-        result = self.run_script('--yes', '--distro', 'nixos', '--resume', '--name', 'fresh',
+        result = self.run_script('--yes', '--resume', '--name', 'fresh',
                                  TEST_DISTRO='nixos', TEST_NIXOS_UNACTIVATED='1')
         self.assertEqual(0, result.returncode, result.stderr)
         bootstrap = Path(str(self.payload) + '.bootstrap').read_text()
-        self.assertIn('[ "$ID" = nixos ] && [ "$VERSION_ID" = 26.05 ]', bootstrap)
+        release = self.directory / 'os-release'
+        guard = bootstrap.split('umask 022', 1)[0].replace('/etc/os-release', '"$1"')
+        for distro, version, allowed in [('nixos', '26.05', True), ('other', '26.05', False),
+                                         ('nixos', '25.11', False)]:
+            release.write_text(f'ID={distro}\nVERSION_ID={version}\n')
+            probe = subprocess.run(['sh', '-c', guard + '\necho admitted', 'sh', release],
+                                   capture_output=True, text=True)
+            self.assertEqual(allowed, probe.returncode == 0)
+            self.assertEqual(allowed, 'admitted' in probe.stdout)
         self.assertIn('unshare --mount', bootstrap)
         self.assertIn('mount -t proc proc /proc', bootstrap)
         self.assertIn('mount -t devpts -o newinstance,ptmxmode=0666,mode=0620 devpts /dev/pts', bootstrap)
@@ -2049,6 +2380,22 @@ packages ninja meson pkgconf
         self.assertNotIn('cat > /etc/passwd', bootstrap)
         self.assertNotIn('ln -s /nix/store', bootstrap)
         self.assertEqual(0, subprocess.run(['sh', '-n'], input=bootstrap, text=True).returncode)
+
+    def test_unactivated_nixos_resume_validates_options_before_bootstrap(self):
+        for distro in ([], ['--distro', 'nixos']):
+            result = self.run_script('--yes', '--resume', '--name', 'fresh', '--gui', 'gnome', *distro,
+                                     TEST_DISTRO='nixos', TEST_NIXOS_UNACTIVATED='1')
+            self.assertIn('requires Fedora', result.stderr)
+            self.assertFalse(Path(str(self.payload) + '.bootstrap').exists())
+
+    def test_unactivated_nixos_resume_can_cancel_without_activation(self):
+        output = self.questions(b'n\nn\n', args=('--distro', 'nixos', '--resume', '--name', 'fresh',
+                                '--gui', 'none', '--gpu', 'keep', '--locale', 'keep',
+                                '--timezone', 'keep', '--fonts', 'keep'),
+                                TEST_DISTRO='nixos', TEST_NIXOS_UNACTIVATED='1')
+        self.assertIn('Cancelled.', output)
+        self.assertFalse(Path(str(self.payload) + '.bootstrap').exists())
+        self.assertFalse(self.payload.exists())
 
     def test_rootfs_converter_preserves_uncompressed_tar_bytes(self):
         result = self.run_script('--yes', '--distro', 'void', '--downloads', str(self.directory / 'downloads'))
@@ -2217,6 +2564,8 @@ packages ninja meson pkgconf
                      ("--timezone", "/tmp"), ("--timezone", "UTC;id"), ("--locale", "$(id)"),
                      ("--create-user", "root"), ("--create-user", "--root"), ("--package", "-y"),
                      ("--package", "curl;id"), ("--package", "../pkg"), ("--protocol", "auto"),
+                     ("--locale", "en_US.UTF-8\nde_DE.UTF-8"), ("--create-user", "alex\nsam"),
+                     ("--package", "curl\nwget"), ("--package", "curl\n"), ("--package", "curl\r"),
                      ("--cache", "all"), ("--arch-sandbox", "disable-filesystem"),
                      ("--gui", "none", "--gpu", "turnip")]:
             with self.subTest(args=args):
@@ -2284,9 +2633,11 @@ packages ninja meson pkgconf
                 self.assertNotEqual(0, self.run_script("--yes", *args).returncode)
                 self.assertEqual([], self.calls())
 
-    def test_regular_app_uid_is_rejected_without_elevation(self):
-        self.assertNotEqual(0, self.run_script("--yes", TEST_UID="10001").returncode)
-        self.assertEqual([], self.calls())
+    def test_app_uid_uses_same_capability_probe_and_recipe_without_elevation(self):
+        result = self.run_script("--yes", TEST_UID="10001")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["--probe"], self.calls()[0])
+        self.assertIn("Linux is ready", result.stdout)
 
     def test_noninteractive_stdin_requires_explicit_consent(self):
         result = self.run_script()

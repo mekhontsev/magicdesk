@@ -9,6 +9,9 @@ public final class ShellTaskModePublicationTest {
                 f.mFullscreenTaskArea.fail = true;
                 f.onWindowingModeChanged(66, 42, 5, 1, 123, true, List.of());
                 check(f.mCallback.errors == 1, "ownership error was swallowed");
+                check(f.mCallback.error.contains("task=42 display=66")
+                        && f.mCallback.error.contains("IllegalStateException: workspace incomplete"),
+                        "ownership error lost its context or cause");
                 check(f.mCallback.changes == 1 && f.mCallback.captionSource == 123,
                         "failed adoption suppressed caption refresh event");
                 check(!f.mCallback.released, "failed adoption claimed a background release");
@@ -40,6 +43,10 @@ public final class ShellTaskModePublicationTest {
                 static final String TAG = "fixture";
                 static class FrameworkTaskSnapshot {}
                 static class Log { static void w(String tag, String message, Throwable error) {} }
+                static class TaskDisplayAreaLaunchCommand {
+                    static final int FAILURE_MESSAGE_LIMIT = 500;
+                """ + RuntimeSourceFixture.methods("TaskDisplayAreaLaunchCommand", "causeChain") + """
+                }
                 static class Area {
                     boolean fail, released;
                     boolean onWindowingModeChanged(Object service, int display, int task, int mode,
@@ -58,8 +65,9 @@ public final class ShellTaskModePublicationTest {
                 }
                 static class Callback {
                     int errors, changes, captionSource;
+                    String error;
                     boolean released;
-                    void onObserverError(String error) { errors++; }
+                    void onObserverError(String error) { errors++; this.error = error; }
                     void onWindowingModeChanged(int task, int previous, int mode, int source, boolean background) {
                         changes++; captionSource = source; released = background;
                     }

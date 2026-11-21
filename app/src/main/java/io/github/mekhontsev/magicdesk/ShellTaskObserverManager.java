@@ -81,6 +81,7 @@ final class ShellTaskObserverManager implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final int desktopHostTaskId,
+            final boolean homeRole,
             final DesktopCompatibilityPolicy compatibility) {
         final Session session = requireSession(callback);
         if (displayId != session.displayId && displayId >= 0) {
@@ -90,7 +91,7 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId,
                 displayBounds,
                 workAreaBounds,
-                desktopHostTaskId, compatibility);
+                desktopHostTaskId, homeRole, compatibility);
     }
 
     void configureDesktopHomeDelegate(final ITaskObserverCallback callback,

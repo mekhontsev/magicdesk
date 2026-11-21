@@ -28,28 +28,91 @@ public final class TaskWindowingCommand {
     static void resizeBounds(Object service, int displayId, int[] taskIds, Rect[] bounds)
             throws ReflectiveOperationException {
         validateGeometry(displayId, taskIds, bounds);
-        if (taskIds.length > 1) FrameworkWindowCommitBarrier.awaitSystemTransitions();
+        boolean nativeResize = taskIds.length == 1 && !FrameworkWindowGeometry.adapted();
+        if (!nativeResize) FrameworkWindowCommitBarrier.awaitSystemTransitions();
         Object[] tokens = new Object[taskIds.length];
+        FrameworkWindowGeometry.Plan[] geometry = new FrameworkWindowGeometry.Plan[taskIds.length];
         for (int i = 0; i < taskIds.length; i++) {
             Object task = HiddenTaskApi.requireTask(service, displayId, taskIds[i]);
             if (HiddenTaskApi.getTaskWindowingMode(task) != WINDOWING_MODE_FREEFORM) {
                 throw new IllegalStateException("geometry target is no longer freeform");
             }
             tokens[i] = HiddenTaskApi.getTaskToken(task);
+            geometry[i] = FrameworkWindowGeometry.plan(task, bounds[i]);
         }
-        if (taskIds.length == 1) {
+        if (nativeResize) {
             HiddenTaskApi.resizeTaskBounds(service, displayId, taskIds[0], bounds[0]);
             return;
         }
         FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
         Object transaction = windowing.newTransaction();
         for (int i = 0; i < taskIds.length; i++) {
-            windowing.setBounds(transaction, tokens[i], bounds[i]);
+            geometry[i].apply(windowing, transaction, tokens[i]);
         }
+        submitGeometry(displayId, windowing, transaction);
+    }
+
+    private static void submitGeometry(int displayId, FrameworkWindowingApi windowing, Object transaction)
+            throws ReflectiveOperationException {
+        // Organized task surfaces belong to WMShell even for bounds-only changes.
+        // A draw-sync callback can leave their position and input regions stale.
         ShellWindowTransitionExecutor.startForShellAdoption(displayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 windowing.transactionClass(), transaction, "place-desktop-windows");
         FrameworkWindowCommitBarrier.awaitSystemTransitions();
+    }
+
+    static boolean normalizeTaskScale(Object service, FrameworkTaskSnapshot expected, float retainedScale)
+            throws ReflectiveOperationException {
+        if (!FrameworkWindowGeometry.adapted()
+                || !PlatformDrivers.current().windowing().hasNativeScaleCommit()
+                || !NativeWindowScaleCorrection.eligible(expected)
+                || !TaskWindowGeometry.validScale(retainedScale)) {
+            throw new IllegalArgumentException("native scale correction unavailable");
+        }
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
+        FrameworkTaskSnapshot current = FrameworkTaskSnapshotSource.findTask(
+                service, expected.displayId, expected.taskId);
+        if (!NativeWindowScaleCorrection.matches(expected, current)) return false;
+        Object token = HiddenTaskApi.getTaskToken(current.task);
+        FrameworkWindowGeometry.Plan geometry = FrameworkWindowGeometry.plan(
+                current.task, expected.bounds, retainedScale);
+        FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
+        android.os.IBinder identity = windowing.tokenIdentity(token);
+        if (identity == null) throw new IllegalStateException("task identity unavailable");
+        Object transaction = windowing.newTransaction();
+        geometry.apply(windowing, transaction, token);
+        PlatformWindowingDriver.TaskScalePeer peer = PlatformDrivers.current().windowing()
+                .taskScalePeer(expected.taskId);
+        return TaskScaleSynchronization.apply(peer, expected.windowScale, retainedScale,
+                new TaskScaleSynchronization.Geometry() {
+                    private FrameworkTaskSnapshot owned() throws ReflectiveOperationException {
+                        FrameworkTaskSnapshot task = FrameworkTaskSnapshotSource.findTask(
+                                service, expected.displayId, expected.taskId);
+                        return NativeWindowScaleCorrection.eligible(task)
+                                && NativeWindowScaleCorrection.sameIdentity(expected, task)
+                                && identity.equals(windowing.tokenIdentity(HiddenTaskApi.getTaskToken(task.task)))
+                                ? task : null;
+                    }
+
+                    @Override public boolean isCurrent() throws ReflectiveOperationException {
+                        return NativeWindowScaleCorrection.matches(expected, owned());
+                    }
+
+                    @Override public void commit() throws ReflectiveOperationException {
+                        submitGeometry(expected.displayId, windowing, transaction);
+                        FrameworkTaskSnapshot task = owned();
+                        if (task == null || task.windowScale != retainedScale
+                                || !task.logicalBounds.equals(geometry.logicalBounds)) {
+                            throw new IllegalStateException("native resize geometry did not converge");
+                        }
+                    }
+
+                    @Override public float committedScale() throws ReflectiveOperationException {
+                        FrameworkTaskSnapshot task = owned();
+                        return task == null ? Float.NaN : task.windowScale;
+                    }
+                });
     }
 
     public static void main(final String[] args) {
@@ -124,8 +187,10 @@ public final class TaskWindowingCommand {
         final Object transaction = windowing.newTransaction();
         windowing.reorder(transaction, taskToken, false);
         windowing.reorder(transaction, focusTaskToken, true, true);
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, transaction);
+        ShellWindowTransitionExecutor.startForShellAdoption(
+                displayId, ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
+                transactionClass, transaction, "select-minimize-successor");
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
         System.out.println("task-minimized=" + taskId
                 + " focused=" + focusTaskId);
     }
@@ -152,27 +217,6 @@ public final class TaskWindowingCommand {
         focusTasks(service, displayId, taskIds, transactionClass, transaction);
     }
 
-    static void focusTasksWithSurfaceCommit(
-            final Object service,
-            final int displayId,
-            final int[] taskIds) throws ReflectiveOperationException {
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        addFocusTasks(
-                service,
-                displayId,
-                taskIds,
-                transactionClass,
-                transaction);
-        final Object target = HiddenTaskApi.requireTask(
-                service, displayId, taskIds[taskIds.length - 1]);
-        ShellWindowTransitionExecutor.applySelection(
-                service, displayId, transactionClass, transaction,
-                HiddenTaskApi.getTaskWindowingMode(target));
-    }
-
     static void focusTasks(
             final Object service,
             final int displayId,
@@ -185,7 +229,11 @@ public final class TaskWindowingCommand {
                 taskIds,
                 transactionClass,
                 transaction);
-        applyFocusTransaction(service, transactionClass, transaction);
+        final Object target = HiddenTaskApi.requireTask(
+                service, displayId, taskIds[taskIds.length - 1]);
+        ShellWindowTransitionExecutor.applySelection(
+                service, displayId, transactionClass, transaction,
+                HiddenTaskApi.getTaskWindowingMode(target));
     }
 
     static void addFocusTasks(
@@ -249,9 +297,9 @@ public final class TaskWindowingCommand {
             final Object service,
             final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
-        // Focus is a steady-state z-order change. Submitting the complete WCT
-        // atomically avoids creating a raw transition token that can outlive an
-        // external display when a queued focus request races desktop teardown.
+        // Child-only repair stays inside an already selected fullscreen plane.
+        // Its owner retains parent and surface ordering; no native freeform
+        // layer assignment is needed here.
         ShellWindowTransitionExecutor.applyAtomic(
                 service, transactionClass, transaction);
     }
@@ -315,7 +363,7 @@ public final class TaskWindowingCommand {
         if (originalMode == WINDOWING_MODE_FULLSCREEN) {
             return false;
         }
-        final Rect originalBounds = HiddenTaskApi.readBounds(task);
+        final FrameworkWindowGeometry.Plan originalGeometry = FrameworkWindowGeometry.capture(task);
         final int captionSourceId = refreshCaption
                 ? TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId)
                 : TaskLocalInsetsSourceParser.NO_SOURCE_ID;
@@ -347,7 +395,7 @@ public final class TaskWindowingCommand {
                             displayId,
                             taskId,
                             originalMode,
-                            originalBounds);
+                            originalGeometry);
                 } catch (ReflectiveOperationException
                         | RuntimeException restoreError) {
                     error.addSuppressed(restoreError);
@@ -407,12 +455,13 @@ public final class TaskWindowingCommand {
         final Class<?> transactionClass = windowing.transactionClass();
         final Object transaction = windowing.newTransaction();
         for (int index = 0; index < taskIds.length; index++) {
-            final Object taskToken = HiddenTaskApi.requireTaskToken(
+            final Object task = HiddenTaskApi.requireTask(
                     service, displayId, taskIds[index]);
+            final Object taskToken = HiddenTaskApi.getTaskToken(task);
             windowing.setWindowingMode(
                     transaction, taskToken, WINDOWING_MODE_FREEFORM);
             if (bounds != null) {
-                windowing.setBounds(transaction, taskToken, bounds[index]);
+                FrameworkWindowGeometry.plan(task, bounds[index]).apply(windowing, transaction, taskToken);
             }
             windowing.setForceTranslucent(transaction, taskToken, false);
             TaskCaptionInsetsCommand.addCaptionInsetOperation(
@@ -434,6 +483,7 @@ public final class TaskWindowingCommand {
                 "restore-desktop-tasks");
         if (bounds != null) {
             for (int index = 0; index < taskIds.length; index++) {
+                FrameworkWindowGeometry.finishPlacement(service, displayId, taskIds[index], bounds[index]);
                 TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                         service, displayId, taskIds[index], bounds[index]);
             }

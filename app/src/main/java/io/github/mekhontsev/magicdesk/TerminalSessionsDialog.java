@@ -29,6 +29,7 @@ final class TerminalSessionsDialog {
     private List<TerminalSessions.Item> items = List.of();
     private TmuxSessionProvider.Snapshot tmux;
     private boolean loading;
+    private final OperationResources queries = new OperationResources();
 
     private TerminalSessionsDialog(Activity activity, ToolLaunchTarget target, String uniqueId,
             DesktopLaunchPresentation presentation, View anchor, java.util.function.Consumer<Intent> selection) {
@@ -47,7 +48,9 @@ final class TerminalSessionsDialog {
                 .setNeutralButton(R.string.action_refresh, null)
                 .setNegativeButton(android.R.string.cancel, null).create();
         dropdown = anchor == null ? null : new android.widget.ListPopupWindow(activity);
+        if (dialog != null) dialog.setOnDismissListener(ignored -> queries.close());
         if (dropdown != null) {
+            dropdown.setOnDismissListener(queries::close);
             dropdown.setAnchorView(anchor);
             dropdown.setModal(true);
             dropdown.setBackgroundDrawable(UiAppearance.paint(activity, UiColor.PANEL, dp(8), UiColor.HOVER));
@@ -66,6 +69,11 @@ final class TerminalSessionsDialog {
         show(activity, currentTarget(activity), null);
     }
 
+    static void create(Activity activity) {
+        new TerminalSessionsDialog(activity, currentTarget(activity), null,
+                DesktopLaunchPresentation.automatic(), null, null).create();
+    }
+
     private static ToolLaunchTarget currentTarget(Activity activity) {
         return ToolLaunchTarget.resolve("auto", activity.getDisplay() == null
                 ? 0 : activity.getDisplay().getDisplayId(), DesktopRuntimeBridge.workspaceDisplayIds());
@@ -77,6 +85,16 @@ final class TerminalSessionsDialog {
 
     static void show(Activity activity, ToolLaunchTarget target, String uniqueId, DesktopLaunchPresentation presentation) {
         final var picker = new TerminalSessionsDialog(activity, target, uniqueId, presentation, null, null);
+        picker.showPicker();
+    }
+
+    static void select(Activity activity, java.util.function.Consumer<Intent> selection) {
+        new TerminalSessionsDialog(activity, currentTarget(activity), null,
+                DesktopLaunchPresentation.automatic(), null, selection).showPicker();
+    }
+
+    private void showPicker() {
+        final var picker = this;
         picker.dialog.show();
         picker.dialog.getListView().addFooterView(picker.status, null, false);
         picker.dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> picker.create());
@@ -112,6 +130,18 @@ final class TerminalSessionsDialog {
         if (loading || !alive()) return;
         loading = true;
         render();
+        var guest = ConsoleTerminalRegistry.guestTmuxEnvironment(currentTerminalId());
+        if (guest != null) {
+            var slot = queries.reserve();
+            try {
+                slot.attach(GuestTmux.list(activity, guest, (snapshot, error) -> activity.runOnUiThread(() -> {
+                    slot.close();
+                    if (!alive() || snapshot == null || !snapshot.available) return;
+                    ConsoleTerminalRegistry.observeGuestTmux(guest, snapshot);
+                    render();
+                })));
+            } catch (RuntimeException unavailable) { slot.close(); result(unavailable); }
+        }
         status.setText(R.string.console_tmux_loading);
         status.setVisibility(View.VISIBLE);
         if (!TermuxIntegration.isAvailable(activity)) {
@@ -126,6 +156,7 @@ final class TerminalSessionsDialog {
             loading = false;
             if (!alive()) return;
             tmux = snapshot;
+            ConsoleTerminalRegistry.observeTmuxNames(snapshot);
             render();
             final String message = error != null ? activity.getString(R.string.console_tmux_list_failed,
                     ShellAccess.usefulMessage(error)) : snapshot != null && !snapshot.available ? snapshot.detail
@@ -141,13 +172,16 @@ final class TerminalSessionsDialog {
     }
 
     private void render() {
-        items = TerminalSessions.merge(ConsoleTerminalRegistry.list(), tmux);
+        items = TerminalSessions.merge(ConsoleTerminalRegistry.list(), tmux, currentTerminalId());
         adapter.notifyDataSetChanged();
     }
 
+    private String currentTerminalId() {
+        return activity instanceof CommandConsoleActivity console ? console.attachedTerminalId() : null;
+    }
+
     private String title(TerminalSessions.Item item) {
-        return item.tmux() != null ? item.tmux().name : item.terminal().taskLabel(activity.getString(
-                "termux".equals(item.terminal().backend) ? R.string.console_termux_title : R.string.console_title));
+        return item.title(activity);
     }
 
     private void open(TerminalSessions.Item item) {
@@ -176,15 +210,12 @@ final class TerminalSessionsDialog {
     private void create() {
         final RuntimeCapabilities capabilities = RuntimeCapabilities.current(activity);
         final java.util.ArrayList<Integer> choices = new java.util.ArrayList<>();
-        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(R.string.console_title);
-        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(R.string.guest_environments);
+        choices.add(R.string.console_app_title);
+        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(DesktopExecBackend.SHELL.title());
+        choices.add(R.string.guest_environments);
         if (capabilities.missing(RuntimeCapabilities.Service.TERMUX).isEmpty()) {
             choices.add(R.string.console_termux_title);
             choices.add(R.string.console_tmux_new_session);
-        }
-        if (choices.isEmpty()) {
-            result(new IllegalStateException(activity.getString(R.string.capability_terminal_required)));
-            return;
         }
         UiDialogs.builder(activity).setTitle(R.string.terminal_new)
                 .setItems(choices.stream().map(activity::getString).toArray(String[]::new),
@@ -194,8 +225,12 @@ final class TerminalSessionsDialog {
                             if (choice == R.string.console_tmux_new_session) editName(activity.getString(R.string.console_tmux_new_session), "", name -> {
                                 TmuxSessionProvider.normalizeName(name); prepareTmux(null, name);
                             });
-                            else openIntent(choice == R.string.console_title ? CommandConsoleActivity.createIntent(activity)
-                                    : CommandConsoleActivity.createTermuxIntent(activity));
+                            else {
+                                var backend = choice == R.string.console_app_title ? DesktopExecBackend.APP
+                                        : choice == R.string.console_termux_title ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL;
+                                ConsolePreferences.select(activity, backend);
+                                openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity, "", "", backend));
+                            }
                         }).show();
     }
 
@@ -206,27 +241,87 @@ final class TerminalSessionsDialog {
         try {
             var request = GuestEnvironmentCatalog.load(activity, (entries, error) -> activity.runOnUiThread(() -> {
                 if (!picker.isShowing() || activity.isFinishing() || activity.isDestroyed()) return;
-                if (error != null || entries.isEmpty()) {
+                if (entries.isEmpty()) {
                     picker.setMessage(error == null ? activity.getString(R.string.guest_empty) : ShellAccess.usefulMessage(error));
                     return;
                 }
                 picker.dismiss();
+                if (error != null) Toast.makeText(activity, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
                 UiDialogs.builder(activity).setTitle(R.string.guest_environments)
-                        .setItems(entries.stream().map(GuestEnvironmentCatalog.Entry::name).toArray(String[]::new),
+                        .setAdapter(new GuestEnvironmentLabel.Adapter(activity,entries,true),
                                 (dialog, index) -> {
                                     var entry = entries.get(index);
-                                    UiDialogs.builder(activity).setTitle(entry.name())
-                                            .setItems(new String[]{activity.getString(R.string.terminal_new), activity.getString(R.string.guest_launches)},
-                                                    (action, selected) -> {
-                                                        if (selected == 1) GuestLaunchesDialog.show(activity, entry);
-                                                        else openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
-                                                                GuestEnvironmentCatalog.login(entry), "", DesktopExecBackend.SHELL));
-                                                    }).setNegativeButton(android.R.string.cancel, null).show();
+                                    guestActions(entry);
                                 })
                         .setNegativeButton(android.R.string.cancel, null).show();
             }));
             picker.setOnDismissListener(dialog -> { try { request.close(); } catch (java.io.IOException ignored) { } });
         } catch (RuntimeException error) { picker.setMessage(ShellAccess.usefulMessage(error)); }
+    }
+
+    private void guestActions(GuestEnvironmentCatalog.Entry entry) {
+        var actions = new java.util.ArrayList<>(List.of(R.string.terminal_new, R.string.console_tmux_sessions, R.string.guest_launches));
+        if (entry.backend() != DesktopExecBackend.TERMUX) actions.addAll(List.of(R.string.guest_install_application,
+                io.github.mekhontsev.magicdesk.connections.R.string.folder_title,
+                io.github.mekhontsev.magicdesk.connections.R.string.net_title));
+        UiDialogs.builder(activity).setTitle(entry.label(activity))
+                .setItems(actions.stream().map(activity::getString).toArray(String[]::new), (dialog, index) -> {
+                    int action = actions.get(index);
+                    if (action == R.string.terminal_new) openIntent(CommandConsoleActivity.createEnvironmentIntent(activity, entry));
+                    else if (action == R.string.console_tmux_sessions) guestTmux(entry);
+                    else if (action == R.string.guest_launches) GuestLaunchesDialog.show(activity, entry);
+                    else if (action == R.string.guest_install_application) LauncherExportActivity.openEnvironment(activity, entry);
+                    else if (action == io.github.mekhontsev.magicdesk.connections.R.string.folder_title) GuestFolders.show(activity, entry);
+                    else GuestNetworkSettings.show(activity, entry);
+                }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    private void guestTmux(GuestEnvironmentCatalog.Entry entry) {
+        String title = entry.label(activity) + " : tmux";
+        var loading = UiDialogs.builder(activity).setTitle(title).setMessage(R.string.console_tmux_loading)
+                .setNegativeButton(android.R.string.cancel, null).show();
+        try {
+            var request = GuestTmux.list(activity, entry, (snapshot, error) -> activity.runOnUiThread(() -> {
+                if (!loading.isShowing() || activity.isFinishing() || activity.isDestroyed()) return;
+                if (error != null || !snapshot.available) {
+                    loading.setMessage(error == null ? snapshot.detail : ShellAccess.usefulMessage(error));
+                    return;
+                }
+                ConsoleTerminalRegistry.observeGuestTmux(entry, snapshot);
+                loading.dismiss();
+                var picker = UiDialogs.builder(activity).setTitle(title);
+                if (snapshot.sessions.isEmpty()) picker.setMessage(R.string.terminal_no_sessions);
+                else picker.setItems(snapshot.sessions.stream().map(session -> session.name + "\n"
+                        + activity.getResources().getQuantityString(R.plurals.terminal_tmux_clients,
+                                session.attachedClients, session.attachedClients)).toArray(String[]::new), (dialog, index) -> {
+                            var session = snapshot.sessions.get(index);
+                            openGuestTmux(entry, session);
+                        });
+                picker.setPositiveButton(R.string.console_tmux_new_session, (dialog, button) -> editName(title, "",
+                        name -> openIntent(CommandConsoleActivity.createEnvironmentIntent(activity, entry, GuestTmux.Target.create(name)))))
+                        .setNeutralButton(R.string.action_refresh, (dialog, button) -> guestTmux(entry))
+                        .setNegativeButton(android.R.string.cancel, null).show();
+            }));
+            loading.setOnDismissListener(ignored -> { try { request.close(); } catch (java.io.IOException ignoredError) { } });
+        } catch (RuntimeException error) { loading.setMessage(ShellAccess.usefulMessage(error)); }
+    }
+
+    private void openGuestTmux(GuestEnvironmentCatalog.Entry entry, TmuxSessionProvider.Session selected) {
+        var slot = queries.reserve();
+        try {
+            slot.attach(GuestTmux.list(activity, entry, (catalog, error) -> {
+                slot.close();
+                if (queries.isClosed() || activity.isFinishing() || activity.isDestroyed()) return;
+                if (error != null) { result(error); return; }
+                var live = catalog.find(selected.id);
+                if (live == null || live.createdSeconds != selected.createdSeconds) {
+                    result(new IllegalStateException("tmux session no longer exists")); return;
+                }
+                var client = ConsoleTerminalRegistry.observeGuestTmux(entry, catalog).get(live.id);
+                openIntent(client != null ? CommandConsoleActivity.attachIntent(activity, client)
+                        : CommandConsoleActivity.createEnvironmentIntent(activity, entry, GuestTmux.Target.attach(live)));
+            }));
+        } catch (RuntimeException error) { slot.close(); result(error); }
     }
 
     private void actions(TerminalSessions.Item item) {
@@ -237,7 +332,9 @@ final class TerminalSessionsDialog {
                 : new String[]{activity.getString(R.string.action_rename), activity.getString(R.string.terminal_end_session)};
         UiDialogs.builder(activity).setTitle(title(item)).setItems(choices, (which, index) -> {
             if (index == 0) {
-                editName(activity.getString(R.string.action_rename), title(item), name -> {
+                String initial = item.tmux() != null ? item.tmux().name : item.terminal().userTitle.isEmpty()
+                        ? item.terminal().sourceName : item.terminal().userTitle;
+                editName(activity.getString(R.string.action_rename), initial, name -> {
                     if (item.tmux() != null) TmuxSessionProvider.rename(activity, item.tmux(), name, this::changed);
                     else { ConsoleTerminalRegistry.rename(item.terminal().id, name); load(); }
                 });
@@ -316,10 +413,17 @@ final class TerminalSessionsDialog {
             row.setPadding(dp(24), dp(8), dp(8), dp(8));
             final LinearLayout text = new LinearLayout(activity);
             text.setOrientation(LinearLayout.VERTICAL);
-            final TextView name = new TextView(activity);
-            name.setText(title(item)); name.setTextSize(16); name.setSingleLine(true);
-            UiAppearance.text(name, item.terminal() != null && item.terminal().taskId == activity.getTaskId()
-                    ? UiColor.ACCENT : UiColor.TEXT);
+            var environment=item.terminal()==null ? null : ConsoleTerminalRegistry.environment(item.terminal().id);
+            boolean current = item.isCurrent(currentTerminalId());
+            String caption = (current ? "\u2713 " : "") + title(item);
+            final TextView name;
+            if (environment==null) { name=new TextView(activity); name.setText(caption); }
+            else {
+                var branded=new GuestEnvironmentLabel(activity); branded.bind(environment,caption,false); name=branded;
+            }
+            name.setTextSize(16); name.setSingleLine(true);
+            name.setSelected(current);
+            UiAppearance.text(name, current ? UiColor.ACCENT : UiColor.TEXT);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             text.addView(name);
             final TextView detail = new TextView(activity);
@@ -328,7 +432,7 @@ final class TerminalSessionsDialog {
             detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
             final String state = activity.getString(item.terminal() != null && item.terminal().taskId >= 0
                     ? R.string.terminal_window_open : R.string.terminal_window_closed);
-            detail.setText(item.tmux() == null ? item.terminal().backend + " | " + state + "\n" + item.terminal().workingDirectory
+            detail.setText(item.tmux() == null ? activity.getString(DesktopExecBackend.parse(item.terminal().backend).title()) + " | " + state + "\n" + item.terminal().workingDirectory
                     : "tmux | " + activity.getResources().getQuantityString(R.plurals.console_tmux_windows,
                             item.tmux().windows, item.tmux().windows) + "\n"
                             + activity.getResources().getQuantityString(R.plurals.terminal_tmux_clients,

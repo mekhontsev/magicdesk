@@ -70,6 +70,7 @@ interface IShellCommandService {
         int workRight,
         int workBottom,
         int desktopHostTaskId,
+        boolean homeRole,
         in DesktopCompatibilityPolicy compatibility) = 12;
 
     void stopTaskObserver(ITaskObserverCallback callback) = 14;
@@ -424,7 +425,7 @@ interface IShellCommandService {
         int densityDpi,
         int existingTaskId) = 114;
 
-    void launchActivityOnDisplay(in Intent intent, int displayId, boolean fullscreen) = 115;
+    void launchActivityOnDisplay(in Intent intent, int displayId, boolean fullscreen, in Rect bounds) = 115;
 
     boolean setDesktopTaskDensity(
         ITaskObserverCallback callback,
@@ -454,7 +455,7 @@ interface IShellCommandService {
     void configureDesktopHomeDelegate(ITaskObserverCallback callback,
         int displayId, int taskId, IBinder activityToken) = 124;
 
-    void initializeFramework(int desktopToggle, String settingError) = 125;
+    void initializeFramework(int desktopToggle, String settingError, boolean windowGeometry) = 125;
 
     ShellFileInfo publishVerifiedShellFile(String source, long deviceId, long inode,
         String target, boolean overwrite) = 126;
@@ -468,12 +469,12 @@ interface IShellCommandService {
 
     void releaseUiAutomation(IBinder ownerToken) = 130;
 
-    void sendActivityOnDisplay(in PendingIntent intent, int displayId) = 131;
+    void sendActivityOnDisplay(in PendingIntent intent, int displayId, in Rect bounds) = 131;
 
     PendingIntent getShortcutLaunchIntent(String packageName, String shortcutId) = 132;
 
     void configureCommandEnvironment(String endpoint, String apk) = 133;
-    void moveOrdinaryTask(int taskId, int sourceDisplayId, int targetDisplayId, int userId) = 134;
+    void moveOrdinaryTask(int taskId, int sourceDisplayId, int targetDisplayId, int userId, in Rect bounds) = 134;
     String captureSecondaryHome(int userId) = 135;
     void claimSecondaryHome(int userId) = 136;
     void restoreSecondaryHome(int userId, String componentName) = 137;
@@ -498,6 +499,9 @@ interface IShellCommandService {
     String getSystemNightMode(int userId) = 151;
     void setSystemNightMode(int userId, String mode) = 152;
     io.github.mekhontsev.magicdesk.SystemCpuSnapshot readSystemCpuSnapshot() = 153;
-    io.github.mekhontsev.magicdesk.IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis,
+    io.github.mekhontsev.magicdesk.IUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis,
         io.github.mekhontsev.magicdesk.IUnixConnectionReceiver receiver) = 155;
+    boolean getChildProcessMonitoringDefault() = 156;
+    String readWindowGeometryDiagnostics(in FrameworkTaskSnapshot[] tasks) = 157;
+    boolean normalizeTaskScale(in FrameworkTaskSnapshot expected, float retainedScale) = 158;
 }

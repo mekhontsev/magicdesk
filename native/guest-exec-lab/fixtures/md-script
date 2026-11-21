@@ -1,3 +1,0 @@
-#!/bin/sh
-/bin/cat /etc/md-guest-fixture || exit 91
-exit 23

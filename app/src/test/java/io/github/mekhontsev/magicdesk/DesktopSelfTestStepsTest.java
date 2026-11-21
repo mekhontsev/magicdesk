@@ -13,6 +13,27 @@ import org.junit.Test;
 
 public final class DesktopSelfTestStepsTest {
     @Test
+    public void homeFailureRetainsEarlierIndependentWindowEvidence() throws Exception {
+        final DesktopSelfTestResult result = result(DesktopSelfTestExecutionPolicy.FULL);
+        DesktopSelfTestSteps.require(result, "FREEFORM-INDEPENDENT-003",
+                "Independent window", () -> "visible freeform, no HOME");
+        try {
+            DesktopSelfTestSteps.require(result, "DESKTOP-001", "Prepare desktop session", () -> {
+                throw new IOException("HOME role assignment denied");
+            });
+            fail("HOME refusal did not abort dependent checks");
+        } catch (DesktopSelfTestSteps.AbortSelfTest expected) {
+            assertEquals("DESKTOP-001", expected.code);
+        }
+        result.disarm();
+        result.add(DesktopSelfTestResult.State.PASS, "CLEANUP-001", "Cleanup", "complete");
+        assertTrue(result.format().contains("PASS [FREEFORM-INDEPENDENT-003]"));
+        assertTrue(result.format().contains("FAIL [DESKTOP-001]"));
+        assertTrue(result.format().contains("HOME role assignment denied"));
+        assertEquals(1, result.count(DesktopSelfTestResult.State.FAIL));
+    }
+
+    @Test
     public void fullRunContinuesOnlyAfterVerifiedScenarioCleanup() throws Exception {
         final DesktopSelfTestResult result = result(DesktopSelfTestExecutionPolicy.FULL);
         final List<String> events = new ArrayList<>();

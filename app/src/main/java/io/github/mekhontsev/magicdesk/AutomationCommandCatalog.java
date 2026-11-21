@@ -9,22 +9,26 @@ final class AutomationCommandCatalog {
     private AutomationCommandCatalog() {
     }
 
+    private static JSONObject guestExecutorProperties() throws JSONException {
+        return new JSONObject().put("backend", enumProperty("Captured executor: app is MagicDesk's own UID; shell is the connected Android Shell/Root service. Default shell.", "app", "shell"));
+    }
+
     static JSONArray create() throws JSONException {
         final JSONArray tools = new JSONArray()
-                .put(readTool("guest.list", "List guest environments", "Read the same shell-owned named environment catalog as shroot and the terminal picker. No Desktop or Termux requirement.",
-                        objectSchema(new JSONObject().put("library", stringProperty("Optional absolute library root.")))))
+                .put(readTool("guest.list", "List guest environments", "Read the selected executor's named environment catalog, as shroot does in that console. No Desktop or Termux requirement.",
+                        objectSchema(guestExecutorProperties().put("library", stringProperty("Optional absolute library root.")))))
                 .put(readTool("guest.inspect", "Inspect guest environment", "Read a named environment, immutable store identity, image configuration and backing dependencies.",
-                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                        objectSchema(guestExecutorProperties().put("name", stringProperty("Environment name."))
                                 .put("library", stringProperty("Optional absolute library root.")), "name")))
                 .put(readTool("guest.launches", "List guest launches", "Read native owners of all launches in this environment, including CLI, terminal and graphical launches. Records survive app reconnect; no periodic process scan.",
-                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                        objectSchema(guestExecutorProperties().put("name", stringProperty("Environment name."))
                                 .put("library", stringProperty("Optional absolute library root.")), "name")))
                 .put(destructiveTool("guest.stop", "Stop guest launch", "Request cancellation of one exact native launch tree. PID reuse cannot retarget it. Accepted is not completion; observe guest.launches until this ID disappears.",
-                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                        objectSchema(guestExecutorProperties().put("name", stringProperty("Environment name."))
                                 .put("launchId", stringProperty("Exact launchId returned by guest.launches."))
                                 .put("library", stringProperty("Optional absolute library root.")), "name", "launchId")))
                 .put(actionTool("guest.start", "Start guest operation", "Run the shared shroot CLI asynchronously under the selected shell/root identity. Arguments begin with install, restore, backup, remove, prune, dns, exec or run. Returns an operationId, not completion. Observe guest.status. Does not require Termux or Desktop. Cancellation can leave published resources: inspect before retrying.",
-                        objectSchema(new JSONObject().put("arguments", arrayProperty("Literal CLI arguments; no shell parsing.", stringProperty("Argument.")))
+                        objectSchema(guestExecutorProperties().put("arguments", arrayProperty("Literal CLI arguments; no shell parsing.", stringProperty("Argument.")))
                                 .put("library", stringProperty("Optional absolute library root for this operation only.")), "arguments")))
                 .put(readTool("guest.status", "Observe guest operation", "Read bounded output and exact completion, or event-wait after a revision. A timeout only ends observation. Results survive client disconnect, not app restart; up to 64 operations retained.",
                         objectSchema(new JSONObject().put("operationId", stringProperty("Exact accepted operation ID."))
@@ -106,13 +110,14 @@ final class AutomationCommandCatalog {
                 .put(actionTool("graphics.start", "Start graphical session",
                         "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. X11 and Wayland use a Vulkan/software compositor; Wayland accepts SHM and compatible linear DMA-BUF client buffers. Termux and root clients use a scoped named socket; UID-2000 shell clients receive one authorized connection FD. An expired observation does not cancel a dispatched start; inspect before retrying.",
                         objectSchema(new JSONObject().put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
-                                .put("backend", enumProperty("Explicit client executor; never elevated or replaced.", "termux", "shell"))
+                                .put("backend", enumProperty("Explicit client executor; never elevated or replaced.", "app", "termux", "shell"))
                                 .put("name", stringProperty("Session name, 1 to 128 characters."))
                                 .put("command", stringProperty("Optional startup shell command."))
                                 .put("directory", stringProperty("Optional absolute client working directory."))
                                 .put("wholeDesktop", booleanProperty("For Wayland, the command launches a nested desktop compositor; closing its Android viewer retains the client. X11 always provides a whole-desktop viewer. Default false."))
-                                .put("keyboardDirectory", stringProperty("XKB host data path or guest:/absolute/store for data from a guest environment; required for shell, optional for Termux."))
-                                .put("connection", enumProperty("Default auto. inherited is Wayland-only. routed requires Shell and an explicit guest socket-route recipe; exports MAGICDESK_GRAPHICS_ENDPOINT for independent guest connections.", "auto", "inherited", "routed")),
+                                .put("offscreen", offscreenSizeSchema())
+                                .put("keyboardDirectory", stringProperty("Optional XKB host path or guest:/absolute/store. Defaults to built-in data for User/Shell and the Termux prefix for Termux."))
+                                .put("connection", enumProperty("Default auto. inherited is Wayland-only. routed requires User/Shell and an explicit guest socket-route recipe; exports MAGICDESK_GRAPHICS_ENDPOINT for independent guest connections.", "auto", "inherited", "routed")),
                                 "protocol", "backend", "name")))
                 .put(actionTool("graphics.execute", "Run graphical command",
                         "Run a command in a ready retained graphical session using its captured executor. Acceptance is not client completion. No Desktop or Android placement changes.",
@@ -128,6 +133,16 @@ final class AutomationCommandCatalog {
                 .put(actionTool("graphics.stop", "Stop graphical session",
                         "Explicitly stop the retained server and disconnect its graphical clients. All its client hosts close; other graphical sessions are unaffected. This does not terminate arbitrary background jobs in the selected executor.",
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID.")), "sessionId")))
+                .put(actionTool("graphics.close_session", "Request graphical session closure",
+                        "Ask existing native toplevels to close normally. Retains save/cancel dialogs and the server until all windows disappear; never escalates on a timer. Use graphics.stop for explicit force stop. cancel withdraws the pending server stop, not client close requests already delivered. Does not shut down the Linux OS or unrelated background jobs.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("cancel", booleanProperty("Cancel pending server closure; default false.")), "sessionId")))
+                .put(actionTool("graphics.set_offscreen", "Configure offscreen graphics",
+                        "Enable a retained output without any Android window or virtual display. Detaches existing client hosts without closing clients; first release shell integration. width/height are required when enabling. An Android viewer later replaces offscreen presentation. Disabling releases outputs, not clients. Input/capture use graphicsSessionId and an output windowId from graphics.list. Wait for graphics_output_ready, not merely graphics_ready.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("enabled", booleanProperty("Explicit desired state."))
+                                .put("width", integerRangeProperty("Output pixel width; combined size at most 16 megapixels.", 1, 8192))
+                                .put("height", integerRangeProperty("Output pixel height.", 1, 8192)), "sessionId", "enabled")))
                 .put(actionTool("graphics.open_window", "Open graphical window",
                         "Borrow one native window in an ordinary MagicDesk Android host. windowId comes from graphics.list, not Android task IDs. Sessions advertising wholeDesktop accept 0 for their desktop viewer. Placement uses the shared tool launcher and does not claim input or start Desktop.",
                         objectSchema(toolPlacementProperties().put("sessionId", stringProperty("Live graphical session ID."))
@@ -254,11 +269,11 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put("displayId", integerProperty(
                                 "Destination display ID, or -1 to release input.")), "displayId")))
                 .put(actionTool("move_task", "Move task",
-                        "Place an existing task on a display with explicit Desktop or independent ownership. auto follows Desktop availability; mode selects windowed/fullscreen for Desktop. Can change ownership on the same display. Reuses the task; does not route input.",
+                        "Place an existing task on a display with explicit Desktop or independent ownership. auto follows Desktop availability; mode selects windowed/fullscreen. Independent freeform requires supporting firmware (not stock Nubia). Can change ownership on the same display. Reuses the task; does not route input.",
                         objectSchema(new JSONObject().put("taskId", integerProperty("Existing task ID."))
                                 .put("uniqueId", stringProperty("Optional exact destination display identity."))
                                 .put("placement", enumProperty("Task owner; auto follows Desktop availability.", "auto", "desktop", "display"))
-                                .put("mode", enumProperty("Desktop window mode; independent tasks are fullscreen.", "auto", "windowed", "fullscreen"))
+                                .put("mode", enumProperty("Window mode; independent freeform requires Shell and supporting firmware (not stock Nubia).", "auto", "windowed", "fullscreen"))
                                 .put("displayId", integerProperty("Destination display ID.")), "taskId", "displayId")))
                 .put(actionTool(
                         "close_desktop",
@@ -284,7 +299,7 @@ final class AutomationCommandCatalog {
                                         .put("preferredTaskId", integerProperty(
                                                 "Existing task to activate when instance is reuse."))
                                         .put("bounds", relativeBoundsProperty(
-                                                "Initial bounds within the desktop work area.")),
+                                                "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode.")),
                                 "appIdentity")))
                 .put(actionTool(
                         "set_app_presentation",
@@ -672,13 +687,46 @@ final class AutomationCommandCatalog {
         addShellTools(tools);
         addTransferTools(tools);
         tools.put(destructiveTool("app.update", "Update MagicDesk",
-                "Install a same-package, same-signer APK with no downgrade or data reset. Requires an inactive desktop. A one-operation privileged worker restores enabled MCP after installation. Reconnect and query app.update_status with the same updateId; do not retry using a new id after a lost response.",
+                "Install a same-package, same-signer APK with no downgrade or data reset. Requires an inactive desktop. A one-operation privileged worker restores enabled MCP, bridges active phone keep-awake without extending its lease, and restores active black-screen mode through Control Panel. Reconnect and query app.update_status with the same updateId; wait for powerRestore to leave pending. Do not retry using a new id after a lost response.",
                 objectSchema(new JSONObject().put("updateId", stringProperty("Unique client operation id, 16-64 letters, digits, underscores or hyphens."))
                         .put("path", stringProperty("Absolute shell-readable APK path, typically from files.upload_commit."))
                         .put("sha256", stringProperty("Expected APK SHA-256 digest.")), "updateId", "path", "sha256")))
                 .put(readTool("app.update_status", "MagicDesk update status", "Read the durable installer result for an exact update operation.",
                         objectSchema(new JSONObject().put("updateId", stringProperty("Id passed to app.update.")), "updateId")));
+        addOffscreenTargets(tools);
         return tools;
+    }
+
+    private static JSONObject offscreenSizeSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                .put("width", integerRangeProperty("Offscreen width in pixels; at most 16 megapixels total.", 1, 8192))
+                .put("height", integerRangeProperty("Offscreen height in pixels. No Android display is created.", 1, 8192)), "width", "height");
+    }
+
+    private static void addOffscreenTargets(JSONArray tools) throws JSONException {
+        var names = java.util.Set.of("capture_screenshot", "sample_pixels", "send_key", "move_pointer", "click_pointer", "input.gesture", "input.key_chord");
+        for (int i = 0; i < tools.length(); i++) {
+            var tool = tools.getJSONObject(i);
+            if (!names.contains(tool.getString("name"))) continue;
+            tool.put("description", tool.getString("description")
+                    + " Alternatively select graphicsSessionId for an offscreen Linux output, excluding Android selectors. Coordinates are output pixels; windowId is optional only with exactly one output. No Android input or privileged capture is used. Gestures become primary-pointer drags.");
+            var schema = tool.getJSONObject("inputSchema");
+            schema.getJSONObject("properties")
+                    .put("graphicsSessionId", stringProperty("Retained offscreen graphics session, not a Linux AT-SPI session."))
+                    .put("windowId", integerProperty("Offscreen output windowId from graphics.list; requires graphicsSessionId."));
+            var required = schema.optJSONArray("required");
+            if (required != null) {
+                var kept = new JSONArray();
+                for (int j = 0; j < required.length(); j++) if (!required.getString(j).equals("displayId")) kept.put(required.get(j));
+                schema.put("required", kept);
+            }
+            schema.put("allOf", new JSONArray()
+                    .put(new JSONObject().put("not", requiredOnly("graphicsSessionId", "displayId")))
+                    .put(new JSONObject().put("not", requiredOnly("graphicsSessionId", "taskId")))
+                    .put(new JSONObject().put("if", requiredOnly("windowId")).put("then", requiredOnly("graphicsSessionId"))));
+            if (tool.getString("name").startsWith("input."))
+                schema.put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("graphicsSessionId")));
+        }
     }
 
     private static void addInteractionTools(final JSONArray tools) throws JSONException {
@@ -773,7 +821,10 @@ final class AutomationCommandCatalog {
                                 .put("leaseId", stringProperty("Required only to renew the currently held lease.")))))
                 .put(actionTool("device.release_awake", "Release awake lease",
                         "Release the exact awake lease; a stale leaseId cannot release a newer lease.",
-                        objectSchema(new JSONObject().put("leaseId", stringProperty("Id returned by device.keep_awake.")), "leaseId")));
+                        objectSchema(new JSONObject().put("leaseId", stringProperty("Id returned by device.keep_awake.")), "leaseId")))
+                .put(actionTool("device.set_black_screen", "Set phone black-screen mode",
+                        "When enabled, bring Control Panel to the foreground on the phone and apply its black, touch-blocking, minimum-brightness keep-awake mode. Confirms the focused window applied the policy, not just launch acceptance. Requires an awake, unlocked phone; never unlocks it. A volume-button press and release exits and returns to the previous foreground app, unless entered from the panel or restored after an update. Disabling only removes the mode, without opening or foregrounding any window. Ordinary app APIs; no Shell or Desktop prerequisite. Mode ends when Control Panel leaves the foreground or the app restarts; this is not a lock screen.",
+                        objectSchema(new JSONObject().put("enabled", booleanProperty("Explicit desired state, not a toggle.")), "enabled")));
     }
 
     private static JSONObject androidUiScopeProperties() throws JSONException {
@@ -868,7 +919,7 @@ final class AutomationCommandCatalog {
                                 "taskbar_visible",
                                 "wallpaper_rendered", "self_test_finished", "graphics_ready", "graphics_session_absent",
                                 "graphics_window_present", "graphics_window_absent", "graphics_host_attached", "graphics_window_state",
-                                "graphics_family_present", "graphics_family_absent",
+                                "graphics_family_present", "graphics_family_absent", "graphics_output_ready",
                                 "shell_surface_present", "shell_surface_absent", "task_state"))
                         .put("sessionId", stringProperty("Exact graphical session ID for graphics conditions or shell surface filter."))
                         .put("windowId", integerProperty("Native graphical window ID, not Android task id. Omit for graphics_window_present to await any mapped client; zero selects a whole-desktop viewer for host/state conditions."))
@@ -974,7 +1025,8 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put(
                                 "directory", stringProperty(
                                         "Initial absolute working directory; defaults to the selected environment."))
-                                .put("linuxSessionId", stringProperty("Exact connected Linux session; omit for Android shell.")))))
+                                .put("backend", enumProperty("Executor for a new host console; default shell. Do not combine with linuxSessionId.", "app", "shell", "termux"))
+                                .put("linuxSessionId", stringProperty("Exact connected Linux session; omit for a host console.")))))
                 .put(readTool("console.list", "List headless consoles", "List retained console identities, environment and current directory.", emptySchema()))
                 .put(actionTool("console.cancel", "Cancel console command", "Cancel the current command and its owned jobs. Retain the console id; the next command starts a fresh shell in the same captured environment and last known directory.", sessionSchema()))
                 .put(actionTool(
@@ -1012,7 +1064,7 @@ final class AutomationCommandCatalog {
                                         "Optional command to run after the terminal is ready."))
                                 .put("backend", enumProperty(
                                         "PTY execution environment.",
-                                        "shell", "termux")))))
+                                        "app", "shell", "termux")))))
                 .put(readTool(
                         "terminal.list",
                         "List terminal sessions",
@@ -1124,7 +1176,7 @@ final class AutomationCommandCatalog {
 
     private static JSONObject activityPlacementProperties() throws JSONException {
         return new JSONObject().put("placement", enumProperty(
-                        "auto uses Desktop on the destination when present, otherwise ordinary fullscreen; display and phone always launch independently of Desktop.",
+                        "auto uses Desktop on the destination when present, otherwise independent placement; display and phone always launch independently of Desktop.",
                         "auto", "phone", "display", "desktop"))
                 .put("displayId", integerProperty("Destination display, including 0; defaults to active Desktop or phone. Required for display placement."));
     }
@@ -1164,7 +1216,7 @@ final class AutomationCommandCatalog {
             final JSONObject placement = activityPlacementProperties();
             properties.put("placement", placement.get("placement"))
                     .put("displayId", placement.get("displayId"))
-                    .put("mode", enumProperty("Launch mode; windowed requires Desktop.",
+                    .put("mode", enumProperty("Launch mode; independent windowed requires Shell and supporting firmware (not stock Nubia).",
                             "auto", "windowed", "fullscreen"));
             properties.put("actionId", stringProperty(
                     "Action id returned by list_app_actions."));
@@ -1202,7 +1254,7 @@ final class AutomationCommandCatalog {
                 .put("preferredTaskId", integerProperty(
                         "Existing task to receive the action when instance is reuse."))
                 .put("bounds", relativeBoundsProperty(
-                        "Initial bounds within the desktop work area."))
+                        "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                 .put("chooser", booleanProperty(
                         "Wrap an Activity request in the Android chooser."))
                 .put("chooserTitle", stringProperty(
@@ -1235,7 +1287,7 @@ final class AutomationCommandCatalog {
                         .put("preferredTaskId", integerProperty(
                                 "Existing task to receive the action."))
                         .put("bounds", relativeBoundsProperty(
-                                "Initial bounds within the desktop work area."))
+                                "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                         .put("chooser", booleanProperty("Show Android chooser."))
                         .put("chooserTitle", stringProperty("Chooser title."))
                         .put("expectResult", booleanProperty(
@@ -1262,7 +1314,7 @@ final class AutomationCommandCatalog {
                 .put("preferredTaskId", integerProperty(
                         "Existing task to receive the action."))
                 .put("bounds", relativeBoundsProperty(
-                        "Initial bounds within the desktop work area."))
+                        "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                 .put("chooser", booleanProperty("Show Android chooser."))
                 .put("chooserTitle", stringProperty("Chooser title."))
                 .put("expectResult", booleanProperty(
@@ -1291,7 +1343,7 @@ final class AutomationCommandCatalog {
                 .put("preferredTaskId", integerProperty(
                         "Existing task to receive the action."))
                 .put("bounds", relativeBoundsProperty(
-                        "Initial bounds within the desktop work area."))
+                        "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode."))
                 .put("chooser", booleanProperty("Show Android chooser."))
                 .put("chooserTitle", stringProperty("Chooser title.")));
         return schema.put("anyOf", new JSONArray()
@@ -1321,7 +1373,7 @@ final class AutomationCommandCatalog {
                         .put("preferredTaskId", integerProperty(
                                 "Existing task to receive the action."))
                         .put("bounds", relativeBoundsProperty(
-                                "Initial bounds within the desktop work area.")),
+                                "Initial bounds within the work area, or display bounds without Desktop; requires windowed mode.")),
                 "actionId");
     }
 
@@ -1358,7 +1410,7 @@ final class AutomationCommandCatalog {
                         "desktop", "termux", "guest"))
                 .put("desktopPath", stringProperty(
                         "Absolute .desktop file path."))
-                .put("mode", enumProperty("Launch mode; windowed requires Desktop.", "auto", "windowed", "fullscreen"))
+                .put("mode", enumProperty("Launch mode; independent windowed requires Shell and supporting firmware (not stock Nubia).", "auto", "windowed", "fullscreen"))
                 .put("instance", enumProperty("Instance policy.", "reuse", "new"))
                 .put("bounds", relativeBoundsProperty("Initial managed window bounds."))
                 .put("files", arrayProperty(
@@ -1476,13 +1528,15 @@ final class AutomationCommandCatalog {
                 .put("state", stringProperty("Lifecycle state."))
                 .put("ready", booleanProperty("Server is ready."))
                 .put("error", stringProperty("Last failure, empty otherwise."))
-                .put("executor", enumProperty("Captured command backend.", "termux", "shell"))
+                .put("executor", enumProperty("Captured command backend.", "app", "termux", "shell"))
                 .put("executorUid", integerProperty("Command UID."))
                 .put("serverUid", integerProperty("Server UID; not implicitly elevated."))
                 .put("wholeDesktop", booleanProperty("Accepts windowId=0 for a retained whole-desktop viewer."))
                 .put("scalePercent", integerProperty("Linux interface scale relative to the automatic host scale; 100 is automatic."))
                 .put("scalePersistent", booleanProperty("Scale is saved for this launcher's executor and source path."))
                 .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
+                .put("offscreen", openObjectProperty("enabled, error, coordinateSpace and outputs with windowId, width, height, ready, frameSequence, error."))
+                .put("closeRequested", booleanProperty("Waiting for clients to close normally; no forced timeout."))
                 .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error."))
                 .put("protocolDetails", openObjectProperty("Protocol-specific diagnostics; X11 display, dpi, application and fileEnvironment.")));
     }
@@ -1630,6 +1684,8 @@ final class AutomationCommandCatalog {
             case "graphics.set_scale":
             case "graphics.close_window":
             case "graphics.detach_viewer":
+            case "graphics.set_offscreen":
+            case "graphics.close_session":
                 properties.put("sessionId", stringProperty("Exact retained session ID."))
                         .put("accepted", booleanProperty("Operation dispatched, not completed."))
                         .put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
@@ -1639,6 +1695,8 @@ final class AutomationCommandCatalog {
                         .put("scalePersistent", booleanProperty("Scale is saved for the launcher."))
                         .put("error", stringProperty("Last operation error."))
                         .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
+                        .put("offscreen", openObjectProperty("Offscreen configuration and live outputs."))
+                        .put("closeRequested", booleanProperty("Normal client closure requested."))
                         .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error for the shell binding."));
                 break;
             case "graphics.open_window":
@@ -1736,6 +1794,10 @@ final class AutomationCommandCatalog {
                         .put("offset", integerProperty("Returned page's UTF-16 start offset."))
                         .put("nextOffset", nullableIntegerProperty("Next page offset, or null when complete/redacted."))
                         .put("redacted", booleanProperty("Password text cannot be returned."));
+                break;
+            case "device.set_black_screen":
+                properties.put("enabled", booleanProperty("Black-screen window policy is applied."))
+                        .put("displayId", integerProperty("Phone display, always zero."));
                 break;
             case "device.keep_awake":
                 properties.put("held", booleanProperty("The wake lock is currently held."))
@@ -1920,7 +1982,11 @@ final class AutomationCommandCatalog {
             case "capture_screenshot":
                 properties.put("displayId", integerProperty("Display id."))
                         .put("taskId", integerProperty("Task id, only for task captures."))
-                        .put("sourceType", enumProperty("Captured source.", "display", "task"))
+                        .put("sourceType", enumProperty("Captured source.", "display", "task", "graphics"))
+                        .put("graphicsSessionId", stringProperty("Retained graphics session."))
+                        .put("windowId", integerProperty("Native output window."))
+                        .put("frameSequence", integerProperty("Received output frame sequence."))
+                        .put("frameUptimeMillis", integerProperty("Monotonic frame receipt time."))
                         .put("sourceWidth", integerProperty("Full source-image width before region crop."))
                         .put("sourceHeight", integerProperty("Full source-image height before region crop."))
                         .put("taskWidth", integerProperty("Original task width; Android may scale the captured image."))
@@ -2452,10 +2518,10 @@ final class AutomationCommandCatalog {
         return schema;
     }
 
-    private static JSONObject requiredOnly(final String property)
+    private static JSONObject requiredOnly(final String... properties)
             throws JSONException {
         return new JSONObject().put(
-                "required", new JSONArray().put(property));
+                "required", new JSONArray(java.util.List.of(properties)));
     }
 
     private static JSONObject stringProperty(final String description)

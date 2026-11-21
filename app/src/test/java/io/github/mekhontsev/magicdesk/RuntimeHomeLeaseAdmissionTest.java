@@ -111,8 +111,12 @@ public final class RuntimeHomeLeaseAdmissionTest {
                                 && output.kind==other.output.kind;
                     }
                 }
-                static class AndroidHomeSelection { String packageName="com.example.home"; }
+                static class AndroidHomeSelection {
+                    String packageName="com.example.home";
+                    static AndroidHomeSelection none() { return new AndroidHomeSelection(); }
+                }
                 static class State {
+                    boolean homeRole = true;
                     int userId;
                     AndroidHomeSelection previousHome;
                     String previousSecondaryHome = "com.example.home/.Secondary";
@@ -134,6 +138,10 @@ public final class RuntimeHomeLeaseAdmissionTest {
                         userId=user; previousHome=previous; targets=values; policy=p; phase=ph;
                         previousSecondaryHome=secondary; compatibility=c; closingDisplayId=closing;
                     }
+                    State(int user, AndroidHomeSelection previous, String secondary, List<DesktopDisplayTarget> values,
+                            DesktopSessionPolicy p, DesktopCompatibilityPolicy c, Phase ph, int closing, boolean home) {
+                        this(user,previous,secondary,values,p,c,ph,closing); homeRole=home;
+                    }
                     DesktopDisplayTarget targetForDisplay(int id) { return targets.stream()
                             .filter(t -> t.workspaceDisplayId == id).findFirst().orElse(null); }
                     State withTargets(List<DesktopDisplayTarget> values, int closing) {
@@ -154,8 +162,8 @@ public final class RuntimeHomeLeaseAdmissionTest {
                     int calls, claims;
                     String holder=MAGICDESK_PACKAGE;
                     int currentUserId() { return 0; }
-                    String getHomePackage(int user) { calls++; return holder; }
-                    String captureSecondaryHome(int user) { return "com.example.home/.Secondary"; }
+                    String getHomePackage(int user) throws IOException { calls++; return holder; }
+                    String captureSecondaryHome(int user) throws IOException { return "com.example.home/.Secondary"; }
                     void claimSecondaryHome(int user) { calls++; }
                     void selectHomeSurface(Object surface) throws IOException { calls++; }
                     void presentHome(int user, String holder) { calls++; }
@@ -167,6 +175,8 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static DesktopHomeSurfaceRouter.Surface surfacesFor(State s) { return DesktopHomeSurfaceRouter.Surface.PHONE; }
                 static void release(DesktopDisplayTarget target) throws IOException { throw new AssertionError("unexpected release"); }
                 static void restorePreparedLease(State s, IOException e) { throw new AssertionError("unexpected branch"); }
+                static void beginRelease(State s) throws IOException { throw new AssertionError("unexpected release"); }
+                static void finishRelease(State s) throws IOException { throw new AssertionError("unexpected release"); }
                 static AndroidHomeSelection resolvePreviousHome(int user, String p) { throw new AssertionError("unexpected branch"); }
                 static void assertRejected(DesktopDisplayTarget target,DesktopSessionPolicy policy,
                         String diagnostic,State original) throws Exception {
@@ -188,7 +198,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                         throws IOException {
                     return activate(prepare(target, policy, DesktopCompatibilityPolicy.NONE));
                 }
-                """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "prepare", "requireTarget",
+                """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "prepare", "prepareRole", "prepareIndependent", "requireTarget",
                         "shouldPresentMagicDeskHome", "activate", "claim", "requireHolder");
     }
 }

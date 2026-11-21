@@ -22,6 +22,13 @@ owned virtual workspace on another display. Switching or detaching that viewer
 does not change task ownership or these workspace bindings; see
 [Display presentations](architecture-displays.md#display-presentations).
 
+HOME ownership is optional. With the HOME setting disabled or acquisition
+refused, the shared lease tracks workspace residency without changing launcher
+selection. `IndependentDesktopActivity` is a standard fullscreen host in the
+same root workspace; it is not an application fullscreen plane. Host identity,
+focus, ordering and teardown use the same owners. System HOME delegates and
+Home/Recents interception apply only to sessions that acquired HOME.
+
 ## System HOME Instances
 
 The shared HOME lease also selects MagicDesk's `SECONDARY_HOME` handler for its
@@ -30,7 +37,8 @@ configured system secondary launcher when necessary, before disabling HOME
 components. Preferred-handler selection does not change the display targeted
 by a system launch; display routing remains a separate launch boundary.
 
-While an external workspace is configured, `ShellSecondaryHomeStartPolicy`
+While an external workspace is configured, with either host type,
+`ShellSecondaryHomeStartPolicy`
 rejects unaddressed `MAIN`/`SECONDARY_HOME` selectors in the shared
 `IActivityController`, before Android can reorder the phone's HOME root.
 A resolved MagicDesk component does not exempt an implicit selector. Android's
@@ -87,8 +95,27 @@ owned by the workspace gateway, not this launch guard.
 The guard uses an immutable published boundary snapshot. It never acquires the
 plane owner's monitor, starts an animation, or waits for a frame/transition:
 Android can call it synchronously while the owner is awaiting its Binder launch.
-A missing separator or failed repair rejects the original launch with a
-diagnostic; it does not replay an Intent or watch for a framework exception.
+Before an explicit launch the plane owner can replace a deleted separator. It
+requires the original anchor on that display and verifies the separator is
+absent from the global root and child inventory. A misplaced empty root can
+return to the default area only on its own display after verifying the cookie
+and absence of children. A migrated or occupied root is not replaced.
+Replacement does not replay the launch or run in the activity-start callback.
+A still-unsafe boundary rejects an explicitly scoped launch into that display.
+An unambiguous caller receives the rejection instead of a task-appearance timeout.
+`ShellActivityLaunchScope` retains the destination across the
+Binder callback, alongside the Activity identity. Unscoped or ambiguous launches
+still attempt repair, but a failure is diagnostic, not a system-wide veto: the
+callback cannot establish their destination. This preserves access to phone
+applications and recovery tools even if another Desktop's hierarchy is damaged.
+It does not guarantee that Android can launch into that damaged hierarchy.
+The guard never replays an Intent or watches for a framework exception; explicit
+plane preparation continues to require successful protection.
+The shared activity controller records explicit safety rejections, their display,
+target package and underlying cause in the compatibility journal, separately
+from optional observer failures. Native fullscreen-adoption failures retain
+their cause chain too. These records survive Desktop closure and do not depend
+on opening Diagnostics while the failure is active.
 This is a launch-time query, not a second periodic task observer. Teardown
 retains the controller until plane cleanup has finished.
 
@@ -204,7 +231,13 @@ operation, without retrying or rebuilding the Activity, which can discard
 transient state such as the browser's HTML Fullscreen API session.
 
 Explicit snap and resize commands retain the user's windowed preference in the
-task's runtime state. A replacement application process does not cancel that
+task's runtime state. Insets changes observed during a bounds command or
+fullscreen restore cannot override that placement. Bounds observation and
+command completion are distinct: seeing the target rectangle does not release
+the command's protection while its client is still being reconfigured. A later
+non-immersive-to-immersive request after completion remains effective; no extra
+settling timer or task query is added.
+A replacement application process does not cancel that
 preference: its first observed client sample reuses the bounded cold-start
 immersive protection, including a default non-immersive sample followed by the
 client's initial request to hide system bars. Protection is consumed once or
@@ -265,7 +298,13 @@ while it inherits fullscreen is insufficient.
 ### Surface Ordering And Activation
 
 `ShellDesktopSurfaceOrder` owns only fullscreen-plane surfaces inside the
-standard workspace. Chrome retains no organizer leash and requires no manual
+standard workspace. HOME-relative layer assignment uses Android's HOME layer
+zero. An independent STANDARD host instead uses its position among native
+workspace siblings, including empty separators and collapsed fullscreen areas.
+That base comes from one complete typed root snapshot at the explicit surface
+commit, not a background poll. Concealed planes remain below the workspace.
+Plane visibility and lifecycle retain the same owner in both cases.
+Chrome retains no organizer leash and requires no manual
 layer assignment. Area-capable WCT operations configure its mode, priority,
 and orientation policy once; task-only operations still target the host task.
 Launches, mode transitions, and workspace commands do not append a chrome
@@ -415,6 +454,22 @@ shared `DisplayWindowingSession` lifecycle, not to a firmware focus policy.
 Focus repair is enabled by default in the Android baseline on every platform;
 an explicit user disable remains effective for subsequent sessions.
 
+Host input focusability follows the selected task, not surface order. A typed
+snapshot can still list a freeform or PiP window above the focused desktop;
+that must not disable the host's input window. Conversely, a host listed above
+the selected application must not take its keyboard focus. HOME and ordinary
+desktop hosts share this rule, including independent applications and chrome.
+While a workspace focus command awaits its input acknowledgement, its existing
+pending target owns host focusability. Intermediate snapshots and relayout
+callbacks must not restore the preceding target; observed focus resumes after
+the command completes or fails.
+
+An unsuccessful explicit input-focus commit retains one bounded diagnostic
+snapshot: target/display, InputDispatcher focus identities and the top task
+order with modes, areas, visibility and framework focus. This is collected only
+on failure and survives later focus changes caused by opening Diagnostics.
+It neither extends the timeout nor treats a visible surface as successful focus.
+
 ## Native Caption Maximize
 
 WMShell's native maximize/restore toggle compares task bounds with its own
@@ -460,6 +515,22 @@ navigation-bar insets or enabling system Desktop.
   waiting for a surface that is not expected to draw. For ordinary freeform
   selection, merely applying the returned sync transaction also does not force
   root layer assignment. Use the native transition's surface lifecycle instead.
+- Bounds-only WCT changes to organized freeform tasks also require that surface
+  lifecycle. Task bounds can converge while the surface and input region retain
+  the old position; a subsequent focus transition is not a geometry repair.
+  Keep scale and bounds in one `CHANGE`, with a transition barrier before reading
+  the current geometry. Unadapted single-window placement retains native resize.
+  Failed-transfer and normalization recovery also restore the captured geometry,
+  mode and visibility through `CHANGE`. Hidden preparation and caption-only
+  updates retain their synchronized submission; they do not publish placement.
+- Native scale commits use the same geometry submission and command queue. The
+  preceding typed observation supplies content scale; the new footprint supplies
+  logical dimensions. The executor revalidates the task's Binder identity and
+  geometry, synchronizes a separate firmware decoration-scale owner when needed,
+  and verifies the resulting geometry. No extra sampler, gesture inactivity
+  delay or persistent target-size enforcement is introduced. See the
+  [Honor audit](honor-vendor-audit.md#indirect-completion-candidate) for the local
+  rebound-animation limitation and required target-device checks.
 - Following an atomic reorder with `moveTaskToFront`, `setFocusedTask`, or
   `setFocusedRootTask` creates a second selection path and still does not
   reliably repair an input window left on a peer task.
@@ -488,7 +559,11 @@ or remove the display. Phone return is reserved for display loss.
 
 Shell-side WCT submission has one owner. Ordinary freeform focus submits one
 system `TO_FRONT` through `startForShellAdoption`; fullscreen-plane selection
-uses an atomic WCT. Neither path appends another task-focus submission. A cold
+uses an atomic WCT. The same selection policy applies to missing-input recovery,
+raw focus commands, and the successor of a closing fullscreen task. Callers do
+not choose a separate surface-commit variant. Child-only repair inside an
+already selected fullscreen plane remains atomic and does not reorder its parent.
+Neither path appends another task-focus submission. A cold
 freeform launch starts behind the desktop host so its framework default state
 is never exposed. Once the task ID is known, one complete WMShell `OPEN`
 establishes mode, bounds, and front order. No raw opening token crosses that
@@ -582,7 +657,7 @@ avoids a MagicDesk-created removal trigger, not the underlying framework
 defect: abrupt physical disconnect can still precede cleanup. Keep the
 new-residue assertion and the abrupt-removal scenario intact.
 
-Closing the last workspace returns the HOME role before teardown and disables
+For a HOME-owning session, closing the last workspace returns the HOME role before teardown and disables
 HOME Activity components afterward. Non-final Close retains both. Component
 disable triggers Android's own asynchronous
 CLOSE transaction; doing this while parking applications can leave that
@@ -591,6 +666,9 @@ owner retains HOME surfaces and the `RELEASING` lease through workspace cleanup
 and the display quiescence gate, then disables the components before presenting
 the previous launcher. Recovery callbacks do not compete with an explicit
 start/close owner. Startup prepares the components before acquiring the role.
+Closing the last independent-host workspace also presents the primary launcher
+before the selected close destination, without acquiring or restoring HOME roles.
+Closing one of several workspaces does not present the launcher.
 
 ## Activate and demote
 
@@ -683,6 +761,12 @@ existing-task launch path with its final freeform mode, display, and bounds.
 Each plane has one retained standard anchor task that keeps the source
 hierarchy non-empty until the reparent transition commits and lets the idle
 plane be reused without organizer deletion and recreation.
+On scaled-window firmware, fullscreen residency also retains the observed
+freeform scale. Restore applies that scale and the requested bounds together;
+the fullscreen task's identity scale must not replace it. Native caption
+adoption uses the preceding typed snapshot, and retirement discards the scale.
+Cross-display preparation similarly retains captured source geometry. A cold
+window without a known scale still uses the bounded placement finalization.
 After the application leaves, the plane becomes a non-focusable idle slot and
 is reused by a later fullscreen task. The anchor has a valid input channel for
 the brief task-removal boundary and accepts no pointer input. `NOT_TOUCHABLE`

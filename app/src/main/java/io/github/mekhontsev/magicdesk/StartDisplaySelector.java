@@ -85,6 +85,7 @@ final class StartDisplaySelector {
                                         && java.util.Objects.equals(mSelected.uniqueId(), display.uniqueId))
                                 .setOnMenuItemClickListener(item -> { select(display); return true; });
                     }
+                    menu.getMenu().setGroupCheckable(0, true, true);
                     menu.show();
                 });
             } catch (java.io.IOException | RuntimeException error) {

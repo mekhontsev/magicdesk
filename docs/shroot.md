@@ -1,14 +1,15 @@
 # Shroot
 
-Shroot runs ARM64 Linux userspace through MagicDesk's explicitly selected shell
-or root executor. The unrooted path uses Android's authorized shell UID 2000.
+Shroot runs ARM64 Linux userspace through MagicDesk's explicitly selected
+User (app UID) or Shell executor (normally UID 2000). User needs no Shizuku or
+root; Shell uses the configured privileged service and may run as UID 0.
 It needs neither Termux, PRoot, a virtual machine nor a replacement Android
 kernel. glibc and musl distributions, applications, init systems and container
 engines use the same runtime.
 
 This guide covers installation, daily use, supported workflows and their limits.
-The [native architecture](../native/shroot/README.md) describes implementation
-owners and contracts; the [fixture guide](../native/guest-exec-lab/README.md)
+The [native architecture](https://github.com/mekhontsev/shroot/blob/develop/architecture.md) describes implementation
+owners and contracts; the [fixture guide](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md)
 describes how those contracts are tested.
 
 - [Requirements](#requirements) and [isolation boundaries](#boundaries)
@@ -21,8 +22,8 @@ describes how those contracts are tested.
 
 ## Requirements
 
-- MagicDesk on Android 14+ and an authorized shell/root service. Shizuku or
-  Shevery supplies shell access without Android root. Managed Desktop is
+- MagicDesk on Android 14+. Shell execution additionally requires an authorized
+  service; Shizuku or Shevery supplies it without Android root. Managed Desktop is
   optional and has its own Android 15+ requirement.
 - Linux 5.15+ with the required operations permitted under the selected executor.
   Kernel version, Android version and build success alone do not establish this.
@@ -43,7 +44,7 @@ exercises executable mappings, pidfds, subreapers, selective ptrace, seccomp
 notifications, descriptor publication and helper teardown in child processes.
 A failure reports the operation and errno before starting guest programs.
 Dependencies newer than 5.15, fallbacks and coverage are tracked in
-[kernel compatibility](../native/shroot/kernel-compatibility.md).
+[kernel compatibility](https://github.com/mekhontsev/shroot/blob/develop/kernel-compatibility.md).
 
 Helpers are immutable, versioned executables, never libraries loaded into ART.
 A running guest tree keeps its exact helper bundle across APK updates because
@@ -69,7 +70,9 @@ stop another launch. Persistent stores outlive those processes.
 | --- | --- | --- |
 | Filesystems | Guest roots, mount views, DAC/ACL permissions, read-only/no-exec policy, Landlock filesystem rules | Unadapted calls and retained host descriptors are not fully confined |
 | Processes | Launch-scoped signals with guest credential checks, nested PID views, proc visibility, translated waits and guest PID 1 lifetime | Not a host kernel PID namespace |
+| Robust mutexes | Owner-death cleanup and waiter wakeup under User and logical PID namespaces, including exit, SIGKILL and exec; ordinary futex IO remains native | Shell outside PID namespaces retains native kernel behavior; no emulated priority inheritance |
 | Credentials | Guest users, groups, capabilities, drops and namespace ownership | Guest root never grants Android root or kernel capabilities |
+| Dumpability | Guest prctl state, mm sharing, exec reset and guest process-inspection checks | Native tasks remain dumpable for runtime access; no Android isolation or guest core-dump service |
 | IPC and terminals | Separate SysV IPC owners, store-scoped pathname sockets, private devpts views | Inherited connections retain authority; explicit abstract Unix sockets share the host namespace |
 | Network | Offline child namespaces or routed IPv4/IPv6, private ports, supported nftables flow filtering and NAT | Native backing ports remain reachable; not a host firewall or full Linux network isolation |
 | Resource controls | Launch-local real-UID `RLIMIT_NPROC`; logical `RLIMIT_NOFILE` backed by native FD allocation; hierarchical cgroup `pids.max`, membership, freezer and sampled CPU/RSS counters | Android's physical FD/task budgets still apply; cgroup CPU, cpuset, memory and device policies are not enforced; sampled RSS is not kernel page charging; other resource limits remain native |
@@ -91,48 +94,26 @@ environment instead.
 
 ### Syscall Acceleration
 
-Shroot uses **lazy SVC** by default in named environments and inode-store
-launches. `svc` is the AArch64 instruction used to enter the kernel for a
-syscall. Shroot discovers executed syscall sites at interception stops rather
-than scanning every executable byte as if it were an instruction.
+Named environments use **lazy SVC** by default. At an eligible executed ARM64
+syscall site, Shroot replaces one instruction in process memory. Subsequent
+calls there can enter the shared engine without a ptrace stop. This works with
+stock glibc, musl, static executables and Go; installed files do not change.
+Ordinary data IO still runs in the kernel. Guest seccomp decisions, Android's
+own filters, and debugger ownership still apply.
 
-For an eligible site, Shroot prepares a private entry stub and replaces that
-single `svc` instruction in process memory with a branch. Publication does not
-stop neighboring threads. The stub checks the syscall number and routes the
-call to the shared syscall engine; later calls at that site can avoid the
-seccomp/ptrace round trip. Eligible native operations execute in the guest
-thread, while worker-owned operations use the shared-memory channel. The
-kernel still performs native IO: acceleration does not mean that every syscall
-becomes a purely userspace operation.
-
-This works with unmodified stock glibc, musl, static executables and Go binaries.
-Package-owned files on disk are unchanged. Mapping changes invalidate affected
-entries, and signal handling reconstructs the application's original context.
-
-**Shroot Base** is the ordinary seccomp/ptrace interception path. Unsupported
-sites and unavailable entry capabilities retain Base automatically. To select
-Base explicitly for diagnosis, pass the guest environment option:
+Unsupported sites automatically use **Shroot Base**, the ordinary interception
+path. To compare modes, start a new launch from the same console and store:
 
 ```sh
 shroot login steamos --env SHROOT_MACHINE_ENTRY=0
 shroot exec steamos --env SHROOT_MACHINE_ENTRY=0 -- /usr/bin/true
 ```
 
-Omit that option for the default, or use `--env SHROOT_MACHINE_ENTRY=1` to request
-lazy entry explicitly. This is a process environment setting, not a persistent
-distribution setting; programs that replace their environment must retain it
-when a Base-only comparison is intended. Already running processes are unchanged.
-
-Application seccomp filters revoke accelerated entry and retain kernel admission.
-Protected processes and debugger ownership also use the common fallback rules.
-A successful sandboxed launch therefore does not prove an unfiltered speedup.
-See [entry contracts](../native/shroot/cooperative-entry.md#sandboxes-and-debuggers)
-and [integration evidence](../native/guest-exec-lab/svc-rewriting.md#product-boundary).
-Native `--statistics` reports `SVC_RUNTIME_STATS` and completed calls; ordinary
-launches do not enable timing instrumentation.
-
-Mesa/Turnip, KWin and Weston builds remain recipe-owned and use the same default
-entry as other programs. Their `--jobs` setting is independent of syscall entry.
+Omit the option for the default. It is a process environment setting, not a
+change to the installed distribution or existing sessions. A successful browser
+launch alone does not prove acceleration; `--statistics` reports completed
+calls separately. See the [native entry contract](https://github.com/mekhontsev/shroot/blob/develop/cooperative-entry.md)
+and [workload evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/svc-rewriting.md).
 
 #### Alpine Containers Inside SteamOS
 
@@ -146,9 +127,9 @@ docker run --rm -it --platform linux/arm64 alpine:3.23 sh
 
 The container's programs use the same entry admission as other guest processes,
 including after package updates. This also applies to nested Podman processes.
-Keep the engine's normal seccomp policy: when it installs a filter, the container
-uses Base admission. Do not disable that policy merely to claim a higher
-benchmark result.
+Keep the engine's normal seccomp policy. Calls retain their policy checks;
+eligible inherited filters retain lazy entry after exec; others use Base. Do not
+disable that policy merely to claim a higher benchmark result.
 
 For reproducible comparisons, pin the image digest and retain identical mounts,
 sandbox policy and storage. Report actual entry completions separately from
@@ -159,7 +140,7 @@ elapsed time; loaded-library listings are not an acceleration measurement.
 [`scripts/install_linux.sh`](../scripts/install_linux.sh) installs ARM64 Linux
 through the same named-environment manager. Run it in
 [MagicDesk Console](getting-started.md#open-the-android-shell-console)
-with shell or root access. Termux and managed Desktop are not required.
+with **User** or **Shell** selected. Termux and managed Desktop are not required.
 Download the file before running it so terminal input remains available for
 the questions:
 
@@ -170,8 +151,15 @@ sh ~/install_linux.sh
 
 This is the maintained download address. The installer can be updated without
 replacing the APK; download again to atomically replace `~/install_linux.sh`.
-UID 2000's shell home is `/data/local/tmp/magicdesk/`; root consoles use
-`/data/local/tmp/magicdesk-root/home`. Release tags retain the installer matching
+User's home is MagicDesk's private app data directory. Shell UID 2000 uses
+`/data/local/tmp/magicdesk/`; Shell with UID 0 uses
+`/data/local/tmp/magicdesk/root`. Each stores installations in `~/linux`.
+The installer and `--resume` operate only in their console's library, without
+switching executor or converting storage. The Linux picker labels entries
+`Alpine (User)` or `Debian (Shell)`; Shell keeps that name even with root access.
+Both executors use managed Shroot format 17. Root authority alone does not
+select native chroot/mount behavior or a different storage format.
+Release tags retain the installer matching
 that release.
 The current installer requires MagicDesk 2.2.5 or newer (`versionCode` 232),
 which supplies the completion-owned DMA-BUF consumer required by its Turnip
@@ -343,7 +331,7 @@ The installer does not run a background network monitor or overwrite later edits
 #### Resume An Interrupted Installation
 
 In [MagicDesk Console](getting-started.md#open-the-android-shell-console),
-using the same shell/root executor as before:
+using the same executor as before:
 
 ```sh
 shroot list
@@ -377,7 +365,9 @@ sh ~/install_linux.sh --name nixos --resume --package ripgrep
 The recipe imports a checksum-pinned official NixOS LXC image, registers its
 Nix store and generates `/etc/nixos/magicdesk.nix`. Its first activation uses
 the shell shipped in that image: `/bin/sh` and the account database do not
-exist until NixOS creates them. Activation and the subsequent build share a
+exist until NixOS creates them. If installation stops between import and first
+activation, `--name NAME --resume` recognizes the image without activating it
+until setup is confirmed. Activation and the subsequent build share a
 private mount namespace with guest-owned API filesystems, including devpts.
 PTY ownership changes apply to guest metadata, not Android terminals; inherited
 console descriptors remain open. Stock activation runs unchanged, and a failed
@@ -385,10 +375,11 @@ activation stops setup. After success, the selected generation is published for
 subsequent ordinary `shroot login` sessions outside the temporary init mounts.
 The initial channel uses the Nixpkgs source shipped in the verified image.
 A missing `configuration.nix` is created with the LXC and MagicDesk imports;
-it remains the place for your own Nix settings. Installer selections are stored
-in `magicdesk-settings.json` beside
-the module. Resume merges requested packages, accounts and desktops, and
-refreshes installer-owned files without replacing `configuration.nix`. For an
+it remains the place for your own Nix settings. The installer saves selections in
+`magicdesk-settings.json` beside the module only after `nixos-rebuild boot`
+succeeds. Resume adds the requested packages, accounts and desktops and retains
+the saved protocol and build jobs unless you specify new values. It refreshes
+installer-owned files without replacing `configuration.nix`. For an
 existing environment with a different configuration, the installer asks you to add
 `./magicdesk.nix` to its imports rather than guessing how to rewrite Nix code.
 
@@ -560,7 +551,7 @@ MagicDesk compositor retains read ownership through actual completion. The
 older `turnip` profile still requires the native bridge. Permission denials or
 failed allocation checks leave the node absent; kernel version alone is not
 admission. The optional post-5.15 DMA-BUF interfaces are listed in
-[kernel compatibility](../native/shroot/kernel-compatibility.md#newer-interfaces).
+[kernel compatibility](https://github.com/mekhontsev/shroot/blob/develop/kernel-compatibility.md#newer-interfaces).
 Shroot chooses an unused `/dev/dri/renderD*` identity and projects matching
 sysfs entries without replacing Android devices. This is a discovery adapter,
 not an emulated DRM GPU: Mesa still allocates real buffers and submits work
@@ -699,7 +690,7 @@ shroot remove tools
 shroot prune
 ```
 
-The named-environment manager uses the selected shell executor. It needs neither
+The named-environment manager uses the selected User or Shell executor. It needs neither
 Termux, Python, an external download tool nor a Docker daemon. Image import
 does not execute package scripts. The installer above is the separate step
 that configures packages and GUI services.
@@ -719,11 +710,21 @@ Instances copy up on mutation. `path NAME` returns the immutable store location;
 Reusing a removed name creates a new identity, never retargets a running launch
 or an existing shortcut.
 
-The default library is `$MAGICDESK_RUNTIME/guest-environments`;
-`MAGICDESK_GUEST_HOME` selects another executor-accessible executable filesystem.
+In a MagicDesk console the selected executor's default library is `$HOME/linux`.
+Use `shroot --print-library` to see it or `shroot --library DIR list` to
+select another library for one command. `MAGICDESK_GUEST_HOME` can set the
+console default. Changing the directory never changes the executor or moves
+installed environments. The standalone [Shroot CLI](https://github.com/mekhontsev/shroot/blob/develop/library.md)
+uses its own Linux or Termux package default.
 Do not edit its backing files as a normal rootfs: names, hardlinks, metadata and
 shared image ownership belong to the inode store. Use guest commands, explicit
 attachments or backup/restore.
+
+Shared-source references are relative to each store, so an inactive library can
+move as one tree on the same filesystem without copying file bodies. Source
+device/inode checks and live leases remain enforced. The default library layout
+is adopted offline; a running store blocks relocation. For another filesystem,
+device or executor UID, use backup/restore instead of copying backing directories.
 
 Eligible private regular files use native names by default, with sparse metadata
 for non-root ownership. Creation, rename and deletion avoid per-file SQLite
@@ -739,7 +740,7 @@ the corresponding committed catalogue metadata. Native-name directory entries
 require directory fsync or syncfs for durability, as on Linux. Imports, image sealing and
 snapshot publication also request explicit barriers. Unsynced changes may be
 lost on power failure; process-crash tests do not establish hardware power-loss
-guarantees. See [inode-store transactions](../native/shroot/inode-store.md#transactions).
+guarantees. See [inode-store transactions](https://github.com/mekhontsev/shroot/blob/develop/inode-store.md#transactions).
 
 `backup` requires an inactive store and includes its shared data; a restored
 instance has no lower dependencies. `remove` also requires an inactive store,
@@ -773,7 +774,7 @@ New catalog records separate the environment UUID from its working-store key;
 existing records remain readable without moving data. Removing or pruning stores
 also respects persistent dependencies from stopped environments. This prepares
 for future offline snapshots, but snapshot/rollback commands are not available.
-See [storage evolution](../native/shroot/inode-store.md#storage-evolution).
+See [storage evolution](https://github.com/mekhontsev/shroot/blob/develop/inode-store.md#storage-evolution).
 
 #### Launches and directory attachments
 
@@ -874,12 +875,21 @@ guest UID/GID, permissions and set-ID metadata, never host set-ID bits.
 `image import --layers /absolute/layer-pool` shares file bodies across imports.
 Image Env, WorkingDir, Entrypoint and Cmd feed the ordinary guest runner.
 Import and backup need no execution probe; launching does. See
-[images and views](../native/shroot/images.md) for formats, lifetimes and limits.
+[images and views](https://github.com/mekhontsev/shroot/blob/develop/images.md) for formats, lifetimes and limits.
 
 #### Apps, terminals and automation
 
-Start, the shortcut editor and the terminal environment picker use the same
-default-library catalog as an ordinary Shell CLI invocation. An explicit
+**Terminal sessions > New session > Shroot environments** lists the default
+libraries of the available executors. With Termux integration enabled and the
+standalone `shroot` command installed there, its environments appear alongside
+User and Shell. Choose one to open a login session or inspect its running
+launches. MagicDesk asks Termux to list and open its own stores; no copy or
+cross-UID file access is needed. The shortcut editor also supports terminal
+commands in those environments. For an external Termux:X11 server, see the
+[Shroot library guide](https://github.com/mekhontsev/shroot/blob/develop/library.md#use-termuxx11).
+
+For User and Shell, Start and the shortcut editor use each executor's default
+library. An explicit
 `MAGICDESK_GUEST_HOME` selects another library for that command; it does not
 register that library with Android's application catalog. Use the default library
 for applications intended to appear in Start.
@@ -946,8 +956,16 @@ the selected executor's identity, or other terminals' login policy. Installed
 services, `/etc` and `/var/lib` persist; `/run`, `/tmp` and `/dev` belong to this
 boot. Only boot an idle environment: independent launches do not share its
 service manager or runtime mounts. `magicdesk-init COMMAND ARG...` runs that
-command as the console service instead of the login shell. `exec` replaces the
+command once as the console service instead of the automatically restarted
+login shell; command failure does not trigger a retry. `exec` replaces the
 calling shell so that shutdown also ends that Shroot launch.
+
+For systemd-networkd, the helper publishes
+`/run/systemd/network/80-magicdesk-uplink.network`: it retains the launch's
+static `eth0` addresses and routes without requesting DHCP. Other links keep
+their normal configuration. To manage that uplink yourself, use an earlier
+matching `.network` file or the same filename in `/etc/systemd/network`, following
+[networkd's configuration precedence](https://www.freedesktop.org/software/systemd/man/latest/systemd.network.html).
 
 Install missing init packages before boot (`systemd-sysv` and `dbus` on Debian;
 `openrc` on Alpine). The helper also uses util-linux, supplied by the recipe.
@@ -969,8 +987,8 @@ Exiting just the console shell starts another shell; it does not power off the
 guest. An explicit `shroot stop` from another Android console is cancellation,
 not a substitute for orderly service shutdown.
 
-See the [init matrix](../native/guest-exec-lab/init-matrix.md) and
-[init fixtures](../native/guest-exec-lab/namespaces.md#namespace-clients) for setup
+See the [init matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/init-matrix.md) and
+[init fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/namespaces.md#namespace-clients) for setup
 and exact assertions. The recipe adds `ConditionVirtualization=!container` to
 systemd's module-loading units: they do not modify the host kernel in a container,
 but remain available for a native boot of an exported rootfs. This is applied
@@ -980,8 +998,8 @@ recovery image's physical Deckard/SteamVR services and partition-set mounts for
 container boots only. Binfmt registration belongs to Shroot's guest namespace,
 not Android's kernel registry. Its runtime output
 does not change packaged units or administrator overrides; native boots retain
-them. Ordinary service failures remain visible. Older Debian/openKylin checks explicitly dropped
-`CAP_SYS_MODULE`. Unavailable hardware still needs appropriate configuration.
+them. Ordinary service failures remain visible. Unavailable hardware still needs
+appropriate configuration.
 SteamOS's default boot remains degraded on
 hardware/network units. Passing a userspace boot does not certify a display
 manager, graphical login or hardware boot.
@@ -1088,7 +1106,7 @@ Packet information and supported TTL/hop-limit/TOS/traffic-class controls are
 family-aware; device-bound sockets retain logical interface ownership.
 Anonymous nftables counters count logical data transfers
 and payload bytes, not physical network packets. See
-[network contracts](../native/shroot/networking.md#network-namespaces).
+[network contracts](https://github.com/mekhontsev/shroot/blob/develop/networking.md#network-namespaces).
 
 ### TUN/TAP Applications
 
@@ -1118,14 +1136,14 @@ Guest routing supports separate tables, source/destination rules and masked
 packet/connection marks. These settings belong to the selected guest network
 namespace; they do not modify Android's routes or socket marks.
 
-The Debian [integration evidence](../native/guest-exec-lab/distribution-evidence.md#debian-packet-applications)
+The Debian [integration evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/distribution-evidence.md#debian-packet-applications)
 covers the exact entry modes and configurations, including large transfers,
 fragmentation and connection shutdown. QEMU uses software CPU emulation (TCG),
 not KVM. This does not certify every VPN, bridge protocol or QEMU configuration.
 TUN/TAP supports virtio-net headers, checksum completion and TCPv4/TCPv6 software
 segmentation; unsupported offloads fail explicitly. Ordinary file/socket IO
 remains native. See the
-[packet transport contract](../native/shroot/networking.md#tuntap-packet-transport).
+[packet transport contract](https://github.com/mekhontsev/shroot/blob/develop/networking.md#tuntap-packet-transport).
 
 ### Docker Engine
 
@@ -1157,7 +1175,7 @@ configuration using Docker's ordinary userland proxy:
 ```
 
 Prepare private API filesystems and logical cgroups as in the
-[Docker fixture](../native/guest-exec-lab/probe_docker_runtime.py).
+[Docker fixture](https://github.com/mekhontsev/shroot/blob/develop/tests/probe_docker_runtime.py).
 VFS and overlay2 checks cover concurrent containers, ordinary
 `docker run -p HOST:CONTAINER[/udp]`, connections from another Android UID,
 outbound DNS/HTTP, occupied-port rejection and port release. Overlay2 also covers
@@ -1191,7 +1209,7 @@ commands. Do not reinstall k3s or delete `/etc/rancher` and `/var/lib/rancher`:
 these retain cluster credentials, configuration, datastore and local volumes.
 Back up important data independently; recovery after process termination is
 not a guarantee against physical storage failure.
-The [full-boot fixture](../native/guest-exec-lab/test_k3s_boot.py) separately
+The [full-boot fixture](https://github.com/mekhontsev/magicdesk/blob/develop/tests/shroot/test_k3s_boot.py) separately
 checks orderly shutdown and forced supervisor termination, then boots the same
 store through its ordinary enabled service and verifies cluster identities,
 PVC contents, DNS and Service HTTP.
@@ -1211,10 +1229,10 @@ The nodes share one device; this does not establish a multi-device deployment.
 Managed ipset and TCP conntrack timeout controls use the shared network namespace; deleting
 a TCP tracking record does not close its transport. Cadvisor cannot report a
 guest block-device inventory. Cgroup memory limits remain advisory, not enforced
-OOM isolation. The [single-distribution fixture](../native/guest-exec-lab/test_k3s.py)
-and [mixed-cluster fixture](../native/guest-exec-lab/test_k3s_cluster.py) share the
+OOM isolation. The [single-distribution fixture](https://github.com/mekhontsev/shroot/blob/develop/tests/test_k3s.py)
+and [mixed-cluster fixture](https://github.com/mekhontsev/shroot/blob/develop/tests/test_k3s_cluster.py) share the
 same workload and node lifecycle. See the
-[qualified results](../native/guest-exec-lab/validation-matrix.md#k3s).
+[qualified results](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md#k3s).
 
 ### Podman
 
@@ -1230,13 +1248,13 @@ launch. `nofile` preserves guest soft/hard settings while native FD allocation
 remains bounded by the executor's physical ceiling. Lowering and privileged
 raising do not irreversibly lower Android's hard limit. This does not create
 additional physical FD slots or bypass Android's task ceiling; see
-[process limits](../native/shroot/process-resources.md#process-limits).
+[process limits](https://github.com/mekhontsev/shroot/blob/develop/process-resources.md#process-limits).
 
-The [Podman fixture](../native/guest-exec-lab/probe_podman_runtime.py) runs inside
+The [Podman fixture](https://github.com/mekhontsev/shroot/blob/develop/tests/probe_podman_runtime.py) runs inside
 a routed Shroot launch. No `--network host` bypass or Podman-specific runtime
 branch supplies bridge connectivity. This does not certify arbitrary nftables
 rules or general rootless-Podman configurations; supported operations and flow
-semantics are described in the [network contracts](../native/shroot/networking.md#nftables-and-flow-forwarding).
+semantics are described in the [network contracts](https://github.com/mekhontsev/shroot/blob/develop/networking.md#nftables-and-flow-forwarding).
 
 Rootless Podman can use stock `slirp4netns` through the guest `/dev/net/tun`.
 Install the distribution's Podman, slirp4netns and UID-map helper packages,
@@ -1255,7 +1273,7 @@ the guest init or launch owner. Without a delegated cgroup subtree, Podman may
 warn that it cannot place conmon there; the guest user's filesystem permissions
 are not bypassed. This evidence covers slirp4netns, not every Podman networking
 backend. TUN/TAP and packet-stack limits are documented in the
-[native network contract](../native/shroot/networking.md#tuntap-packet-transport).
+[native network contract](https://github.com/mekhontsev/shroot/blob/develop/networking.md#tuntap-packet-transport).
 
 Rootless Docker uses the distribution's `dockerd-rootless.sh`, RootlessKit,
 slirp4netns and UID-map helpers, with subordinate IDs configured for the user.
@@ -1267,13 +1285,13 @@ IP/name lookup, outbound DNS/HTTP, port conflicts and shutdown pass without
 Android root. This is separate from guest-root Docker and does not certify
 every RootlessKit driver or cgroup delegation setup.
 
-For both engines, guest root is still real Android UID 2000. Enabled cgroups
+For both engines, guest root retains the selected Android executor's actual UID. Enabled cgroups
 provide membership, freezer state, enforced hierarchical PID limits and sampled
 CPU/RSS counters. CPU quotas, cpuset affinity, memory and device limits remain
 unenforced; these are not full kernel resource controls.
 
 See [Alpine containers inside SteamOS](#alpine-containers-inside-steamos) for an
-example and the distinction between lazy entry and filtered Base admission.
+example and the common seccomp admission used by lazy and Base execution.
 
 ## Guest Credentials
 
@@ -1300,7 +1318,7 @@ explicit endpoints; unsupported data opens fail.
 Authenticated Unix IPC uses captured guest credentials within the supported
 transport; external peers see actual Android credentials. Session D-Bus works
 as guest root and across independent clients without disabling authentication.
-See [Unix credentials](../native/shroot/ipc-credentials.md) for implicit-message
+See [Unix credentials](https://github.com/mekhontsev/shroot/blob/develop/ipc-credentials.md) for implicit-message
 and cross-launch limits. Stored set-ID ELF metadata is applied by the common
 [execution owner](#application-filters-and-browsers), without per-program launch
 options. Stored file capabilities use that same execution owner and remain
@@ -1308,135 +1326,46 @@ guest authority only, never Android credentials.
 
 ## Filesystem Restrictions
 
-**Landlock is an enforced guest filesystem policy, not just a successful API
-probe.** Arch pacman's default filesystem sandbox uses it even when the host
-kernel has no Landlock support. Shroot implements the three Landlock syscalls
-with ABI 1 filesystem rights.
-Mutable ruleset descriptors use the existing typed-file transport. Applying a
-ruleset installs an immutable thread-local domain; up to 16 domains intersect.
-Fork/exec inherit the domain, whereas an existing sibling sharing files or cwd
-does not acquire another thread's restrictions. Closing or adding rules to the
-original descriptor cannot remove or widen an installed domain.
+Shroot enforces supported **Landlock ABI 1 filesystem rights** even if Android
+does not offer host Landlock. Arch pacman can use its filesystem sandbox.
+Restrictions follow the calling thread through fork and exec; stacking rules
+can only narrow access. Already-open data descriptors keep their authority.
 
-Rules retain logical object identity and store lifetime. File operations check
-the selected dentry and its ancestry within the same namespace transaction,
-before mutation or writable-open publication. Directory rename and backing
-copy-up do not retarget the grant. ABI 1 rejects cross-directory rename/link.
-Already opened data descriptions retain their authority; proc-FD reopening and
-executable preparation recheck it. Ordinary data IO adds no policy RPC, and
-tasks without a domain allocate no Landlock state.
-
-Explicit rules currently require inode-backed targets. Native providers can
-inherit grants through retained guest mountpoints; unsupported native rule
-targets/mutations fail explicitly. Ambiguous descriptor hardlink ancestry is
-denied rather than selecting a permissive alias. Cross-store mount ancestry and
-full native-provider rules are not established. This is filesystem policy within
-Shroot's compatibility model, not native LSM isolation: Landlock ptrace-domain
-confinement is not implemented. Network/scoping and newer filesystem rights are
-not advertised; existing network and debugger behavior is unchanged.
-
-The ABI 1 fixture checks positive and negative access, attribute/FD validation,
-hardlinks, symlinks, retained directory identity, policy stacking, preopened FDs,
-proc reads, thread sharing and fork/exec including descriptor execution. A native
-Linux VM runs the same assertions independently of the Android kernel.
+Explicit rules need inode-backed targets. Native providers may inherit grants
+through retained guest mountpoints; newer rights, network restrictions and
+Landlock ptrace confinement are not implemented. This is not an Android LSM
+boundary. See the [native filesystem policy](https://github.com/mekhontsev/shroot/blob/develop/interception.md)
+for enforcement and the [namespace fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/namespaces.md) for checks.
 
 ## Application Filters And Browsers
 
-Stock Debian Chromium has headless JavaScript/DOM and PNG-rendering checks
-without `--no-sandbox`. Both its automatic user/PID namespace route and its
-explicit set-ID helper route retain the application's original seccomp filters.
-Firefox has a separate headless screenshot workflow. These are execution tests,
-not a claim that every browser feature or security boundary is complete.
+Keep the browser's sandbox enabled. The fixtures distinguish a headless
+JavaScript/PNG result from a rendered desktop window, working input, a portal
+file grant, and hardware acceleration. These are separate checks.
 
-SteamOS Flatpak Chromium has been installed through Discover and launched inside
-the Plasma Wayland session without disabling its sandbox. The GUI check loaded
-an external page; `chrome://sandbox` reported Flatpak, PID/network namespaces and
-Seccomp-BPF with TSYNC, with installed filters also observed on renderer processes.
-Bubblewrap's `--disable-userns` uses enforced per-user, ancestor-scoped namespace
-quotas, not a successful no-op. These checks do not establish kernel-equivalent
-isolation or complete Flatpak support. Turnip checks cover hardware Zink/Turnip
-WebGL pixels, Wayland presentation, pointer input and normal closure, retaining
-the sandbox and watchdog. The Turnip recipe prepares the local GL.host extension
-with runtime ABI admission and install/update triggers; see
-[Flatpak GPU drivers](graphics.md#flatpak-gpu-drivers). Ordinary Flatpak launches
-also pass the GPU checks without test-only driver selection or environment flags.
-Shroot supplies a guest `/dev/fuse` and asynchronous FUSE mounts without native
-Android FUSE permission. The stock document portal has passed temporary export,
-read/write from Flatpak and live permission revocation on SteamOS. This is
-separate from the browser/GPU check and does not establish every desktop file
-chooser workflow. Stock `rofiles-fuse` and `squashfuse_ll` are also covered;
-ELF/script execution, dynamic loading and private mappings work from the tested
-SquashFS image. Concurrent append and inotify are supported, including changes
-to append flags, rename cookies and open-but-unlinked watch lifetimes. Shared
-mmap supports read-only shared views with daemon-confirmed write/truncate
-updates; writable shared mappings and general external-data invalidation remain
-unsupported.
-See [FUSE ownership and limits](../native/shroot/fuse.md).
+| Workflow | What to expect |
+| --- | --- |
+| Native Chromium and Firefox | Debian Chromium has headless coverage with its ordinary namespace sandbox and a separately selected set-ID helper. Firefox has a screenshot check. Neither requires disabling the sandbox. |
+| Flatpak on SteamOS | Plasma/Wayland checks cover Chromium with filters installed, Turnip WebGL and a separate document-portal export, read/write and revocation. Prepare the [Flatpak GL extension](graphics.md#flatpak-gpu-drivers) for hardware rendering. |
+| Snap | Ubuntu Firefox has a Wayland GUI check with its content sandbox. On the tested kernel snapd reports reduced confinement, not strict AppArmor isolation. See [Snap GPU drivers](graphics.md#snap-gpu-drivers). |
 
-Stock snapd has a separate Debian/systemd fixture covering hello-world install,
-run, refresh and complete removal, including a run under strace. Its launcher
-sets `mount --make-rshared /` inside the private guest mount namespace before
-snapd creates image mounts. This is not a change to Android's mount topology.
-The tested kernel has no AppArmor; this verifies execution with snapd's reported
-reduced confinement, not strict Snap isolation or arbitrary snap compatibility.
-Ubuntu's stock Firefox Snap also passes Wayland GUI checks with its content
-sandbox enabled. Prepared Turnip/Zink can be supplied through the official
-`mesa-2404` GPU content provider, without rebuilding Firefox or copying host
-paths into its namespace. See [Snap GPU drivers](graphics.md#snap-gpu-drivers)
-for preparation and the distinction between WebGL and browser composition.
+The guest provides its own system and session services. A headless browser run
+does not verify Discover, the desktop chooser or GPU composition. Shroot supplies
+guest FUSE without access to Android's FUSE device; [supported mappings and
+invalidation](https://github.com/mekhontsev/shroot/blob/develop/fuse.md) have explicit limits.
 
-CPU topology is available through the shared read-only native sysfs projection,
-also checked inside Flatpak. Discover and portal workflows require the guest's
-system and session services; a headless browser pass does not verify them.
-The [Flatpak browser fixture](../native/guest-exec-lab/desktop-workflows.md#flatpak-chromium)
-also checks JavaScript and repeated normal exits inside that desktop session.
-Per-OS browser, portal and desktop results belong in the
-[distribution matrix](../native/guest-exec-lab/validation-matrix.md), with exact
-builds and remaining limitations in its evidence ledger.
-An independently activated KDE service can keep a separate supervised launch
-alive after the browser exits; that is not itself evidence of a browser hang.
+Guest set-ID ELF helpers and file capabilities use ordinary executable
+admission, including launches from shortcuts. Guest credentials can change;
+Android credentials cannot. `nosuid`, `no_new_privs`, tracing and ID mappings
+restrict guest elevation; set-ID script bits are ignored. `--admit-elf` is an
+explicit override, not a normal prerequisite. Native writes still have
+[metadata limits](https://github.com/mekhontsev/shroot/blob/develop/inode-store.md#limits).
 
-The supervisor preserves application signal handlers, alternate stacks,
-non-dumpable state and installed seccomp filters. ERRNO/TRAP/KILL actions remain
-effective. It prepares required descriptor interception before admitting an
-application filter, rather than removing that filter when later IO needs it.
-Guest namespace support does not require native unprivileged user namespaces.
-
-Stored guest setuid/setgid and file-capability ELF files work through ordinary launches, including
-desktop shortcuts. Initial entry, path exec and descriptor exec use one worker
-preparation path. The filesystem supplies canonical ownership, mode and capabilities
-for the exact selected image; a privileged image is sealed before loading. `nosuid`,
-`no_new_privs`, guest ptrace and user-namespace ID mappings restrict elevation;
-script set-ID bits are ignored. Auxv IDs and `AT_SECURE` reflect the resulting
-guest identity. Android credentials do not change; host set-ID executables
-remain rejected. No distribution-specific helper list is required.
-Linux file-capability revisions 1-3 share the credential owner: permitted and
-inheritable masks, the effective flag, bounding set, ambient clearing and
-namespace root-ID scope are evaluated before committing exec. A capability-dumb
-program missing required permitted bits fails with `EPERM` in the original
-caller. Capability-derived secure execution also supplies `AT_SECURE`.
-
-`--admit-elf /absolute/guest/path` remains an explicit launch-local sealed-image
-override, not a prerequisite for packaged helpers. Chromium's set-ID test
-selects `--disable-namespace-sandbox` to choose that route; its negative control
-sets `no_new_privs`. Neither route uses `--no-sandbox`.
-The execution checks do not close the separate filesystem limitation of complete
-set-ID/file-capability clearing on native data writes; see
-[storage limits](../native/shroot/inode-store.md#limits).
-
-Execution does not establish native-Linux sandbox equivalence. Interpreter and
-library admission, mapped-code protection, complete descriptor/root confinement
-and authenticated filesystem authorization remain incomplete. The same-UID
-filesystem service does not automatically enforce a caller's seccomp domain.
-Unadapted syscalls and inherited descriptors retain host authority. Chromium
-child SIGTRAP exits are recorded independently of successful page output.
-
-Guest GDB, LLDB, gdbserver and strace use the supervisor's
-[nested debugger contract](../native/shroot/debugging.md), including attach/seize
-within the same supervised launch. Another physical tracer cannot attach
-concurrently; external attach and arbitrary crash reporters are not supported
-by that contract. See [browser fixtures](../native/guest-exec-lab/browser/README.md)
-and [interception](../native/shroot/interception.md) for exact assertions.
+A passing sandboxed launch is not proof of native-Linux confinement. Unadapted
+calls and inherited descriptors retain host authority. See the [browser fixture
+guide](https://github.com/mekhontsev/shroot/blob/develop/tests/browser/README.md),
+[per-OS receipts](https://github.com/mekhontsev/shroot/blob/develop/tests/distribution-evidence.md)
+and [same-launch debugger limits](https://github.com/mekhontsev/shroot/blob/develop/debugging.md).
 
 ## Graphical Connections
 
@@ -1469,7 +1398,7 @@ capturing the connecting task's guest credentials and IPC namespace. The embedde
 server resolves legacy MIT-SHM IDs through that capability and receives real
 backing and lifetime-lease FDs; it does not open the guest store or require host
 SysV IPC. Read-only permissions, `IPC_RMID`, shared pixmaps and process death use
-the common [shared-memory ownership](../native/shroot/shared-memory.md#embedded-x11-attachments).
+the common [shared-memory ownership](https://github.com/mekhontsev/shroot/blob/develop/shared-memory.md#embedded-x11-attachments).
 Ordinary X11 and modern `ShmAttachFd` remain independent of this channel.
 Its normal MIT-MAGIC-COOKIE-1 handshake remains
 mandatory. Each guest launch writes the supplied authority into its private
@@ -1532,7 +1461,9 @@ MagicDesk ships no D-Bus daemon and does not reuse Android's or Termux's bus.
 ## Coverage And Limits
 
 The device baseline for these results is RM11/NX809J, Android API 36,
-Linux 6.12.23, 4 KiB pages and actual UID 2000. The minimum supported kernel
+Linux 6.12.23 and 4 KiB pages. Shell results use actual UID 2000; separate
+[User-mode evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md) records app-UID
+coverage, including stock glibc/musl robust mutexes. The minimum supported kernel
 remains 5.15; build and injected-error checks are not device coverage for another
 kernel, firmware, page size or executor identity.
 
@@ -1542,25 +1473,25 @@ application, init or isolation test.
 
 | Area | Checked workflows | Scope/details |
 | --- | --- | --- |
-| ELF and libc | Debian glibc, Alpine musl, static PIE/ET_EXEC, raw SVC, threads, signals, fork/vfork and exec | [Runtime fixtures](../native/guest-exec-lab/README.md#prepared-runtime-fixtures) |
-| Files and IPC | Hardlinks, copy-on-write, overlays, watches, FIFOs, shared memory, SysV IPC and authenticated D-Bus | [Native contracts](../native/shroot/README.md#contracts) include failure and lifetime checks |
-| Packages and development | APT, APK, DNF, pacman; accounts, compiler builds, Git/SSH, npm and Python environments | [Packages](../native/guest-exec-lab/desktop-workflows.md#distribution-packages-and-applications) and [developer workflows](../native/guest-exec-lab/developer-workflows.md#developer-workflows) |
+| ELF and libc | Debian glibc, Alpine musl, static PIE/ET_EXEC, raw SVC, threads, signals, fork/vfork and exec | [Runtime fixtures](../tests/shroot/recipe-workflows.md#prepared-rootfs-fixtures) |
+| Files and IPC | Hardlinks, copy-on-write, overlays, watches, FIFOs, shared memory, SysV IPC and authenticated D-Bus | [Native contracts](https://github.com/mekhontsev/shroot/blob/develop/architecture.md#contracts) include failure and lifetime checks |
+| Packages and development | APT, APK, DNF, pacman; accounts, compiler builds, Git/SSH, npm and Python environments | [Packages](https://github.com/mekhontsev/shroot/blob/develop/tests/desktop-workflows.md#distribution-packages-and-applications) and [developer workflows](https://github.com/mekhontsev/shroot/blob/develop/tests/developer-workflows.md#developer-workflows) |
 | Systemd managers | Debian 257, Ubuntu 255, Fedora 259, Arch 262 and SteamOS; system/user managers and service activation | Focused targets are distinct from default-target boot |
-| Distribution boot | Ubuntu, Fedora, Arch, openSUSE, Deepin and Manjaro default targets; Debian/openKylin with explicit module-capability drop | [Init matrix](../native/guest-exec-lab/init-matrix.md); SteamOS hardware units remain degraded |
+| Distribution boot | Ubuntu, Fedora, Arch, openSUSE, Deepin and Manjaro default targets; Debian/openKylin with explicit module-capability drop | [Init matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/init-matrix.md); SteamOS hardware units remain degraded |
 | OpenRC and runit | Alpine PID 1, default runlevel and restart/stop; Void/Armtix stock stages and supervised services | Userspace service lifecycle, not complete hardware initialization |
 | Docker Engine | Docker 29.9.1, containerd 2.4.2, runc 1.5.2; overlay2, nftables bridge and TCP/UDP publication without userland proxy; older VFS/proxy profile retained | [Explicit daemon configuration](#docker-engine), logical IPv4/IPv6 flow filtering, not Android firewall management; per-family results are recorded separately |
-| Podman | Podman 5.8.7, crun 1.28, conmon 2.2.1; overlay, nftables bridge, TCP/UDP publication, DNS/HTTP, named peers and cleanup | [Routed launch and inherited limits](#podman); cgroups and application seccomp enabled |
+| Podman | Podman 5.8.7, crun 1.28, conmon 2.2.1; overlay, nftables bridge, TCP/UDP publication, DNS/HTTP, named peers and cleanup | [Routed launch and process limits](#podman); cgroups and application seccomp enabled |
 | Browser sandboxes | Stock Chromium JavaScript/DOM/PNG with installed filters, Firefox screenshot, Electron/VS Code workflow | [Browser contract](#application-filters-and-browsers), not complete security isolation |
-| Landlock and Bubblewrap | Positive/negative filesystem access, stacked domains and inheritance; pacman, Glycin and stock Bubblewrap workflows | [Filesystem policy](#filesystem-restrictions) and [namespace fixtures](../native/guest-exec-lab/namespaces.md#namespace-clients) |
-| Debugging | GDB/LLDB breakpoints, stepping and locals; attach/seize, gdbserver and strace workflows | [Same-launch ownership and request limits](../native/shroot/debugging.md) |
-| GUI and content | Debian/Ubuntu/Alpine editors through X11 and Wayland, input, clipboard, save/readback and actual process exit; GIMP and LibreOffice checks | [Application fixtures](../native/guest-exec-lab/desktop-workflows.md#distribution-packages-and-applications) |
+| Landlock and Bubblewrap | Positive/negative filesystem access, stacked domains and inheritance; pacman, Glycin and stock Bubblewrap workflows | [Filesystem policy](#filesystem-restrictions) and [namespace fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/namespaces.md#namespace-clients) |
+| Debugging | GDB/LLDB breakpoints, stepping and locals; attach/seize, gdbserver and strace workflows | [Same-launch ownership and request limits](https://github.com/mekhontsev/shroot/blob/develop/debugging.md) |
+| GUI and content | Debian/Ubuntu/Alpine editors through X11 and Wayland, input, clipboard, save/readback and actual process exit; GIMP and LibreOffice checks | [Application fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/desktop-workflows.md#distribution-packages-and-applications) |
 | Desktops | Xfce in a retained X11 viewer, Weston, Plasma; Fedora GNOME devkit with private services | GNOME is llvmpipe/devkit coverage, not GDM login or GPU certification |
-| GPU | Turnip Vulkan on Adreno 840 through X11/Wayland, GTK GLArea, X11 Blender, private KWin Wayland composition | [GPU fixtures](../native/guest-exec-lab/desktop-workflows.md#linux-gpu-fixture) and [installer profiles](#graphics-drivers) |
-| SteamOS | Nested Plasma, Steam client and selected FEX game workflows; private-memory/JIT and audio-continuity checks | [Steam fixtures](../native/guest-exec-lab/desktop-workflows.md#holo-arm64-userspace); not arbitrary game compatibility |
-| Application integration | Concurrent named environments, catalog identities/icons, retained PTY, CLI/MCP cancellation, file helpers, backup/restore and interrupted publication | [Environment workflows](../native/guest-exec-lab/README.md#named-environment-workflows); no Desktop required |
+| GPU | Turnip Vulkan on Adreno 840 through X11/Wayland, GTK GLArea, X11 Blender, private KWin Wayland composition | [GPU fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/desktop-workflows.md#linux-gpu-fixture) and [installer profiles](#graphics-drivers) |
+| SteamOS | Nested Plasma, Steam client and selected FEX game workflows; private-memory/JIT and audio-continuity checks | [Steam fixtures](https://github.com/mekhontsev/shroot/blob/develop/tests/desktop-workflows.md#holo-arm64-userspace); not arbitrary game compatibility |
+| Application integration | Concurrent named environments, catalog identities/icons, retained PTY, CLI/MCP cancellation, file helpers, backup/restore and interrupted publication | [Environment workflows](../tests/shroot/recipe-workflows.md#named-environment-workflows); no Desktop required |
 
 For results and open failures by installer distribution and entry mode, see the
-[distribution validation matrix](../native/guest-exec-lab/validation-matrix.md).
+[distribution validation matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md).
 It separates recorded passes, historical coverage and untested workflows,
 including nspawn, BuildKit, LXC and the selected LTP checks.
 
@@ -1571,7 +1502,7 @@ including nspawn, BuildKit, LXC and the selected LTP checks.
 - Packaged RTKit starts with its original chroot, credentials, process limit and
   watchdog threads, but real RT-priority requests can still return Android's
   `EPERM`. The PipeWire recipe does not require this privilege. See
-  [process limits](../native/shroot/process-resources.md#process-limits).
+  [process limits](https://github.com/mekhontsev/shroot/blob/develop/process-resources.md#process-limits).
 - Qt 6.8.2's strict Wayland surrounding-text correction check can fail because
   the client omits the final text-input-v3 commit. Other tested IME, clipboard
   and dialog operations pass. See [Wayland coverage](wayland.md).
@@ -1600,7 +1531,7 @@ limits. Sampled RSS is not kernel page charging. Logical tmpfs and ramfs are
 disk-backed; capacity options do not impose quotas. Neither provides memory-only
 or no-swap secret storage. Persistent `remount,ro` denies new writable opens and
 metadata changes, but does not revoke existing writable FDs or shared mappings.
-See the [filesystem contracts](../native/shroot/namespace-providers.md).
+See the [filesystem contracts](https://github.com/mekhontsev/shroot/blob/develop/namespace-providers.md).
 Proc/sysfs are bounded providers,
 not complete virtual kernel filesystems. ID-mapped mounts, general native-device
 creation, POSIX `mq_*` IO and arbitrary BPF facilities are unsupported. Mount
@@ -1609,11 +1540,11 @@ private-provider descriptors cannot be transferred to an independent launch.
 
 Adapted message batches also have an output-copy-fault timing limitation: a
 native operation can consume data before later copying into the application's
-memory fails. See [batch publication](../native/shroot/ipc-credentials.md#batch-publication-boundary).
-Filesystem watches have [hardlink/rename and delivery limits](../native/shroot/watches.md#limits).
+memory fails. See [batch publication](https://github.com/mekhontsev/shroot/blob/develop/ipc-credentials.md#batch-publication-boundary).
+Filesystem watches have [hardlink/rename and delivery limits](https://github.com/mekhontsev/shroot/blob/develop/watches.md#limits).
 An unsupported operation remains an explicit error, not permission to disable
 an application sandbox, switch to Android root or fabricate a successful result.
 
-The [native runtime map](../native/shroot/README.md) is the entry point for syscall,
+The [native runtime map](https://github.com/mekhontsev/shroot/blob/develop/architecture.md) is the entry point for syscall,
 filesystem, process and descriptor contracts. Keep implementation invariants
 there rather than duplicating them in installation instructions.

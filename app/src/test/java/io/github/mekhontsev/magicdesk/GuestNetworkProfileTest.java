@@ -13,6 +13,19 @@ public class GuestNetworkProfileTest {
         assertFalse(plan.arguments().contains("--network"));
     }
 
+    @Test public void persistedRulesAreScopedAndFailClosed() {
+        var loop=new GuestNetworkProfile.Port(8080,80,false,false);
+        var lan=new GuestNetworkProfile.Port(8080,53,true,true);
+        var profile=GuestNetworkProfile.forSettings(GuestNetworkProfile.Mode.BRIDGE,List.of(loop,lan));
+        assertEquals(List.of("--network","bridge","-p","127.0.0.1:8080:80/tcp","-p","0.0.0.0:8080:53/udp"),profile.arguments());
+        assertEquals(profile,GuestNetworkProfile.fromSettings(profile.settings()));
+        assertEquals(GuestNetworkProfile.HOST,GuestNetworkProfile.fromSettings(null));
+        for (var invalid:List.of("", "bridge\n", "none\nend\nextra", "routed\nend",
+                "none\n"+loop.argument()+"\nend", "bridge\n0.0.0.0:0:1/tcp\nend",
+                "bridge\n127.0.0.1:8080:80/udp\n0.0.0.0:8080:53/udp\nend"))
+            assertThrows(IllegalArgumentException.class,() -> GuestNetworkProfile.fromSettings(invalid));
+    }
+
     @Test public void everyLaunchAdapterGetsTheSameNetworkArguments() {
         var profile = new GuestNetworkProfile(GuestNetworkProfile.Mode.BRIDGE,
                 List.of("127.0.0.1:8080:80/tcp", "5353:53/udp"), List.of("192.0.2.53"));

@@ -8,7 +8,7 @@ import json
 import math
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 import time
 import urllib.error
@@ -48,11 +48,15 @@ class Client:
         self.sequence = 0
         self.opener = urllib.request.build_opener(NoRedirect())
 
-    def call(self, name, arguments=None, retry=False, deadline=None):
-        return self.call_result(name, arguments, retry, deadline)["structuredContent"]["data"]
+    def call(self, name, arguments=None, retry=False, deadline=None, *, request_timeout=None):
+        return self.call_result(name, arguments, retry, deadline,
+                                request_timeout=request_timeout)["structuredContent"]["data"]
 
-    def call_result(self, name, arguments=None, retry=False, deadline=None):
+    def call_result(self, name, arguments=None, retry=False, deadline=None, *, request_timeout=None):
         """Validated MCP result including image/resource content, without replay by default."""
+        request_timeout = self.request_timeout if request_timeout is None else request_timeout
+        if not math.isfinite(request_timeout) or request_timeout <= 0:
+            raise ToolError("Request timeout must be finite and positive")
         deadline = deadline or time.monotonic() + self.timeout
         backoff = 0.25
         while True:
@@ -66,7 +70,7 @@ class Client:
             if remaining <= 0:
                 raise TimeoutError("MCP reconnect deadline expired; operation outcome may still be pending")
             try:
-                with self.opener.open(request, timeout=min(self.request_timeout, remaining)) as response:
+                with self.opener.open(request, timeout=min(request_timeout, remaining)) as response:
                     payload = response.read(2 * 1024 * 1024 + 1)
                 if len(payload) > 2 * 1024 * 1024:
                     raise ToolError("MCP response exceeds client limit")
@@ -166,6 +170,19 @@ def download(client, source, target, transfer_id=None, overwrite=False):
     return {"path": str(target), "size": result["size"], "sha256": result["sha256"]}
 
 
+def runtime_temporary_directory(client):
+    session = client.call("console.open")["sessionId"]
+    try:
+        result = client.call("console.execute", {"sessionId": session, "command": "printf '%s' \"$TMPDIR\""})
+        value = result["output"]
+        path = PurePosixPath(value)
+        if result["exitCode"] or not path.is_absolute() or value == "/" or any(c in value for c in "\r\n\0"):
+            raise ToolError("The selected executor did not provide a private temporary directory")
+        return path
+    finally:
+        client.call("console.close", {"sessionId": session})
+
+
 def update(client, apk, update_id=None):
     update_id = update_id or uuid.uuid4().hex
     print("Update updateId=" + update_id, file=sys.stderr)
@@ -182,7 +199,8 @@ def update(client, apk, update_id=None):
         closed = client.call("wait_for_state", {"condition": "desktop_inactive", "timeoutMillis": 30000})
         if not closed.get("matched"):
             raise ToolError("Desktop cleanup has not completed; update was not started")
-        transfer = upload(client, apk, "/data/local/tmp/magicdesk-" + update_id + ".apk", update_id)
+        path = runtime_temporary_directory(client) / ("update-" + update_id + ".apk")
+        transfer = upload(client, apk, str(path), update_id)
         try:
             # Reinstallation may kill the HTTP request. Do not repeat this mutation on uncertainty.
             client.call("app.update", {"updateId": update_id, "path": transfer["path"], "sha256": sha})
@@ -199,12 +217,16 @@ def update(client, apk, update_id=None):
             raise ToolError("Installer outcome is unknown; do not repeat installation automatically: "
                             + json.dumps(result, ensure_ascii=False))
         if result["state"] == "installed":
+            if result.get("powerRestore") == "failed":
+                raise ToolError("APK installed, but phone power restoration failed: "
+                                + json.dumps(result, ensure_ascii=False))
             state = client.call("get_state", retry=True, deadline=deadline)
-            if state["app"]["versionCode"] == result["versionCode"]:
+            if (state["app"]["versionCode"] == result["versionCode"]
+                    and result.get("powerRestore") != "pending"):
                 return {"update": result, "app": state["app"],
                         "processChanged": before["app"]["instanceId"] != state["app"]["instanceId"]}
         time.sleep(min(0.5, max(0, deadline - time.monotonic())))
-    raise TimeoutError("Installer has not reported completion; query app.update_status with updateId=" + update_id)
+    raise TimeoutError("Update or power restoration is pending; query app.update_status with updateId=" + update_id)
 
 
 def main():

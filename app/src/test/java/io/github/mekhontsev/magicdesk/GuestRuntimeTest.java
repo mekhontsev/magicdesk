@@ -14,6 +14,24 @@ import org.junit.rules.TemporaryFolder;
 public class GuestRuntimeTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
+    @Test public void printLibraryNeedsNoAndroidRuntimeAndUsesExecutorHome() throws Exception {
+        Path home = temporary.newFolder().toPath();
+        for (List<String> args : List.of(List.of("--print-library"),
+                List.of("--library", "custom path", "--print-library"))) {
+            var command = new java.util.ArrayList<>(List.of("sh", "-c", GuestRuntimeCommand.BODY, "shroot"));
+            command.addAll(args);
+            var builder = new ProcessBuilder(command).redirectErrorStream(true);
+            builder.environment().remove("MAGICDESK_GUEST_HOME");
+            builder.environment().remove("MAGICDESK_COMMAND_APK");
+            builder.environment().put("HOME", home.toString());
+            var process = builder.start();
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(output, 0, process.waitFor());
+            assertEquals((args.size() == 1 ? home.resolve("linux").toString() : "custom path") + "\n", output);
+        }
+        assertFalse(Files.exists(home.resolve("linux")));
+    }
+
     @Test public void publicCommandAndHelpUseShroot() throws Exception {
         assertEquals("shroot", GuestLaunchPlan.TOOL);
         var output = new java.io.ByteArrayOutputStream();
@@ -41,7 +59,9 @@ public class GuestRuntimeTest {
                 "--cwd", "/guest/c d", "--", "/bin/sh", "-c", "echo '$HOME'"), plan.arguments());
         GuestLaunchPlan.requireIdentity(2000);
         GuestLaunchPlan.requireIdentity(0);
-        for (int uid : List.of(10000, -1)) assertThrows(IllegalStateException.class, () -> GuestLaunchPlan.requireIdentity(uid));
+        for (int uid : List.of(10000, 19999, 110000, 119999)) GuestLaunchPlan.requireIdentity(uid);
+        for (int uid : List.of(1000, 9999, 20000, 99000, -1))
+            assertThrows(IllegalStateException.class, () -> GuestLaunchPlan.requireIdentity(uid));
     }
 
     @Test public void rejectsIncompleteAndAmbiguousPlans() {
@@ -129,7 +149,7 @@ public class GuestRuntimeTest {
 
     @Test public void preparesLargeDebugHelpersButBoundsArtifactSize() throws Exception {
         Path source = source(), root = temporary.newFolder().toPath();
-        Path helper = source.resolve("libmagicdesk_guest_image.so");
+        Path helper = source.resolve("libshroot_guest_image.so");
         try (var file = new java.io.RandomAccessFile(helper.toFile(), "rw")) {
             file.setLength(17 * 1024 * 1024);
         }
@@ -145,20 +165,33 @@ public class GuestRuntimeTest {
     }
 
     @Test public void preparationDoesNotConsumeInheritedGraphicsConnection() {
-        assertTrue(GuestRuntimeCommand.BODY.contains("md_guest=$(CLASSPATH="));
-        assertTrue(GuestRuntimeCommand.BODY.contains("exec \"$md_guest/libmagicdesk_guest_run.so\" \"$@\""));
+        assertTrue(GuestRuntimeCommand.BODY.contains("md_prepared=$(CLASSPATH="));
+        assertTrue(GuestRuntimeCommand.BODY.contains("md_launch \"$md_guest/libshroot_guest_run.so\" \"$@\""));
+        assertTrue(GuestRuntimeCommand.BODY.contains("--shroot \"$md_commands\" \"$@\""));
         assertFalse(GuestRuntimeCommand.BODY.contains("exec /system/bin/app_process"));
         assertTrue(GuestRuntimeCommand.BODY.contains("--probe >/dev/null || exit $?"));
-        assertTrue(GuestRuntimeArtifacts.FILES.contains("libmagicdesk_guest_supervisor.so"));
-        assertTrue(GuestRuntimeCommand.BODY.contains("\"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\""));
-        assertFalse(GuestRuntimeCommand.BODY.contains("--probe) exec \"$md_guest/libmagicdesk_guest_bootstrap.so\""));
+        assertTrue(GuestRuntimeArtifacts.FILES.contains("libshroot_guest_supervisor.so"));
+        assertTrue(GuestRuntimeCommand.BODY.contains("\"$md_guest/libshroot_guest_supervisor.so\" \"$md_guest/libshroot_guest_bootstrap.so\""));
+        assertFalse(GuestRuntimeCommand.BODY.contains("--probe) exec \"$md_guest/libshroot_guest_bootstrap.so\""));
         assertFalse(GuestRuntimeCommand.BODY.contains("--libc-registry"));
         assertFalse(GuestRuntimeCommand.BODY.contains("SHROOT_LIBC"));
         assertFalse(GuestRuntimeCommand.BODY.contains("SHROOT_MACHINE_ENTRY"));
     }
 
+    @Test public void appIdentityStagesOnlyGuestCommands() throws Exception {
+        Path source = source(), root = temporary.newFolder().toPath();
+        Path commands = GuestRuntimeArtifacts.commands(source, root);
+        assertEquals(commands, GuestRuntimeArtifacts.commands(source, root));
+        assertEquals(Files.readString(source.resolve("libmagicdesk_command_client.so")),
+                Files.readString(commands.resolve("magicdesk")));
+        try (var files = Files.list(commands.getParent())) {
+            assertEquals(List.of(commands), files.toList());
+        }
+        assertEquals(source, GuestRuntimeArtifacts.packaged(source));
+    }
+
     @Test public void imageToolIsStagedWithItsRunnerButOnlyExecutionProbesKernel() {
-        assertTrue(GuestRuntimeArtifacts.FILES.contains("libmagicdesk_guest_image.so"));
+        assertTrue(GuestRuntimeArtifacts.FILES.contains("libshroot_guest_image.so"));
         String script = GuestRuntimeCommand.BODY;
         int start = script.indexOf("image) shift");
         int end = script.indexOf("--import) exec", start);
@@ -166,7 +199,7 @@ public class GuestRuntimeTest {
         String branch = script.substring(start, end);
         assertTrue(branch.contains("if [ \"${1-}\" = run ] ||"));
         assertTrue(branch.contains("--probe >/dev/null || exit $?"));
-        assertTrue(branch.contains("exec \"$md_guest/libmagicdesk_guest_image.so\" \"$@\""));
+        assertTrue(branch.contains("exec \"$md_guest/libshroot_cli.so\" \"$@\""));
         assertFalse(branch.contains("su "));
     }
 
@@ -200,6 +233,8 @@ public class GuestRuntimeTest {
             builder.environment().put("PATH", tools + ":" + System.getenv("PATH"));
             builder.environment().put("MAGICDESK_GRAPHICS_ENDPOINT", "opaque ' endpoint");
             builder.environment().put("DISPLAY", ":37");
+            builder.environment().put("MAGICDESK_TOOLS", tools.toString());
+            builder.environment().put("MAGICDESK_ANDROID_SHELL", "sh");
             var process = builder.start();
             String[] arguments = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\n");
             assertEquals(0, process.waitFor());
@@ -224,6 +259,8 @@ public class GuestRuntimeTest {
         builder.environment().put("PATH", tools + ":" + System.getenv("PATH"));
         builder.environment().put("MAGICDESK_GRAPHICS_ENDPOINT", "endpoint");
         builder.environment().put("MAGICDESK_GUEST_LIBRARIES", "/host/helpers");
+        builder.environment().put("MAGICDESK_TOOLS", tools.toString());
+        builder.environment().put("MAGICDESK_ANDROID_SHELL", "sh");
         builder.environment().put("MAGICDESK_GUEST_FILES_SOCKET", "files-socket");
         builder.environment().put("MAGICDESK_GUEST_FILES_TOKEN", "files-token");
         var process = builder.start();

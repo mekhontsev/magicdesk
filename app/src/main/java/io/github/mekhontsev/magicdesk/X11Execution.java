@@ -25,8 +25,6 @@ final class X11Execution {
         commands = new CommandExecution(context, backend);
         serverUid = commands.termux == null ? Process.myUid() : commands.uid;
         serverPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
-        if (commands.termux == null && this.keyboardSource.isEmpty())
-            throw new IllegalArgumentException("An XKB data directory is required for the Shell X11 executor");
     }
 
     X11LaunchSpec spec(int dpi, boolean application, String fileEnvironment) {
@@ -58,7 +56,7 @@ final class X11Execution {
 
     private Closeable startServerProcess(X11LaunchSpec spec, CommandExecution.Completion completion) throws IOException {
         if (commands.termux != null) return commands.start(spec.serverCommand, "", spec.id, spec.stdin, completion);
-        String keyboard = HostedKeyboardData.prepare(context, keyboardSource);
+        String keyboard = HostedKeyboardData.prepare(context, commands, keyboardSource);
         Path directory = Path.of(spec.directory);
         Files.createDirectories(directory.getParent());
         Files.createDirectory(directory);

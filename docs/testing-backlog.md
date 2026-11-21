@@ -13,6 +13,10 @@ fingerprints and reproduction details belong in compatibility reports.
 
 ## Device Coverage
 
+Honor Android 17 / API 37 has a separate [firmware evidence record](honor-vendor-audit.md#evidence-scope).
+Community observations of external windows and resizing are not a complete
+device self-test or verification of local Nubia prototypes on Honor.
+
 | Device | Runtime | Exercised scope |
 | --- | --- | --- |
 | RedMagic 11 Pro NX809J EEA | Android 16 / API 36, build `20260204.221845` | Direct phone/simulated/HDMI/Miracast testing, physical and phone input, recording, HOME lifecycle, task cleanup |
@@ -61,7 +65,7 @@ the successful Miracast direct-pointer path.
   Native artifacts target API 34; device coverage remains per helper, not implied
   by the build. See
   [Runtime API levels](runtime-api-levels.md).
-- Linux and Windows CI build artifacts. Linux also runs native protocol/PTY
+- Linux CI builds artifacts and runs native protocol/PTY
   fixtures. These jobs do not run Android emulators.
 - Desktop self-tests run production lifecycle, launch, focus, fullscreen,
   caption/resize, mixed-window, taskbar, wallpaper and cleanup paths.
@@ -78,23 +82,27 @@ the successful Miracast direct-pointer path.
 ## Independent-Service Matrix
 
 Shroot has its own [device coverage and limits](shroot.md#coverage-and-limits)
-and [fixture commands](../native/guest-exec-lab/README.md). On RM11/API 36 under
+and [fixture commands](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md). On RM11/API 36 under
 UID 2000 these exercise glibc/musl userspaces, packages and OCI layers, concurrent
 launches, watches/IPC, debuggers, browser filters and X11/Wayland applications.
-Those results do not cover every distribution or kernel and are not Desktop
-self-test results. Remaining Shroot device gates include actual API 34/older
-kernels, 16 KiB pages and actual root execution. Installer GUI/Turnip recipes
+App-UID resource, ABI, signal, debugger, Alpine k3s and sandboxed Chromium
+coverage is recorded separately in [host execution](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md).
+Results do not transfer between executors, distributions or kernels and are not
+Desktop self-test results. Remaining Shroot device gates include actual API 34/older
+kernels, Android with 16 KiB pages and actual root execution. Standalone ARM64
+Linux on Raspberry Pi 5 already has [16 KiB coverage](https://github.com/mekhontsev/shroot/blob/develop/tests/README.md#qualified-hosts);
+that does not qualify Android firmware with the same page size. Installer GUI/Turnip recipes
 also need separate validation for each distribution/toolchain; a recipe's
 presence is not a passed desktop or GPU test.
 
-The [Shroot distribution matrix](../native/guest-exec-lab/validation-matrix.md)
+The [Shroot distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md)
 tracks every installer OS separately: recipe/package setup, init, graphics,
 Docker/Podman, libvirt/QEMU, Flatpak/Snap browsers, portals, desktop applications
-and VS Code. It also adds nspawn, BuildKit, LXC and a small permanent LTP
+and VS Code. It also covers nspawn, BuildKit, LXC, k3s and a focused LTP
 selection. Each scenario retains separate Shroot/Base status; historical or
 partial coverage is not current-build acceptance.
 
-- [ ] Complete [installer acceptance](../native/guest-exec-lab/README.md#installer-acceptance)
+- [ ] Complete [installer acceptance](../tests/shroot/recipe-workflows.md#installer-acceptance)
   with the packaged APK and default environment library: download the script,
   configure it interactively, install, Refresh Apps, search in Start and launch.
   Cover individual applications and whole desktops separately. Test-library

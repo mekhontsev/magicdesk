@@ -26,7 +26,7 @@ if [ -n "$unsupported_abis" ]; then
 fi
 
 for helper in uinput_bridge pty_bridge mksh service_launcher process_signal guest_files command_client command_bridge \
-        wayland_executor wayland_client graphics_host guest_bootstrap guest_supervisor guest_run guest_service; do
+        wayland_executor wayland_client graphics_host; do
     printf '%s\n' "$core_contents" \
         | grep -Fxq "lib/arm64-v8a/libmagicdesk_$helper.so" \
         || {
@@ -34,6 +34,18 @@ for helper in uinput_bridge pty_bridge mksh service_launcher process_signal gues
             exit 1
         }
 done
+
+for helper in guest_bootstrap guest_supervisor guest_run guest_service guest_image cli; do
+    printf '%s\n' "$core_contents" | grep -Fxq "lib/arm64-v8a/libshroot_$helper.so" || {
+        printf 'Core APK is missing libshroot_%s.so\n' "$helper" >&2
+        exit 1
+    }
+done
+
+if printf '%s\n' "$core_contents" | grep -Eq 'libmagicdesk_(shroot|guest_(bootstrap|supervisor|run|service|image))\.so$'; then
+    printf 'Core APK contains retired Shroot helper names\n' >&2
+    exit 1
+fi
 
 if printf '%s\n' "$core_contents" | grep -q '\.ko$'; then
     printf 'Core APK must not contain a kernel module\n' >&2
@@ -66,7 +78,7 @@ if [ -n "$kernel_fixes_apk" ]; then
     fi
 
     if printf '%s\n' "$kernel_fixes_contents" \
-            | grep -Eq 'libmagicdesk_.*\.so$'; then
+            | grep -Eq 'lib(magicdesk|shroot)_.*\.so$'; then
         printf 'Kernel fixes APK must not contain a shell helper\n' >&2
         exit 1
     fi

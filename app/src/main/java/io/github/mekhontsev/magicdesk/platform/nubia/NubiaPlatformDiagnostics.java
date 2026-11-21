@@ -77,14 +77,7 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                     .append(displayProfile.resetOutputModePending);
         }
         appendAndroidDisplayModeState(report, physicalDisplayId);
-        report.append('\n')
-                .append("Phone screen guard: active=")
-                .append(PhoneDisplayGuard.isActive())
-                .append(", screenOff=")
-                .append(PhoneDisplayGuard.isScreenOff())
-                .append(", protectedUids=")
-                .append(PhoneDisplayGuard.protectedUidSummary())
-                .append('\n');
+        report.append('\n');
     }
 
     private static void appendAndroidDisplayModeState(

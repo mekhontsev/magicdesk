@@ -90,7 +90,10 @@ public final class AutomationCommandCatalogTest {
         final var capture = tool(tools, "capture_screenshot");
         final var input = capture.getJSONObject("inputSchema");
         final var properties = input.getJSONObject("properties");
-        assertEquals(3, properties.length());
+        assertEquals(5, properties.length());
+        assertTrue(properties.has("graphicsSessionId"));
+        assertTrue(properties.has("windowId"));
+        assertTrue(input.has("allOf"));
         assertTrue(properties.has("displayId"));
         assertTrue(properties.has("taskId"));
         assertTrue(contains(input.getJSONObject("not").getJSONArray("required"), "taskId"));

@@ -5,6 +5,9 @@ import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.PackageInstaller;
 import android.os.ParcelFileDescriptor;
+import android.os.Binder;
+import android.os.Bundle;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -23,6 +26,13 @@ public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
     private ParcelFileDescriptor mReceipt;
     private Intent mResult;
     private boolean mClosed;
+    private int mAppUid;
+    private AppUpdatePowerState mPower;
+    private PowerManager.WakeLock mPowerBridge;
+    private long mResumeDeadline;
+    private boolean mClaimed;
+    private boolean mResumed;
+    private String mResumeError;
 
     public ShellAppUpdateService(Context context) {
         mContext = context;
@@ -33,7 +43,7 @@ public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
     @Override public void begin(int sessionId, int userId, String updateId,
-            ParcelFileDescriptor receipt) {
+            ParcelFileDescriptor receipt, Bundle powerState) {
         synchronized (mLock) {
             try {
                 if (mClosed || mSessionId >= 0) throw new IllegalStateException("updater already used");
@@ -44,6 +54,8 @@ public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
                     throw new IllegalArgumentException("MagicDesk install session required");
                 }
                 if (receipt == null) throw new IllegalArgumentException("receipt descriptor required");
+                mPower = AppUpdatePowerState.fromBundle(powerState, SystemClock.elapsedRealtime());
+                mAppUid = Binder.getCallingUid();
                 mReceipt = receipt;
                 mSessionId = sessionId;
                 mUserId = userId;
@@ -56,6 +68,50 @@ public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
                 throw new IllegalStateException("cannot accept update", error);
             }
         }
+    }
+
+    @Override public Bundle claimPowerState(String updateId) {
+        synchronized (mLock) {
+            requireResume(updateId);
+            if (mClaimed) throw new IllegalStateException("update power state already claimed");
+            mClaimed = true;
+            var state = mPower.toBundle();
+            state.putLong("resumeDeadline", mResumeDeadline);
+            return state;
+        }
+    }
+
+    @Override public void completeResume(String updateId, String error) {
+        synchronized (mLock) {
+            requireResume(updateId);
+            if (!mClaimed) throw new IllegalStateException("update power state not claimed");
+            mResumeError = error == null ? "" : error.substring(0, Math.min(1024, error.length()));
+            mResumed = true;
+            mLock.notifyAll();
+        }
+    }
+
+    private void requireResume(String updateId) {
+        if (Binder.getCallingUid() != mAppUid) throw new SecurityException("update application required");
+        if (mClosed || mResumed || !java.util.Objects.equals(mUpdateId, updateId)
+                || mResumeDeadline == 0 || SystemClock.uptimeMillis() >= mResumeDeadline) {
+            throw new IllegalStateException("update resume is unavailable");
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void acquirePowerBridge() throws android.content.pm.PackageManager.NameNotFoundException {
+        long duration = mPower.bridgeDuration(SystemClock.elapsedRealtime(),
+                INSTALL_TIMEOUT_MS + AppUpdatePowerState.RESUME_TIMEOUT_MS);
+        if (duration == 0) return;
+        var power = ShellIdentityContext.create(mContext).getSystemService(PowerManager.class);
+        // No wake-up flags or timeout-setting changes. Power-button sleep remains authoritative.
+        mPowerBridge = power.newWakeLock(mPower.leaseId().isEmpty()
+                ? PowerManager.SCREEN_DIM_WAKE_LOCK : PowerManager.SCREEN_BRIGHT_WAKE_LOCK,
+                "MagicDesk:Update");
+        mPowerBridge.setReferenceCounted(false);
+        mPowerBridge.acquire(duration);
+        Log.i(TAG, "power bridge acquired update=" + mUpdateId);
     }
 
     private void onResult(Intent intent) {
@@ -78,8 +134,11 @@ public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
             final JSONObject result = new JSONObject().put("updateId", mUpdateId)
                     .put("sessionId", mSessionId);
             boolean installed = false;
+            boolean commitAttempted = false;
             try {
+                acquirePowerBridge();
                 final IntentSender callback = FrameworkPackageInstallerApi.resultCallback(this::onResult);
+                commitAttempted = true;
                 ShellAppUpdate.commit(mContext, mSessionId, mUserId, callback);
                 synchronized (mLock) {
                     final long deadline = SystemClock.uptimeMillis() + INSTALL_TIMEOUT_MS;
@@ -101,29 +160,69 @@ public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
                     }
                 }
             } catch (Exception error) {
-                result.put("state", "completion_unknown").put("detail", ShellAccess.usefulMessage(error));
+                if (!commitAttempted) {
+                    try { ShellAppUpdate.abandon(mContext, mSessionId, mUserId); }
+                    catch (RuntimeException cleanup) { error.addSuppressed(cleanup); }
+                }
+                result.put("state", commitAttempted ? "completion_unknown" : "failed")
+                        .put("detail", ShellAccess.usefulMessage(error));
             }
-            // The worker gets only this descriptor, not access to the application's private directory.
-            try (var out = new ParcelFileDescriptor.AutoCloseOutputStream(mReceipt)) {
-                AppUpdateReceipt.write(out, result);
-                out.getFD().sync();
-            }
+            result.put("powerRestore", installed && mPower.requested() ? "pending" : "not_requested");
+            writeResult(result);
             if (installed) {
                 // An explicit installer entry creates the new app process even when firmware
                 // rejects background service autolaunch. The Activity has no displayed window.
-                FrameworkUserApi.startShellActivity(new Intent().setClassName(BuildConfig.APPLICATION_ID,
+                var resume = new Bundle();
+                if (mPower.requested()) {
+                    synchronized (mLock) {
+                        mResumeDeadline = SystemClock.uptimeMillis() + AppUpdatePowerState.RESUME_TIMEOUT_MS;
+                    }
+                    resume.putBinder("worker", this);
+                    resume.putString("updateId", mUpdateId);
+                }
+                try {
+                    FrameworkUserApi.startShellActivity(new Intent().setClassName(BuildConfig.APPLICATION_ID,
                         AppUpdateResumeActivity.class.getName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                                | Intent.FLAG_ACTIVITY_NO_ANIMATION | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS), mUserId);
-                Log.i(TAG, "installed session=" + mSessionId + "; automation start requested");
+                                | Intent.FLAG_ACTIVITY_NO_ANIMATION | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                            .putExtra("updateResume", resume), mUserId);
+                    Log.i(TAG, "installed session=" + mSessionId + "; automation start requested");
+                    if (mPower.requested()) {
+                        synchronized (mLock) {
+                            // EVENT_WAIT: new process owns the lease and/or drawn black window; expiry releases the bridge.
+                            while (!mResumed && await(mResumeDeadline, EventDrivenWaits.Reason.APP_UPDATE_RESUME)) { }
+                            result.put("powerRestore", mResumed && mResumeError.isEmpty() ? "restored" : "failed")
+                                    .put("powerRestoreError", mResumed ? mResumeError : "resume deadline expired");
+                        }
+                    }
+                } catch (Exception error) {
+                    result.put("powerRestore", "failed").put("powerRestoreError", ShellAccess.usefulMessage(error));
+                }
+                writeResult(result);
             }
         } catch (Exception error) {
             Log.e(TAG, "update worker failed session=" + mSessionId, error);
         } finally {
             synchronized (mLock) { mClosed = true; }
+            try {
+                if (mPowerBridge != null && mPowerBridge.isHeld()) mPowerBridge.release();
+            } catch (RuntimeException error) {
+                Log.w(TAG, "Power bridge release failed; process exit releases its Binder token", error);
+            }
+            Log.i(TAG, "power bridge released update=" + mUpdateId);
             if (mReceipt != null) {
                 try { mReceipt.close(); } catch (Exception ignored) { }
             }
             System.exit(0);
+        }
+    }
+
+    private void writeResult(JSONObject result) throws Exception {
+        // Only this descriptor is shared, never access to the application's private directory.
+        try (var out = new ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(mReceipt.getFileDescriptor()))) {
+            out.getChannel().position(0);
+            AppUpdateReceipt.write(out, result);
+            out.getChannel().truncate(out.getChannel().position());
+            out.getFD().sync();
         }
     }
 

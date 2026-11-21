@@ -3,6 +3,84 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class DesktopTaskSnapshotRefreshCoherenceTest {
+    @Test public void pendingCommandOwnsHostInputUntilItsAcknowledgement() throws Exception {
+        verify("""
+                MagicDeskRuntime.pending = 10;
+                f.refresh();
+                check(f.mActivity.focusable, "old application focus cancelled pending desktop focus");
+                var host = new TaskRepository.TaskEntry("independent-host");
+                MagicDeskRuntime.observed = new TaskRepository.Snapshot(List.of(host), true, "");
+                MagicDeskRuntime.pending = 44872;
+                f.refresh();
+                check(!f.mActivity.focusable, "old host focus cancelled pending application focus");
+                MagicDeskRuntime.pending = -1;
+                f.refresh();
+                check(f.mActivity.focusable, "completed command masked observed focus");
+                """);
+    }
+
+    @Test
+    public void focusedDesktopAcceptsInputBelowUnfocusedApplications() throws Exception {
+        verify("""
+                for (String hostMode : List.of("home", "independent-host")) {
+                    for (String appMode : List.of("freeform", "fullscreen", "2")) {
+                        var application = new TaskRepository.TaskEntry(appMode);
+                        application.active = false;
+                        var host = new TaskRepository.TaskEntry(hostMode);
+                        MagicDeskRuntime.observed = new TaskRepository.Snapshot(
+                                List.of(application, host), true, "");
+                        f.refresh();
+                        check(f.mActivity.focusable,
+                                "focused " + hostMode + " lost input below " + appMode);
+                    }
+                }
+                """);
+    }
+
+    @Test
+    public void focusedApplicationRetainsInputBelowUnfocusedDesktop() throws Exception {
+        verify("""
+                for (String hostMode : List.of("home", "independent-host")) {
+                    var host = new TaskRepository.TaskEntry(hostMode);
+                    host.active = false;
+                    var application = new TaskRepository.TaskEntry("freeform");
+                    MagicDeskRuntime.observed = new TaskRepository.Snapshot(
+                            List.of(host, application), true, "");
+                    f.refresh();
+                    check(!f.mActivity.focusable,
+                            "unfocused " + hostMode + " overrode application focus");
+                }
+                """);
+    }
+
+    @Test
+    public void independentAndChromeFocusCannotBeReplacedByManagedScene() throws Exception {
+        verify("""
+                MagicDeskRuntime.excludeTasks = true;
+                for (String mode : List.of("freeform", "fullscreen", "2", "chrome")) {
+                    var host = new TaskRepository.TaskEntry("independent-host");
+                    host.active = false;
+                    MagicDeskRuntime.observed = new TaskRepository.Snapshot(List.of(
+                            host, new TaskRepository.TaskEntry(mode)), true, "");
+                    f.refresh();
+                    check(!f.mActivity.focusable, "desktop took focus from " + mode);
+                    check(f.mSnapshot.tasks.isEmpty(), "focus acquired independent ownership");
+                }
+                """);
+    }
+
+    @Test
+    public void emptyFocusAllowsAndroidToSelectDesktop() throws Exception {
+        verify("""
+                var application = new TaskRepository.TaskEntry("freeform");
+                application.active = false;
+                MagicDeskRuntime.observed = new TaskRepository.Snapshot(
+                        List.of(application), true, "");
+                f.refresh();
+                check(f.mActivity.focusable, "missing focus disabled the desktop fallback");
+                """);
+    }
+
     @Test
     public void pictureInPictureOverHomeDoesNotConcealTaskbar() throws Exception {
         verify("""
@@ -138,8 +216,11 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                 static class android { static class view { static class Display { static final int DEFAULT_DISPLAY = 0; } } }
                 static class TaskRepository {
                     static class TaskEntry {
-                        boolean active = true, visible = true; final String mode; final int taskId = 44872;
-                        TaskEntry(String mode) { this.mode = mode; }
+                        boolean active = true, visible = true; final String mode; final int taskId;
+                        TaskEntry(String mode) {
+                            this.mode = mode;
+                            taskId = mode.equals("home") || mode.equals("independent-host") ? 10 : 44872;
+                        }
                         boolean isFreeform() { return "freeform".equals(mode); }
                         boolean isFullscreen() { return "fullscreen".equals(mode); }
                     }
@@ -164,6 +245,8 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                 }
                 static class MagicDeskRuntime {
                     static boolean excludeTasks;
+                    static int pending = -1;
+                    static int taskInputFocusTarget(int display, int observed) { return pending >= 0 ? pending : observed; }
                     static TaskRepository.Snapshot observed = new TaskRepository.Snapshot(
                             List.of(new TaskRepository.TaskEntry("freeform")), true, "");
                     static TaskRepository.Snapshot observedTaskSnapshot(int display) {
@@ -175,6 +258,7 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                 }
                 static class Activity {
                     int displayId = 66, hidden, updates; boolean visible = true, unavailable, focusable;
+                    int getTaskId() { return 10; }
                     int getCurrentDisplayId() { return displayId; }
                     boolean isActivityUnavailable() { return unavailable; }
                     void runOnUiThread(Runnable action) { action.run(); }
@@ -188,7 +272,7 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                     void setTaskbarVisible(boolean value) { if (visible && !value) hidden++; visible = value; }
                     void setDesktopWindowFocusable(boolean value) { focusable = value; }
                 }
-                static class DesktopTaskController { static boolean isDesktopHostTask(TaskRepository.TaskEntry task) { return "home".equals(task.mode); } }
+                static class DesktopTaskController { static boolean isDesktopHostTask(TaskRepository.TaskEntry task) { return "home".equals(task.mode) || "independent-host".equals(task.mode); } }
                 static class DesktopInfrastructureTasks { static boolean isTask(TaskRepository.TaskEntry task) { return false; } }
                 static class RecentApplications { static int records; static void recordTask(Activity activity, TaskRepository.TaskEntry task, Object apps) { records++; } }
                 record AppReference(String key) {}
@@ -201,7 +285,7 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                 public static void verify() { Fixture f = new Fixture();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods("DesktopTaskSnapshotController",
                 "refresh", "applyRefreshSnapshot", "release", "sync", "selectDesktopTaskSnapshot",
-                "findActiveTask", "isDesktopHostForeground")
+                "findActiveTask")
                 + RuntimeSourceFixture.nestedClass("DesktopWorkspaceScene", "DesktopWorkspaceScene")
                 + "static class DesktopTaskbarVisibilityPolicy {"
                 + RuntimeSourceFixture.methods("DesktopTaskbarVisibilityPolicy", "isVisible") + "}",

@@ -89,7 +89,7 @@ public final class ShellProbeInstrumentation extends Instrumentation {
         if (execution.uid == android.os.Process.myUid()) throw new IOException("Cross-UID listener test required");
         var completed = new java.util.concurrent.CompletableFuture<String>();
         var count = new java.util.concurrent.atomic.AtomicInteger();
-        try (var endpoint = new ExecutorSocketEndpoint(execution.uid, descriptor -> {
+        try (var endpoint = new ExecutorSocketEndpoint(execution.uid, 0, execution.endpointFactory(), descriptor -> {
             int i = count.getAndIncrement();
             var peer = descriptor.getFileDescriptor();
             try {
@@ -199,16 +199,9 @@ public final class ShellProbeInstrumentation extends Instrumentation {
                             + serviceUid);
         }
 
-        final CountDownLatch completed = new CountDownLatch(1);
-        final AtomicBoolean success = new AtomicBoolean();
-        DesktopOperations.setPhoneScreenOff(false, value -> {
-            success.set(value);
-            completed.countDown();
-        });
-        if (!completed.await(OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            throw new IOException("phone-screen safe probe timed out");
-        }
-        if (!success.get()) {
+        final String restore = DisplayPowerCommands.resolveSupportedRestoreOperation(
+                operation -> ShellAccess.executeCommand("/system/bin/cmd display " + operation).output);
+        if (restore == null || ShellAccess.executeCommand("/system/bin/cmd display " + restore + " 0").exitCode != 0) {
             throw new IOException("phone-screen safe probe failed");
         }
         return "granted | uid=" + serviceUid;

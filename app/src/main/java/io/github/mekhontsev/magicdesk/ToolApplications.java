@@ -54,11 +54,19 @@ final class ToolApplications {
             final DesktopLaunchPresentation presentation, final BuiltInWindowLauncher.Callback callback) {
         final int display = source.getDisplay() == null ? 0 : source.getDisplay().getDisplayId();
         final int taskId = source.getTaskId();
+        if (display == 0 && !source.isInMultiWindowMode() && !DesktopRuntimeBridge.hasWorkspace(0)) {
+            open(source, intent, ToolLaunchTarget.resolve("phone", 0, java.util.Set.of()),
+                    null, null, callback);
+            return;
+        }
         TaskCommandQueue.execute(() -> {
             try {
                 final var placement = windowPlacement(display, taskId);
+                final boolean windowed = placement.presentation().mode == DesktopLaunchMode.WINDOWED;
                 open(source, intent, placement.target(), placement.uniqueId(),
-                        placement.target().desktop ? presentation : null, callback);
+                        placement.target().desktop ? presentation
+                                : windowed ? presentation == null ? placement.presentation() : presentation : null,
+                        callback);
             } catch (java.io.IOException | RuntimeException error) {
                 source.runOnUiThread(() -> { if (!source.isDestroyed() && !source.isFinishing()) callback.onComplete(error); });
             }
@@ -111,7 +119,7 @@ final class ToolApplications {
         boolean managed = false;
         DesktopLaunchMode mode = DesktopLaunchMode.FULLSCREEN;
         RelativeWindowBounds bounds = null;
-        if (DesktopRuntimeBridge.hasWorkspace(display)) {
+        if (DesktopRuntimeBridge.hasWorkspace(display) || OrdinaryActivityLaunch.canLaunchWindowed()) {
             final var snapshot = TaskRepository.loadNow(display);
             if (!snapshot.available) throw new java.io.IOException(snapshot.error);
             final var task = snapshot.tasks.stream().filter(item -> item.taskId == taskId)
@@ -119,7 +127,7 @@ final class ToolApplications {
             final String ownership = ApplicationTaskPlacement.ownership(task, snapshot);
             if ("unknown".equals(ownership)) throw new java.io.IOException("Source window ownership is unavailable");
             managed = "desktop".equals(ownership);
-            if (managed && task.isFreeform()) {
+            if (task.isFreeform()) {
                 mode = DesktopLaunchMode.WINDOWED;
                 bounds = RelativeWindowBounds.from(task.bounds, FloatingWindowController.getWorkAreaBounds(display));
             }
@@ -137,7 +145,10 @@ final class ToolApplications {
         final var previous = placement.presentation();
         if (previous.mode != DesktopLaunchMode.WINDOWED) return previous;
         final var bounds = activity.getWindowManager().getCurrentWindowMetrics().getBounds();
-        final var workArea = DesktopRuntimeBridge.getDesktopWorkAreaBounds(placement.target().displayId);
+        var workArea = DesktopRuntimeBridge.getDesktopWorkAreaBounds(placement.target().displayId);
+        if (workArea == null && !placement.target().desktop) {
+            workArea = activity.getWindowManager().getMaximumWindowMetrics().getBounds();
+        }
         final var relative = RelativeWindowBounds.from(bounds, workArea);
         if (relative == null) throw new IllegalStateException("Final window geometry is unavailable");
         return new DesktopLaunchPresentation(DesktopLaunchMode.WINDOWED, relative,

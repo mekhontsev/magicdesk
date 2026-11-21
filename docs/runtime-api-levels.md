@@ -23,12 +23,13 @@ shared tool.
 | AGSL wallpaper signals (optional) | API 34. RAM and battery use public Android APIs; CPU uses aggregate counters from the already-authorized shell service and remains unknown without access. Only active, explicitly bound sources collect data. No Desktop startup, privilege request, Termux or process enumeration. |
 | Built-in CLI | API 34. Application commands use an inherited MagicDesk shell channel and retain their own prerequisites. Local `download` uses Android HTTP(S) and the caller's filesystem permissions without that channel or a running app. MCP enablement and installed Termux are not required. |
 | Script dialogs and notifications | API 34; MCP content grant or inherited CLI channel. Background dialog placement requires the shared privileged launcher; notifications require Android notification permission/channel access. No Desktop or Termux prerequisite. |
+| Console execution | API 34. User runs under the app UID without privileged access; Shell needs the authorized service; Termux needs its own authorization. PTYs and windows have independent lifetimes. |
 | Files, shell commands and transfers | API 34 plus authorized privileged service for shell-backed operations. |
-| External Android commands | API 34; user opt-in and the caller's `io.github.mekhontsev.magicdesk.permission.RUN_COMMAND` runtime grant. Each selected shell, Termux or Shroot executor retains its own prerequisites. Foreground-service and Activity-launch restrictions still apply. No MCP, Desktop, HOME or implicit privilege startup. |
-| Experimental guest execution (optional) | API 34 packaging; Linux 5.15 minimum supported kernel, selected shell/root executor and per-launch native capability probe. Missing kernel support rejects the guest operation, not APK startup, MCP, ordinary shell, Termux, chroot or Desktop. No native loading into ART; actual 5.15 and API-34 guest coverage remains unverified. Newer interfaces have a separate [kernel contract](../native/shroot/kernel-compatibility.md). |
+| External Android commands | API 34; user opt-in and the caller's `io.github.mekhontsev.magicdesk.permission.RUN_COMMAND` runtime grant. Each selected User, Shell, Termux or Shroot executor retains its own prerequisites. Foreground-service and Activity-launch restrictions still apply. No MCP, Desktop, HOME or implicit privilege startup. |
+| Experimental guest execution (optional) | API 34 packaging; Linux 5.15 minimum supported kernel, selected User or Shell executor and per-launch native capability probe. Missing kernel support rejects the guest operation, not APK startup, MCP, ordinary shell, Termux, chroot or Desktop. No native loading into ART; actual 5.15 and API-34 guest coverage remains unverified. Newer interfaces have a separate [kernel contract](https://github.com/mekhontsev/shroot/blob/develop/kernel-compatibility.md). |
 | Termux sessions and viewers | API 34 plus installed Termux, external-command configuration and `RUN_COMMAND` permission. The PTY and its window have separate lifetimes. |
-| Embedded X11 | API 34 plus an explicitly selected executor and XKB data. Termux uses its UID and `RUN_COMMAND`; shell uses the authorized command service for clients and MagicDesk's app UID for the X server. Prepared chroot entry requires actual UID 0, not merely a Root setting. The renderer loads only on explicit session startup. Ordinary Android grants handle clipboard/drop content. No Termux:X11 APK, Desktop or HOME prerequisite; Termux remains usable without privileged access. |
-| Embedded Wayland | API 34 plus an explicitly selected executor and XKB data. Termux uses its UID and private named socket, including PRoot guest recipes. Ordinary UID-2000 shell clients receive one connection FD; explicit guest routes admit independent connections through the shell-owned endpoint and app-UID compositor. Root chroot clients use a session-owned named-socket broker with verified anonymous-buffer admission; the compositor remains unprivileged. Software rendering, host input, clipboard and drag grants do not require Desktop or HOME. Device coverage is recorded in [Wayland](wayland.md). |
+| Embedded X11 | API 34 plus an explicitly selected executor and XKB data. User keeps server and clients under MagicDesk's app UID without Shizuku. Termux uses its UID and `RUN_COMMAND`; shell uses the authorized command service for clients and MagicDesk's app UID for the X server. Prepared chroot entry requires actual UID 0, not merely a Root setting. The renderer loads only on explicit session startup. Ordinary Android grants handle clipboard/drop content. No Termux:X11 APK, Desktop or HOME prerequisite; Termux remains usable without privileged access. |
+| Embedded Wayland | API 34 plus an explicitly selected executor and XKB data. User uses MagicDesk's app UID, with explicit Shroot routes for guest clients. Termux uses its UID and private named socket, including PRoot guest recipes. Ordinary UID-2000 shell clients receive one connection FD; explicit guest routes admit independent connections through the shell-owned endpoint and app-UID compositor. Root chroot clients use a session-owned named-socket broker with verified anonymous-buffer admission; the compositor remains unprivileged. Software rendering, host input, clipboard and drag grants do not require Desktop or HOME. Device coverage is recorded in [Wayland](wayland.md). |
 | APK replacement | API 34 plus authorized privileged service and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
 | Display discovery and interactive tool placement | API 34. Without shell, public DisplayManager inventory and Activity launch options serve accessible displays. Android checks each Intent/destination and secondary-Activity support. No Desktop or HOME prerequisite. |
 | Display resource creation and privileged placement | API 34 plus authorized privileged service and working framework capabilities. Trusted virtual displays, background launches, forced fullscreen placement and task transfers retain this boundary. They do not acquire HOME or initialize WMShell Desktop. |
@@ -37,7 +38,7 @@ shared tool.
 | Protected virtual display (optional) | Same API-34 display boundary, plus CAPTURE_SECURE_VIDEO_OUTPUT in the current service, protected graphics buffers and a secure Viewer output. No automatic elevation or new prerequisite for ordinary displays. Per-release/device protected playback still needs verification. |
 | Ordinary Android Activity automation | API 34 plus authorized privileged service for background/display placement. Intent authorization, content grants and Activity results are independent of Desktop. Dispatch acceptance is verified separately through UI observation. |
 | Android UI inspection and actions | API 34 plus authorized privileged service and a free UiAutomation connection. Inspect/wait select a display or task; task ownership uses the hidden AOSP AccessibilityWindowInfo accessor through the framework adapter. Missing ownership remains unknown, without disabling display inspection. No Desktop or root requirement. Inspection and semantic actions are verified on Samsung/API 34. |
-| Display input control and task transfer | API 34 plus working privileged framework capabilities. Explicit input control and ordinary fullscreen transfers do not start Desktop. Display switching is shared; Desktop window shortcuts remain API 35+ and require its prepared workspace. |
+| Display input control and task transfer | API 34 plus working privileged framework capabilities. Explicit input control and ordinary task transfers do not start Desktop. Independent freeform additionally requires supporting firmware; stock Nubia windowing requires managed Desktop. Display switching is shared; Desktop window shortcuts remain API 35+ and require its prepared workspace. |
 | Managed Desktop and its self-tests | API 35 plus Desktop provisioning and the required task/window/input APIs. Ordinary tool availability does not imply Desktop availability. |
 | Sparse shell panels (optional host capability) | Managed Desktop plus `ACCESS_SURFACE_FLINGER`, trusted-overlay SurfaceControl support, exact input-window region observation and InputDispatcher acknowledgement in the current service. Ordinary Desktop panels do not request these capabilities. The owned chrome surface retains its existing topology and input-focus policy. Missing capabilities reject external panel admission, not ordinary tools or Desktop startup. |
 
@@ -84,6 +85,16 @@ failed launch. Privileged placement alongside Desktop retains its ownership chec
 
 ## Release-Specific Behavior
 
+- Privileged WindowManager IPC uses the shared `FrameworkWindowServiceApi`
+  Binder connection, not `WindowManagerGlobal`'s application UI initialization.
+  Newer framework builds can read animation scale from `ApplicationSharedMemory`
+  there; standalone Shizuku UserServices and direct `su` processes do not receive
+  the normal `bindApplication` shared-memory descriptor. Windowing, capture,
+  mirroring, commit barriers, IME policy and device locking share this connection.
+  It does not synthesize shared memory, disable framework caches or change the
+  caller's permissions. Android 16 phone and virtual Desktop launch/cleanup and
+  virtual-display capture are verified. Exact Android 17/HONOR device verification
+  remains pending.
 - `FrameworkInputRoutingApi` uses Android 14's unique-ID association methods;
   API 35+ uses their port-specific names. Physical input stays in InputReader.
   On API 34, mouse associations must match Android's shared pointer target.
@@ -172,7 +183,7 @@ toolchain. Compilation does not establish API 34 native compatibility by itself.
 The phone mouse/uinput helper has Samsung/API 34 device coverage; PTY, Termux
 and graphical-runtime workflows still need validation at that floor.
 
-The current APK is not an x86_64 emulator build. Linux and Windows build smoke
+The current APK is not an x86_64 emulator build. Linux CI build
 checks do not run an Android emulator or provide another ABI. An Android Studio
 API 34/35/36 test matrix needs matching native artifacts as well as system images.
 

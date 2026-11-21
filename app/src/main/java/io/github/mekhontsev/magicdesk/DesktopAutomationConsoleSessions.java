@@ -17,7 +17,7 @@ final class DesktopAutomationConsoleSessions {
     DesktopAutomationConsoleSessions() { this(true); }
     DesktopAutomationConsoleSessions(boolean inheritCommandChannel) { mInheritCommandChannel = inheritCommandChannel; }
 
-    private record Entry(ShellCommandSession shell, LinuxAutomationLaunch.Target linux) { }
+    private record Entry(ShellCommandSession shell, LinuxAutomationLaunch.Target linux, CommandExecution execution) { }
     private final Map<String, Entry> mSessions =
             new LinkedHashMap<>();
 
@@ -32,15 +32,17 @@ final class DesktopAutomationConsoleSessions {
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
             final var linux = args.has("linuxSessionId") ? LinuxAutomationLaunch.target(args.getString("linuxSessionId")) : null;
-            if (linux == null) requireShell();
+            if (linux != null && args.has("backend")) throw new IllegalArgumentException("A Linux session already owns its executor");
+            var execution = linux == null ? new CommandExecution(MagicDeskApplication.applicationContext(),
+                    DesktopExecBackend.parse(args.optString("backend", "shell"))) : null;
             final String directory = args.optString(
-                    "directory", linux == null ? ShellDesktopDirectory.ABSOLUTE_PATH : linux.bus().context().getString("directory"));
+                    "directory", linux == null ? execution.home : linux.bus().context().getString("directory"));
             final String id = "console-" + UUID.randomUUID().toString().replace("-", "");
             String token = UUID.randomUUID().toString().replace("-", "");
-            final ShellCommandSession session = linux == null ? new ShellCommandSession(directory, mInheritCommandChannel)
+            final ShellCommandSession session = linux == null ? execution.session(directory, mInheritCommandChannel)
                     : new ShellCommandSession(directory, new ShellCommandExecutor("__MAGICDESK_CWD_" + token + "__",
                             () -> new LinuxCommandStream(linux)), token);
-            final Entry entry = new Entry(session, linux);
+            final Entry entry = new Entry(session, linux, execution);
             mSessions.put(id, entry);
             return DesktopAutomationResult.success(
                     "console session opened",
@@ -183,7 +185,9 @@ final class DesktopAutomationConsoleSessions {
                 .put("sessionId", id)
                     .put("workingDirectory", session.shell.workingDirectory())
                     .put("linuxSessionId", session.linux == null ? JSONObject.NULL : session.linux.bus().id)
-                    .put("available", session.linux == null ? ShellAccess.isReady() : session.linux.bus().alive());
+                    .put("backend", session.execution == null ? JSONObject.NULL : session.execution.backend.wireName)
+                    .put("executorUid", session.execution == null ? JSONObject.NULL : session.execution.uid)
+                    .put("available", available(session));
     }
 
     synchronized DesktopAutomationResult list() throws JSONException {
@@ -202,7 +206,7 @@ final class DesktopAutomationConsoleSessions {
     }
 
     private static void requireCurrent(Entry entry) throws IOException {
-        if (entry.linux == null) requireShell();
+        if (entry.linux == null) entry.execution.requireCurrent();
         else if (!entry.linux.bus().alive()) throw new IOException("Linux session ended; open a console in a new session explicitly");
     }
 
@@ -216,10 +220,9 @@ final class DesktopAutomationConsoleSessions {
         return value;
     }
 
-    private static void requireShell() throws IOException {
-        if (!ShellAccess.isReady()) {
-            throw new IOException("shell command service is unavailable");
-        }
+    private static boolean available(Entry entry) {
+        try { requireCurrent(entry); return true; }
+        catch (IOException | RuntimeException unavailable) { return false; }
     }
 
     private static DesktopAutomationResult invalid(final Throwable error) {

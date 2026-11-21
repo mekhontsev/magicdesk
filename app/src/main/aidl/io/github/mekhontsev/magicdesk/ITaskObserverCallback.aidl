@@ -20,7 +20,7 @@ oneway interface ITaskObserverCallback {
     void onObserverError(String error) = 6;
 
     void onFreeformBoundsChanged(
-        in FrameworkTaskSnapshot task) = 7;
+        in FrameworkTaskSnapshot previous, in FrameworkTaskSnapshot task) = 7;
 
     void onInputFocusRefreshRequired(int focusedTaskId) = 8;
 

@@ -8,6 +8,7 @@
     <string name="appearance_color_accent">Akzent</string>
     <string name="appearance_color_danger">Gefahr</string>
     <string name="appearance_color_attention">Achtung</string>
+    <string name="appearance_color_success">Erfolg</string>
     <string name="appearance_color_hover">Zeiger darüber</string>
     <string name="appearance_color_desktop_text">Desktop-Text</string>
     <string name="appearance_color_transparent">Transparent</string>

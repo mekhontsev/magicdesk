@@ -12,7 +12,9 @@
 #include <unistd.h>
 
 /* A host invocation owns access; execution stays in its inherited UID, PTY and process group. */
+int md_command_shroot(int argc, char **argv);
 int main(int argc, char **argv) {
+    if (argc > 1 && !strcmp(argv[1], "--shroot")) return md_command_shroot(argc - 2, argv + 2);
     if (argc < 3 || strcmp(argv[1], "--")) {
         fputs("usage: magicdesk-connect -- COMMAND [ARGUMENTS...]\n", stderr); return 2;
     }

@@ -303,8 +303,13 @@ public final class ShellAccess {
 
     static void launchActivityOnDisplay(final Intent intent, final int displayId,
             final boolean fullscreen) throws IOException {
+        launchActivityOnDisplay(intent, displayId, fullscreen, null);
+    }
+
+    static void launchActivityOnDisplay(final Intent intent, final int displayId,
+            final boolean fullscreen, final Rect bounds) throws IOException {
         try {
-            requireService().launchActivityOnDisplay(intent, displayId, fullscreen);
+            requireService().launchActivityOnDisplay(intent, displayId, fullscreen, bounds);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("Android Activity launch failed: "
@@ -312,10 +317,10 @@ public final class ShellAccess {
         }
     }
 
-    static void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId)
-            throws IOException {
+    static void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId,
+            final Rect bounds) throws IOException {
         try {
-            requireService().sendActivityOnDisplay(intent, displayId);
+            requireService().sendActivityOnDisplay(intent, displayId, bounds);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("Android pending Activity launch failed: "
@@ -332,8 +337,13 @@ public final class ShellAccess {
 
     static void moveOrdinaryTask(final TaskRepository.TaskEntry task, final int displayId)
             throws IOException {
+        moveOrdinaryTask(task, displayId, null);
+    }
+
+    static void moveOrdinaryTask(final TaskRepository.TaskEntry task, final int displayId,
+            final Rect bounds) throws IOException {
         try {
-            requireService().moveOrdinaryTask(task.taskId, task.displayId, displayId, task.userId);
+            requireService().moveOrdinaryTask(task.taskId, task.displayId, displayId, task.userId, bounds);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("task transfer failed: " + usefulMessage(error), error);
@@ -758,7 +768,7 @@ public final class ShellAccess {
         }
     }
 
-    static IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) throws IOException {
+    static IUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) throws IOException {
         try {
             var endpoint = requireService().openUnixEndpoint(name, expectedUid, ioTimeoutMillis, receiver);
             if (endpoint == null) throw new IOException("Shell service returned no Unix endpoint");
@@ -1032,6 +1042,16 @@ public final class ShellAccess {
         resizeTaskBounds(displayId, new int[] {taskId}, new android.graphics.Rect[] {bounds});
     }
 
+    static boolean normalizeTaskScale(FrameworkTaskSnapshot expected, float retainedScale) throws IOException {
+        try { return requireService().normalizeTaskScale(expected, retainedScale); }
+        catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException("Native window resize failed: " + usefulMessage(error), error);
+        } catch (RuntimeException error) {
+            throw new IOException("Native window resize failed: " + usefulMessage(error), error);
+        }
+    }
+
     static void resizeTaskBounds(int displayId, int[] taskIds, android.graphics.Rect[] bounds) throws IOException {
         TaskWindowingCommand.validateGeometry(displayId, taskIds, bounds);
         try { requireService().resizeTaskBounds(displayId, taskIds, bounds); }
@@ -1085,6 +1105,15 @@ public final class ShellAccess {
                     "Shell diagnostic task snapshot read failed: "
                             + usefulMessage(error),
                     error);
+        }
+    }
+
+    static String readWindowGeometryDiagnostics(final FrameworkTaskSnapshot[] tasks) throws IOException {
+        try {
+            return requireService().readWindowGeometryDiagnostics(tasks);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Window geometry diagnostics failed: " + usefulMessage(error), error);
         }
     }
 
@@ -1345,6 +1374,14 @@ public final class ShellAccess {
         catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("could not change system theme: " + usefulMessage(error), error);
+        }
+    }
+
+    static boolean readChildProcessMonitoringDefault() throws IOException {
+        try { return requireService().getChildProcessMonitoringDefault(); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("could not read child process monitoring: " + usefulMessage(error), error);
         }
     }
 

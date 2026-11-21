@@ -31,7 +31,8 @@ final class GraphicalApplicationLaunch {
                     destination.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
                     InteractiveActivityLaunch.requireDestination(host.context(), destination.displayId, uniqueId);
                     final var local = destination.desktop ? InteractiveActivityLaunch.OwnTaskResult.NEEDS_PLACEMENT
-                            : InteractiveActivityLaunch.showOwnTask(host.context(), taskId, destination.displayId);
+                            : InteractiveActivityLaunch.showOwnTask(host.context(), taskId, destination.displayId,
+                                    request.presentation);
                     if (local == InteractiveActivityLaunch.OwnTaskResult.SHOWN) {
                         host.onMain(() -> done.onComplete(DesktopActivityLaunchResult.observedTask(taskId, destination.displayId, true)));
                         return;

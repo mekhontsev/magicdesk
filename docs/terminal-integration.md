@@ -1,7 +1,9 @@
 # Terminal Integration
 
-Console and Termux Console use the same local terminal emulator, retained PTY
-session model, UI and automation API. All features here work without Desktop.
+User, Shell and Termux consoles share one local terminal emulator, retained PTY
+session model, UI and automation API. User runs as MagicDesk's app UID; Shell
+uses the authorized service, including when that service runs as root. Termux
+uses the selected Termux package. All features here work without Desktop.
 Terminal output is untrusted data, not authorization to execute an action.
 
 - [Implementation Boundaries](#implementation-boundaries)
@@ -49,7 +51,21 @@ including a tmux client, without recreating its session. Toolbar actions use
 bundled 24dp Lucide vectors with the same stroke weight and accessible labels.
 The first button opens the session picker; its tooltip identifies the backend and
 shell UID. Root sessions tint that button amber. Only startup, access or error
-messages occupy a status row.
+messages occupy a status row. The toolbar always keeps the session selector
+and **More actions** visible. Copy, Paste, attachments, command history and
+files move into that menu as the window narrows. **Redraw screen** sends
+Ctrl+L to the foreground program; **Clear terminal history** discards local
+scrollback and recorded commands after confirmation, without sending input.
+The notification settings entry opens the Android channel for terminal programs.
+
+**Browse session files** and local OSC 8 file links use the terminal executor.
+Native Shell uses Files; User, Termux and explicitly selected Shroot environments
+can browse directories read-only and open a temporary read-only copy in Android.
+Managed tmux uses the active pane's directory. A Shroot shell may report its
+directory with a local OSC 7 file URI. Without that hint browsing starts at the
+guest root, relative selections are not guessed and command shortcuts retain the
+guest's default working directory. **Create command shortcut** preselects the
+explicitly opened environment in the command editor.
 Finger swipes continue with Android's native fling physics after release. The
 same scroll route handles local history, tmux mouse reporting and alternate-screen
 arrow-key navigation. New input, selection, zoom, resize, focus loss or detach
@@ -150,6 +166,11 @@ client PIDs identify the current session even after switching inside tmux.
 Ordinary shells that happen to run tmux are not reclassified as managed clients.
 Discovery runs on demand, and missing Termux access does not hide local terminals.
 
+The console toolbar and picker show the name first, for example **main : tmux**
+or **Debian : User**. Unnamed terminals have a short number, such as **#2 : Shell**,
+which stays with the PTY when its window changes. A checkmark identifies the
+session shown in this specific console window, not every session with a client.
+
 The header dropdown shows the session's existing window or attaches a window on
 the Control Panel's own display; the Apps launcher uses its selected display.
 An empty dropdown still offers **New session**. A console dropdown switches the
@@ -159,8 +180,15 @@ and resize owner; switching retains the previous PTY, output and history. Sessio
 IDs are independent of window IDs, including notification and automation targets.
 Window recreation reattaches the selected session without replaying launch commands.
 
-**New session** offers Android shell, Termux shell, Shroot environments and tmux. Row actions
-include Rename, Detach and explicit, confirmed termination. A local name belongs
+**New session** offers User, Shell, Termux, Shroot environments and tmux.
+Shroot entries retain their executor, for example **Debian (User)** or
+**Debian (Shell)**. Selecting an environment never changes the launch identity.
+Choose **New session → Shroot environments → environment → tmux sessions** to
+attach to a session or start a named one inside that Shroot environment. Discovery
+uses its configured guest account and default tmux socket; it does not scan
+other stores or custom sockets. A guest client is identified by its slave PTY
+inside that store. Its files and command shortcuts stay in the selected environment.
+Row actions include Rename, Detach and explicit, confirmed termination. A local name belongs
 to the retained terminal and takes precedence over OSC titles; tmux names belong
 to the tmux server. Ordinary Termux app tabs are not exposed by its command API.
 
@@ -174,11 +202,23 @@ Ending a session leaves its window available for selecting or creating another o
 Ending the terminal releases its entire UNIX session, including foreground and
 background jobs that ignore hangup. Processes that created an independent UNIX
 session, such as a tmux server, are not terminated by PTY cleanup.
-Closing a managed tmux window disconnects only its client by releasing that
+Closing a managed native Termux tmux window disconnects only its client by releasing that
 client's controlling PTY; the tmux server retains the session and its programs,
 subject to the user's tmux configuration. Configuration recreation and transfer
 to a replacement window do not disconnect a client. Explicit termination of a
 tmux session in the picker warns that all its windows and clients are affected.
+Guest tmux windows follow the ordinary Shroot terminal lifetime. Hiding the
+window retains the PTY. Detach inside tmux to leave the session running; stopping
+the Shroot launch that owns the server also stops its sessions.
+
+The bounded runtime event journal records terminal readiness, transport errors
+and closure causes for every executor, with PTY process identity and any managed
+tmux binding. `transport-eof` means the client stream ended; it does not establish
+that a tmux server died or identify which process or signal ended the client.
+Window closure, explicit client detach, requested termination and runtime shutdown
+are recorded separately, without polling processes or collecting terminal text.
+Explicit tmux session termination records its request and command result separately
+from client EOF.
 
 ## Session Files
 
@@ -189,6 +229,22 @@ their shell-quoted paths without Enter, or delete them individually. Folder impo
 preserve their structure. Each attachment has a separate directory, so matching
 names do not overwrite another attachment.
 
+**New text** in the paperclip's Add menu opens a multiline editor. Insert the
+text directly, or attach it as a named UTF-8 file and insert its quoted path.
+Android's **Share > MagicDesk Console** opens the same editable preview and
+selects the most recently focused console. The recipient button uses the normal
+session picker, including creation of a new User, Shell, Termux or Linux session.
+Shared files are copied into that session's attachments before their paths are
+inserted. Mixed text and file shares retain both parts. Nothing is sent before
+confirmation, and insertion never adds Enter. Multiline text and clipboard
+pastes require an additional confirmation when the terminal has not enabled
+bracketed paste, since embedded line breaks can execute commands.
+
+The selected PTY remains the destination throughout the operation. Closing it
+fails the request; focusing another console never redirects the content. Incoming
+Android URI permissions remain held by the share Activity during copying.
+Ending the share dialog does not terminate the recipient session.
+
 `ConsoleSessionFiles` owns imports, temporary URI grants and the captured command
 identity, independently of the Activity. Closing an ordinary window retains its
 copies; ending the PTY removes them. A late picker result still belongs to that
@@ -198,10 +254,11 @@ retains them; explicit session termination or subsequent session discovery remov
 copies whose tmux owner has ended. These are temporary attachments, not persistent
 storage across MagicDesk process termination or APK replacement.
 
-The existing authenticated guest-file helper performs transfers under the selected
-shell or Termux UID. It needs neither Desktop nor a compositor and never changes
-the terminal's privilege. Shell uses executor-owned Unix admission; Termux's
-byte-only import channel uses authenticated loopback TCP without privileged access.
+The authenticated guest-file helper performs transfers under the selected
+User, Shell or Termux identity. It needs neither Desktop nor a compositor and never
+changes the terminal's privilege. User and Shell use executor-owned Unix admission;
+Termux's byte-only import channel uses authenticated loopback TCP without
+privileged access.
 Recursive writes/deletion do not follow guest-created
 symlinks. Helper EOF releases copies; the next terminal helper also collects orphaned
 terminal directories while preserving directories locked by live helpers.
@@ -209,7 +266,9 @@ terminal directories while preserving directories locked by live helpers.
 New PTYs export `MAGICDESK_TERMINAL_FILES_DIR`. The shared `shroot` entry wrapper and
 generated PRoot recipes bind it at `/tmp/magicdesk-terminal-files` and update the
 variable for the guest. Inserted paths expand this variable in the current shell,
-so the same attachment works on either side. Shroot prepares the empty mountpoint
+with the actual host copy directory as a quoted fallback when it is unset or empty.
+Existing host processes, including programs in an attached tmux pane, can therefore
+use the copies without inheriting a new environment. Shroot prepares the empty mountpoint
 on first use; it reuses that single directory across sessions, without storing
 attachment contents in the image.
 This shares only that session's copies, not Android storage generally. Already
@@ -226,7 +285,7 @@ are rejected before insertion into a command line.
 
 ## Font and Cell Rendering
 
-Both consoles bundle JetBrains Mono NL Nerd Font Mono with real regular, bold,
+All console backends use JetBrains Mono NL Nerd Font Mono with real regular, bold,
 italic and bold-italic faces. There is no font download, picker or dependency on
 Termux settings. Font size remains a per-window sp value with a new-window default;
 pinch and Ctrl+wheel resize the existing terminal grid and PTY.
@@ -253,7 +312,7 @@ font resources and the View-to-PTY resize contract.
 
 ## Static Images
 
-Both consoles render static Sixel and inline Kitty graphics using the local Java
+All console backends render static Sixel and inline Kitty graphics using the local Java
 emulator and Android Bitmap/Canvas, without another library or a Termux renderer.
 Images belong to the retained terminal session, not the window. Reattaching a
 retained PTY does not re-decode them; a new tmux client relies on tmux/app redraw.
@@ -400,9 +459,10 @@ they can emit OSC themselves but receive no speculative Bash hooks.
 
 ## Command History
 
-Android Console's shell recall is persistent and separate from the toolbar.
-Up/Down and `fc -l` use mksh's own history, saved under the selected shell/root
-HOME at `~/.local/state/shell_history` (mode 0600). New sessions load it and
+User and Shell console recall is persistent and separate from the toolbar.
+Up/Down and `fc -l` use mksh's own history, saved in
+`$XDG_STATE_HOME/shell_history` (`$HOME/files/state/shell_history`, mode 0600).
+Each actual Android identity has its own HOME and history. New sessions load it and
 concurrent sessions use mksh's native file locking. `HISTSIZE=2000` sets recall
 and startup compaction; it is not a strict disk quota. The file survives terminal
 and app process exit, without a Java history service or reading keystrokes.

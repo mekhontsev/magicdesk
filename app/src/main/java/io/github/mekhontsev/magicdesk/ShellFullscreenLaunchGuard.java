@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Intent;
-import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,6 +33,7 @@ final class ShellFullscreenLaunchGuard implements ShellActivityStartController.L
 
     void add(final Object service, final int displayId, final Boundary boundary) {
         final List<Boundary> boundaries = new ArrayList<>(mState.boundaries());
+        boundaries.removeIf(previous -> previous.areaId == boundary.areaId);
         boundaries.add(boundary);
         mState = new State(service, displayId, List.copyOf(boundaries));
     }
@@ -50,19 +50,29 @@ final class ShellFullscreenLaunchGuard implements ShellActivityStartController.L
 
     @Override
     public boolean onActivityStarting(final Intent intent, final String packageName) {
+        final State state = mState;
         try {
-            protect();
+            protect(state);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
-            // Do not deliver into a known unsafe hierarchy or reconstruct an Intent
-            // whose launch options and grants are absent from this callback.
-            Log.w("MagicDeskTasks", "fullscreen launch boundary unavailable", error);
-            return false;
+            final String message = "fullscreen launch boundary unavailable display=" + state.displayId()
+                    + " package=" + packageName;
+            final var rejection = new ShellActivityStartController.StartRejectedException(
+                    message + ": " + error.getMessage(), error);
+            if (ShellActivityLaunchScope.rejectOnDisplay(intent, packageName, state.displayId(), rejection)) {
+                throw rejection;
+            }
+            // This system-wide callback has no destination. Report a failed repair,
+            // but do not let one workspace block unrelated phone/system launches.
+            throw new IllegalStateException(message, error);
         }
     }
 
     void protect() throws ReflectiveOperationException {
-        final State state = mState;
+        protect(mState);
+    }
+
+    private void protect(final State state) throws ReflectiveOperationException {
         if (state.boundaries().isEmpty()) { return; }
         final List<FrameworkTaskSnapshot> roots =
                 FrameworkTaskSnapshotSource.readRoots(state.service(), state.displayId());
@@ -115,8 +125,9 @@ final class ShellFullscreenLaunchGuard implements ShellActivityStartController.L
             if (separator == null || separator.displayAreaFeatureId
                     != TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER.featureId()
                     || separator.rootTaskId != separator.taskId) {
-                throw new IllegalStateException("fullscreen separator missing for area="
-                        + boundary.areaId);
+                throw new IllegalStateException("fullscreen separator task=" + boundary.separatorId
+                        + " for area=" + boundary.areaId + (separator == null ? " is absent"
+                                : " observed in area=" + separator.displayAreaFeatureId));
             }
             separators.put(-boundary.areaId, boundary.separatorId);
         }

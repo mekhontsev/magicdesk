@@ -59,7 +59,7 @@ final class RecentApplications {
     static RecentApplicationStore.Entry describe(Context context, DesktopApplicationShortcut shortcut, String sourcePath) {
         if (shortcut.application == null && shortcut.launchTarget != null)
             shortcut = shortcut.withApplication(AppProfile.current(context).application(shortcut.launchTarget.packageName));
-        String termux = (shortcut.hasExecLaunch() && shortcut.execBackend != DesktopExecBackend.SHELL)
+        String termux = (shortcut.hasExecLaunch() && shortcut.execBackend == DesktopExecBackend.TERMUX)
                 || BuiltInRecentLaunch.usesTermux(shortcut)
                 ? IntegrationPackage.TERMUX.selected() : "";
         return new RecentApplicationStore.Entry(shortcut, sourcePath, termux, System.currentTimeMillis());

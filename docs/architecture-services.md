@@ -37,11 +37,15 @@ Android placement goes through `ToolApplications`.
 and toplevel catalog. Termux clients connect to a private named socket; Shell
 clients default to a connection FD, and prepared root guests use a session-owned
 named-socket broker. Explicit guest-runtime recipes select routed admission for
-either protocol: `ShellUnixEndpoint` accepts connections under the captured
+either protocol: `UnixSocketEndpoint` in `connection-runtime` accepts connections under the captured
 executor UID, `GraphicalSocketEndpoint` transfers owned descriptors, and
 `HostedSocketAdmission` delivers them to the protocol loop. Binder carries FD
 admission, not protocol bytes or shared buffers. X11 still requires its cookie.
 These owners neither elevate renderers nor proxy socket IO.
+Independent [Linux application packages](linux-applications.md) reuse this
+admission boundary through an explicit, revocable consent grant. They retain
+their own UID, executable bundle, PTY and private store; borrowed graphics/audio
+never delegate MagicDesk's command executor or filesystem authority.
 The server's event loop owns wlroots state, while borrowed
 outputs and their Android presenters have independent lifetimes. Nested-desktop
 viewers retain their compositor after closing, like X11 whole-screen viewers.
@@ -263,7 +267,8 @@ renewal belongs to the shared background-work owner described below.
 
 `ShellBackgroundWork` owns explicit `IBackgroundWorkLease` lifetimes independently
 of HOME, Desktop and virtual-display allocation. Automation leases have a service-
-enforced deadline; the phone-power guard uses a Binder-owned lifetime. A CPU wake
+enforced deadline; the phone-power guard uses a Binder-owned phone-display lifetime,
+with an optional additional claim for an external display's applications. A CPU wake
 lock retains scheduled cleanup, and an optional borrowed virtual-display power
 reference shares the existing presentation power owner without attaching a Viewer.
 Closing the lease, its display or its Binder owner releases all resources. A
@@ -277,18 +282,20 @@ retains observed application UIDs for the work interval. `FrameworkTaskObservati
 provides event-only application ownership subscriptions with an initial typed UID
 snapshot; this path does not initialize Desktop's sampler or window organizer.
 There is no periodic task query. `PlatformBackgroundWork` supplies optional firmware
-hints; the Android baseline adds none. Nubia's focused component renews its transient
+hints; failures are reported and release those hints without losing the CPU/display
+lease. The Android baseline adds none. Nubia's focused component renews its transient
 working state once per second through `RuntimeDelays.WORKING_STATE_REFRESH`, only
 while claims exist. Deadline callbacks are lifetime timers, not readiness waits.
 
 ### PTY Transports And Shell
 
 Every retained Console session owns a lifecycle-bound `TerminalTransport`, one
-native PTY relay, and one interactive shell. `ShellPtyHandle` hosts
-the packaged mksh through the UserService and binds its stream to the APK
-owner's Binder token. `TermuxPtyTransport` asks Termux's documented
-`RUN_COMMAND` service to host the same relay under the Termux UID and connects
-it to the session through an authenticated loopback stream. Both transports
+native PTY relay, and one interactive shell. `ProcessPtyTransport` runs the relay
+and packaged mksh directly under the app UID. `ShellPtyHandle` runs them through
+the authorized service, binding its stream to the APK owner's Binder token.
+`TermuxPtyTransport` asks Termux's documented `RUN_COMMAND` service to execute
+the packaged relay under the Termux UID through an authenticated loopback stream.
+All transports share `PtyControlProtocol` framing and bounded handshakes. They
 create a session leader and controlling terminal, forward terminal bytes,
 apply `TIOCSWINSZ`, expose the shell PID, and resolve `/proc/<pid>/cwd` within
 the process's own security domain. Ending the session, running `exit`, service
@@ -440,8 +447,8 @@ startup hooks without modifying user dotfiles. See [terminal integration](termin
 
 ### Console Presentation
 
-`ConsolePreferences` stores new-window font defaults in app-private preferences;
-the View owns its current sp size and the Activity saves that window value.
+`ConsolePreferences` stores new-window font and executor defaults in app-private
+preferences; the View owns its current sp size and the Activity saves that window value.
 Pinch and Ctrl+wheel are local presentation actions, never terminal mouse input.
 Display/font configuration changes and size adjustments recreate renderer metrics
 using Android's `TypedValue.applyDimension`. The existing session resize path
@@ -489,9 +496,9 @@ origin without carrying executable clipboard Intents.
 The embedded X11 content adapter reuses this contract for text, HTML, PNG and
 file selections. The native runtime owns X11 selection/XDND negotiation, while
 the Android host owns focus, drag gestures and provider grants. Payloads stream
-through owned file descriptors; the X server opens/imports files under the
-selected Termux UID rather than borrowing shell/root access. Session-private
-imports and finite-lived Android exports have distinct cleanup owners. See
+through owned file descriptors; file helpers retain the selected executor and
+explicit guest credentials, never borrowing a different identity's access.
+Session-private imports and finite-lived Android exports have distinct cleanup owners. See
 [X11 content exchange](x11.md#clipboard-and-drag-and-drop) for formats and bounds.
 Incoming Share parsing inspects at most 64 entries from each of `ClipData`
 and `EXTRA_STREAM`, retaining at most 64 distinct URIs across both. Limiting
@@ -529,6 +536,17 @@ for user confirmation before writing anything. Accepted URI content is copied
 while the incoming grant is alive; accepted plain text becomes a UTF-8 desktop
 file. It does not retain incoming payloads, watch the clipboard, or start an
 idle service.
+
+`ConsoleContentReceiverActivity` is the independent **MagicDesk Console** share
+target. It reuses `AndroidContentPayload`, `TerminalSessionsDialog` and
+`TerminalSessions`; external extras cannot select an executor or supply startup
+commands. `ConsoleTextDialog` is shared with the paperclip editor, and
+`ConsoleContentDelivery` owns preparation and paste admission for one captured
+PTY. `ConsoleSessionFiles` publishes both provider copies and generated UTF-8
+text through the same quotas, executor-bound helper and cleanup path. Text-only
+insertion does not require a file helper or privileged service. Opening a new
+recipient waits for its exact registration and startup input ordering, rather
+than treating launch acceptance as readiness.
 
 ### Foreground Processes And Tmux
 
@@ -586,9 +604,13 @@ PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
 one-shot shell commands. It removes inherited Termux process variables and
 provides stable `HOME`, `TMPDIR`, XDG directories, Android-system `PATH`,
 locale, and shell identity values. Shell `HOME` is `/data/local/tmp/magicdesk`;
-root `HOME` is `/data/local/tmp/magicdesk-root/home`. XDG directories follow
-the selected home. Tools, temporary files and Shroot storage remain under
-UID-specific `/data/local/tmp/magicdesk-{shell,root}` runtime directories. Interactive
+root `HOME` is `/data/local/tmp/magicdesk/root`. `RuntimeDataPaths` defines the
+same relative layout for these identities and Android's app data root:
+`files/bin`, `files/config`, `files/share`, `files/state`, `cache/tmp`,
+`no_backup/runtime` and `linux`. XDG directories use those selected paths.
+The app-UID CLI uses the bundled mksh's FPATH autoload support to
+interpret its scripts; executable helpers remain in the immutable APK library
+directory, not writable app data. Interactive
 transports add `xterm-256color` and
 true-color metadata and an owned Android-shell `ENV` startup file. Its two-line
 prompt puts the current path and nonzero exit status above the short `$`/`#`
@@ -596,7 +618,7 @@ input line; prompt evaluation preserves the command's exit status. Termux's
 shell configuration is independent and unchanged. Non-interactive commands use
 `TERM=dumb` without that startup file. This shared
 profile is the only insertion point for future Android-native command bundles.
-Shell and root identities use independent top-level runtime directories so a
+Shell and root identities use separate data roots so a
 root-backed service session cannot leave ownership that breaks a later
 shell-backed session.
 
@@ -604,9 +626,9 @@ shell-backed session.
 catalog or connecting to the inherited command channel. `DownloadCommand` owns
 CLI arguments and throttled terminal progress; `HttpDownload` owns streaming,
 optional SHA-256 verification and atomic destination replacement. `HttpGet`
-shares connection bounds and redirect validation with `GuestOciRegistry`, whose
-HTTPS-only endpoint policy, registry authentication and content-addressed cache
-remain OCI-owned. Downloads run under the caller's UID without app initialization,
+owns bounded HTTP connections and redirect validation for these downloads.
+Shroot's native registry owner supplies its own HTTPS acquisition, authentication
+and content-addressed cache. Downloads run under the caller's UID without app initialization,
 Desktop, Termux, MCP or guest-runtime capabilities.
 
 ### Framework Calls
@@ -751,8 +773,8 @@ endpoint, refuses package-owned files and symbolic links, and removes matching
 source/package recipes from both Recent scopes. Retained graphical sessions forget
 that launch recipe without stopping their clients or server.
 
-The [Shroot runtime](shroot.md) is a native-only component under
-`native/shroot`. App-side immutable launch plans select a store without
+The [Shroot runtime](shroot.md) is an independently versioned native project,
+pinned as the `native/shroot` submodule. App-side immutable launch plans select a store without
 creating a global distribution owner. Several environments can use the same
 or different methods concurrently. Lazy content-addressed executable staging
 and explicit child-process capability probes keep new kernel requirements out
@@ -761,27 +783,30 @@ TRACE/USER_NOTIF operations. Its namespace worker owns inode metadata and explic
 sealed-image admission, accepting ordinary file notifications directly and
 task-affine adapter RPC through the same engine. Guest signal handlers remain application-owned.
 These executables are never loaded into ART and do not own Android windows.
-`GuestEnvironmentLibrary` owns a shell-identity catalog of named writable stores,
-sealed images and shared layer dependencies. `GuestOciRegistry` supplies verified
-public OCI downloads through Java HTTPS; `GuestImageTool` invokes only offline
-native image operations. Management runs in a short-lived Java child, while the
-original CLI shell retains PTY/graphics descriptors and execs native launches.
+The native catalog owns each executor identity's named writable stores, sealed
+images, verified OCI downloads and shared layer dependencies.
+`GuestEnvironmentLibrary` adapts structured native results for Android;
+`GuestEnvironmentCatalog` merges visible User/Shell entries without merging their
+storage or authority. `GuestImageTool` invokes the public Shroot CLI out of process.
+The short-lived Java adapter retains Android DNS and presentation policy, while the
+original CLI shell retains PTY/graphics descriptors and execs the native CLI.
 No Termux, external downloader, Docker daemon or Desktop session is required.
 Catalog mutation and native store lifetime locks protect explicit removal and GC;
 ordinary execution retains the existing process-tree guardian.
 Wayland connection mode belongs to the recipe, not its UID;
 an inherited FD works independently of whether the selected executor is root.
 
-`DesktopExecRunner` owns the execution-backend boundary. Android shell is the
-default backend;
-`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. `GraphicalLaunchOptions`
-selects X11 or Wayland presentation plus keyboard data, not a third executor. It
-is handled by `HostedApplicationStartup` before generic command delegation.
+`DesktopExecRunner` owns the execution-backend boundary. Desktop Entries use
+`X-MagicDesk-ExecBackend=app|shell|termux`; omission selects Shell. User runs
+under the app UID, while Shell retains the authorized service identity even
+when it is UID 0. `GraphicalLaunchOptions` selects X11 or Wayland presentation
+plus keyboard data, independently of the executor. It is handled by
+`HostedApplicationStartup` before generic command delegation.
 Both protocols share recipe reuse, Recent identity and Android
 placement through `GraphicalSessions`. Terminal recipes omit graphical options. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
-environment. `Terminal=true` opens the built-in Console with either a
-UserService-backed Android shell PTY or a Termux-hosted PTY.
+environment. `Terminal=true` opens the built-in Console with the captured
+User, Shell or Termux PTY transport.
 
 An explicit composite request with both an Android target and `Exec` first
 prepares the normal Android task, then runs its companion command. The
@@ -795,7 +820,7 @@ of Android UI classes; `DesktopDragLaunchArguments` is the drag-and-drop
 adapter used by Desktop and Files. Each argument validates its 8192-character
 path/URI limit at construction, including the escaped file URI; selection and
 automation readers check the 128-item limit before materializing arguments.
-Shell/Termux commands without field codes retain raw shell syntax, while expanded
+Commands without field codes retain raw shell syntax, while expanded
 values are tokenized and shell-quoted. `X-MagicDesk-ExecSyntax=argv` explicitly
 retains literal argument parsing for non-graphical Linux recipes. X11 recipes always use desktop-entry
 argument parsing, requiring explicit `sh -c` for shell syntax. Expansion writes directly into the bounded

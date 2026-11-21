@@ -8,6 +8,7 @@
     <string name="appearance_color_accent">アクセント</string>
     <string name="appearance_color_danger">危険</string>
     <string name="appearance_color_attention">注意</string>
+    <string name="appearance_color_success">成功</string>
     <string name="appearance_color_hover">ホバー</string>
     <string name="appearance_color_desktop_text">デスクトップのテキスト</string>
     <string name="appearance_color_transparent">透明</string>

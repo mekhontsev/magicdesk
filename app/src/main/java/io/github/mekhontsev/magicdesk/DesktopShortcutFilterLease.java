@@ -6,7 +6,6 @@ import android.util.AtomicFile;
 
 import org.json.JSONObject;
 
-import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,10 +16,9 @@ import java.util.Set;
 final class DesktopShortcutFilterLease {
     private static final ComponentName COMPONENT = new ComponentName(
             BuildConfig.APPLICATION_ID, DesktopShortcutService.class.getName());
-    private static final AtomicFile JOURNAL = new AtomicFile(
-            new File("/data/local/tmp/magicdesk-shortcut-filter.json"));
     void acquire() throws IOException {
         release();
+        AtomicFile journal = new AtomicFile(RuntimeDataPaths.journal("shortcut-filter.json").toFile());
         final Set<String> services = readServices();
         final boolean added = services.add(COMPONENT.flattenToString());
         final String previous = get(Settings.Secure.ACCESSIBILITY_ENABLED);
@@ -28,11 +26,11 @@ final class DesktopShortcutFilterLease {
         try {
             final JSONObject record = new JSONObject().put("added", added)
                     .put("previousEnabled", previous == null ? JSONObject.NULL : previous);
-            stream = JOURNAL.startWrite();
+            stream = journal.startWrite();
             stream.write(record.toString().getBytes(StandardCharsets.UTF_8));
-            JOURNAL.finishWrite(stream);
+            journal.finishWrite(stream);
         } catch (Exception error) {
-            if (stream != null) JOURNAL.failWrite(stream);
+            if (stream != null) journal.failWrite(stream);
             throw new IOException("cannot journal shortcut filter ownership", error);
         }
         if (added) writeServices(services);
@@ -40,9 +38,10 @@ final class DesktopShortcutFilterLease {
     }
 
     void release() throws IOException {
-        if (!JOURNAL.getBaseFile().exists()) return;
+        AtomicFile journal = new AtomicFile(RuntimeDataPaths.journal("shortcut-filter.json").toFile());
+        if (!journal.getBaseFile().exists()) return;
         try {
-            final byte[] bytes = JOURNAL.readFully();
+            final byte[] bytes = journal.readFully();
             if (bytes.length > 4096) throw new IOException("oversized shortcut filter journal");
             final JSONObject record = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
             final Set<String> services = readServices();
@@ -56,7 +55,7 @@ final class DesktopShortcutFilterLease {
                 put(Settings.Secure.ACCESSIBILITY_ENABLED, record.isNull("previousEnabled")
                         ? null : record.getString("previousEnabled"));
             }
-            JOURNAL.delete();
+            journal.delete();
         } catch (Exception error) {
             throw new IOException("cannot restore shortcut filter settings", error);
         }

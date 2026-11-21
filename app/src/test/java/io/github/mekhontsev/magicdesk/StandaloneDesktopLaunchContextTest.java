@@ -42,17 +42,17 @@ public final class StandaloneDesktopLaunchContextTest {
                 }
                 static class ShellAccess {
                     static Object getShortcutLaunchIntent(String p, String s) { return null; }
-                    static void sendActivityOnDisplay(Object token, int d) { throw new AssertionError("not a shortcut"); }
                 }
                 static class OrdinaryActivityLaunch {
                     static void requirePresentation(Presentation p) { }
+                    static void send(Object token, int d, Presentation p) { throw new AssertionError("not a shortcut"); }
                 }
                 static class InteractiveActivityLaunch {
                     static int calls, display; static Delivery delivery;
                     static void requireDestination(Context a, int id, String unique) throws IOException {
                         DesktopDisplayCatalog.require(id, unique);
                     }
-                    static void launch(Context a, Intent i, Delivery d, int id) {
+                    static void launch(Context a, Intent i, Delivery d, int id, Presentation p) {
                         calls++; display = id; delivery = d;
                     }
                 }

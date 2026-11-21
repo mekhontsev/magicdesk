@@ -73,19 +73,20 @@ public final class NubiaFirmwareDetectorTest {
     public void phonePowerProtectionDoesNotSelectUnrelatedVendorComponents() {
         final EnumMap<PlatformComponent, String> detected =
                 new EnumMap<>(PlatformComponent.class);
-        detected.put(PlatformComponent.PHONE_UI,
+        detected.put(PlatformComponent.BACKGROUND_WORK,
                 "CPU-freezer working-state API detected");
 
         final NubiaFirmwareDetector.Result result =
                 NubiaFirmwareDetector.fromDetectedComponents(detected);
 
         assertEquals(2, result.components().size());
-        assertTrue(result.components().contains(PlatformComponent.PHONE_UI));
+        assertTrue(result.components().contains(PlatformComponent.BACKGROUND_WORK));
+        assertFalse(result.components().contains(PlatformComponent.PHONE_UI));
         assertTrue(result.components().contains(PlatformComponent.DIAGNOSTICS));
         assertFalse(result.components().contains(PlatformComponent.WINDOWING));
         assertFalse(result.components().contains(PlatformComponent.EXTERNAL_INPUT));
         assertEquals("CPU-freezer working-state API detected",
-                result.evidence(PlatformComponent.PHONE_UI));
+                result.evidence(PlatformComponent.BACKGROUND_WORK));
     }
 
     @Test

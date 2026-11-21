@@ -13,18 +13,38 @@ device. Actual release/firmware coverage must be evaluated per subsystem.
 MagicDesk's managed Desktop targets capable Android 15+ firmware through one APK and one common
 desktop runtime. The standard Android driver supports phone, simulated, and
 already connected secondary-display sessions. A platform-driver boundary
-separates that baseline from optional Nubia/REDMAGIC integration. A device
+separates that baseline from optional firmware integration. A device
 branded ZTE is not automatically treated as Nubia-compatible; until its
 firmware interfaces are verified, it uses the standard Android driver.
 Likewise, Nubia hardware running an AOSP-derived custom ROM uses the standard
 Android provider for every component whose firmware API is absent. Passive
 runtime probes may retain an independently available Nubia projection,
-pointer, phone UI, internal-audio, diagnostics, or hardware-control
+pointer, background-work, internal-audio, diagnostics, or hardware-control
 component. Vendor branding alone is not a baseline requirement and never
 enables the complete Nubia integration.
 
+On Honor firmware that publishes freeform scale in `TaskInfo`, the windowing
+extension distinguishes logical content dimensions from the window's visible
+display-space bounds. MagicDesk placement, snapping, restore and transfer use
+the visible bounds; transaction-local scale and logical dimensions are applied
+together. In managed Desktop, a released native scale change requests one
+logical resize, preserving the chosen visible footprint and previous content
+scale. It uses the existing task observer and geometry transition, without
+replacing native gestures or captions. Mode/display changes, logical resizes
+and pending MagicDesk geometry commands are excluded. Missing firmware access
+or failed convergence is reported as `WINDOW-SCALE-001`, without a repair loop.
+**Settings > Compatibility > Firmware window geometry** disables this adaptation
+after restarting MagicDesk, without changing system settings or requiring another
+APK. The option appears only when the firmware interface is detected.
+Reports include both coordinate spaces, scale availability and the adapter's
+read/write status. Detection and local fixture tests are not proof of working
+transitions on an untested Honor firmware; gesture rebound and SystemUI scale
+synchronization still require remote-device verification.
+The [Honor vendor audit](honor-vendor-audit.md) records interface ownership,
+resize-animation limitations and the scope of available evidence.
+
 The selected driver owns firmware-specific windowing properties, projection
-state and output modes, phone UI recovery, cursor observation, optional
+state and output modes, cursor observation, optional
 application entry points, and compatibility probes. Missing vendor interfaces
 therefore appear as unavailable capabilities in Diagnostics instead of sending
 the common runtime through an unrelated Nubia code path.
@@ -35,6 +55,28 @@ external session, a secondary display that accepts application tasks. Managed
 projection, optional cursor observation, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
+
+Apps can request **Windowed** on the selected display without starting Desktop.
+This requires Shell access and working firmware freeform support; it does not
+claim HOME or change system setup. Stock Nubia/REDMAGIC windowing requires
+managed Desktop because its task/Recents state needs session cleanup, so the
+independent Windowed choice is unavailable there. The diagnostic freeform probe
+remains available independently of this production policy.
+
+**Settings > Desktop > Try to become the Home app** defaults to on. Turning it
+off skips HOME and secondary-launcher selection. If acquisition is refused,
+startup rolls back any partial selection and continues with an ordinary
+fullscreen Desktop host. A failed rollback remains an explicit error, not a
+successful fallback. The shared session retains its chosen mode until its last
+workspace closes. Without HOME, system Home/Recents remain with the stock
+launcher; MagicDesk does not intercept secondary-HOME selection or redirect
+Recents. Window management still requires the firmware capabilities described
+above; avoiding HOME does not repair broken native captions.
+
+The no-HOME path is verified on NX809J/API 36 with a simulated display: Desktop
+rendering, Start, windowed launch, fullscreen/restore and cleanup retain the
+system HOME holder. Acquisition-refusal rollback has unit coverage; equivalent
+managed Desktop behavior on HONOR/API 37 remains unverified.
 
 Device Setup enables freeform support and forced activity resizing on every
 platform through shell UID 2000. Changing these required provisioning values
@@ -325,6 +367,9 @@ error code such as `[SHELL-CONSOLE-002]`, and records technical context for the
 diagnostics report. A bounded set of recent error signatures suppresses
 repetitions, exact duplicates from earlier process runs are collapsed when the
 report is built, and the local event log is size-bounded.
+Exception summaries put the deepest cause before the truncated stack. Shell
+Binder failures retain bounded cause details in the exception message, including
+display/user context for display-windowing and secondary-HOME operations.
 
 Static environment states such as an unverified firmware profile, missing
 Shizuku permission, or a stopped Shizuku server remain visible in **Capability
@@ -367,6 +412,10 @@ The report includes:
 - manufacturer, model, API level, security patch, and supported ABIs;
 - selected privilege backend, active/configured runtime limits, actual service
   UID, and required desktop-windowing values;
+- selected Shizuku-compatible manager and Termux package names, application
+  labels, installed `versionName`/`versionCode`, or explicit metadata unavailability.
+  Installed package versions are separate from the running launcher's API version;
+  direct `su` startup is identified without assigning it a Shizuku manager;
 - for active shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, `/dev/uinput` open access, and task APIs;
@@ -374,6 +423,14 @@ The report includes:
   projection, input, hardware, launcher, and output-mode integrations;
 - notification-listener and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
+- one-shot window geometry for visible and freeform tasks: WindowManager frames
+  and scale fields, SurfaceFlinger composition bounds/transforms, and input
+  frames/matrices reused from the report's input snapshot. Each source has capture
+  timestamps and explicit availability/truncation; the snapshots are not atomic.
+  Task IDs are authoritative where supplied. Surface/input name matches are only
+  candidates, particularly when one package has several tasks or user profiles.
+  Missing transforms are unknown, not assumed to be identity. Raw window titles
+  and input-event history are excluded;
 - a one-shot input snapshot with aggregate virtual-pointer activity, MagicDesk
   virtual-device presence, current routing associations, and observed pointer
   position;
@@ -384,17 +441,24 @@ The report includes:
 - failed secondary HOME launch evidence under `DESKTOP-LAUNCH-002`: launch
   stage, process/Binder caller UID, Android start result, requested display,
   returned task/type and a bounded pre-cleanup task sample across displays;
+- failed HOME role assignment/restoration under `HOME-ROLE-002`: operation,
+  user/package, original error and up to 128 lines/8,000 characters from selected
+  Android role-service log tags during that operation. Capture runs only on
+  failure, with a three-second command timeout; missing logs remain unavailable.
+  Entries are time-correlated, not proof that every line belongs to the request;
 - recent logcat entries from MagicDesk tags only;
 - a schema-versioned JSON summary with platform composition, per-component
-  providers, typed capability observations, window-transition routing, and the
-  manual compatibility checklist.
+  providers, selected integration package metadata, typed capability observations,
+  window-transition routing, and the manual compatibility checklist.
 
 The report does not collect notification title/body text, user files, account
 data, clipboard contents, or the installed-app list. Application exception
 messages and stacks can contain app-supplied paths, URLs or other sensitive
 values; review them before sharing. MagicDesk-only logs can still
 contain package names, task ids, display ids, and filenames involved in a
-failed operation. Review the text before publishing it.
+failed operation. The bounded HOME failure excerpt can also contain system
+role-service messages about other packages during the same operation. Review
+the text before publishing it.
 
 The shell capability probe does not read input events, inject a real event,
 change a keyboard layout, alter display state, or write a hardware node.

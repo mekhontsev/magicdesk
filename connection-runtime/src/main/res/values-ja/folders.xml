@@ -1,0 +1,11 @@
+<resources>
+    <string name="folder_title">Android フォルダ</string>
+    <string name="folder_connect">フォルダを接続</string>
+    <string name="folder_ro">読み取り専用</string>
+    <string name="folder_rw">読み書き</string>
+    <string name="folder_access">フォルダへのアクセス</string>
+    <string name="folder_unavailable">権限がありません</string>
+    <string name="folder_forget">接続を削除</string>
+    <string name="folder_forget_message">新しいセッションでは %1$s をマウントしません。Android 上のファイルは削除されません。</string>
+    <string name="folder_next">新しいセッション: %1$s</string>
+</resources>

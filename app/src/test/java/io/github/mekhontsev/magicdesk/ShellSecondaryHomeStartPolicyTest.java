@@ -57,6 +57,20 @@ public final class ShellSecondaryHomeStartPolicyTest {
                 """);
     }
 
+    @Test public void independentDesktopProtectsThePhoneWithoutAcquiringHome() throws Exception {
+        verify("""
+                Fixture policy = new Fixture();
+                policy.configure(4);
+                Intent request = new Intent();
+                request.component = "com.example.launcher/.SecondaryHome";
+                check(!policy.onActivityStarting(request, "com.example.launcher"),
+                        "stock secondary HOME escaped independent-workspace admission");
+                request.packageName = "com.example.launcher";
+                check(policy.onActivityStarting(request, request.packageName),
+                        "addressed system launch must remain available");
+                """);
+    }
+
     @Test public void oneWorkspaceCannotReleaseAnotherWorkspacesProtection() throws Exception {
         verify("""
                 Fixture first = new Fixture();

@@ -360,8 +360,8 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
             mPhoneScreenAction.setEnabled(false);
         }
         mActivity.setStatus(R.string.status_phone_screen_applying);
-        DesktopOperations.setPhoneScreenOff(
-                screenOff,
+        PhoneDisplayGuard.setScreenOff(
+                screenOff, displayId,
                 success -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
                         return;

@@ -20,7 +20,6 @@ public final class OwnedFocusFailureTest {
                 }
                 static class TaskWindowingCommand {
                     static void focusTasks(Object service, int display, int[] tasks) { rawSubmissions++; throw new IllegalStateException("raw fallback"); }
-                    static void focusTasksWithSurfaceCommit(Object service, int display, int[] tasks) { focusTasks(service, display, tasks); }
                 }
                 static class Ownership { boolean isDesktopHostTask(int task) { return true; } boolean isDesktopTask(Object task) { return true; } }
                 static class Planes {

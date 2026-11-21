@@ -74,6 +74,13 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".LauncherEntryActivity" android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity android:name=".LinuxConnectionActivity" android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="io.github.mekhontsev.magicdesk.CONNECT_LINUX" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service android:name=".RunCommandService" android:exported="true"
             android:permission="${applicationId}.permission.RUN_COMMAND"
             android:foregroundServiceType="specialUse">
@@ -113,6 +120,10 @@
         <property
             android:name="android.app.appfunctions.app_metadata"
             android:resource="@xml/app_function_app_metadata" />
+        <activity android:name=".GuestFolders" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+        <activity android:name=".GuestNetworkSettings" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
@@ -173,6 +184,23 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/*" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ConsoleContentReceiverActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@drawable/ic_file_console"
+            android:label="@string/console_share_target"
+            android:taskAffinity=""
+            android:theme="@style/TransparentActivityTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 
@@ -290,6 +318,15 @@
                 <category android:name="android.intent.category.SECONDARY_HOME" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".IndependentDesktopActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.independent_desktop" />
 
         <activity
             android:name=".DesktopChromeActivity"

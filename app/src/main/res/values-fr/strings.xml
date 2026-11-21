@@ -1,6 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_console_volume_black_screen">Écran noir avec les touches de volume</string>
+    <string name="settings_request_home_role">Essayer de devenir l’application d’accueil</string>
+    <string name="console_app_title">User</string>
+    <string name="executor_android_shell">Shell</string>
+    <string name="black_screen">Écran noir (sans veille)</string>
+    <string name="black_screen_hint">Écran noir ; touche de volume pour quitter</string>
     <string name="guest_command_access">Autoriser le contrôle de MagicDesk et Android</string>
+    <string name="guest_install_application">Installer Linux comme application</string>
     <string name="guest_environments">Environnements Shroot</string>
     <string name="guest_loading">Chargement des environnements&#8230;</string>
     <string name="guest_empty">Aucun environnement Shroot installé</string>
@@ -70,8 +77,8 @@
     <string name="display_tasks_unknown">Applications : indisponibles</string>
     <string name="display_independent_apps">Applications indépendantes</string>
     <string name="start_mode_default">Auto</string>
-    <string name="start_mode_windowed">Fenêtre de bureau</string>
-    <string name="start_mode_fullscreen">Plein écran sur le bureau</string>
+    <string name="start_mode_windowed">Fenêtre</string>
+    <string name="start_mode_fullscreen">Plein écran</string>
     <string name="start_mode_independent">Indépendant</string>
     <string name="start_new_window">Nouvelle fenêtre</string>
     <string name="start_launch_mode">Mode de lancement</string>
@@ -248,11 +255,13 @@
     <string name="command_app_directory_invalid">Saisissez un chemin de répertoire absolu</string>
     <string name="command_app_mime_invalid">Saisissez des types MIME valides séparés par des points-virgules</string>
     <string-array name="command_app_backends">
-        <item>Shell Android</item>
+        <item>Shell</item>
         <item>Termux</item>
         <item>Graphismes Termux</item>
         <item>Linux (Termux)</item>
-        <item>Linux (Shell / root)</item>
+        <item>Linux (Shell)</item>
+        <item>User</item>
+        <item>Linux (User)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>Aucun</item>
@@ -649,14 +658,20 @@
     <string name="notification_hw_connected">Clavier physique connecté</string>
     <string name="notification_hw_disconnected">Aucun clavier physique</string>
     <string name="notification_automation_ready">Serveur d\'automatisation prêt</string>
-    <string name="notification_open_touchpad">Ouvrir le pavé tactile</string>
-    <string name="notification_open_terminal">Terminal</string>
+    <string name="notification_open_control_panel">Panneau de contrôle</string>
+    <string name="notification_black_screen">Écran noir</string>
     <string name="control_status_ready">Prêt</string>
     <string name="capability_android_15_required">Nécessite Android 15 ou ultérieur</string>
     <string name="capability_access_required">Nécessite un accès shell ou root</string>
     <string name="capability_termux_required">Nécessite Termux</string>
     <string name="capability_termux_permission_required">Nécessite l\'autorisation Termux RUN_COMMAND</string>
-    <string name="capability_terminal_required">Nécessite l\'intégration Termux ou un accès shell</string>
+    <string name="child_process_status">Limite de processus : %1$s</string>
+    <string name="child_process_title">Limite de processus</string>
+    <string name="child_process_unknown">inconnue</string>
+    <string name="child_process_warning">Android peut arrêter des processus Linux</string>
+    <string name="child_process_explanation">Lorsque Linux exécute de nombreux processus, Android peut en arrêter certains. Ce réglage concerne toutes les applications du téléphone. Le désactiver n’empêche pas les arrêts par manque de mémoire.</string>
+    <string name="child_process_manual">Dans les options pour les développeurs, cherchez « %1$s ». Certains appareils ne proposent pas ce réglage.</string>
+    <string name="child_process_developer_options">Options pour les développeurs</string>
     <string name="control_status_desktop_active">Bureau actif</string>
     <string name="control_runtime_status">Accès : %1$s</string>
     <string name="control_access_title">Accès</string>
@@ -817,6 +832,9 @@
     <string name="settings_nubia_projection_guard_summary">Désactive temporairement le logiciel de diffusion Nubia, sa protection de confidentialité et son interface de connexion pendant le bureau HDMI ou Miracast. Les restaure à la fermeture du dernier bureau externe ; les paramètres de confidentialité enregistrés restent inchangés.</string>
     <string name="settings_section_automation">Automatisation</string>
     <string name="settings_section_android">Système Android</string>
+    <string name="settings_child_process_restrictions">Désactiver les restrictions des processus enfants</string>
+    <string name="settings_child_process_description">Désactive la surveillance des processus fantômes Android pour toutes les applications, y compris Termux et les sessions Linux. Ce réglage système persiste après la fermeture de MagicDesk. Il ne protège pas contre les arrêts dus au manque de mémoire ni contre les restrictions énergétiques du fabricant.</string>
+    <string name="settings_child_process_unavailable">Le réglage Android de surveillance des processus enfants est indisponible.</string>
     <string name="settings_system_desktop_mode">Mode bureau du système sur les écrans externes</string>
     <string name="settings_system_desktop_mode_apply_notice">Reconnectez l\'écran externe pour appliquer la modification. Certains appareils peuvent nécessiter un redémarrage d\'Android.</string>
     <string name="settings_system_desktop_mode_confirm">Changer le mode bureau Android sur les écrans externes ? Son activation peut ajouter des barres de navigation système. Reconnectez l\'écran après la modification ; certains appareils peuvent nécessiter un redémarrage d\'Android.</string>
@@ -1016,6 +1034,7 @@
     <string name="console_termux_autolaunch_blocked">Termux a été bloqué par le firmware. Autorisez le lancement automatique ou l\'activité en arrière-plan de Termux, puis rouvrez cette fenêtre.</string>
     <string name="console_tmux_loading">Chargement des sessions tmux…</string>
     <string name="console_tmux_new_session">Nouvelle session tmux</string>
+    <string name="console_tmux_sessions">Sessions tmux</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d fenêtre</item>
         <item quantity="other">%d fenêtres</item>
@@ -1199,4 +1218,43 @@
         <item quantity="many">%d pièces jointes</item>
         <item quantity="other">%d pièces jointes</item>
     </plurals>
+    <string name="graphics_offscreen">Sans écran</string>
+    <string name="graphics_closing">En attente de fermeture des applications</string>
+    <string name="graphics_cancel_close">Annuler la fermeture</string>
+    <string name="graphics_close_normally">Fermer normalement</string>
+    <string name="graphics_output_width">Largeur de sortie</string>
+    <string name="graphics_output_height">Hauteur de sortie</string>
+    <string name="graphics_detach_output">Libérer la sortie sans écran</string>
+    <string name="graphics_force_stop_session">Arrêter cette session graphique et déconnecter ses applications sans enregistrer ?</string>
+    <string name="phone_panel_power_off">Éteindre physiquement l’écran</string>
+    <string name="phone_panel_unavailable">Le contrôle physique de l’écran est indisponible</string>
+    <string name="settings_window_geometry">Géométrie des fenêtres du micrologiciel</string>
+    <string name="console_share_target">Console MagicDesk</string>
+    <string name="console_new_text">Nouveau texte</string>
+    <string name="console_text">Texte</string>
+    <string name="console_text_file">Joindre le texte en fichier</string>
+    <string name="console_content_sending">Envoi…</string>
+    <string name="console_paste_lines_title">Insérer plusieurs lignes ?</string>
+    <string name="console_paste_lines_message">Ce terminal n’a pas activé le mode bracketed paste. Les sauts de ligne peuvent exécuter des commandes.</string>
+    <string name="console_share_too_many">Trop de fichiers partagés. Partagez moins de fichiers à la fois.</string>
+    <string name="linux_connection_title">Se connecter à MagicDesk</string>
+    <string name="linux_connection_audio">Audio uniquement</string>
+    <string name="linux_connection_new_x11">Audio et nouvel écran X11</string>
+    <string name="graphics_keyboard_hint">Données intégrées (autre chemin facultatif)</string>
+    <string name="linux_connection_graphics">Audio + %1$s : %2$s</string>
+    <string name="linux_connection_permission">%1$s pourra utiliser les services audio et la session graphique sélectionnés. Les clients X11 partagent l\'accès à leur affichage. Aucun accès aux commandes ni aux fichiers n\'est accordé.</string>
+    <string name="linux_connection_connect">Connecter</string>
+    <string name="linux_connection_pending">Connexion&#8230;</string>
+    <string name="linux_connection_terminal">Sans audio ni écran</string>
+    <string name="linux_connection_scope">Sélectionnez les services pour le prochain terminal de %1$s. Internet et l’automatisation prennent fin à la fermeture du terminal ou à la déconnexion.</string>
+    <string name="linux_connection_internet">Accès web temporaire pour le prochain terminal (sans réseau local)</string>
+    <string name="linux_connection_mcp">Autoriser les clients MCP à inspecter et contrôler Linux (y compris l’exécution de commandes avec la permission shell)</string>
+    <string name="console_more_actions">Autres actions</string>
+    <string name="console_browse_files">Parcourir les fichiers de la session</string>
+    <string name="console_redraw">Redessiner l’écran (Ctrl+L)</string>
+    <string name="console_clear_history">Effacer l’historique du terminal</string>
+    <string name="console_clear_history_confirm">Supprimer la sortie enregistrée et l’historique des commandes de ce terminal ?</string>
+    <string name="console_command_shortcut">Créer un raccourci de commande</string>
+    <string name="console_notification_settings">Paramètres des notifications du terminal</string>
+    <string name="console_path_unknown">Chemin indisponible dans cette session.</string>
 </resources>

@@ -35,6 +35,10 @@ final class MagicDeskSettings {
         return DesktopStateStore.update(state -> state.settings.phoneFullscreenByDefault = enabled);
     }
 
+    static boolean setRequestHomeRole(final boolean enabled) {
+        return DesktopStateStore.update(state -> state.settings.requestHomeRole = enabled);
+    }
+
     static boolean setDisableAdaptiveBrightness(
             final boolean enabled) {
         return DesktopStateStore.update(state ->
@@ -85,6 +89,7 @@ final class MagicDeskSettings {
         DesktopSystemThemeSession.Preference systemTheme = DesktopSystemThemeSession.Preference.UNCHANGED;
         boolean keepScreenOn;
         boolean phoneFullscreenByDefault;
+        boolean requestHomeRole = true;
         boolean disableAdaptiveBrightness;
         boolean openTouchpadAutomatically;
         boolean keyboardOnAppDisplay;
@@ -109,6 +114,7 @@ final class MagicDeskSettings {
                 values.systemTheme = DesktopSystemThemeSession.Preference.parse(json.optString("systemTheme", ""));
                 values.keepScreenOn = json.optBoolean(KEEP_SCREEN_ON, false);
                 values.phoneFullscreenByDefault = json.optBoolean(PHONE_FULLSCREEN_BY_DEFAULT, false);
+                values.requestHomeRole = json.optBoolean("requestHomeRole", true);
                 values.disableAdaptiveBrightness =
                         json.optBoolean(DISABLE_ADAPTIVE_BRIGHTNESS, false);
                 values.openTouchpadAutomatically = json.optBoolean(
@@ -136,6 +142,7 @@ final class MagicDeskSettings {
             copy.systemTheme = systemTheme;
             copy.keepScreenOn = keepScreenOn;
             copy.phoneFullscreenByDefault = phoneFullscreenByDefault;
+            copy.requestHomeRole = requestHomeRole;
             copy.disableAdaptiveBrightness =
                     disableAdaptiveBrightness;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
@@ -153,6 +160,7 @@ final class MagicDeskSettings {
             json.put("systemTheme", systemTheme.name());
             json.put(KEEP_SCREEN_ON, keepScreenOn);
             json.put(PHONE_FULLSCREEN_BY_DEFAULT, phoneFullscreenByDefault);
+            json.put("requestHomeRole", requestHomeRole);
             json.put(
                     DISABLE_ADAPTIVE_BRIGHTNESS,
                     disableAdaptiveBrightness);

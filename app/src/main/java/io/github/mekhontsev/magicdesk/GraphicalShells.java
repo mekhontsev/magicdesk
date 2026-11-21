@@ -21,6 +21,7 @@ final class GraphicalShells {
     static void select(GraphicalSessions.Session session, String workspaceId) {
         checkThread();
         if (workspaceId == null || workspaceId.isEmpty()) { release(session.id()); return; }
+        if (session.offscreen().enabled()) throw new IllegalStateException("Release offscreen output before binding a Desktop workspace");
         if (!session.ready() || !session.canIntegrateShell())
             throw new IllegalStateException("This graphical session cannot contribute shell components");
         var selected = DesktopRuntimeBridge.getWorkspaces().stream()

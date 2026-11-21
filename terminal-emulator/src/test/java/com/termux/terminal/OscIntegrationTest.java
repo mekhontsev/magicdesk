@@ -8,6 +8,23 @@ public final class OscIntegrationTest extends TerminalTestCase {
     private static String osc(String text) { return "\033]" + text + "\007"; }
     private TerminalHyperlink link(int x, int y) { return mTerminal.getScreen().getHyperlink(x, y); }
 
+    public void testDirectoryHintIsClearedOnReset() {
+        withTerminalSized(20,4).enterString(osc("7;file:///tmp/a%20b"));
+        assertEquals("file:///tmp/a%20b",mTerminal.getWorkingDirectoryUri());
+        enterString("\033c");
+        assertEquals("",mTerminal.getWorkingDirectoryUri());
+    }
+
+    public void testClearHistoryWhileAlternateScreenIsActive() {
+        withTerminalSized(20,3).enterString("1\r\n2\r\n3\r\n4\r\n5");
+        assertTrue(mTerminal.getScreen().getActiveTranscriptRows()>0);
+        enterString("\033[?1049halt");
+        mTerminal.clearHistory();
+        assertTrue(mTerminal.isAlternateBufferActive());
+        enterString("\033[?1049l");
+        assertEquals(0,mTerminal.getScreen().getActiveTranscriptRows());
+    }
+
     public void testHyperlinksFollowPaintedCellsNotSubsequentText() {
         withTerminalSized(10, 4).enterString(osc("8;id=a;https://example.org/a;b") + "AB" + osc("8;;") + "C");
         assertEquals("https://example.org/a;b", link(0, 0).uri());

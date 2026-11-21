@@ -23,7 +23,7 @@ final class RecentApplicationStore {
                     || !sourcePath.isEmpty() && !sourcePath.startsWith("/")
                     || !termuxPackage.isEmpty() && !PackageNameValidator.isSafe(termuxPackage)
                     || shortcut.launchTarget != null && shortcut.application == null
-                    || shortcut.hasExecLaunch() && shortcut.execBackend != DesktopExecBackend.SHELL
+                    || shortcut.hasExecLaunch() && shortcut.execBackend == DesktopExecBackend.TERMUX
                             && termuxPackage.isEmpty()) {
                 throw new IllegalArgumentException("Invalid recent launch");
             }

@@ -24,7 +24,7 @@ final class HostedGuestFiles {
     void configure(Map<String, String> target) { target.putAll(environment); }
     java.io.Closeable admit(int uid, ExecutorSocketEndpoint.Sink sink, java.util.function.Consumer<Throwable> failure) throws java.io.IOException {
         if (environment.isEmpty()) return () -> { };
-        var endpoint = new ExecutorSocketEndpoint(uid, 10_000, sink, failure);
+        var endpoint = new ExecutorSocketEndpoint(uid, 10_000, ShellAccess::openUnixEndpoint, sink, failure);
         admittedEndpoint = endpoint.name;
         return endpoint;
     }

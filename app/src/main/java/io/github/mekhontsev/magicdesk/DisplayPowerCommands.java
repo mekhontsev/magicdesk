@@ -27,6 +27,12 @@ public final class DisplayPowerCommands {
         return resolveRestoreOperation(reader.read("help"), reader);
     }
 
+    public static String resolveSupportedRestoreOperation(final CommandReader reader) throws IOException {
+        String help = reader.read("help");
+        if (!advertises(help, POWER_OFF) && !recognizes(reader.read(POWER_OFF))) return null;
+        return resolveRestoreOperation(help, reader);
+    }
+
     private static String resolveRestoreOperation(
             final String help, final CommandReader reader) throws IOException {
         if (advertises(help, POWER_RESET)) {

@@ -7,7 +7,10 @@ if (prefix != null && prefix.startsWith('/data/data/com.termux/')) {
     tasks.matching { it.name.startsWith('strip') && it.name.endsWith('DebugSymbols') }.configureEach {
         inputs.file(stripper).withPropertyName('termuxNativeStripper')
         doLast {
-            def libraries = outputs.files.asFileTree.matching { include '**/*.so' }.files.sort()
+            def libraries = outputs.files.asFileTree.matching {
+                include '**/*.so'
+                exclude android.packaging.jniLibs.keepDebugSymbols
+            }.files.sort()
             if (!libraries.isEmpty()) {
                 process.exec {
                     commandLine([stripper.absolutePath, '--strip-unneeded'] + libraries.collect { it.absolutePath })

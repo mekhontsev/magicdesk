@@ -4,7 +4,7 @@
 
 Review constraints for shared Android behavior. Capability and firmware evidence
 remain in [compatibility](compatibility.md) and the
-[vendor audit](nubia-vendor-audit.md).
+firmware audits for [Nubia](nubia-vendor-audit.md) and [Honor](honor-vendor-audit.md).
 
 - [Keep physical input independent of the IME](#keep-physical-input-independent-of-the-ime)
 - [Keep task transitions at the framework boundary](#keep-task-transitions-at-the-framework-boundary)

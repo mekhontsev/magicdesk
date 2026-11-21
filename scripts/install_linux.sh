@@ -47,6 +47,7 @@ defaults to automatic Turnip detection and a Wayland Plasma desktop.
                 Android Private DNS needs an explicit guest DNS choice
   --yes         Accept the selected configuration without questions
   --resume      Continue in --name NAME; detect distribution, preserve GUI by default
+                NixOS retains its saved protocol and build jobs unless specified
   --list        Show available distribution/profile combinations
   --print-system-setup  Print the guest setup script without running it
   --print-nixos-setup  Print the NixOS setup script without running it
@@ -121,9 +122,24 @@ DISTRO
     printf '%s\n' '    *) echo "Unsupported distribution: $ID" >&2; exit 1 ;;'
     cat <<'DISTRO'
 esac
+nonbooted_apt() (
+    policy=/usr/sbin/policy-rc.d
+    export MAGICDESK_PACKAGE_SETUP=1
+    if [ -e "$policy" ] || [ -L "$policy" ]; then exec "$@"; fi
+    owned=$(mktemp "$policy.XXXXXXXX")
+    trap 'if [ "$(readlink "$policy")" = "$owned" ]; then rm -f "$policy"; fi; rm -f "$owned"' 0
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    # Other package clients must remain unaffected, even if the installer is killed.
+    printf '%s\n' '#!/bin/sh' '[ "${MAGICDESK_PACKAGE_SETUP:-}" != 1 ] || exit 101' 'exit 0' > "$owned"
+    chmod 755 "$owned"
+    ln -sT "$owned" "$policy" || { [ -e "$policy" ] || [ -L "$policy" ]; }
+    "$@"
+)
 packages() {
     case "$family" in
-        apt) apt-get install -y --no-install-recommends "$@" </dev/null ;;
+        apt) nonbooted_apt apt-get install -y --no-install-recommends "$@" </dev/null ;;
         apk) apk add "$@" </dev/null ;;
         dnf) dnf -y --setopt=install_weak_deps=False install "$@" </dev/null ;;
         zypper) zypper --non-interactive install --no-recommends "$@" </dev/null ;;
@@ -4768,13 +4784,20 @@ if [ "${1:-}" = --ready ]; then
     # Called by the compositor after it publishes its child display endpoints.
     set --
     if session_manager; then set -- --systemd; fi
-    for variable in DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE PULSE_SERVER PIPEWIRE_REMOTE PIPEWIRE_RUNTIME_DIR; do
+    for variable in DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_DATA_DIRS PULSE_SERVER PIPEWIRE_REMOTE PIPEWIRE_RUNTIME_DIR; do
         if printenv "$variable" >/dev/null 2>&1; then set -- "$@" "$variable"; fi
     done
     exec dbus-update-activation-environment "$@"
 fi
 desktop=${1:?Expected xfce, weston, gnome, plasma-x11 or plasma-wayland}
 shift
+# A desktop can start without a login shell. Let the package add the selected
+# user's exports and any configured system installations, as it does at login.
+if [ -r /etc/profile.d/flatpak.sh ]; then
+    set +u
+    . /etc/profile.d/flatpak.sh
+    set -u
+fi
 [ ! -r /etc/profile.d/magicdesk-graphics.sh ] || . /etc/profile.d/magicdesk-graphics.sh
 [ ! -r /etc/profile.d/magicdesk-applications.sh ] || . /etc/profile.d/magicdesk-applications.sh
 if command -v magicdesk-flatpak-gl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
@@ -5106,10 +5129,18 @@ nixos_module() {
     cat <<'NIXOS_MODULE'
 { config, lib, pkgs, ... }:
 let
-  settings = builtins.fromJSON (builtins.readFile ./magicdesk-settings.json);
+  settingsFile = lib.findFirst (entry: entry.prefix == "magicdesk-installer-settings")
+    { path = ./magicdesk-settings.json; } builtins.nixPath;
+  settings = builtins.fromJSON (builtins.readFile settingsFile.path);
   selected = name: builtins.elem name settings.desktops;
   graphical = settings.desktops != [];
   turnip = settings.gpu == "turnip";
+  init = pkgs.runCommand "magicdesk-init" {} ''
+    mkdir -p $out/bin
+    cp ${./magicdesk-files/magicdesk-init} $out/bin/magicdesk-init
+    chmod +x $out/bin/magicdesk-init
+    patchShebangs $out/bin
+  '';
   tools = pkgs.runCommand "magicdesk-session-tools" {
     nativeBuildInputs = [ pkgs.bash pkgs.python3 ] ++ lib.optional turnip pkgs.stdenv.cc;
   } ''
@@ -5197,7 +5228,7 @@ in {
   services.openssh.enable = lib.mkOverride 900 false;
   system.stateVersion = lib.mkDefault "26.05";
   nix.settings = { max-jobs = 1; cores = settings.jobs; sandbox = true; };
-  environment.systemPackages = with pkgs; [ bashInteractive coreutils util-linux curl cacert git python3 iproute2 ]
+  environment.systemPackages = with pkgs; [ init bashInteractive coreutils util-linux curl cacert git python3 iproute2 ]
     ++ map (name: lib.attrByPath (lib.splitString "." name)
       (throw "Unknown Nix package attribute: ${name}") pkgs) settings.packages
     ++ lib.optionals graphical ([ tools mousepad thunar xfce4-terminal dbus
@@ -5372,17 +5403,23 @@ ln -sfn "$(readlink -f "$current")" /run/current-system
 NIXOS_END
 }
 
+nixos_image_shell() {
+    {
+        printf '%s\n' 'set -eu' '. /etc/os-release' '[ "$ID" = nixos ]' '[ "$VERSION_ID" = 26.05 ]'
+        cat
+    } | shroot exec "$name" --user 0:0 --env HOME=/root -- \
+        /nix/store/0m1nl6fyb2zn779if6aaswmbwmmdnlwr-bash-interactive-5.3p9/bin/bash -s
+}
+
 nixos_bootstrap() {
     # The official LXC archive has neither /bin/sh nor /etc/passwd until its
     # first activation. A configured generation never needs the pinned shell.
     if admin_exec "$name" -- /bin/sh -c ':' >/dev/null 2>&1; then return; fi
     {
-        printf '%s\n' 'set -eu' '. /etc/os-release' '[ "$ID" = nixos ] && [ "$VERSION_ID" = 26.05 ]'
         nixos_environment
         printf '%s\n' 'exec "$system/activate"'
         nixos_environment_end
-    } | shroot exec "$name" --user 0:0 --env HOME=/root -- \
-        /nix/store/0m1nl6fyb2zn779if6aaswmbwmmdnlwr-bash-interactive-5.3p9/bin/bash -s
+    } | nixos_image_shell
 }
 
 nixos_setup() {
@@ -5428,8 +5465,9 @@ user_list=
 [ -z "$new_user" ] || user_list="\"$new_user\""
 desktop_list=
 case "$gui" in none|keep) ;; *) desktop_list="\"$gui\"" ;; esac
+trap 'rm -f magicdesk-settings.json.new' 0
 nix-instantiate --eval --strict --json --expr "
-let defaults = { desktops = []; users = []; packages = []; locale = \"keep\"; timezone = \"keep\"; fonts = \"keep\"; gpu = \"software\"; };
+let defaults = { desktops = []; users = []; packages = []; locale = \"keep\"; timezone = \"keep\"; fonts = \"keep\"; gpu = \"software\"; protocol = \"both\"; jobs = 4; };
     old = defaults // (if builtins.pathExists ./magicdesk-settings.json then builtins.fromJSON (builtins.readFile ./magicdesk-settings.json) else {});
     unique = items: builtins.foldl' (result: item: if builtins.elem item result then result else result ++ [item]) [] items;
 in old // {
@@ -5440,9 +5478,12 @@ in old // {
     timezone = if \"$zone\" == \"keep\" then old.timezone else \"$zone\";
     fonts = if \"$fonts\" == \"keep\" then old.fonts else \"$fonts\";
     gpu = if \"$gpu\" == \"keep\" then old.gpu else \"$gpu\";
-    protocol = \"$protocol\"; jobs = $jobs;
+    protocol = if \"$protocol\" == \"keep\" then old.protocol else \"$protocol\";
+    jobs = if \"$jobs\" == \"keep\" then old.jobs else builtins.fromJSON \"$jobs\";
 }" > magicdesk-settings.json.new
-mv magicdesk-settings.json.new magicdesk-settings.json
+if [ "$jobs" = keep ]; then
+    jobs=$(nix-instantiate --eval --strict --json --expr '(builtins.fromJSON (builtins.readFile ./magicdesk-settings.json.new)).jobs')
+fi
 mkdir -p magicdesk-files
 cat > magicdesk.nix.new <<'NIXOS_MODULE'
 NIXOS_SETUP
@@ -5450,6 +5491,11 @@ NIXOS_SETUP
     cat <<'NIXOS_SETUP'
 NIXOS_MODULE
 mv magicdesk.nix.new magicdesk.nix
+cat > magicdesk-files/magicdesk-init <<'NIXOS_INIT'
+NIXOS_SETUP
+    init_session
+    cat <<'NIXOS_SETUP'
+NIXOS_INIT
 cat > magicdesk-files/magicdesk-desktop-session <<'NIXOS_DESKTOP'
 NIXOS_SETUP
     desktop_session
@@ -5557,8 +5603,10 @@ echo 'Building the NixOS system generation (packages and selected graphics)...'
 # to switch services in an unrelated Shroot launch; activation prepares files.
 # Only this trusted installer build opts out. The installed Nix configuration
 # retains sandboxing; activation and later user builds do not inherit overrides.
-nixos-rebuild boot --no-reexec --max-jobs 1 --cores "$jobs" \
+# Only this rebuild sees the candidate. Ordinary rebuilds and retries use the last success.
+nixos-rebuild boot --no-reexec -I "magicdesk-installer-settings=$PWD/magicdesk-settings.json.new" --max-jobs 1 --cores "$jobs" \
     --option sandbox false --option filter-syscalls false
+mv magicdesk-settings.json.new magicdesk-settings.json
 echo 'Activating the installed NixOS generation...'
 /nix/var/nix/profiles/system/activate
 ln -sfn "$(readlink -f /nix/var/nix/profiles/system)" /run/current-system
@@ -5577,10 +5625,13 @@ NIXOS_SETUP
 init_prepare() {
     cat <<'MD_INIT_PREPARE'
 set -eu
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/nix/var/nix/profiles/system/sw/bin
 export container=shroot SYSTEMD_LOG_TARGET=console SYSTEMD_LOG_LEVEL=info
 export SYSTEMD_LOG_COLOR=0 SYSTEMD_PAGER=cat LANG=C.UTF-8
 test "$$" = 1
+# Init's shared API directories must not inherit Android's private app umask.
+umask 022
+mkdir -p /run /tmp /var/tmp
 # Preserve the launch-owned input provider across the private /run mount.
 udev_mount=
 if mountpoint -q /run/udev; then
@@ -5627,6 +5678,50 @@ ln -s /proc/self/fd/1 /dev/stdout
 ln -s /proc/self/fd/2 /dev/stderr
 umount -l /run/md-host-dev
 rmdir /run/md-host-dev
+# Recovery images with this initrd layout keep persistent /etc in /var.
+# Expose it before PID 1 loads units and generators, not at local-fs.target.
+if [ -f /usr/lib/initcpio/hooks/etc_overlay ] && ! mountpoint -q /etc; then
+    # Keep the launch-owned resolver reachable above the recovery overlay.
+    resolver_mount=
+    if mountpoint -q /etc/resolv.conf; then
+        resolver_mount=$(mktemp /run/md-init-resolver.XXXXXXXX)
+        mount --move /etc/resolv.conf "$resolver_mount"
+    fi
+    mkdir -p /var/lib/overlays/etc/upper /var/lib/overlays/etc/work
+    mount -t overlay -o lowerdir=/etc,upperdir=/var/lib/overlays/etc/upper,workdir=/var/lib/overlays/etc/work overlay /etc
+    if [ -n "$resolver_mount" ]; then
+        mount --move "$resolver_mount" /etc/resolv.conf
+        rm "$resolver_mount"
+    fi
+fi
+# Libvirt's host-wide AIO tuning is optional in a container. Keep the requested
+# value and every other setting; procps' '-' prefix tolerates only this write's
+# failure. Native AIO and the reported kernel limit remain unchanged. Runtime
+# policy never replaces an administrator's higher-priority /etc configuration.
+for directory in /usr/local/lib/sysctl.d /usr/lib/sysctl.d /lib/sysctl.d; do
+    [ -f "$directory/60-libvirtd.conf" ] || continue
+    mkdir -p /run/sysctl.d
+    sed 's|^[[:blank:]]*\(fs[./]aio-max-nr[[:blank:]]*=\)|-\1|' \
+        "$directory/60-libvirtd.conf" > /run/sysctl.d/60-libvirtd.conf
+    break
+done
+# The launch configures eth0 without DHCP. Preserve that uplink when networkd
+# starts; earlier user profiles (or the same filename in /etc) can override it.
+mkdir -p /run/systemd/network
+cat > /run/systemd/network/80-magicdesk-uplink.network <<'EOF'
+[Match]
+Name=eth0
+[Network]
+DHCP=no
+IPv6AcceptRA=no
+LinkLocalAddressing=no
+KeepConfiguration=static
+EOF
+# Activation owns NixOS /etc and service links. Select the existing generation;
+# boot does not rebuild it or replace the user's declarative configuration.
+if [ -x /nix/var/nix/profiles/system/activate ]; then
+    /nix/var/nix/profiles/system/activate
+fi
 MD_INIT_PREPARE
 }
 
@@ -5639,14 +5734,20 @@ if [ "${1:-}" = --help ]; then
     echo 'Boot the installed init system with a guest-root console (or command).'
     exit 0
 fi
+init_command=
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/nix/var/nix/profiles/system/sw/bin
+for candidate in /sbin/openrc-init /usr/lib/systemd/systemd /lib/systemd/systemd /nix/var/nix/profiles/system/systemd/lib/systemd/systemd; do
+    if [ -x "$candidate" ]; then
+        init_command=$candidate
+        break
+    fi
+done
+[ -n "$init_command" ] || {
+    echo 'Install systemd or OpenRC to use magicdesk-init.' >&2; exit 1;
+}
 if [ "${1:-}" != --namespace-init ]; then
     [ "$(id -u)" = 0 ] || { echo 'Guest root is required for init.' >&2; exit 1; }
     tty >/dev/null || { echo 'Init requires a terminal; use script for a headless launch.' >&2; exit 1; }
-    if [ ! -x /sbin/openrc-init ]; then
-        [ -x /sbin/init ] && { [ -x /usr/lib/systemd/systemd ] || [ -x /lib/systemd/systemd ]; } || {
-            echo 'Install systemd or OpenRC to use magicdesk-init.' >&2; exit 1;
-        }
-    fi
     for tool in unshare mount mountpoint script; do
         command -v "$tool" >/dev/null || { echo "Missing init tool: $tool (install util-linux)." >&2; exit 1; }
     done
@@ -5661,7 +5762,11 @@ export PATH=/usr/local/sbin:/usr/local/bin:$PATH
 mount --make-rshared /
 # The caller already selected guest root. Retain that identity on the console;
 # do not change login policy or install a passwordless getty on other terminals.
-[ "$#" -gt 0 ] || set -- /bin/sh -l
+console_restart=no
+if [ "$#" = 0 ]; then
+    set -- /bin/sh -l
+    console_restart=always
+fi
 {
     printf '#!/bin/sh\nexec'
     for argument do
@@ -5677,7 +5782,7 @@ cat > /run/magicdesk-init-console <<'EOF'
 #!/bin/sh
 exec script -q -e -c 'exec /bin/sh /run/magicdesk-init-session' /dev/null </dev/console >/dev/console 2>&1
 EOF
-if [ -x /sbin/openrc-init ]; then
+if [ "$init_command" = /sbin/openrc-init ]; then
     # Scope container policy to this boot; preserve installed service enablement.
     cp /etc/rc.conf /run/rc.conf
     printf '\nrc_sys="docker"\n' >> /run/rc.conf
@@ -5689,31 +5794,40 @@ if [ -x /sbin/openrc-init ]; then
     fi
     # Keep the actual service directory/runlevels writable: installers must
     # persist newly installed services and their enablement across boots.
-    cat > /etc/init.d/magicdesk-session <<'EOF'
-#!/sbin/openrc-run
-supervisor=supervise-daemon
-command=/bin/sh
-command_args="/run/magicdesk-init-console"
+    {
+        printf '#!/sbin/openrc-run\n'
+        if [ "$console_restart" = always ]; then
+            printf 'supervisor=supervise-daemon\nrespawn_delay=1\n'
+        else
+            printf 'command_background=yes\n'
+        fi
+        cat <<'EOF'
+command=$(command -v script)
+command_args="-q -e -c 'exec /bin/sh /run/magicdesk-init-session' /dev/null"
+input_file=/dev/console
+output_log=/dev/console
+error_log=/dev/console
 pidfile=/run/magicdesk-session.pid
-respawn_delay=1
 start() { [ ! -f /run/magicdesk-init-session ] || default_start; }
 EOF
+    } > /etc/init.d/magicdesk-session
     chmod 755 /etc/init.d/magicdesk-session
     rc-update add magicdesk-session default
-    exec /sbin/openrc-init
+    exec "$init_command"
 fi
 mkdir -p /run/systemd/system/default.target.wants
-cat > /run/systemd/system/magicdesk-session.service <<'EOF'
+cat > /run/systemd/system/magicdesk-session.service <<EOF
 [Unit]
 After=basic.target
 Conflicts=shutdown.target console-getty.service
 Before=shutdown.target
 [Service]
+Environment="PATH=$PATH"
 ExecStart=/bin/sh /run/magicdesk-init-console
-Restart=always
+Restart=$console_restart
 EOF
 ln -s ../magicdesk-session.service /run/systemd/system/default.target.wants/
-exec /sbin/init
+exec "$init_command"
 MD_INIT_EXEC
 }
 
@@ -5803,28 +5917,31 @@ case "$family" in
             # Slim images exclude translations from newly installed GUI packages.
             printf 'path-include /usr/share/locale/*\n' > /etc/dpkg/dpkg.cfg.d/zz-magicdesk-locales
         fi
-        # Package services belong to Linux, not Android's service manager.
-        if [ ! -e /usr/sbin/policy-rc.d ]; then
-            printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
-            chmod 755 /usr/sbin/policy-rc.d
-        fi
-        dpkg --configure -a </dev/null
+        nonbooted_apt dpkg --configure -a </dev/null
         refresh_packages
         packages ca-certificates bash coreutils util-linux tzdata locales passwd ;;
     apk)
         refresh_packages
         packages ca-certificates bash coreutils util-linux tzdata musl-locales musl-locales-lang lang shadow ;;
-    dnf) packages ca-certificates bash coreutils util-linux tzdata glibc-langpack-en shadow-utils iptables-nft ;;
+    dnf)
+        packages ca-certificates bash coreutils util-linux tzdata glibc-langpack-en shadow-utils iptables-nft
+        # OCI bases can omit file capabilities even though RPM records them.
+        # Retain the package's narrow helper privileges, not a setuid override.
+        rpm --setcaps shadow-utils ;;
     zypper)
         refresh_packages
-        packages ca-certificates bash coreutils util-linux timezone glibc-locale glibc-i18ndata shadow iptables-backend-nft ;;
+        packages ca-certificates bash coreutils util-linux timezone glibc-locale glibc-i18ndata shadow iptables-backend-nft
+        rpm --setcaps shadow ;;
     xbps)
         refresh_packages
         packages ca-certificates bash coreutils util-linux tzdata glibc-locales shadow iptables-nft ;;
     pacman)
         arch_mirror_fallback /etc/pacman.d/mirrorlist
         refresh_packages
-        packages ca-certificates bash coreutils util-linux tzdata gzip ;;
+        packages ca-certificates bash coreutils util-linux tzdata gzip
+        # Rootfs archives may omit xattrs; --needed cannot repair file capabilities.
+        # Re-extract the package's own helper privileges, without setuid overrides.
+        pacman -S --noconfirm shadow </dev/null ;;
     recovery)
         refresh_packages
         dbus-uuidgen --ensure ;;
@@ -6435,9 +6552,15 @@ download_verified() {
 import_helper() { MAGICDESK_GUEST_HOME="$import_work/library" shroot "$@"; }
 
 prepare_downloads() {
-    environments=$(shroot list)
-    if printf '%s\n' "$environments" | cut -f1 | grep -Fxq "$name"; then
-        fail "Environment $name already exists; use --resume to continue setup."
+    # An explicit library need not exist until its first install. An existing
+    # or inaccessible catalog must still pass native admission before download.
+    library=${MAGICDESK_GUEST_HOME:-}
+    if [ -z "$library" ] || [ -e "$library" ] || [ -L "$library" ] ||
+        [ ! -x "$(dirname -- "$library")" ]; then
+        environments=$(shroot list)
+        if printf '%s\n' "$environments" | cut -f1 | grep -Fxq "$name"; then
+            fail "Environment $name already exists; use --resume to continue setup."
+        fi
     fi
     downloads=${downloads:-${HOME:?}/downloads}
     mkdir -p "$downloads"
@@ -6510,9 +6633,9 @@ prepare_recovery() {
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 require_magicdesk_version() {
-    command -v magicdesk >/dev/null 2>&1 || fail 'magicdesk is unavailable. Open a MagicDesk Shell console first.'
+    command -v magicdesk >/dev/null 2>&1 || fail 'magicdesk is unavailable. Open a MagicDesk User or Shell console first.'
     installed_magicdesk_version_code=$(magicdesk get_state --field data.app.versionCode) || \
-        fail "Cannot determine MagicDesk version. Use MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer and open a new Shell console."
+        fail "Cannot determine MagicDesk version. Use MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer and open a new User or Shell console."
     case "$installed_magicdesk_version_code" in
         ''|*[!0-9]*) fail 'Invalid MagicDesk versionCode; expected a non-negative Android version code.' ;;
     esac
@@ -6520,12 +6643,22 @@ require_magicdesk_version() {
         fail 'Invalid MagicDesk versionCode; expected a non-negative Android version code.'
     fi
     [ "$installed_magicdesk_version_code" -ge "$MIN_MAGICDESK_VERSION_CODE" ] || \
-        fail "This installer requires MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer (versionCode $MIN_MAGICDESK_VERSION_CODE; installed $installed_magicdesk_version_code). Update MagicDesk, open a new Shell console and try again."
+        fail "This installer requires MagicDesk $MIN_MAGICDESK_VERSION_NAME or newer (versionCode $MIN_MAGICDESK_VERSION_CODE; installed $installed_magicdesk_version_code). Update MagicDesk, open a new User or Shell console and try again."
 }
 ask() {
     printf '%s [%s]: ' "$1" "$2"
     IFS= read -r answer || fail 'Input closed.'
     answer=${answer:-$2}
+}
+ask_recipe_setting() {
+    if [ "$resume" = yes ]; then ask "$1 (empty = saved NixOS value, otherwise $2)" ''
+    else ask "$1" "$2"; fi
+}
+matches_setting() {
+    # grep matches individual lines, but each setting must match as a whole.
+    case "$1" in *'
+'*) return 1 ;; esac
+    printf '%s\n' "$1" | LC_ALL=C grep -Eq "$2"
 }
 android_locale() (
     # Read the active user's preference, not the app language or shell's LANG.
@@ -6543,7 +6676,7 @@ android_locale() (
     # Formatting extensions do not select another language/region. Do not guess
     # POSIX modifiers for script/variant tags or a region for language-only tags.
     base=${tag%%-u-*}
-    if printf '%s\n' "$base" | LC_ALL=C grep -Eq '^[a-z]{2,3}-[A-Z]{2}$'; then
+    if matches_setting "$base" '^[a-z]{2,3}-[A-Z]{2}$'; then
         printf '%s_%s.UTF-8\n' "${base%-*}" "${base#*-}"
     else
         printf 'Android locale has no unambiguous Linux mapping; retaining the guest locale. Use --locale to override.\n' >&2
@@ -6650,7 +6783,7 @@ admin_exec() (
     admin_target=$1
     shift
     # exec retains image HOME; setup must use the selected account's home instead.
-    exec shroot login "$admin_target" --user root "$@"
+    shroot login "$admin_target" --user root "$@"
 )
 package_exec() (
     package_target=$1
@@ -6682,10 +6815,9 @@ distro=
 name=
 image=
 gui=
-protocol=both
+protocol=
 gpu=
-jobs=4
-jobs_selected=no
+jobs=
 locale_name=
 zone=
 new_user=
@@ -6703,7 +6835,7 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] && [ -n "$2" ] || fail "Missing value for $1"
             case "$1" in
                 --distro) distro=$2 ;; --name) name=$2 ;; --image) image=$2 ;; --gui) gui=$2 ;;
-                --protocol) protocol=$2 ;; --gpu) gpu=$2 ;; --jobs) jobs=$2; jobs_selected=yes ;; --locale) locale_name=$2 ;;
+                --protocol) protocol=$2 ;; --gpu) gpu=$2 ;; --jobs) jobs=$2 ;; --locale) locale_name=$2 ;;
                 --timezone) zone=$2 ;; --create-user) new_user=$2 ;; --fonts) fonts=$2 ;;
                 --cache) cache=$2 ;;
                 --package) extras="${extras:+$extras }$2" ;; --dns) dns=$2 ;;
@@ -6722,8 +6854,7 @@ if [ "$resume" = yes ]; then
     [ -z "$dns" ] && [ -z "$image" ] || fail '--resume retains image and DNS; use shroot dns to change DNS.'
 fi
 
-command -v shroot >/dev/null 2>&1 || fail 'Open a MagicDesk Shell console with shell access first.'
-case "$(id -u)" in 2000|0) ;; *) fail 'Shroot requires the selected Android shell (UID 2000) or root executor.' ;; esac
+command -v shroot >/dev/null 2>&1 || fail 'Open a MagicDesk User or Shell console with Shroot available first. This installer does not install PRoot environments.'
 require_magicdesk_version
 if [ "$yes" = no ]; then
     [ -t 0 ] || fail 'Interactive input is unavailable. Save the script before running it, or use --yes.'
@@ -6746,8 +6877,8 @@ if [ "$yes" = no ]; then
         if [ "$distro" = steamos ] && [ "$resume" = no ]; then default_gpu=auto; fi
         ask 'Graphics: keep/software/auto/turnip (Adreno KGSL; builds Mesa)' "$default_gpu"; gpu=$answer
     fi
-    if { [ "$gpu" = turnip ] || [ "$gpu" = auto ] || [ "$gui" = plasma ] || [ "$gui" = weston ]; } && [ "$jobs_selected" = no ]; then
-        ask 'Compiler jobs for Mesa/KWin/Weston (1-8)' "$jobs"; jobs=$answer
+    if { [ "$gpu" = turnip ] || [ "$gpu" = auto ] || [ "$gui" = plasma ] || [ "$gui" = weston ]; } && [ -z "$jobs" ]; then
+        ask_recipe_setting 'Compiler jobs for Mesa/KWin/Weston (1-8)' 4; jobs=$answer
     fi
     if [ -z "$locale_name" ]; then
         default_locale=system; [ "$resume" = no ] || default_locale=keep
@@ -6764,7 +6895,9 @@ if [ "$yes" = no ]; then
         y|Y|yes|YES)
             if [ -z "$new_user" ]; then ask 'Create guest user (empty = no new account)' ''; new_user=$answer; fi
             if [ "$distro" != steamos ]; then
-                ask 'Installer application entries: both/x11/wayland' "$protocol"; protocol=$answer
+                if [ -z "$protocol" ]; then
+                    ask_recipe_setting 'Installer application entries: both/x11/wayland' both; protocol=$answer
+                fi
                 ask 'Additional repository packages (space-separated)' "$extras"; extras=$answer
             fi
             if [ "$resume" = no ] && [ -z "$dns" ]; then
@@ -6791,12 +6924,12 @@ dns=${dns:-system}
 case "$name" in ''|[!A-Za-z0-9]*|*[!A-Za-z0-9_.-]*) fail 'Invalid environment name.' ;; esac
 [ "${#name}" -le 64 ] || fail 'Name must be at most 64 characters.'
 case "$gui" in none|apps|xfce|weston|plasma|gnome|keep) ;; *) fail 'Invalid GUI profile.' ;; esac
-case "$protocol" in both|x11|wayland) ;; *) fail 'Protocol must be both, x11 or wayland.' ;; esac
+case "$protocol" in ''|both|x11|wayland) ;; *) fail 'Protocol must be both, x11 or wayland.' ;; esac
 case "$gpu" in keep|software|turnip|auto) ;; *) fail 'GPU must be keep, software, auto or turnip.' ;; esac
-case "$jobs" in [1-8]) ;; *) fail 'Jobs must be between 1 and 8.' ;; esac
+case "$jobs" in ''|[1-8]) ;; *) fail 'Jobs must be between 1 and 8.' ;; esac
 case "$locale_name" in
     keep|C.UTF-8) ;;
-    *) printf '%s\n' "$locale_name" | grep -Eq '^[a-z]{2,3}_[A-Z]{2}\.UTF-8$' || fail 'Expected a UTF-8 locale such as en_US.UTF-8.' ;;
+    *) matches_setting "$locale_name" '^[a-z]{2,3}_[A-Z]{2}\.UTF-8$' || fail 'Expected a UTF-8 locale such as en_US.UTF-8.' ;;
 esac
 if [ "$zone" = system ]; then
     command -v getprop >/dev/null 2>&1 || fail 'Android timezone is unavailable; supply an IANA timezone.'
@@ -6805,19 +6938,25 @@ if [ "$zone" = system ]; then
 fi
 case "$zone" in ''|/*|*..*|*[!A-Za-z0-9_+/-]*) fail 'Invalid IANA timezone.' ;; esac
 if [ -n "$new_user" ]; then
-    printf '%s\n' "$new_user" | grep -Eq '^[a-z_][a-z0-9_-]{0,30}$' || fail 'Invalid guest account name.'
+    matches_setting "$new_user" '^[a-z_][a-z0-9_-]{0,30}$' || fail 'Invalid guest account name.'
     [ "$new_user" != root ] || fail 'The root account already exists; --create-user creates an ordinary account.'
 fi
 case "$fonts" in basic|cjk|keep) ;; *) fail 'Fonts must be basic, cjk or keep.' ;; esac
 case "$cache" in keep|clean) ;; *) fail 'Cache must be keep or clean.' ;; esac
 if [ -n "$extras" ]; then
-    printf '%s\n' "$extras" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9+_.-]*( [A-Za-z0-9][A-Za-z0-9+_.-]*)*$' || fail 'Expected repository package names, not options or shell commands.'
+    matches_setting "$extras" '^[A-Za-z0-9][A-Za-z0-9+_.-]*( [A-Za-z0-9][A-Za-z0-9+_.-]*)*$' || fail 'Expected repository package names, not options or shell commands.'
 fi
 
 # Read-only validation precedes every existing-environment mutation.
+initial_activation=no
 if [ "$resume" = yes ]; then
-    [ "$distro" != nixos ] || nixos_bootstrap
-    detected=$(admin_exec "$name" -- /bin/sh -c '. /etc/os-release; printf "%s\n" "$ID"')
+    if ! detected=$(admin_exec "$name" -- /bin/sh -c '. /etc/os-release; printf "%s\n" "$ID"'); then
+        { [ -z "$distro" ] || [ "$distro" = nixos ]; } &&
+            printf '%s\n' '[ ! -x /bin/sh ] || [ ! -s /etc/passwd ]' | nixos_image_shell ||
+            fail 'Cannot identify the existing distribution; setup was not applied.'
+        detected=nixos
+        initial_activation=yes
+    fi
     detected=$(distribution_id "$detected")
     [ -z "$distro" ] || [ "$distro" = "$detected" ] || fail 'Selected distribution does not match the existing environment.'
     distro=$detected
@@ -6825,6 +6964,11 @@ else
     distro=${distro:-debian}
 fi
 recipe_defaults
+if [ "$resume" = yes ] && [ "$distro" = nixos ]; then
+    protocol=${protocol:-keep}; jobs=${jobs:-keep}
+else
+    protocol=${protocol:-both}; jobs=${jobs:-4}
+fi
 if [ "$distro" = steamos ]; then
     [ -z "$image" ] || fail 'SteamOS uses its pinned official recovery archive, not --image.'
     { [ "$gui" = keep ] || [ "$gui" = plasma ]; } && [ "$fonts" = keep ] && [ -z "$extras" ] \
@@ -6837,6 +6981,7 @@ if [ -n "$image" ]; then source_kind=oci; else image=$source; fi
 [ "$resume" = yes ] || check_dns
 
 printf '\n%s %s ARM64 | %s | GUI=%s | graphics=%s\n' "$distro" "$version" "$name" "$gui" "$gpu"
+printf 'Library: %s | runtime: Shroot (managed)\n' "${MAGICDESK_GUEST_HOME:-$HOME/linux}"
 printf 'Locale=%s | timezone=%s | fonts=%s | application entries=%s\n' "$locale_name" "$zone" "$fonts" "$protocol"
 printf 'Guest account=%s | extra packages=%s | package cache=%s\n' "${new_user:-unchanged}" "${extras:-none}" "$cache"
 if [ "$gpu" = turnip ] || [ "$gpu" = auto ] || [ "$gui" = plasma ] || [ "$gui" = weston ]; then
@@ -6854,10 +6999,11 @@ fi
 
 stage='checking Shroot'
 ready=no
+import_committed=no
 finish() {
     status=$?
     if [ -n "$import_work" ]; then
-        if [ "$status" -eq 0 ] || [ "$ready" = yes ]; then
+        if [ "$import_committed" = yes ]; then
             if import_helper remove unpack && import_helper prune; then
                 rm -rf "$import_work"
             else
@@ -6869,7 +7015,7 @@ finish() {
     fi
     if [ "$status" -ne 0 ]; then
         printf '\nInstallation stopped while %s (exit %s).\n' "$stage" "$status" >&2
-        if [ "$ready" = yes ]; then
+        if [ "$import_committed" = yes ] || [ "$ready" = yes ]; then
             printf 'Environment retained. Repeat your options with --name %s --resume (do not reinstall).\n' "$name" >&2
             printf 'GUI=%s GPU=%s jobs=%s locale=%s timezone=%s fonts=%s\n' \
                 "$gui" "$gpu" "$jobs" "$locale_name" "$zone" "$fonts" >&2
@@ -6894,14 +7040,19 @@ if [ "$resume" = no ]; then
         rootfs) shroot install "$image" --rootfs --name "$name" --dns "$dns" ;;
         oci) shroot install "$image" --name "$name" --dns "$dns" ;;
     esac
+    import_committed=yes
     if [ "$dns" != preserve ]; then
         stage='applying selected DNS to the new environment'
-        shroot dns "$name" "$dns" --replace
+        shroot dns "$name" "$dns" --replace || {
+            dns_status=$?
+            printf 'Retry DNS first: shroot dns %s %s --replace\n' "$name" "$dns" >&2
+            exit "$dns_status"
+        }
     fi
-    if [ "$distro" = nixos ]; then
-        stage='activating the official NixOS image'
-        nixos_bootstrap
-    fi
+fi
+if [ "$distro" = nixos ] && { [ "$resume" = no ] || [ "$initial_activation" = yes ]; }; then
+    stage='activating the official NixOS image'
+    nixos_bootstrap
 fi
 stage='validating the selected environment'
 admin_exec "$name" -- /bin/sh -c '
@@ -7048,7 +7199,7 @@ case "$gui" in
         esac ;;
 esac
 printf 'Terminal: Terminal sessions > New session > Shroot environments > %s > New session.\n' "$name"
-printf 'Keep privileged access available; no MagicDesk Desktop session or installer rerun is needed.\n'
+printf 'No MagicDesk Desktop session or installer rerun is needed.\n'
 printf 'Console: shroot login %s\n' "$name"
 [ "$distro" != steamos ] || printf '%s\n' 'SteamOS uses the steamos guest account. Open Steam from Apps; its own updater may download client components.' 'For x86 Linux games using FEX, set Steam Launch Options: magicdesk-steam-game %command%' 'This installs Linux userspace, not SteamOS boot, recovery or VR services. GPU/game compatibility is a separate check.'
 if [ -n "$new_user" ]; then printf 'User console: shroot login %s --user %s\n' "$name" "$new_user"; fi

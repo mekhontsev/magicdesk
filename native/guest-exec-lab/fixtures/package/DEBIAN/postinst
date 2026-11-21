@@ -1,3 +1,0 @@
-#!/bin/sh
-set -eu
-printf 'configured\n' > /usr/share/md-package-fixture/configured

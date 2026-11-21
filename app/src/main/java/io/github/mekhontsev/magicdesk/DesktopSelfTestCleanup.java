@@ -28,16 +28,13 @@ final class DesktopSelfTestCleanup {
     private DesktopSelfTestCleanup() {
     }
 
-    static void run(
-            final DesktopSelfTestResult result,
-            final DesktopSelfTestTarget target,
-            final int displayId,
-            final SimulatedDisplayLease lease) {
+    static void run(final DesktopSelfTestResult result, final DesktopSelfTestTarget target,
+            final int displayId, final SimulatedDisplayLease lease, final boolean desktopAttempted) {
         final StringBuilder detail = new StringBuilder();
         final Set<Integer> phoneFixtureTaskIds = new LinkedHashSet<>();
         final Set<Integer> ownedFixtureTaskIds = new LinkedHashSet<>();
         boolean clean = true;
-        boolean sessionClosed = displayId < Display.DEFAULT_DISPLAY;
+        boolean sessionClosed = !desktopAttempted || displayId < Display.DEFAULT_DISPLAY;
         // Display loss has its own production destination: the phone panel.
         // Determine it from lifecycle state, never from whichever window is visible.
         final boolean displayAlreadyRemoved = displayId > Display.DEFAULT_DISPLAY
@@ -55,7 +52,7 @@ final class DesktopSelfTestCleanup {
             detail.append("fixture removal: ")
                     .append(usefulMessage(error)).append("; ");
         }
-        if (displayId >= Display.DEFAULT_DISPLAY) {
+        if (desktopAttempted && displayId >= Display.DEFAULT_DISPLAY) {
             try {
                 closeDesktopSessionAndWait(displayId);
                 sessionClosed = true;
@@ -70,7 +67,7 @@ final class DesktopSelfTestCleanup {
                         .append(usefulMessage(error)).append("; ");
             }
         }
-        if (displayId >= Display.DEFAULT_DISPLAY
+        if (desktopAttempted && displayId >= Display.DEFAULT_DISPLAY
                 && (target == DesktopSelfTestTarget.PHONE
                         || target == DesktopSelfTestTarget.SIMULATED)) {
             try {
@@ -182,7 +179,7 @@ final class DesktopSelfTestCleanup {
                         : DesktopSelfTestResult.State.FAIL,
                 "CLEANUP-001", "Restore self-test environment",
                 clean ? "target=" + target + ", complete" : detail.toString());
-        if (displayId >= Display.DEFAULT_DISPLAY) {
+        if (desktopAttempted && displayId >= Display.DEFAULT_DISPLAY) {
             verifyPhoneDestination(result, displayAlreadyRemoved);
         }
     }

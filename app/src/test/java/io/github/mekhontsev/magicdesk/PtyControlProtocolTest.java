@@ -8,6 +8,18 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 
 public final class PtyControlProtocolTest {
+    @Test public void sharedHandshakeRetainsEndpointAndDoesNotConsumeOutput() throws Exception {
+        var bytes = new java.io.ByteArrayInputStream(
+                "MAGICDESK_PTY 123 456 /dev/pts/7\nhello".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        org.junit.Assert.assertEquals(new PtyEndpoint(123, 456, "/dev/pts/7"), PtyControlProtocol.readEndpoint(bytes));
+        org.junit.Assert.assertEquals('h', bytes.read());
+        for (String bad : new String[]{"", "MAGICDESK_PTY 123 456 /dev/pts/7",
+                "MAGICDESK_PTY 0 456 /dev/pts/7\n", "x".repeat(193) + "\n"}) {
+            org.junit.Assert.assertThrows(java.io.IOException.class, () -> PtyControlProtocol.readEndpoint(
+                    new java.io.ByteArrayInputStream(bad.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        }
+    }
+
     @Test
     public void dataFrameUsesNetworkOrderLength() throws Exception {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();

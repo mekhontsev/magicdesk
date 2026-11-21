@@ -56,6 +56,7 @@ public final class FullscreenReservationRecoveryTest {
                     static int getTaskDisplayAreaFeatureId(Object task) { return ((Task) task).feature; }
                 }
                 final Map<Integer, TaskDisplayAreaHandle> mPlanes = new LinkedHashMap<>();
+                final Map<Integer, Float> mRestoreScales = new LinkedHashMap<>();
                 final Map<TaskDisplayAreaHandle, Integer> mPlaneAnchorTaskIds = new LinkedHashMap<>();
                 final Set<TaskDisplayAreaHandle> mUnconfirmedPlanes = new LinkedHashSet<>();
                 final List<Integer> mPlaneOrder = new ArrayList<>();

@@ -78,6 +78,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         return mPlanes.launchGuard();
     }
 
+    void prepareLaunch(Object service, int displayId) throws ReflectiveOperationException {
+        mPlanes.prepareLaunch(service, displayId);
+    }
+
     synchronized boolean ownsFocusTarget(
             final Object service,
             final int displayId,

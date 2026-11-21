@@ -65,6 +65,14 @@ final class DesktopSelfTestController {
             final int resultTaskId,
             final DesktopSelfTestExecutionPolicy executionPolicy,
             final long requestedRunId) {
+        return run(context, requestedTarget, resultTaskId, executionPolicy, requestedRunId,
+                requestedTarget == DesktopSelfTestTarget.PHONE ? DesktopDisplayTarget.phone() : null);
+    }
+
+    static DesktopSelfTestResult run(final Context context,
+            final DesktopSelfTestTarget requestedTarget, final int resultTaskId,
+            final DesktopSelfTestExecutionPolicy executionPolicy, final long requestedRunId,
+            final DesktopDisplayTarget selectedDisplay) {
         final long startedAtMillis = System.currentTimeMillis();
         final DesktopSelfTestTarget target = requestedTarget == null
                 ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
@@ -95,14 +103,8 @@ final class DesktopSelfTestController {
         if (!DesktopSelfTestHostObserver.isActive(runId)) {
             DesktopSelfTestHostObserver.begin(runId);
         }
-        // Preparation may already own a session when Stop races with this
-        // worker's start. Even precondition exits must close that session.
-        final int preparedDisplayId = DesktopSelfTestRunState.preparedDisplayId();
-        int displayId = target.matchesDisplay(preparedDisplayId,
-                DesktopRuntimeBridge.getDesktopTarget(preparedDisplayId))
-                && DesktopRuntimeBridge.getSessionSnapshot(DesktopSelfTestRunState.preparedDisplayId()).policy()
-                        == DesktopSessionPolicy.ISOLATED_SELF_TEST
-                ? preparedDisplayId : Display.INVALID_DISPLAY;
+        int displayId = Display.INVALID_DISPLAY;
+        DesktopDisplayTarget displayTarget = selectedDisplay;
         SimulatedDisplayLease lease = null;
         WorkspaceIsolationLease workspaceLease = null;
         PhoneOrientationLease orientationLease = null;
@@ -142,15 +144,12 @@ final class DesktopSelfTestController {
             workspaceLease = WorkspaceIsolationLease.open();
             staleTransitionBaseline = inspectWindowTransitionPrecondition(
                     appContext, result);
-            if (target == DesktopSelfTestTarget.PHONE) {
-                preparePhoneSystemPanel(result);
-            }
+            requireNoActiveDesktop(appContext, result);
             if (!DesktopSelfTestCapabilityAudit.run(
-                    appContext, result, target)) {
+                    appContext, result, target, selectedDisplay)) {
                 throw new AbortSelfTest();
             }
             if (target == DesktopSelfTestTarget.SIMULATED) {
-                requireNoActiveDesktop(appContext, result);
                 final boolean existingOverlay =
                         inspectConfiguredOverlay(result);
                 requireNoStaleDesktopRepositories(result);
@@ -185,12 +184,16 @@ final class DesktopSelfTestController {
                                     android.util.DisplayMetrics.DENSITY_DEFAULT);
                             return "dpi=" + android.util.DisplayMetrics.DENSITY_DEFAULT;
                         });
+                displayTarget = DesktopDisplayTarget.simulated(displayId);
             } else {
-                displayId = requirePreparedDisplay(target, result);
-                workspaceLease.adoptPreparedSession(displayId);
+                displayId = requireSelectedDisplay(target, selectedDisplay, result);
             }
+            if (target == DesktopSelfTestTarget.PHONE) {
+                preparePhoneSystemPanel(result);
+            }
+            DesktopSelfTestFreeformProbe.run(appContext, displayId, result);
             DesktopSelfTestWindowSuite.run(
-                    appContext, target, displayId, result, workspaceLease);
+                    appContext, target, displayTarget, result, workspaceLease);
             // Custom suites may finish without another Steps.require/check.
             // Honour Stop before starting expected display destruction.
             DesktopSelfTestRunState.checkpoint();
@@ -223,8 +226,10 @@ final class DesktopSelfTestController {
                     "Remaining self-test workflow",
                     "stopped after " + stopped.code
                             + "; cleanup and final diagnostics still run");
-        } catch (AbortSelfTest ignored) {
-            // The failing required step has already been added to the result.
+        } catch (AbortSelfTest failed) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "SELFTEST-REMAINING", "Remaining dependent desktop checks",
+                    "not reached after " + failed.code + "; cleanup still runs");
         } catch (RuntimeException error) {
             result.disarm();
             result.add(DesktopSelfTestResult.State.FAIL,
@@ -285,7 +290,8 @@ final class DesktopSelfTestController {
                 }
             } finally {
                 DesktopSelfTestCleanup.run(
-                        result, target, displayId, displayLease);
+                        result, target, displayId, displayLease,
+                        workspaceLease != null && workspaceLease.startAttempted());
             }
         } finally {
             try {
@@ -575,32 +581,20 @@ final class DesktopSelfTestController {
                 ? platformDisplay : Display.INVALID_DISPLAY;
     }
 
-    private static int requirePreparedDisplay(
+    private static int requireSelectedDisplay(
             final DesktopSelfTestTarget target,
+            final DesktopDisplayTarget displayTarget,
             final DesktopSelfTestResult result) throws AbortSelfTest {
-        final int displayId = DesktopSelfTestRunState.preparedDisplayId();
-        final DesktopDisplayTarget displayTarget =
-                DesktopRuntimeBridge.getDesktopTarget(displayId);
-        if (!target.matchesDisplay(displayId, displayTarget)) {
+        final int displayId = displayTarget == null ? Display.INVALID_DISPLAY
+                : displayTarget.workspaceDisplayId;
+        if (!target.matchesDisplay(displayId, displayTarget)
+                || !ExternalDisplayController.displayExists(displayId)) {
             failAndAbort(result,
-                    "SELFTEST-PRECONDITION-001",
-                    "Selected desktop session is ready",
-                    "active display=" + displayId + ", target=" + target);
-        }
-        if (target == DesktopSelfTestTarget.EXTERNAL) {
-            if (displayTarget.output.kind != DesktopDisplayOutput.Kind.WIRED
-                    && displayTarget.output.kind
-                            != DesktopDisplayOutput.Kind.WIRELESS) {
-                failAndAbort(result,
-                        "SELFTEST-PRECONDITION-001",
-                        "Selected desktop session is ready",
-                        "external transport is unavailable: "
-                                + displayTarget.output.kind);
-            }
+                    "SELFTEST-TARGET-002", "Selected display is available",
+                    "display=" + displayId + ", target=" + target);
         }
         result.add(DesktopSelfTestResult.State.PASS,
-                "SELFTEST-PRECONDITION-001",
-                "Selected desktop session is ready",
+                "SELFTEST-TARGET-002", "Selected display is available",
                 "target=" + target + ", display=" + displayId);
         return displayId;
     }

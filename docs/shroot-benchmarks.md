@@ -53,6 +53,15 @@ three file loops, application correctness or desktop responsiveness. Compare
 candidate and reference bundles interleaved on the same store; fewer traced
 stops alone do not establish a speedup.
 
+### Native Bundle Comparison
+
+The independent native bundle also has a focused interleaved Android comparison
+against the integrated backend, using the same Alpine store and guest binary
+without instrumentation and with CPU-frequency observations. Sustained poll/epoll
+medians differ by less than one percent; repeated open/close shows no slowdown.
+This checks native integration, not a new chroot/PRoot comparison or a complete
+performance matrix. The README ratios above retain their original measured scope.
+
 ## Method
 
 - Device: nubia NX809J, Android 16/API 36, Linux 6.12.23, AArch64.
@@ -81,9 +90,9 @@ remain possible.
 
 ## Reproduction
 
-Use [benchmark_compile.py](../native/guest-exec-lab/benchmark_compile.py) and an
+Use [benchmark_compile.py](https://github.com/mekhontsev/magicdesk/blob/develop/tests/shroot/benchmark_compile.py) and an
 independent build-only sysroot, not a running user's desktop environment.
-[Developer workflows](../native/guest-exec-lab/developer-workflows.md) describe
+[Developer workflows](https://github.com/mekhontsev/shroot/blob/develop/tests/developer-workflows.md) describe
 preparation, identity requirements and diagnostic counters.
 
 The source is the official
@@ -96,7 +105,7 @@ image service with hardlinks preserved and unmodified libraries/compiler.
 To reproduce the file-series configuration:
 
 ```sh
-python native/guest-exec-lab/benchmark_compile.py WORK_DIRECTORY \
+python tests/shroot/benchmark_compile.py WORK_DIRECTORY \
   --sqlite SQLITE_AMALGAMATION_DIRECTORY --runtime NATIVE_BUNDLE \
   --cpu-mask 3 --workload file-stat --iterations 1024 --file-blocks 16 \
   --rounds 5 --warmups 1

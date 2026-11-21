@@ -5,6 +5,7 @@ final class FrameworkRuntime {
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
     private FrameworkDisplayBrightnessApi mDisplayBrightnessApi;
     private FrameworkSystemThemeApi mSystemThemeApi;
+    private FrameworkChildProcessApi mChildProcessApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
     private FrameworkInputInjectionApi mInputInjectionApi;
     private FrameworkInputMethodApi mInputMethodApi;
@@ -57,6 +58,12 @@ final class FrameworkRuntime {
     synchronized FrameworkSystemThemeApi systemTheme() throws ReflectiveOperationException {
         if (mSystemThemeApi == null) mSystemThemeApi = new FrameworkSystemThemeApi();
         return mSystemThemeApi;
+    }
+
+    synchronized FrameworkChildProcessApi childProcesses()
+            throws ReflectiveOperationException, java.io.IOException {
+        if (mChildProcessApi == null) mChildProcessApi = new FrameworkChildProcessApi();
+        return mChildProcessApi;
     }
 
     synchronized FrameworkVirtualDisplayApi virtualDisplays()

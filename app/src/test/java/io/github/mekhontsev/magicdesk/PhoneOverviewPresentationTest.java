@@ -3,6 +3,14 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class PhoneOverviewPresentationTest {
+    @Test public void independentWorkspaceCannotRedirectSystemRecents() throws Exception {
+        verify("""
+                lease.homeRole = false;
+                expectFailure(callback, "not active");
+                check(presentations == 0 && launches == 0, "independent workspace redirected Recents");
+                """);
+    }
+
     @Test public void phoneOverviewOnlyRevealsTaskbarWithoutHomeLaunch() throws Exception {
         verify("""
                 callback.presentHomeFromRecents();
@@ -79,6 +87,7 @@ public final class PhoneOverviewPresentationTest {
                 static class DesktopHomeRoleLease {
                     enum Phase { ACTIVE, RELEASING }
                     static class State {
+                        boolean homeRole = true;
                         Phase phase = Phase.ACTIVE;
                         DesktopDisplayTarget targetForDisplay(int id) {
                             check(id == 0, "Overview targeted another display");

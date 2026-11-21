@@ -117,6 +117,9 @@ public final class HostedWindowPresentationTest {
                 record Window(long id) { }
                 static class Session implements HostedWindowPresentation.Session {
                     int changes, failures, otherHost = -1;
+                    boolean background;
+                    public boolean backgroundOutput() { return background; }
+                    public void viewerAttached() { background = false; }
                     long parent;
                     int parentTask = -1;
                     State state = State.READY;
@@ -273,6 +276,21 @@ public final class HostedWindowPresentationTest {
                 familyPresentation.host(retainedViewer); Handler.drain();
                 familyPresentation.close();
                 check(retainedViewer.surface.listeners == 0, "session close removes observers");
+                var background = new X11Sessions.Session();
+                var headless = new HostedWindowPresentation(new Context(), background);
+                var viewer = new ContentActivity(60, 0);
+                headless.host(viewer); Handler.drain();
+                background.background = true;
+                headless.detachOutputs();
+                check(viewer.finishing && headless.hasOutputs(), "offscreen waits for actual output teardown");
+                check(!headless.present(1), "no replacement Activity during offscreen handoff");
+                headless.host(viewer);
+                check(background.background, "late focus of finishing viewer cannot cancel handoff");
+                headless.hostRemoved(viewer, 1, false);
+                check(!headless.hasOutputs() && background.changes > 1, "teardown wakes offscreen owner");
+                viewer = new ContentActivity(61, 4);
+                headless.host(viewer); Handler.drain();
+                check(!background.background, "new viewer hands ownership back to Android");
             }
             """);
     }

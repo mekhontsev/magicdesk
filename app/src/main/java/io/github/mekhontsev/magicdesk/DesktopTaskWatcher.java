@@ -43,7 +43,7 @@ final class DesktopTaskWatcher {
                 boolean backgroundAppFullscreenReleased);
         void onFreeformBoundsChanged(
                 int generation,
-                FrameworkTaskSnapshot task);
+                FrameworkTaskSnapshot previous, FrameworkTaskSnapshot task);
         void onInputFocusRefreshRequired(
                 int generation, int focusedTaskId);
         void onTaskFocusChanged(
@@ -151,6 +151,7 @@ final class DesktopTaskWatcher {
         final Rect requestedDisplayBounds = new Rect(displayBounds);
         final Rect requestedWorkAreaBounds = new Rect(workAreaBounds);
         final DesktopCompatibilityPolicy compatibility = DesktopCompatibilitySettings.current();
+        final boolean homeRole = DesktopHomeRoleLease.usesHomeRole(displayId);
         try {
             // A transition can hold the shell topology lock while awaiting a
             // frame from this process. Configuration must never block its UI.
@@ -158,7 +159,7 @@ final class DesktopTaskWatcher {
                 try {
                     mConfigurationOperations.executeIfCurrent(ticket, () -> {
                         handle.configure(displayId, requestedDisplayBounds,
-                                requestedWorkAreaBounds, desktopHostTaskId, compatibility);
+                                requestedWorkAreaBounds, desktopHostTaskId, homeRole, compatibility);
                         handle.setExternalTaskMigrationProtection(protectExternalTasks);
                     });
                 } catch (IOException | RuntimeException error) {
@@ -931,8 +932,8 @@ final class DesktopTaskWatcher {
     }
 
     private void onFreeformBoundsChanged(
-            final int generation, final FrameworkTaskSnapshot task) {
-        postIfActive(generation, () -> mListener.onFreeformBoundsChanged(generation, task));
+            final int generation, final FrameworkTaskSnapshot previous, final FrameworkTaskSnapshot task) {
+        postIfActive(generation, () -> mListener.onFreeformBoundsChanged(generation, previous, task));
     }
 
     private void onWorkspaceCommandResult(
@@ -1202,8 +1203,8 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void onFreeformBoundsChanged(final FrameworkTaskSnapshot task) {
-            mOwner.onFreeformBoundsChanged(mGeneration, task);
+        public void onFreeformBoundsChanged(final FrameworkTaskSnapshot previous, final FrameworkTaskSnapshot task) {
+            mOwner.onFreeformBoundsChanged(mGeneration, previous, task);
         }
 
         @Override
@@ -1309,6 +1310,7 @@ final class DesktopTaskWatcher {
                     DesktopHomeRoleLease.snapshot();
             if (!mOwner.mListener.isActive(mGeneration)
                     || lease == null
+                    || !lease.homeRole
                     || lease.phase != DesktopHomeRoleLease.Phase.ACTIVE) {
                 throw new IllegalStateException(
                         "desktop HOME activity launcher is not active");

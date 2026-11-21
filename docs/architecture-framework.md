@@ -212,9 +212,11 @@ isolated behind these boundaries.
   of `redmagic.app.manager` keeps the vendor property writer out of Device
   Setup without suppressing unrelated APIs retained by a hybrid ROM.
   `PlatformDriver` exposes only existing variation points.
-  `PlatformWindowingDriver` owns optional provisioning properties;
+  `PlatformWindowingDriver` owns optional provisioning properties and firmware
+  task-scale observation/transaction fields;
   `PlatformProjectionDriver` owns output modes, wireless-launch integration,
-  and caption transport; `PlatformPhoneUiDriver` owns phone-screen power control;
+  and caption transport; the Android `PlatformPhoneUiDriver` exposes shared
+  phone-panel power capability through `PhoneDisplayGuard`;
   `PlatformPointerDriver` owns optional read-only cursor observation. On Nubia
   firmware this is implemented by `NubiaDesktopPointerDriver` over the hidden
   global position query. Physical input
@@ -233,11 +235,37 @@ isolated behind these boundaries.
   vendor or shell path may still host MagicDesk on display 0 when it is false.
   The actual phone-desktop behavior is verified by the same self-test used for
   other display targets.
-- Implementations live in `platform.android` and `platform.nubia`. Shared
-  runtime code does not import either implementation; `PlatformDrivers` is the
+- Implementations live in `platform.android`, `platform.nubia` and `platform.honor`. Shared
+  runtime code does not import these implementations; `PlatformDrivers` is the
   single composition point. ZTE-branded devices are not assumed to expose
   Nubia services and use the standard Android driver unless a dedicated,
   verified platform implementation is added.
+- `FrameworkWindowGeometry` is the coordinate boundary for explicit task
+  operations. `FrameworkTaskSnapshot.bounds` is display-space geometry;
+  `logicalBounds` and `windowScale` retain the framework representation for
+  diagnosis. Unknown scale publishes an empty footprint rather than inventing
+  physical dimensions. Persistence, parking, snap and observation consume the
+  same normalized snapshots. Rollback retains the captured logical size and
+  scale, not a size converted using the destination's scale.
+  The Honor extension passively reads `TaskInfo.hnTaskInfoEx.mFreeformScale`
+  and appends scale through the firmware WCT extension. Explicit geometry also
+  marks its bounds as caller-calculated in that same transaction, preventing
+  the firmware's configuration-change calculation from substituting a default
+  rectangle. Both extension methods must be available before writing.
+  Bounds-only placement retains WMShell's `CHANGE` surface lifecycle; scale and
+  bounds remain in one transaction. The framework transition barrier precedes
+  capture of the current scale, including single-window placement.
+  It owns no task
+  organizer, input route, HOME role, surface observer or system property.
+  A fresh freeform transition may assign its scale only when it completes;
+  an explicit placement then finalizes its requested footprint once and verifies
+  the result. There is no continuous geometry-repair loop. Ordinary launches
+  without a confirmed task token remain dispatch-only and can use the firmware's
+  initial geometry; subsequent explicit placement uses the same adapter.
+  The startup preference is propagated to the privileged service and inherited
+  by command helpers. Standard Android's unscaled resize path is unchanged.
+  Firmware evidence and unresolved animation constraints are maintained in the
+  [Honor vendor audit](honor-vendor-audit.md).
 - Exact tested fingerprints and their confirmed scope live in the declarative
   `assets/compatibility/firmware-profiles.json` catalog, not in driver code.
   Updating confidence therefore cannot change runtime selection or behavior.
@@ -320,10 +348,11 @@ isolated behind these boundaries.
   command to the currently registered host on the main thread. Self-tests may
   address that gateway directly when the gateway itself is the subject under
   test.
-- Platform phone-UI adapters receive the active desktop display ID with a
-  phone-screen request. They do not discover session state through
-  `DesktopRuntimeBridge` and publish state changes through the runtime rather
-  than reaching a desktop Activity.
+- `PhoneDisplayGuard` owns an independent serialized phone-power operation and
+  CPU work lease. Control Panel uses a phone-only owner; Desktop's external
+  controls may explicitly attach an additional application-protection lease to
+  their display. Only that display's close releases its associated power guard.
+  The common guard publishes state through the runtime, not a desktop Activity.
 - `ExternalDisplayController` discovers dynamic display IDs and fixes geometry.
 - `DisplayInputSession` owns input routing and the virtual phone pointer;
   `DesktopShortcutService` filters desktop shortcuts, and

@@ -9,10 +9,29 @@ import java.util.function.IntConsumer;
 
 /** Linux scale controls shared by Start and the retained-session manager. */
 final class GraphicalScaleDialog {
-    static void show(Activity activity, String title, String executor, String desktopFile) {
-        String key = GraphicalPresentationPreferences.key(executor, desktopFile);
-        show(activity, title, GraphicalPresentationPreferences.load(activity, key),
-                scale -> GraphicalPresentationPreferences.save(activity, key, scale));
+    static boolean supports(DesktopApplicationShortcut shortcut, String sourcePath) {
+        return shortcut != null && shortcut.hasExecLaunch() && shortcut.graphics != null
+                && sourcePath != null && !sourcePath.isBlank();
+    }
+
+    static String executorScope(Activity activity, DesktopExecBackend backend, String termuxPackage) {
+        // Recent Termux entries retain their package when the selected integration changes.
+        return backend == DesktopExecBackend.TERMUX
+                ? termuxPackage == null ? IntegrationPackage.TERMUX.selected() : termuxPackage
+                : new CommandExecution(activity, backend).scope;
+    }
+
+    static void show(Activity activity, DesktopApplicationShortcut shortcut, String desktopFile,
+            String termuxPackage) {
+        try {
+            String key = GraphicalPresentationPreferences.key(
+                    executorScope(activity, shortcut.execBackend, termuxPackage), desktopFile);
+            show(activity, shortcut.name, GraphicalPresentationPreferences.load(activity, key),
+                    scale -> GraphicalPresentationPreferences.save(activity, key, scale));
+        } catch (RuntimeException error) {
+            UiDialogs.builder(activity).setMessage(ShellAccess.usefulMessage(error))
+                    .setPositiveButton(android.R.string.ok, null).show();
+        }
     }
 
     static void show(Activity activity, GraphicalSessions.Session session) {

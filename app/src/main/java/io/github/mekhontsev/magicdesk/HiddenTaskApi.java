@@ -112,6 +112,9 @@ final class HiddenTaskApi {
                     .invoke(service, Integer.valueOf(displayId));
         }
         if (result == null) {
+            if (displayId == Display.INVALID_DISPLAY) {
+                throw new IllegalStateException("global root task inventory is unavailable");
+            }
             return Collections.emptyList();
         }
         if (!(result instanceof List)) {

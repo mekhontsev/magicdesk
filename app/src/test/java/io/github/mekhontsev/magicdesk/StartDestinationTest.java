@@ -4,9 +4,85 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class StartDestinationTest {
+    @Test public void contextLaunchActionsKeepNewWindowLocalAndPreserveDestination() throws Exception {
+        RuntimeSourceFixture.verify("""
+                enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                enum DesktopTaskInstancePolicy { CREATE_NEW, REUSE_EXISTING }
+                static class DesktopLaunchPresentation {
+                    DesktopLaunchMode mode;
+                    DesktopTaskInstancePolicy instancePolicy = DesktopTaskInstancePolicy.REUSE_EXISTING;
+                    static DesktopLaunchPresentation forMode(DesktopLaunchMode mode) {
+                        var p = new DesktopLaunchPresentation(); p.mode = mode; return p;
+                    }
+                    DesktopLaunchPresentation withInstancePolicy(DesktopTaskInstancePolicy policy) {
+                        var p = forMode(mode); p.instancePolicy = policy; return p;
+                    }
+                }
+                static class StartDisplaySelector { record Target(int displayId, String uniqueId, String placement) { } }
+                static class DesktopRuntimeBridge { static boolean desktop; static boolean hasWorkspace(int id) { return desktop; } }
+                static class OrdinaryActivityLaunch { static boolean available; static boolean canLaunchWindowed() { return available; } }
+                static class R { static class string {
+                    static final int action_open = 1, action_open_fullscreen = 2, action_open_floating = 3,
+                            start_mode_default = 4, start_mode_windowed = 5, start_mode_fullscreen = 6,
+                            start_mode_independent = 7;
+                } }
+                static class ApplicationContextMenu {
+                    Options options = new Options();
+                    List<Item> items = new ArrayList<>();
+                    void add(int label, Runnable action) { add(label, true, action); }
+                    void add(int label, boolean enabled, Runnable action) { items.add(new Item(label, enabled, action)); }
+                }
+                record Item(int label, boolean enabled, Runnable action) { }
+                public static void verify() {
+                    var target = new StartDisplaySelector.Target(7, "exact-display", "display");
+                    var selected = DesktopLaunchPresentation.forMode(DesktopLaunchMode.AUTO)
+                            .withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW);
+                    var targets = new ArrayList<StartDisplaySelector.Target>();
+                    var presentations = new ArrayList<DesktopLaunchPresentation>();
+                    for (boolean desktop : new boolean[]{false, true}) for (boolean available : new boolean[]{false, true}) {
+                        DesktopRuntimeBridge.desktop = desktop; OrdinaryActivityLaunch.available = available;
+                        var menu = new ApplicationContextMenu();
+                        check(!menu.options.newWindow, "new menu inherited a checked option");
+                        addMenuItems(menu, target, selected, (t, p) -> { targets.add(t); presentations.add(p); });
+                        check(menu.items.size() == 3, "inconsistent launch actions");
+                        check(menu.items.get(0).label == R.string.action_open && menu.items.get(1).label == R.string.action_open_fullscreen
+                                && menu.items.get(2).label == R.string.action_open_floating, "inconsistent order");
+                        check(menu.items.get(2).enabled == (desktop || available), "independent policy bypassed");
+                        for (Item item : menu.items) if (item.enabled) item.action.run();
+                    }
+                    check(presentations.get(0).mode == selected.mode && targets.get(0) == target, "default choices discarded");
+                    check(presentations.get(1).mode == DesktopLaunchMode.FULLSCREEN && targets.get(1) == target,
+                            "fullscreen discarded independent placement");
+                    check(presentations.get(4).mode == DesktopLaunchMode.WINDOWED && targets.get(4).placement().equals("auto"),
+                            "window did not select available ownership");
+                    for (int i = 0; i < targets.size(); i++) {
+                        check(targets.get(i).displayId() == 7 && targets.get(i).uniqueId().equals("exact-display"), "target changed");
+                        check(presentations.get(i).instancePolicy == DesktopTaskInstancePolicy.REUSE_EXISTING,
+                                "unchecked menu requested a new instance");
+                    }
+                    var menu = new ApplicationContextMenu();
+                    addMenuItems(menu, target, selected, (t, p) -> presentations.add(p));
+                    menu.options.newWindow = true;
+                    for (Item item : menu.items) {
+                        item.action.run();
+                        check(presentations.get(presentations.size() - 1).instancePolicy == DesktopTaskInstancePolicy.CREATE_NEW,
+                                "Open ignored menu option");
+                    }
+                    check(!new Options().newWindow, "menu option persisted");
+                }
+                """ + RuntimeSourceFixture.nestedClass("StartLaunchControls", "Mode")
+                        + RuntimeSourceFixture.nestedClass("ApplicationContextMenu", "Options")
+                        + RuntimeSourceFixture.methods("StartLaunchControls", "addMenuItems"));
+        for (String name : new String[]{"StartMenuContent", "FullscreenStartController"}) {
+            assertTrue(java.nio.file.Files.readString(java.nio.file.Path.of(RuntimeSourceFixture.MAIN + name + ".java"))
+                    .contains("StartLaunchControls.addMenuItems("));
+        }
+    }
+
     @Test public void recentScopeChangesWithDestinationAndModeWithoutDependingOnHostOrAccess() throws Exception {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class OrdinaryActivityLaunch { static boolean canLaunchWindowed() { return false; } }
                 static class R { static class string {
                     static final int start_mode_default = 1, start_mode_windowed = 2,
                             start_mode_fullscreen = 3, start_mode_independent = 4;
@@ -44,9 +120,13 @@ public final class StartDestinationTest {
                 "ToolLaunchTarget", "RecentLaunchScope");
     }
 
-    @Test public void modesSeparatePlacementFromWindowingAndRequireDesktopOnlyWhenManaged() throws Exception {
+    @Test public void modesSeparatePlacementFromWindowingAndUseIndependentCapability() throws Exception {
         RuntimeSourceFixture.verify("""
                 enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class OrdinaryActivityLaunch {
+                    static boolean available;
+                    static boolean canLaunchWindowed() { return available; }
+                }
                 static class R {
                     static class string {
                         static final int start_mode_default = 1, start_mode_windowed = 2,
@@ -55,18 +135,34 @@ public final class StartDestinationTest {
                 }
                 public static void verify() {
                     check(Mode.DEFAULT.placement.equals("auto"), "default lost destination policy");
-                    check(Mode.WINDOWED.placement.equals("desktop"), "window is not managed");
-                    check(Mode.FULLSCREEN.placement.equals("desktop"), "fullscreen is not managed");
+                    check(Mode.WINDOWED.placement.equals("auto"), "window requires Desktop");
+                    check(Mode.FULLSCREEN.placement.equals("auto"), "fullscreen requires Desktop");
                     check(Mode.INDEPENDENT.placement.equals("display"), "independent claims Desktop");
                     check(Mode.INDEPENDENT.windowMode == DesktopLaunchMode.FULLSCREEN,
                             "independent task requests floating mode");
                     for (Mode mode : Mode.values()) { check(mode.available(true), "active Desktop choice missing"); }
                     check(Mode.DEFAULT.available(false) && Mode.INDEPENDENT.available(false),
                             "ordinary launches require Desktop");
-                    check(!Mode.WINDOWED.available(false) && !Mode.FULLSCREEN.available(false),
-                            "managed choice available without Desktop");
+                    check(!Mode.WINDOWED.available(false) && Mode.FULLSCREEN.available(false),
+                            "unavailable freeform offered or ordinary fullscreen blocked");
+                    OrdinaryActivityLaunch.available = true;
+                    check(Mode.WINDOWED.available(false), "independent freeform missing");
                 }
                 """ + RuntimeSourceFixture.nestedClass("StartLaunchControls", "Mode"));
+    }
+
+    @Test public void destinationAndWindowModeAreExclusiveChoices() throws Exception {
+        assertTrue(RuntimeSourceFixture.methods("StartDisplaySelector", "show")
+                .contains("setGroupCheckable(0, true, true)"));
+        final String controls = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/main/java/io/github/mekhontsev/magicdesk/StartLaunchControls.java"));
+        assertTrue(controls.contains("setGroupCheckable(0, true, true)"));
+        assertFalse(controls.contains("CheckBox"));
+        assertFalse(controls.contains("start.new_window"));
+        final String show = RuntimeSourceFixture.methods("ApplicationContextMenu", "show");
+        assertTrue(show.indexOf("panel.addView(checkbox") < show.indexOf("ui.showMenuPopup"));
+        assertTrue(show.contains("R.string.start_new_window), false"));
+        assertTrue(show.contains("checkbox.setOnClickListener(view -> options.newWindow = checkbox.isChecked())"));
     }
 
     @Test public void sameNamedDisplaysHaveDistinctLabels() throws Exception {

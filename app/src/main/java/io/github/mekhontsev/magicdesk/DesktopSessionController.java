@@ -70,12 +70,12 @@ final class DesktopSessionController {
             MagicDeskRuntime.prepareDesktop(MagicDeskApplication.applicationContext(),
                     preparedTarget.workspaceDisplayId);
             homeAcquisition = DesktopHomeRoleLease.prepare(preparedTarget, resolvedPolicy,
-                    DesktopCompatibilitySettings.nextSession());
+                    DesktopCompatibilitySettings.nextSession(), MagicDeskSettings.load().requestHomeRole);
             DesktopRuntimeBridge.noteDesktopTarget(
                     preparedTarget, resolvedPolicy);
             SecondaryDisplayWindowing.prepare(preparedTarget.workspaceDisplayId);
             DesktopSystemTheme.prepare();
-            DesktopHomeRoleLease.activate(homeAcquisition);
+            homeAcquisition = DesktopHomeRoleLease.activate(homeAcquisition);
             final Boolean visibleTaskSnapshot =
                     MagicDeskRuntime.hasVisibleAppTaskSnapshot(
                             preparedTarget.workspaceDisplayId);
@@ -83,7 +83,7 @@ final class DesktopSessionController {
                     && visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId = findDesktopTask(preparedTarget.workspaceDisplayId);
-            if (preparedTarget.isDefaultWorkspace()) {
+            if (preparedTarget.isDefaultWorkspace() && homeAcquisition.state.homeRole) {
                 return showPrimaryHome(
                         preparedTarget,
                         resolvedPolicy,
@@ -111,14 +111,14 @@ final class DesktopSessionController {
                 return new ShowResult(true, false);
             }
 
-            final Intent intent = createExternalHomeIntent(
-                    preparedTarget, resolvedPolicy, restoreWindows);
+            final Intent intent = createHostIntent(
+                    preparedTarget, resolvedPolicy, restoreWindows, homeAcquisition.state.homeRole);
             final int hostTaskId = ShellAccess.launchDesktopHost(
                     preparedTarget.workspaceDisplayId, intent);
             Log.i(TAG, "launched desktop kind=" + preparedTarget.output.kind
                     + " display=" + preparedTarget.workspaceDisplayId
                     + " task=" + hostTaskId
-                    + " as HOME");
+                    + " homeRole=" + homeAcquisition.state.homeRole);
             final boolean ready = waitForDesktopReady(preparedTarget.workspaceDisplayId);
             if (!ready) {
                 SecondaryDisplayWindowing.release(preparedTarget.workspaceDisplayId);
@@ -242,12 +242,14 @@ final class DesktopSessionController {
         return new ShowResult(true, homeAcquisition.created);
     }
 
-    private static Intent createExternalHomeIntent(
+    private static Intent createHostIntent(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy,
-            final boolean restoreWindows) {
-        final Intent intent = DesktopActivity.createDesktopHostIntent(
-                MagicDeskApplication.applicationContext())
+            final boolean restoreWindows, final boolean homeRole) {
+        final Intent host = homeRole
+                ? DesktopActivity.createDesktopHostIntent(MagicDeskApplication.applicationContext())
+                : IndependentDesktopActivity.createDesktopHostIntent(MagicDeskApplication.applicationContext());
+        final Intent intent = host
                 .putExtra(
                         DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID,
                         target.workspaceDisplayId)

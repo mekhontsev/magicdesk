@@ -26,6 +26,7 @@ final class InputFocusCommitAwaiter {
     private static final AtomicLong EXPIRED = new AtomicLong();
     private static final AtomicLong CANCELLED = new AtomicLong();
     private static final AtomicLong EVENT_SOURCE_UNAVAILABLE = new AtomicLong();
+    private static volatile String sLastFailure = "none";
 
     private InputFocusCommitAwaiter() {
     }
@@ -93,7 +94,13 @@ final class InputFocusCommitAwaiter {
                 + ", expired=" + EXPIRED.get()
                 + ", cancelled=" + CANCELLED.get()
                 + ", eventSourceUnavailable="
-                + EVENT_SOURCE_UNAVAILABLE.get();
+                + EVENT_SOURCE_UNAVAILABLE.get()
+                + ", lastFailure={" + sLastFailure + "}";
+    }
+
+    static void recordFailure(String detail) {
+        sLastFailure = "at=" + System.currentTimeMillis() + " "
+                + detail.substring(0, Math.min(detail.length(), 1024));
     }
 
     private static boolean isCancelled(final BooleanSupplier cancelled) {

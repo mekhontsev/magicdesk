@@ -34,36 +34,48 @@ public final class DesktopRuntimePreparationTest {
                 < source.indexOf("DesktopHomeRoleLease.activate("));
     }
 
-    @Test public void phoneSelfTestUsesProductionStartQueueBeforeObservingHost() throws Exception {
+    @Test public void selfTestSelectsDisplayBeforeRecordedDesktopStartup() throws Exception {
         RuntimeSourceFixture.verify("""
-                enum DesktopSelfTestTarget { PHONE, SIMULATED }
-                static class DesktopDisplayTarget { static Object phone() { return "phone"; } }
-                static class DesktopSessionPolicy { static Object ISOLATED_SELF_TEST = new Object(); }
-                static class Display { static int INVALID_DISPLAY = -1; }
+                enum DesktopSelfTestTarget { PHONE, SIMULATED, EXTERNAL }
+                static class DesktopDisplayTarget {
+                    static final DesktopDisplayTarget PHONE = new DesktopDisplayTarget();
+                    static DesktopDisplayTarget phone() { return PHONE; }
+                }
                 static class DesktopRuntimeBridge { static boolean hasWorkspaces() { return false; } }
                 static class DesktopSelfTestController { static String unavailableReason(Object c) { return null; } }
                 static class DesktopSelfTestHostObserver { static void begin(long id) {} }
-                static class DesktopOperations {
-                    static boolean queued;
-                    static void showDesktop(Object target, Object policy) { queued = true; }
-                }
                 Object mContext;
                 long mRunId = 1;
                 DesktopSelfTestTarget mTarget = DesktopSelfTestTarget.PHONE;
                 boolean preparing() { return true; }
                 void finishPreparation(boolean cancel,String reason) { throw new AssertionError(reason); }
                 void completePreparation(boolean cancel,String reason) { throw new AssertionError(reason); }
-                void run() { throw new AssertionError("unexpected simulated test"); }
-                void probeExternal() { throw new AssertionError("unexpected external test"); }
-                boolean observing;
-                void waitForDesktop(Object kind) {
-                    check(DesktopOperations.queued, "host observation preceded queued start");
-                    observing = true;
+                int runs, externalProbes;
+                DesktopDisplayTarget selectedDisplay;
+                void run(DesktopDisplayTarget target) {
+                    runs++;
+                    selectedDisplay = target;
                 }
+                void probeExternal() { externalProbes++; }
                 public static void verify() {
-                    Fixture fixture = new Fixture();
-                    fixture.prepare();
-                    check(fixture.observing, "phone host readiness not observed");
+                    Fixture phone = new Fixture();
+                    phone.prepare();
+                    check(phone.runs == 1 && phone.selectedDisplay == DesktopDisplayTarget.PHONE,
+                            "phone target did not reach the recorded test");
+                    check(phone.externalProbes == 0, "phone requested external display discovery");
+
+                    Fixture simulated = new Fixture();
+                    simulated.mTarget = DesktopSelfTestTarget.SIMULATED;
+                    simulated.prepare();
+                    check(simulated.runs == 1 && simulated.selectedDisplay == null,
+                            "simulated display must be created inside the recorded test");
+                    check(simulated.externalProbes == 0, "simulated target requested external display discovery");
+
+                    Fixture external = new Fixture();
+                    external.mTarget = DesktopSelfTestTarget.EXTERNAL;
+                    external.prepare();
+                    check(external.externalProbes == 1 && external.runs == 0,
+                            "external test started without selecting its display");
                 }
                 """ + RuntimeSourceFixture.methods("DesktopSelfTestLauncher", "prepare"));
     }

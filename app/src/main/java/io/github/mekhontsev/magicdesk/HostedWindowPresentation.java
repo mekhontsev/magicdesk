@@ -30,6 +30,8 @@ final class HostedWindowPresentation {
         void presentationChanged();
         default void observationChanged() { }
         void presentationFailed(Throwable error);
+        default boolean backgroundOutput() { return false; }
+        default void viewerAttached() { }
         default HostedWindowLayout layout(long window) { return HostedWindowLayout.NONE; }
         default float unitScale(Activity activity) { return 1; }
     }
@@ -67,7 +69,8 @@ final class HostedWindowPresentation {
     }
 
     void host(Activity activity) {
-        if (closed) return;
+        if (closed || activity.isFinishing()) return;
+        session.viewerAttached();
         DisplayTaskRecents.requestRefresh();
         source = new WeakReference<>(activity);
         long version = ++generation;
@@ -149,6 +152,15 @@ final class HostedWindowPresentation {
             throw new IllegalArgumentException("Select a live whole-desktop viewer task");
         activity.finishAndRemoveTask();
     }
+    boolean hasOutputs() {
+        return hosts.values().stream().anyMatch(host -> host.activity.get() instanceof ContentHost);
+    }
+    void detachOutputs() {
+        source.clear(); placement = null; generation++;
+        presented.clear(); recovering.clear();
+        for (var host : java.util.List.copyOf(hosts.values()))
+            if (host.activity.get() instanceof ContentHost content) content.detachHostedWindow();
+    }
     boolean isClosed() { return closed; }
     void retain(Set<Long> windows) {
         presented.retainAll(windows); recovering.retainAll(windows); clientSizes.keySet().retainAll(windows);
@@ -163,6 +175,7 @@ final class HostedWindowPresentation {
         Host host = hosts.remove(activity.getTaskId());
         if (host != null) host.releaseObservation();
         session.observationChanged();
+        if (session.backgroundOutput()) { session.presentationChanged(); return; }
         if (closed || !clientCloseRequested || window == 0 || !recovering.add(window)) return;
         final DesktopLaunchPresentation replacement;
         final Intent replacementIntent = intent(window);
@@ -209,7 +222,7 @@ final class HostedWindowPresentation {
     }
 
     boolean present(long window) {
-        if (closed) return false;
+        if (closed || session.backgroundOutput()) return false;
         if (presented.contains(window)) {
             var host = hosts.get(session.hostTaskId(window));
             var activity = host == null ? null : host.activity.get();
@@ -234,7 +247,7 @@ final class HostedWindowPresentation {
                 if (bounds != null) clientSizes.put(window, new HostedWindowSizing());
                 ToolApplications.openSibling(activity, intent, bounds, done);
             }
-            else ToolApplications.open(context, intent, placement.target(), placement.uniqueId(), done);
+            else ToolApplications.open(context, intent, placement.target(), placement.uniqueId(), placement.presentation(), done);
         } catch (RuntimeException error) { done.onComplete(error); }
         return true;
     }

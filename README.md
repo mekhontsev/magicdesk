@@ -10,8 +10,14 @@ managed Desktop is running.
 
 **Android 14+ for the APK; Android 15+ for managed Desktop.**
 Privileged features use Shizuku, a compatible provider such as Shevery, or
-optional direct root. Termux terminals and Termux-hosted Linux graphics can
-work without any privileged service or managed Desktop.
+optional direct root. You do not need any of them to run Linux:
+
+- **Inside MagicDesk:** open a **User** console to [install a distribution](#linux-with-shroot)
+  and run its packages, containers or k3s under MagicDesk's Android UID.
+- **As its own Android app:** package a distribution as a [Linux Capsule](#a-linux-distribution-as-its-own-android-app).
+  Install its APK and open it from the Android launcher. It has its own UID,
+  private data and terminal, and runs without MagicDesk or a virtual machine.
+  Build it without network permission, or share just the folders you choose.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -67,13 +73,17 @@ tasks without recreating Activities. Start includes search, pins, app actions,
 widgets, notifications, media controls and capture tools.
 
 Every Start has a destination selector: **Current** launches on its own screen.
-Choose app-default placement, a Desktop window, Desktop fullscreen, or an
-independent fullscreen application. **Apps** opens the same Start without
-Desktop. Opening an app does not redirect mouse or keyboard input.
+Choose app-default placement, **Window**, **Fullscreen**, or an explicitly
+independent application. **Apps** opens the same Start without Desktop.
+Windowed launch without Desktop requires Shell access and supporting firmware;
+stock Nubia windowing requires managed Desktop. Opening an app does not
+redirect mouse or keyboard input.
 
-MagicDesk acquires HOME for managed Desktop and restores the previous role after
-the last Desktop closes. **Close desktop** releases surviving applications as
-independent fullscreen tasks on the same live display; it does not remove that
+**Settings > Desktop > Try to become the Home app** is on by default. If disabled,
+or Android refuses HOME, Desktop uses an ordinary fullscreen host and system
+Home/Recents stay with the phone's launcher. When HOME is acquired, MagicDesk
+restores the previous role after the last Desktop closes. **Close desktop** releases
+surviving applications as independent fullscreen tasks on the same live display; it does not remove that
 display or end retained terminals and graphics sessions. A disconnected direct
 display returns its tasks to the phone.
 
@@ -85,6 +95,10 @@ Choose **App scale > Custom** in an application's Desktop context menu.
 **Interface scale** ranges from 50% to 200% of the display density; **System**
 removes the override. Saved profiles also appear in
 **Settings > Application profiles**.
+
+Linux launchers expose **Interface scale** directly in their context menu for
+User, Shell and Termux execution, with the same setting in **Linux graphics**.
+Their scale also applies without managed Desktop.
 
 The preference follows managed windows through snap, maximize and fullscreen.
 Returning to ordinary phone use removes the active override but retains the
@@ -128,20 +142,22 @@ or incomplete; profile-qualified identities alone do not establish that support.
 ### A Full Terminal, With Or Without Desktop
 
 Interactive PTYs support editors, file managers and CLI tools, with ANSI colors,
-scrollback, alternate screens and terminal mouse reporting. Android-shell and
-Termux sessions share the renderer, controls and automation API.
+scrollback, alternate screens and terminal mouse reporting. **User** (MagicDesk's
+app UID), **Shell** (the authorized service) and **Termux** sessions share the
+renderer, controls and automation API.
 
 ![Terminal graphics and the shared CLI](docs/images/magicdesk-terminal.png)
 
 - Bundled JetBrains Mono Nerd Font, per-window size, pinch and Ctrl+wheel zoom.
 - Static Sixel and inline Kitty graphics, including placeholders through tmux.
 - Clickable links, titles, notifications, progress and OSC-marked command output.
-- Persistent Android-shell recall through bundled upstream mksh.
+- Persistent User/Shell command recall through bundled upstream mksh.
 - Touch scrolling, selection handles, Android keyboard resizing and paragraph copy.
-- One picker for retained shell/Termux PTYs and discovered tmux sessions.
-- Session files and folders from Android's picker, camera or clipboard, with
+- One picker for retained User/Shell/Termux PTYs and discovered tmux sessions.
+- Session files and folders from Android Share, the picker, camera or clipboard, with
   quoted paths for shell and supported guest sessions. Delete copies individually
   or end their session to remove them together.
+- A text editor in the paperclip menu: insert text or attach it as a UTF-8 file.
 
 Closing an ordinary terminal window detaches it; explicitly ending the session
 terminates its programs. Closing a managed tmux window releases its client, not
@@ -189,7 +205,8 @@ For Termux applications, enable Termux external commands, grant MagicDesk
 Use **Refresh** after installing packages.
 
 Choose the destination and window mode as for Android applications. Launching an
-existing entry returns to its window; **New window** requests another instance,
+existing entry returns to its window; **New window**, at the end of the context
+menu, requests another instance for the selected Open action only,
 subject to the application's rules.
 
 X11 and Wayland share Android clipboard/file exchange, audio, interface scaling
@@ -204,7 +221,7 @@ See [desktop entries](docs/desktop-entries.md), [audio](docs/audio.md),
 
 Launch Mousepad, GIMP or Firefox directly from your usual **Android app drawer**,
 alongside Android apps, with the Linux application's name and icon. This is not
-just a home-screen shortcut: you no longer need to open MagicDesk's app list first.
+just a home-screen shortcut: the app drawer opens the program directly.
 MagicDesk launches the Linux application in its own Android window.
 
 In **Apps** or Desktop's **Start**, long-press or right-click an installed Linux
@@ -219,6 +236,40 @@ retain their normal execution requirements.
 Uninstall the launcher entry like any Android app; the Linux application remains
 installed. If its source entry is removed, the launcher can no longer open it.
 See [Android launcher exports](docs/desktop-entries.md#android-launcher-exports).
+
+### A Linux Distribution As Its Own Android App
+
+A **Linux Capsule** is a distribution you can install, launch and uninstall
+like any other Android app. Unlike a launcher-only APK, it contains its own
+Shroot runtime, terminal and private copy of the distribution. It uses the
+phone's kernel and runs without MagicDesk, Shizuku or Android root.
+
+To create one, open **Console > New session > Shroot environments**, select the
+distribution and choose **Install Linux as an application**.
+
+Android's UID, SELinux and seccomp protections apply to the Linux processes.
+Even guest root cannot access another package's private data by default: this
+is the real [Android application sandbox](https://source.android.com/docs/security/app-sandbox),
+not merely Shroot's emulated guest permissions. Files and optional audio/graphics
+connections require explicit grants; clients sharing an X11 server still share
+its display authority.
+
+For example, give a Linux image converter read-only access to a folder of photos
+and write access to a separate output folder. It can read the originals and
+write thumbnails that you can open directly in Android. The originals stay
+read-only in Linux; there is nothing to import or export.
+
+Choose [**Android folders**](docs/linux-applications.md#android-folders) to set
+this up in a standalone Linux APK or a MagicDesk Shroot **User** or **Shell**
+environment. New sessions mount your selections under `/mnt/android`.
+Each folder defaults to read-only, and the choices are saved per environment.
+
+An APK for offline work can be built **without Android network permissions**.
+For a network-enabled environment, [network settings](docs/linux-applications.md#network-access)
+can publish a Linux service on the phone or explicitly allow other devices to connect.
+
+See the [Linux Capsules guide](docs/linux-applications.md) for installation, backup and
+updates, temporary web access, and optional MCP automation using the guest's AT-SPI2 bus.
 
 ### Whole Linux Desktops Too
 
@@ -244,14 +295,23 @@ See [custom launchers](docs/desktop-entries.md#custom-linux-entry-scripts).
 ### Linux With Shroot
 
 **[Shroot](docs/shroot.md) runs ARM64 Linux userspace on Android's existing
-kernel without Android root, a VM, Termux or PRoot.** The normal executor is
-Android shell UID 2000, supplied by Shizuku or Shevery.
+kernel without Android root, a VM, Termux or PRoot.** Choose **User** to run under
+MagicDesk's app UID without Shizuku, or **Shell** for the authorized command
+service, normally UID 2000. Each executor has its own Linux library.
 
-Its userspace syscall engine supplies supported filesystem, credential,
-namespace and networking interfaces missing from the host's kernel configuration
-or shell permissions. It neither installs a guest kernel nor changes SELinux.
+MagicDesk supplies the console, audio, graphics and Android integration. The
+[independent Shroot project](https://github.com/mekhontsev/shroot) owns the CLI,
+`libshroot` and the userspace implementation of supported Linux interfaces.
+Guest namespaces and mounts do not require permission to create their Android
+counterparts. Android's permissions and SELinux policy still apply.
 
-Verified scenarios include:
+**User mode is not limited to lightweight utilities.** Under an ordinary Android
+app UID, Alpine runs stock runc containers, k3s and sandboxed Chromium with
+software graphics. User and Shell retain separate
+[application coverage](https://github.com/mekhontsev/shroot/blob/develop/tests/host-execution.md#qualifying-evidence);
+a pass under one executor is not evidence for the other.
+
+Supported workflows include:
 
 | Area | Scope |
 | --- | --- |
@@ -266,13 +326,12 @@ Verified scenarios include:
 | Packaged applications | Selected Flatpak and Snap browser workflows, FUSE-backed document portals; Snap runs with reduced confinement, not strict AppArmor isolation |
 | Filesystem restrictions | Supported Landlock ABI 1 policies, including pacman's filesystem sandbox |
 | Development | Compilers, GDB/LLDB/gdbserver, strace and VS Code workflows |
+| Recursive execution | Shroot inside Shroot using the same binaries; two- and three-level Base/lazy combinations covered on Android |
 
-**Run a Kubernetes lab on your phone:** checked k3s clusters include separate
+**Run a Kubernetes lab on your phone:** k3s clusters can use separate
 Debian and Alpine nodes on one Android device, without Android root or a VM.
-Checks include workload and network recovery after k3s restarts. Debian/systemd
-and Alpine/OpenRC also run the stock enabled service and recover cluster identity
-and persistent volumes after guest shutdown or forced Shroot termination.
-See [k3s support](docs/shroot.md#k3s).
+CoreDNS, Services, NetworkPolicy, ingress and persistent volumes use the stock
+k3s distribution. See [k3s setup, lifecycle and coverage](docs/shroot.md#k3s).
 
 <p align="center">
   <a href="docs/images/magicdesk-k3s-lazy-svc.png">
@@ -281,28 +340,20 @@ See [k3s support](docs/shroot.md#k3s).
   </a>
 </p>
 
-Coverage is [per distribution and scenario](native/guest-exec-lab/validation-matrix.md),
-not a guarantee that every service or package works. Packages come from the guest;
-the installer does not build missing container engines for users. Docker and
-Podman have [documented launch requirements](docs/shroot.md#services-and-containers).
-Logical resource limits remain subject to Android's physical ceilings.
+Check the [distribution matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md)
+for the specific OS, executor and workflow. The installer does not build missing
+container engines. See [Docker and Podman setup](docs/shroot.md#services-and-containers).
 
-Shroot's default lazy SVC entry accelerates eligible calls in unmodified ARM64
-programs, including stock glibc, musl and Go binaries, without changing their
-files. Shroot Base is the seccomp/ptrace fallback for unsupported sites and
-application-filtered execution, and can be selected explicitly for diagnosis.
-See [acceleration](docs/shroot.md#syscall-acceleration).
+Shroot requires **Linux 5.15+** and checks the actual host capabilities at guest
+startup. Its default [lazy SVC entry](docs/shroot.md#syscall-acceleration) accelerates
+eligible calls in unmodified ARM64 programs without changing installed files.
+If Shroot cannot start, the other MagicDesk tools remain available.
 
-The minimum kernel is **Linux 5.15**, with actual capability checks under the
-selected executor. Failure leaves independent MagicDesk tools available.
-
-**Shroot is experimental, not a security boundary for untrusted code.** Guest
-permissions, mount policies, supported Landlock rules and process/IPC separation
-enforce real restrictions, and application seccomp filters remain in the kernel.
-Unadapted calls and inherited descriptors retain host authority; logical cgroups
-do not enforce native CPU, memory or device limits. Snap's reduced-confinement
-mode is not AppArmor enforcement. Use trusted images and programs.
-See [coverage and limits](docs/shroot.md#coverage-and-limits).
+**Two environments under the same Android UID are not a security boundary for
+untrusted programs.** Guest permissions and application filters enforce supported
+restrictions, but unadapted calls and inherited descriptors retain host authority.
+For Android-enforced separation use [a distribution APK with its own UID](#a-linux-distribution-as-its-own-android-app).
+It is not a VM or a hard CPU/memory partition. See [limits](docs/shroot.md#coverage-and-limits).
 
 #### Performance
 
@@ -322,8 +373,9 @@ lower is better.**
 #### Install Linux
 
 Open MagicDesk, tap the terminal icon beside **Settings**, then choose
-**New session > Console**. Run these commands there, not in Termux or inside
-Linux. No MagicDesk Desktop session is needed; see
+**New session > User** or **Shell**. The installer uses that console's Linux
+library; use the same executor when resuming. Run these commands there, not in
+Termux or inside Linux. No MagicDesk Desktop session is needed; see
 [opening the Android shell console](docs/getting-started.md#open-the-android-shell-console)
 for access setup and other terminal types.
 
@@ -351,12 +403,10 @@ parallelism defaults to four jobs. Source builds and compatibility vary by recip
 it does not follow later network changes. DNS remains editable inside Linux.
 See [network choices and resume](docs/shroot.md#linux-installer).
 
-NixOS prepares and activates a NixOS system generation. Its Plasma X11 and Wayland
-launchers have HDMI checks with Zink/Turnip, keyboard input and close/reopen;
-broader application coverage remains incomplete. SteamOS uses Valve's ARM64
-recovery userspace, not a guest kernel; this does not imply compatibility with
-every Steam game. See the [recipes and image sources](docs/shroot.md#linux-installer)
-and [per-distribution evidence](native/guest-exec-lab/validation-matrix.md).
+NixOS prepares and activates a NixOS system generation. SteamOS uses Valve's
+ARM64 recovery userspace, not a guest kernel; this does not imply compatibility
+with every Steam game. See the [recipes and image sources](docs/shroot.md#linux-installer)
+and [per-distribution evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md).
 
 After installation, use **Apps** for individual programs and installed desktop
 entries, or **Terminal sessions > New session > Shroot environments** for a
@@ -504,8 +554,9 @@ See [contribution workflow](CONTRIBUTING.md#branches-and-releases).
 | Use | Additional requirements |
 | --- | --- |
 | Settings, appearance, display inventory | Ordinary app access |
+| User console and Shroot environments | Ordinary app access; Shroot also needs the host capabilities listed below |
 | Termux terminals and graphics | Termux external commands, `RUN_COMMAND`; graphics also need XKB data |
-| Files, shell, privileged capture and actions | Authorized shell/root service and operation-specific capabilities |
+| Files, Shell console, privileged capture and actions | Authorized shell/root service and operation-specific capabilities |
 | Shroot | ARM64, executable storage, Linux 5.15+ and required guest capabilities |
 | Managed Desktop | Android 15+, privileged service, setup and working framework windowing |
 | External output | Hardware/firmware exposing a usable Android secondary display |
@@ -629,7 +680,7 @@ architecture and verification. Start with:
 - [X11](docs/x11.md), [Wayland](docs/wayland.md) and [graphics](docs/graphics.md)
 - [Automation](docs/automation.md) and [desktop entries](docs/desktop-entries.md)
 - [Architecture](docs/architecture.md) and [compatibility](docs/compatibility.md)
-- [Device coverage](docs/testing-backlog.md) and [Shroot matrix](native/guest-exec-lab/validation-matrix.md)
+- [Device coverage](docs/testing-backlog.md) and [Shroot matrix](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md)
 
 ## Project
 

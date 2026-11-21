@@ -25,7 +25,6 @@ final class DeviceSetupRuntimeController {
     }
 
     private static void stopServices(final Context context) {
-        PlatformDrivers.current().phoneUi().requestPhoneScreenRestore();
         if (context != null) {
             MagicDeskRuntime.retainIndependentServices(
                     context.getApplicationContext());

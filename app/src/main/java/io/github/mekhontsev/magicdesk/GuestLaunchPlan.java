@@ -8,6 +8,14 @@ import java.util.Objects;
 public record GuestLaunchPlan(GuestEnvironment environment, String directory, List<String> command, boolean magicDesk,
         GuestNetworkProfile network) {
     public static final String TOOL = "shroot";
+    enum Cli {
+        MAGICDESK, STANDALONE;
+
+        List<String> storeCommand(String operation, String store) {
+            return this == STANDALONE ? List.of(TOOL, operation, store)
+                    : List.of(TOOL, "image", operation, store);
+        }
+    }
     public GuestLaunchPlan(GuestEnvironment environment, String directory, List<String> command) {
         this(environment, directory, command, false);
     }
@@ -31,15 +39,25 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     public List<String> arguments() {
-        var result = new ArrayList<>(launcherArguments());
+        return arguments(Cli.MAGICDESK);
+    }
+
+    List<String> arguments(Cli cli) {
+        var result = new ArrayList<>(launcherArguments(cli));
         result.add("--");
         result.addAll(command);
         return List.copyOf(result);
     }
 
     List<String> launcherArguments() {
+        return launcherArguments(Cli.MAGICDESK);
+    }
+
+    private List<String> launcherArguments(Cli cli) {
+        if (cli == Cli.STANDALONE && (!environment.image() || magicDesk))
+            throw new IllegalArgumentException("The standalone Shroot CLI requires a store and no Android command bridge");
         var result = new ArrayList<>(environment.image()
-                ? List.of(TOOL, "image", command.isEmpty() ? "login" : "exec", environment.store())
+                ? cli.storeCommand(command.isEmpty() ? "login" : "exec", environment.store())
                 : List.of(TOOL, "--store", environment.store(), "--home", environment.home()));
         if (!directory.isEmpty()) result.addAll(List.of("--cwd", directory));
         if (environment.image() && !environment.home().isEmpty()) result.addAll(List.of("--env", "HOME=" + environment.home()));
@@ -50,6 +68,7 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     public static void requireIdentity(int uid) {
-        if (uid != 2000 && uid != 0) throw new IllegalStateException("Shroot requires the selected shell or root executor");
+        if (uid != 2000 && uid != 0 && !(uid >= 10000 && uid % 100000 >= 10000 && uid % 100000 <= 19999))
+            throw new IllegalStateException("Shroot is unavailable for the selected executor");
     }
 }

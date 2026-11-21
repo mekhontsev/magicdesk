@@ -12,7 +12,6 @@ import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
 import io.github.mekhontsev.magicdesk.PlatformExtension;
 import io.github.mekhontsev.magicdesk.PlatformFeatures;
-import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 import io.github.mekhontsev.magicdesk.PlatformMatch;
@@ -34,8 +33,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
             new NubiaDesktopPointerDriver();
     private static final PlatformProjectionDriver PROJECTION =
             new NubiaProjectionDriver();
-    private static final PlatformPhoneUiDriver PHONE_UI =
-            new NubiaPhoneUiDriver();
     private static final PlatformAudioCaptureDriver AUDIO_CAPTURE =
             new NubiaAudioCaptureDriver();
 
@@ -101,7 +98,8 @@ public final class NubiaPlatformDriver implements PlatformExtension {
                     .with(Option.PHONE_TASK_RECOVERY, true)
                     .with(Option.STALE_RECENTS_CLEANUP, true);
         }
-        if (components().contains(PlatformComponent.PHONE_UI)) {
+        if (components().contains(PlatformComponent.WINDOWING)
+                || components().contains(PlatformComponent.BACKGROUND_WORK)) {
             defaults = defaults.with(Option.RECENTS_TO_HOME, true);
         }
         return new PlatformFeatures(
@@ -126,11 +124,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     @Override
     public PlatformProjectionDriver projection() {
         return PROJECTION;
-    }
-
-    @Override
-    public PlatformPhoneUiDriver phoneUi() {
-        return PHONE_UI;
     }
 
     @Override public PlatformBackgroundWork backgroundWork() {

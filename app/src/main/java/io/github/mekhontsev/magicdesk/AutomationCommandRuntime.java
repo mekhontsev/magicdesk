@@ -41,6 +41,7 @@ final class AutomationCommandRuntime implements AutoCloseable {
     private final AutomationCommandLeases mLeases = new AutomationCommandLeases();
     private final java.util.Map<String, DesktopAutomationConsoleSessions> mLeaseConsoles = new ConcurrentHashMap<>();
     private volatile boolean mClosed;
+    private boolean mLocalPrepared;
 
     private AutomationCommandRuntime(Context context) {
         mContext = context.getApplicationContext();
@@ -62,6 +63,14 @@ final class AutomationCommandRuntime implements AutoCloseable {
         if (mConfiguredShell == service.asBinder()) return;
         service.configureCommandEnvironment(endpoint(), mContext.getApplicationInfo().sourceDir);
         mConfiguredShell = service.asBinder();
+    }
+
+    synchronized void prepareLocal() throws IOException {
+        if (mClosed) throw new IOException("MagicDesk command runtime is closed");
+        if (!mLocalPrepared) {
+            CommandShellEnvironment.configureLocal(mContext, endpoint());
+            mLocalPrepared = true;
+        }
     }
 
     String prepareTermux(TermuxIntegration.Endpoint termux) {
@@ -163,10 +172,8 @@ final class AutomationCommandRuntime implements AutoCloseable {
         if (operation == AutomationCliWire.LEASE) {
             if (!MessageDigest.isEqual(mKey.getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8)))
                 throw new IOException("Invalid command owner");
-            final IBinder shell = mConfiguredShell;
             var consoles = new DesktopAutomationConsoleSessions(false);
-            var lease = mLeases.create(client, () -> !mClosed && mConfiguredShell == shell
-                    && (shell == null || shell.isBinderAlive()), consoles::closeAll);
+            var lease = mLeases.create(client, () -> !mClosed, consoles::closeAll);
             mLeaseConsoles.put(lease.key, consoles);
             try {
                 output.writeInt(0);

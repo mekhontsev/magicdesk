@@ -19,6 +19,7 @@ final class ApplicationIcons {
     private static volatile ApplicationIcons instance;
     private final Context context;
     private final ApplicationIconCache<ApplicationIconKey, Bitmap> termux, guest;
+    final ApplicationIconCache<GuestEnvironmentCatalog.Entry,GuestAppearance> distributions;
     private String termuxIdentity = "";
     private long termuxEpoch;
     private TermuxConnectionStatus.State connection;
@@ -34,6 +35,14 @@ final class ApplicationIcons {
         this.context = context;
         termux = new ApplicationIconCache<>(TermuxIconCommand.BATCH_SIZE, 256, this::loadTermux, MAIN::post);
         guest = new ApplicationIconCache<>(TermuxIconCommand.BATCH_SIZE, 256, this::loadGuest, MAIN::post);
+        distributions=new ApplicationIconCache<>(1,32,(entries,done)->IO.execute(()->{
+            var entry=entries.get(0);
+            GuestAppearance appearance=GuestAppearance.EMPTY;
+            try { appearance=GuestAppearance.read(new CommandExecution(context,entry.backend()),entry); }
+            catch (RuntimeException unavailable) { }
+            var result=Map.of(entry,appearance);
+            MAIN.post(()->done.accept(result));
+        }),MAIN::post);
         inspectGuest();
         ShellAccess.addStateListener(state -> MAIN.post(() -> guestIdentity(state)));
         TermuxConnectionStatus.get().addListener(this::inspectTermux);
@@ -75,7 +84,7 @@ final class ApplicationIcons {
     }
 
     static void refresh() {
-        if (instance != null) { instance.termux.reset(); instance.guest.reset(); }
+        if (instance != null) { instance.termux.reset(); instance.guest.reset(); instance.distributions.reset(); }
     }
 
     private ApplicationIconCache<ApplicationIconKey, Bitmap> cache(ApplicationIconKey key) {
@@ -88,7 +97,7 @@ final class ApplicationIcons {
 
     private void guestIdentity(ShellAccess.Snapshot state) {
         int uid = state.isReady() ? state.uid : -1;
-        if (guestUid != uid) { guestUid = uid; guest.reset(); }
+        if (guestUid != uid) { guestUid = uid; guest.reset(); distributions.reset(); }
     }
 
     private TermuxIntegration.Endpoint inspectTermux() {
@@ -100,6 +109,7 @@ final class ApplicationIcons {
             termuxIdentity = identity;
             termuxEpoch++;
             termux.reset();
+            distributions.reset();
         }
         connection = state;
         return endpoint;
@@ -125,30 +135,32 @@ final class ApplicationIcons {
         inspectGuest();
         if (previous != guestUid) return;
         int owner = guestUid;
-        if (owner != 0 && owner != 2000) { complete.accept(Map.of()); return; }
         IO.execute(() -> {
             var images = new HashMap<ApplicationIconKey, Bitmap>();
-            try {
-                if (!ShellAccess.isReady() || ShellAccess.currentSnapshot().uid != owner)
-                    throw new IllegalStateException("Icon source changed");
-                var args = new java.util.ArrayList<String>();
-                args.add("icons");
-                keys.forEach(key -> args.add(key.guestReference()));
-                String text = GuestEnvironmentOperations.read("", args.toArray(String[]::new));
-                if (text.length() > keys.size() * 34000) throw new IllegalArgumentException("Icon reply too large");
-                var records = new JSONArray(text);
-                for (int i = 0; i < records.length(); i++) {
-                    var record = records.getJSONObject(i);
-                    var key = ApplicationIconKey.guest(record.getString("id"));
-                    String png = record.optString("png");
-                    if (!keys.contains(key) || png.isEmpty() || png.length() > 32768) continue;
-                    try {
-                        var image = ApplicationIconBitmap.decode(java.util.HexFormat.of().parseHex(png));
-                        if (image != null) images.put(key, image);
-                    } catch (IllegalArgumentException ignored) { }
+            for (var backend : new DesktopExecBackend[]{DesktopExecBackend.APP, DesktopExecBackend.SHELL}) {
+                try {
+                    var selected = keys.stream().filter(key -> key.backend() == backend).toList();
+                    if (selected.isEmpty() || backend == DesktopExecBackend.SHELL
+                            && (!ShellAccess.isReady() || ShellAccess.currentSnapshot().uid != owner)) continue;
+                    var args = new java.util.ArrayList<String>();
+                    args.add("icons");
+                    selected.forEach(key -> args.add(key.guestReference()));
+                    String text = GuestEnvironmentOperations.read(new CommandExecution(context, backend), "", args.toArray(String[]::new));
+                    if (text.length() > keys.size() * 34000) throw new IllegalArgumentException("Icon reply too large");
+                    var records = new JSONArray(text);
+                    for (int i = 0; i < records.length(); i++) {
+                        var record = records.getJSONObject(i);
+                        var key = ApplicationIconKey.guest(record.getString("id"), backend);
+                        String png = record.optString("png");
+                        if (!keys.contains(key) || png.isEmpty() || png.length() > 32768) continue;
+                        try {
+                            var image = ApplicationIconBitmap.decode(java.util.HexFormat.of().parseHex(png));
+                            if (image != null) images.put(key, image);
+                        } catch (IllegalArgumentException ignored) { }
+                    }
+                } catch (Exception error) {
+                    android.util.Log.w("MagicDeskIcons", backend.wireName + " guest artwork unavailable", error);
                 }
-            } catch (Exception error) {
-                android.util.Log.w("MagicDeskIcons", "Guest artwork unavailable", error);
             }
             MAIN.post(() -> { inspectGuest(); complete.accept(images); });
         });

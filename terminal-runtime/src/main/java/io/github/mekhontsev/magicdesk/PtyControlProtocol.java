@@ -1,0 +1,64 @@
+package io.github.mekhontsev.magicdesk;
+
+import java.io.DataOutput;
+import java.io.IOException;
+
+/** Binary control frames consumed by magicdesk_pty_bridge. */
+public final class PtyControlProtocol {
+    public static final int MAX_DATA_BYTES = 1024 * 1024;
+
+    private static final int FRAME_DATA = 1;
+    private static final int FRAME_RESIZE = 2;
+    private static final int FRAME_QUERY_CWD = 3;
+    private static final int FRAME_QUERY_FOREGROUND_PROCESS = 4;
+
+    private PtyControlProtocol() {
+    }
+
+    public static PtyEndpoint readEndpoint(java.io.InputStream input) throws IOException {
+        StringBuilder header = new StringBuilder();
+        int value = -1;
+        while (header.length() < 192 && (value = input.read()) >= 0 && value != '\n') header.append((char) value);
+        if (value != '\n' || !header.toString().startsWith("MAGICDESK_PTY "))
+            throw new IOException("Invalid PTY helper handshake: " + header);
+        return PtyEndpoint.parse(header.substring("MAGICDESK_PTY ".length()));
+    }
+
+    public static void writeData(final DataOutput output, final byte[] data)
+            throws IOException {
+        if (data == null || data.length == 0) {
+            return;
+        }
+        if (data.length > MAX_DATA_BYTES) {
+            throw new IOException("PTY input frame is too large");
+        }
+        output.writeByte(FRAME_DATA);
+        output.writeInt(data.length);
+        output.write(data);
+    }
+
+    public static void writeResize(
+            final DataOutput output, final int rows, final int columns)
+            throws IOException {
+        if (rows < 2 || rows > 65535
+                || columns < 2 || columns > 65535) {
+            throw new IOException("invalid PTY dimensions");
+        }
+        output.writeByte(FRAME_RESIZE);
+        output.writeInt(8);
+        output.writeInt(rows);
+        output.writeInt(columns);
+    }
+
+    public static void writeWorkingDirectoryRequest(final DataOutput output)
+            throws IOException {
+        output.writeByte(FRAME_QUERY_CWD);
+        output.writeInt(0);
+    }
+
+    public static void writeForegroundProcessRequest(final DataOutput output)
+            throws IOException {
+        output.writeByte(FRAME_QUERY_FOREGROUND_PROCESS);
+        output.writeInt(0);
+    }
+}

@@ -8,8 +8,25 @@ def templateAsset = tasks.register('packageLauncherTemplate', Sync) {
 android.sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/launcherTemplate').get().asFile
 tasks.named('preBuild').configure { dependsOn templateAsset }
 
+def guestAsset = tasks.register('packageGuestTemplate', Sync) {
+    dependsOn ':guest-template:assembleRelease'
+    dependsOn ':guest-template:assembleOffline'
+    from project(':guest-template').layout.buildDirectory.file('outputs/apk/release/guest-template-release-unsigned.apk')
+    into layout.buildDirectory.dir('generated/guestTemplate/launcher')
+    rename('guest-template-release-unsigned.apk', 'guest-template.apk')
+    from({ zipTree(project(':guest-template').layout.buildDirectory.file('outputs/apk/offline/guest-template-offline-unsigned.apk').get().asFile) }) {
+        include 'AndroidManifest.xml'
+        rename { 'guest-offline-manifest.bin' }
+    }
+}
+android.sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/guestTemplate').get().asFile
+tasks.named('preBuild').configure { dependsOn guestAsset }
+
 tasks.withType(Test).configureEach {
     dependsOn templateAsset
+    dependsOn guestAsset
+    systemProperty 'magicdesk.guestTemplate', layout.buildDirectory.file('generated/guestTemplate/launcher/guest-template.apk').get().asFile
+    systemProperty 'magicdesk.offlineManifest', layout.buildDirectory.file('generated/guestTemplate/launcher/guest-offline-manifest.bin').get().asFile
     systemProperty 'magicdesk.launcherTemplate', layout.buildDirectory.file('generated/launcherTemplate/launcher/template.apk').get().asFile
     def suffix = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows') ? '.bat' : ''
     systemProperty 'magicdesk.apksigner', new File(androidComponents.sdkComponents.sdkDirectory.get().asFile,

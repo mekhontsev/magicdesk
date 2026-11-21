@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
-final class ShellCommandSession {
+final class ShellCommandSession implements AutoCloseable {
     private final CommandExecutor mExecutor;
     private final String mMarker;
     private final AtomicLong mResetGeneration = new AtomicLong();
@@ -61,7 +61,7 @@ final class ShellCommandSession {
         mExecutor.cancelCurrent();
     }
 
-    void close() { mExecutor.close(); }
+    @Override public void close() { mExecutor.close(); }
 
     private static String requireDirectory(String directory) {
         if (directory == null || !directory.startsWith("/")) {

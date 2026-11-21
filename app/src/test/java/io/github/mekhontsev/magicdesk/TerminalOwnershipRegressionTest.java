@@ -23,7 +23,9 @@ public final class TerminalOwnershipRegressionTest {
                     check(mostRecent() == null, "empty registry offered a terminal");
                     Activity first = new HostActivity(), second = new HostActivity();
                     ConsoleTerminalSession a = acquire("terminal-a", ignored -> new ConsoleTerminalSession());
+                    check(mostRecent() == null, "unseen background session became MRU");
                     register(first, a, new ConsoleTerminalView(), "terminal-a");
+                    check(mostRecent() == null, "unfocused window became MRU");
                     focused("terminal-a", first);
                     ConsoleTerminalSession b = acquire("terminal-b", ignored -> new ConsoleTerminalSession());
                     register(second, b, new ConsoleTerminalView(), "terminal-b");
@@ -187,12 +189,96 @@ public final class TerminalOwnershipRegressionTest {
                 """);
     }
 
+    @Test public void closuresIdentifyTheirOwnerAndDoNotCloseOtherTmuxClients() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() {
+                    Activity window = new HostActivity();
+                    for (int i = 1; i <= 3; i++) {
+                        String id = "terminal-" + i;
+                        ConsoleTerminalSession session = acquire(id, ignored -> new ConsoleTerminalSession());
+                        session.pid = 100 + i;
+                        ENTRIES.get(id).tmuxSessionId = "$" + i;
+                        register(window, session, new ConsoleTerminalView(), id);
+                    }
+                    ENTRIES.get("terminal-1").onFinished();
+                    close("terminal-2");
+                    check(ENTRIES.size() == 1 && !ENTRIES.get("terminal-3").session.closed,
+                            "one client exit closed another session");
+                    check(hasWindowLocked("terminal-3", 0), "background exit detached selected session");
+                    check(DesktopAutomationEventJournal.events.contains(
+                            "closed:true:terminalId=terminal-1 backend=termux pid=101 tmuxSessionId=$1 reason=transport-eof"),
+                            "EOF lost process identity or became an explicit close");
+                    check(DesktopAutomationEventJournal.events.contains(
+                            "closed:true:terminalId=terminal-2 backend=termux pid=102 tmuxSessionId=$2 reason=requested"),
+                            "explicit close lost its cause");
+                    int count = DesktopAutomationEventJournal.events.size();
+                    close("terminal-1");
+                    check(count == DesktopAutomationEventJournal.events.size(), "duplicate close emitted another cause");
+                    hide("terminal-3");
+                    check(DesktopAutomationEventJournal.events.get(count).endsWith("reason=client-detached"),
+                            "client detach was recorded as EOF");
+                }
+                """);
+    }
+
+    @Test public void runtimeAndWindowClosureCausesCoverEveryExecutor() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() {
+                    for (String backend : List.of("app", "shell", "termux")) {
+                        ConsoleTerminalSession session = acquire("terminal-" + backend, ignored -> new ConsoleTerminalSession());
+                        session.executor = new Backend(backend);
+                    }
+                    closeAll();
+                    check(ENTRIES.isEmpty(), "runtime cleanup left a PTY");
+                    for (String backend : List.of("app", "shell", "termux")) {
+                        check(DesktopAutomationEventJournal.events.stream().anyMatch(event -> event.contains(
+                                "backend=" + backend) && event.endsWith("reason=runtime-stopped")),
+                                "runtime cleanup did not identify executor " + backend);
+                    }
+                    var session = acquire("terminal-window", ignored -> new ConsoleTerminalSession());
+                    ENTRIES.get("terminal-window").tmuxSessionId = "$4";
+                    Activity window = new HostActivity();
+                    register(window, session, new ConsoleTerminalView(), "terminal-window");
+                    window.finished = true;
+                    detach("terminal-window", window);
+                    check(DesktopAutomationEventJournal.events.get(DesktopAutomationEventJournal.events.size()-1)
+                            .endsWith("reason=window-closed"), "window closure was recorded as EOF");
+                }
+                """);
+    }
+
+    @Test public void diagnosticBirthIdentitySurvivesLivePidReset() throws Exception {
+        RuntimeSourceFixture.verify("""
+                final Object mLock = new Object();
+                long mProcessId = -1;
+                record PtyEndpoint(long processId, long startTicks, String tty) { }
+                PtyEndpoint mOutputEndpoint;
+                """ + RuntimeSourceFixture.methods("ConsoleTerminalSession", "diagnosticIdentity", "processId") + """
+                public static void verify() {
+                    Fixture session = new Fixture();
+                    check(session.diagnosticIdentity().equals("pid=-1"), "unstarted session invented a PID");
+                    session.mProcessId = 101;
+                    check(session.diagnosticIdentity().equals("pid=101"), "missing optional endpoint lost live PID");
+                    session.mOutputEndpoint = new PtyEndpoint(101, 900, "/dev/pts/4");
+                    session.mProcessId = -1;
+                    check(session.processId() == -1, "diagnostics changed live process semantics");
+                    check(session.diagnosticIdentity().equals("pid=101 startTicks=900 tty=/dev/pts/4"),
+                            "EOF lost process birth identity");
+                }
+                """);
+    }
+
     private static String fixture() throws Exception {
         return """
                 static class WeakReference<T> extends java.lang.ref.WeakReference<T> { WeakReference(T v) { super(v); } }
                 interface Function<T,R> extends java.util.function.Function<T,R> {}
                 interface Consumer<T> extends java.util.function.Consumer<T> {}
-                static class ConsoleTerminalSession { interface Listener {} boolean closed; void close() { closed=true; } }
+                static class Backend { final String wireName; Backend(String name) { wireName=name; } }
+                static class ConsoleTerminalSession {
+                    interface Listener {} boolean closed; long pid=42; Backend executor=new Backend("termux");
+                    void close() { closed=true; } Backend backend() { return executor; }
+                    String diagnosticIdentity() { check(!closed,"identity read after cleanup"); return "pid="+pid; }
+                }
                 static class ConsoleTerminalView { boolean detached; void attach(Object a,Object b) { detached=true; } }
                 static class HostActivity extends Activity implements TerminalWindowAttachment.Host {}
                 static class Activity {
@@ -200,7 +286,13 @@ public final class TerminalOwnershipRegressionTest {
                     boolean isDestroyed() { return false; }
                     boolean isFinishing() { return finished; }
                     int getTaskId() { return 1; } void finishAndRemoveTask() { finished=true; } }
-                static class DesktopAutomationEventJournal { static void record(String t,String o,boolean s,String d) {} }
+                static class DesktopAutomationEventJournal {
+                    static List<String> events=new ArrayList<>();
+                    static void record(String t,String o,boolean s,String d) { events.add(o+":"+s+":"+d); }
+                }
+                static class ConsoleTerminalRegistry {
+                    static boolean close(String id,String reason) { return Fixture.close(id,reason); }
+                }
                 static class MagicDeskRuntime { static int refreshes; static void refreshNotification() { refreshes++; } }
                 static class TerminalNotifications { static class Session { void close() {} } }
                 record Snapshot(String id) {}
@@ -211,13 +303,14 @@ public final class TerminalOwnershipRegressionTest {
                     final TerminalNotifications.Session notifications=new TerminalNotifications.Session();
                     Entry(String id,Function<ConsoleTerminalSession.Listener,ConsoleTerminalSession> f) { this.id=id; session=f.apply(this); }
                     Snapshot snapshot(String id) { return new Snapshot(id); }
+                """ + RuntimeSourceFixture.methods("ConsoleTerminalRegistry", "recordLifecycle", "onFinished") + """
                 }
                 static Map<String,Entry> ENTRIES = new LinkedHashMap<>();
                 static long focusSequence;
                 static <T> T callOnMain(Callable<T> c) { try { return c.call(); } catch(Exception e) { throw new RuntimeException(e); } }
                 """ + "static " + RuntimeSourceFixture.nestedClass("TerminalWindowAttachment", "TerminalWindowAttachment")
                 + RuntimeSourceFixture.methods("ConsoleTerminalRegistry", "acquire", "register",
-                        "nextId", "validId", "detach", "close", "hide", "find", "findLocked", "pruneLocked",
+                        "nextId", "validId", "detach", "close", "closeAll", "hide", "find", "findLocked", "pruneLocked",
                         "attachmentGeneration", "hasWindowLocked", "focused", "mostRecent");
     }
 }

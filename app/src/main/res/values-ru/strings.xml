@@ -1,6 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="settings_console_volume_black_screen">Чёрный экран по кнопкам громкости</string>
+    <string name="settings_request_home_role">Пытаться стать домашним приложением</string>
+    <string name="console_app_title">User</string>
+    <string name="executor_android_shell">Shell</string>
+    <string name="black_screen">Чёрный экран (без сна)</string>
+    <string name="black_screen_hint">Чёрный экран; кнопка громкости для выхода</string>
     <string name="guest_command_access">Разрешить управление MagicDesk и Android</string>
+    <string name="guest_install_application">Установить Linux как приложение</string>
     <string name="guest_environments">Окружения Shroot</string>
     <string name="guest_loading">Загрузка окружений&#8230;</string>
     <string name="guest_empty">Нет установленных окружений Shroot</string>
@@ -38,6 +45,8 @@
     <string name="x11_title">X11</string>
     <string name="wayland_title">Wayland</string>
     <string name="graphics_title">Графика Linux</string>
+    <string name="phone_panel_power_off">Выключить панель аппаратно</string>
+    <string name="phone_panel_unavailable">Аппаратное управление питанием экрана недоступно</string>
     <string name="graphics_sessions">Сеансы</string>
     <string name="graphics_windows">Окна приложений</string>
     <string name="graphics_new_session">Новый графический сеанс</string>
@@ -70,8 +79,8 @@
     <string name="display_tasks_unknown">Приложения: недоступно</string>
     <string name="display_independent_apps">Независимые приложения</string>
     <string name="start_mode_default">Авто</string>
-    <string name="start_mode_windowed">В окне рабочего стола</string>
-    <string name="start_mode_fullscreen">На весь рабочий стол</string>
+    <string name="start_mode_windowed">В окне</string>
+    <string name="start_mode_fullscreen">На весь экран</string>
     <string name="start_mode_independent">Независимо</string>
     <string name="start_new_window">Новое окно</string>
     <string name="start_launch_mode">Режим запуска</string>
@@ -249,11 +258,13 @@
     <string name="command_app_directory_invalid">Введите абсолютный путь к папке</string>
     <string name="command_app_mime_invalid">Введите корректные типы MIME через точку с запятой</string>
     <string-array name="command_app_backends">
-        <item>Оболочка Android</item>
+        <item>Shell</item>
         <item>Termux</item>
         <item>Графика Termux</item>
         <item>Linux (Termux)</item>
-        <item>Linux (Shell / root)</item>
+        <item>Linux (Shell)</item>
+        <item>User</item>
+        <item>Linux (User)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>Нет</item>
@@ -657,14 +668,20 @@
     <string name="notification_hw_connected">Аппаратная клавиатура подключена</string>
     <string name="notification_hw_disconnected">Нет аппаратной клавиатуры</string>
     <string name="notification_automation_ready">Сервер автоматизации готов</string>
-    <string name="notification_open_touchpad">Открыть тачпад</string>
-    <string name="notification_open_terminal">Терминал</string>
+    <string name="notification_open_control_panel">Панель управления</string>
+    <string name="notification_black_screen">Чёрный экран</string>
     <string name="control_status_ready">Готово</string>
     <string name="capability_android_15_required">Требуется Android 15 или новее</string>
     <string name="capability_access_required">Требуется доступ shell или root</string>
     <string name="capability_termux_required">Требуется Termux</string>
     <string name="capability_termux_permission_required">Требуется разрешение Termux RUN_COMMAND</string>
-    <string name="capability_terminal_required">Требуется интеграция с Termux или доступ shell</string>
+    <string name="child_process_status">Лимит процессов: %1$s</string>
+    <string name="child_process_title">Лимит процессов</string>
+    <string name="child_process_unknown">неизвестно</string>
+    <string name="child_process_warning">Android может завершать процессы Linux</string>
+    <string name="child_process_explanation">Когда Linux запускает много процессов, Android может завершить часть из них. Настройка действует на все приложения телефона. Даже при выключенном лимите Android может завершать процессы при нехватке памяти.</string>
+    <string name="child_process_manual">В параметрах разработчика найдите «%1$s». На некоторых устройствах этого переключателя нет.</string>
+    <string name="child_process_developer_options">Параметры разработчика</string>
     <string name="control_status_desktop_active">Рабочий стол активен</string>
     <string name="control_runtime_status">Доступ: %1$s</string>
     <string name="control_access_title">Доступ</string>
@@ -827,6 +844,9 @@
     <string name="settings_nubia_projection_guard_summary">Временно отключает ПО трансляции Nubia, защиту приватности и интерфейс подключения на время рабочего стола HDMI или Miracast. Восстанавливает их после закрытия последнего внешнего рабочего стола; сохранённые настройки приватности не меняются.</string>
     <string name="settings_section_automation">Автоматизация</string>
     <string name="settings_section_android">Система Android</string>
+    <string name="settings_child_process_restrictions">Отключить ограничения дочерних процессов</string>
+    <string name="settings_child_process_description">Отключает контроль фантомных процессов Android для всех приложений, включая Termux и сессии Linux. Системная настройка сохраняется после закрытия MagicDesk. Не защищает от завершения при нехватке памяти или ограничений энергосбережения производителя.</string>
+    <string name="settings_child_process_unavailable">Настройка контроля дочерних процессов Android недоступна.</string>
     <string name="settings_system_desktop_mode">Системный рабочий стол на внешних экранах</string>
     <string name="settings_system_desktop_mode_apply_notice">Переподключите внешний экран для применения изменения. На некоторых устройствах требуется перезапуск Android.</string>
     <string name="settings_system_desktop_mode_confirm">Изменить системный режим рабочего стола на внешних экранах? Его включение может добавить системные панели навигации. Переподключите экран после изменения; на некоторых устройствах требуется перезапуск Android.</string>
@@ -1026,6 +1046,7 @@
     <string name="console_termux_autolaunch_blocked">Прошивка заблокировала Termux. Разрешите ему автозапуск или фоновую работу, затем откройте это окно снова.</string>
     <string name="console_tmux_loading">Загрузка сеансов tmux…</string>
     <string name="console_tmux_new_session">Новый сеанс tmux</string>
+    <string name="console_tmux_sessions">Сеансы tmux</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d окно</item>
         <item quantity="few">%d окна</item>
@@ -1211,4 +1232,41 @@
         <item quantity="many">%d вложений</item>
         <item quantity="other">%d вложения</item>
     </plurals>
+    <string name="graphics_offscreen">Без экрана</string>
+    <string name="graphics_closing">Ожидание закрытия приложений</string>
+    <string name="graphics_cancel_close">Отменить завершение</string>
+    <string name="graphics_close_normally">Закрыть штатно</string>
+    <string name="graphics_output_width">Ширина вывода</string>
+    <string name="graphics_output_height">Высота вывода</string>
+    <string name="graphics_detach_output">Отключить внеэкранный вывод</string>
+    <string name="graphics_force_stop_session">Остановить графический сеанс и отключить его приложения без сохранения?</string>
+    <string name="settings_window_geometry">Геометрия окон прошивки</string>
+    <string name="console_share_target">Консоль MagicDesk</string>
+    <string name="console_new_text">Новый текст</string>
+    <string name="console_text">Текст</string>
+    <string name="console_text_file">Прикрепить текст как файл</string>
+    <string name="console_content_sending">Отправка…</string>
+    <string name="console_paste_lines_title">Вставить несколько строк?</string>
+    <string name="console_paste_lines_message">В этом терминале не включён режим bracketed paste. Переводы строк могут выполнить команды.</string>
+    <string name="console_share_too_many">Слишком много файлов. Отправьте меньше файлов за один раз.</string>
+    <string name="linux_connection_title">Подключиться к MagicDesk</string>
+    <string name="linux_connection_audio">Только звук</string>
+    <string name="linux_connection_new_x11">Звук и новый экран X11</string>
+    <string name="graphics_keyboard_hint">Встроенные данные (можно указать другой путь)</string>
+    <string name="linux_connection_graphics">Звук + %1$s: %2$s</string>
+    <string name="linux_connection_permission">%1$s сможет использовать выбранные звук и графическую сессию. Клиенты X11 имеют общий доступ к своему дисплею. Доступ к командам и файлам не предоставляется.</string>
+    <string name="linux_connection_connect">Подключить</string>
+    <string name="linux_connection_pending">Подключение&#8230;</string>
+    <string name="linux_connection_terminal">Без звука и экрана</string>
+    <string name="linux_connection_scope">Выберите возможности для следующего терминала в %1$s. Доступ к интернету и автоматизации прекращается при завершении терминала или отключении.</string>
+    <string name="linux_connection_internet">Временный веб-доступ для следующего терминала (без локальной сети)</string>
+    <string name="linux_connection_mcp">Разрешить авторизованным MCP-клиентам просматривать и управлять Linux (включая выполнение команд при наличии права на shell)</string>
+    <string name="console_more_actions">Другие действия</string>
+    <string name="console_browse_files">Файлы сессии</string>
+    <string name="console_redraw">Перерисовать экран (Ctrl+L)</string>
+    <string name="console_clear_history">Очистить историю терминала</string>
+    <string name="console_clear_history_confirm">Удалить сохранённый вывод и историю команд этой консоли?</string>
+    <string name="console_command_shortcut">Создать ярлык команды</string>
+    <string name="console_notification_settings">Настройки уведомлений терминала</string>
+    <string name="console_path_unknown">Путь недоступен в этой сессии.</string>
 </resources>

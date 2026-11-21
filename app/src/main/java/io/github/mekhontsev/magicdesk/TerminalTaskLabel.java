@@ -9,6 +9,11 @@ final class TerminalTaskLabel {
     private TerminalTaskLabel() {
     }
 
+    static String named(String name, String type) {
+        String label = clean(name, MAX_TITLE_LENGTH, "");
+        return label.isEmpty() || label.equalsIgnoreCase(type) ? type : label + " : " + type;
+    }
+
     static String resolve(
             final String fallback,
             final TerminalProcessInfo process,

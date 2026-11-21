@@ -970,9 +970,9 @@ int main(int argc, char **argv) {
     if (argc >= 2 && (strcmp(argv[1], "--describe-pty") == 0
             || strcmp(argv[1], "--emit-pty") == 0)) return peer_output_command(argc, argv);
     const int socket_mode = argc == 10 && strcmp(argv[1], "--socket") == 0;
-    if (argc != 5 && !socket_mode) {
+    if (argc != 5 && argc != 6 && !socket_mode) {
         fprintf(stderr,
-                "usage: %s ROWS COLUMNS DIRECTORY SHELL\n"
+                "usage: %s ROWS COLUMNS DIRECTORY SHELL [COMMAND]\n"
                 "       %s --socket PORT TOKEN ROWS COLUMNS DIRECTORY SHELL COMMAND_SHELL COMMAND\n",
                 argv[0], argv[0]);
         return 2;
@@ -983,7 +983,7 @@ int main(int argc, char **argv) {
     const char *working_directory = argv[argument_offset + 3];
     const char *shell_path = socket_mode ? argv[7] : argv[4];
     const char *command_shell_path = socket_mode ? argv[8] : shell_path;
-    const char *startup_command = socket_mode ? argv[9] : "";
+    const char *startup_command = socket_mode ? argv[9] : argc == 6 ? argv[5] : "";
     if (rows_value < 2 || rows_value > UINT16_MAX
             || columns_value < 2 || columns_value > UINT16_MAX
             || working_directory[0] != '/'

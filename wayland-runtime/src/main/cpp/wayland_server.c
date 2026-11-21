@@ -52,7 +52,7 @@ struct MdwOutput {
     struct wlr_buffer *pending_frame;
     struct wl_event_source *source_ready;
     int source_ready_fd;
-    struct wl_listener frame, commit;
+    struct wl_listener frame, precommit, commit;
     bool presenting;
     bool has_presented;
     bool visible;
@@ -134,6 +134,26 @@ static void publish(struct MdwToplevel *window) {
     window->published.title = window->published_title;
     window->published.app_id = window->published_app_id;
     server->events.window(server->events.context, window->view.id, &info);
+}
+
+static void output_sample(struct wlr_scene_buffer *buffer, int x, int y, void *data) {
+    (void)x; (void)y;
+    MdwOutput *output = data;
+    if (buffer->primary_output != output->scene_output) return;
+    struct wlr_scene_surface *scene = wlr_scene_surface_try_from_buffer(buffer);
+    if (!scene) return;
+    if ((output->parent || output->dependents) &&
+            (wlr_surface_get_root_surface(scene->surface) != output->view->surface) != (output->parent != NULL)) return;
+    wlr_presentation_surface_textured_on_output(scene->surface, output->output);
+}
+
+static void output_precommit(struct wl_listener *listener, void *data) {
+    (void)data;
+    MdwOutput *output = wl_container_of(listener, output, precommit);
+    if (!output->presenting) return;
+    // The output retains undamaged visible pixels too. Let wlroots bind their
+    // pending feedback to this commit, including our custom family render pass.
+    wlr_scene_output_for_each_buffer(output->scene_output, output_sample, output);
 }
 
 static void output_commit(struct wl_listener *listener, void *data) {
@@ -224,11 +244,23 @@ static void output_frame(struct wl_listener *listener, void *data) {
         wl_display_flush_clients(output->server->display);
     }
     output->presenting = true;
-    bool committed = output->parent || output->dependents
-        ? mdw_scene_render_family(output->scene_output, output->view->surface, output->parent != NULL)
-        : output->view->transparent
-        ? mdw_scene_render_transparent(output->scene_output)
-        : wlr_scene_output_commit(output->scene_output, NULL);
+    bool committed = true;
+    if (output->has_presented && !pixman_region32_not_empty(&output->scene_output->damage_ring.current) &&
+            !pixman_region32_not_empty(&output->scene_output->pending_commit_damage)) {
+        if (output->output->needs_frame) {
+            // Re-present retained content without rendering/exporting another buffer.
+            struct wlr_output_state state;
+            wlr_output_state_init(&state);
+            committed = wlr_output_commit_state(output->output, &state);
+            wlr_output_state_finish(&state);
+        }
+    } else {
+        committed = output->parent || output->dependents
+            ? mdw_scene_render_family(output->scene_output, output->view->surface, output->parent != NULL)
+            : output->view->transparent
+            ? mdw_scene_render_transparent(output->scene_output)
+            : wlr_scene_output_commit(output->scene_output, NULL);
+    }
     output->presenting = false;
     if (!committed) {
         int fd = mdw_renderer_take_deferred_fence(output->server->renderer);
@@ -255,6 +287,7 @@ static void release_output(MdwOutput *output) {
     mdw_output_focus(output, false);
     if (!output->output) return;
     wl_list_remove(&output->frame.link);
+    wl_list_remove(&output->precommit.link);
     wl_list_remove(&output->commit.link);
     if (output->scene_output) wlr_scene_output_destroy(output->scene_output);
     struct wlr_output *native = output->output;
@@ -731,6 +764,7 @@ static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int h
     if (!output->scene_output) { mdw_monitor_release(server, output->output); free(output); return NULL; }
     wl_list_insert(&server->outputs, &output->link);
     listen_signal(&output->output->events.frame, &output->frame, output_frame);
+    listen_signal(&output->output->events.precommit, &output->precommit, output_precommit);
     listen_signal(&output->output->events.commit, &output->commit, output_commit);
     if (!(configure ? mdw_output_resize(output, width, height) : mdw_output_viewport(output, 0, 0, width, height))) {
         mdw_output_destroy(output); return NULL;

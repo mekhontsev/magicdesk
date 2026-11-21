@@ -126,7 +126,8 @@ final class ShellPreparedTaskTransition {
                 bounds,
                 sourceParentToken,
                 targetParentToken,
-                DesktopTaskDensity.UNCHANGED);
+                DesktopTaskDensity.UNCHANGED,
+                null);
     }
 
     static void detachAndShowFreeform(
@@ -136,7 +137,8 @@ final class ShellPreparedTaskTransition {
             final Rect bounds,
             final Object sourceParentToken,
             final Object targetParentToken,
-            final int densityDpi)
+            final int densityDpi,
+            final Float retainedScale)
             throws ReflectiveOperationException {
         applyFreeform(
                 service,
@@ -146,7 +148,8 @@ final class ShellPreparedTaskTransition {
                 FreeformApplication.DETACH_AND_SHOW_TRANSITION,
                 densityDpi,
                 sourceParentToken,
-                targetParentToken);
+                targetParentToken,
+                retainedScale);
     }
 
     static void prepareFullscreen(
@@ -235,7 +238,8 @@ final class ShellPreparedTaskTransition {
             final int displayId,
             final int taskId,
             final int windowingMode,
-            final Rect bounds) throws ReflectiveOperationException {
+            final FrameworkWindowGeometry.Plan geometry) throws ReflectiveOperationException {
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
         final FrameworkWindowingApi windowing =
@@ -243,15 +247,19 @@ final class ShellPreparedTaskTransition {
         final Class<?> transactionClass = windowing.transactionClass();
         final Object transaction = windowing.newTransaction();
         windowing.setWindowingMode(transaction, taskToken, windowingMode);
-        windowing.setBounds(transaction, taskToken, new Rect(bounds));
+        geometry.apply(windowing, transaction, taskToken);
         windowing.setHidden(transaction, taskToken, false);
         windowing.reorder(transaction, taskToken, true, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transaction,
                 taskToken,
                 windowingMode != WINDOWING_MODE_FREEFORM);
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, transaction);
+        // Recovery changes geometry and reveals the task just like a normal
+        // placement; WMShell must restore its surface and decoration too.
+        ShellWindowTransitionExecutor.startForShellAdoption(
+                displayId, ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                transactionClass, transaction, "restore-prepared-task");
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
     }
 
     private static void applyFreeform(
@@ -286,6 +294,7 @@ final class ShellPreparedTaskTransition {
                 application,
                 densityDpi,
                 null,
+                null,
                 null);
     }
 
@@ -297,17 +306,19 @@ final class ShellPreparedTaskTransition {
             final FreeformApplication application,
             final int densityDpi,
             final Object sourceParentToken,
-            final Object targetParentToken)
+            final Object targetParentToken,
+            final Float retainedScale)
             throws ReflectiveOperationException {
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
+        final Object task = HiddenTaskApi.requireTask(
                 service, displayId, taskId);
+        final Object taskToken = HiddenTaskApi.getTaskToken(task);
         final FrameworkWindowingApi windowing =
                 FrameworkRuntime.current().windowing();
         final Class<?> transactionClass = windowing.transactionClass();
         final Object transaction = windowing.newTransaction();
         windowing.setWindowingMode(
                 transaction, taskToken, WINDOWING_MODE_FREEFORM);
-        windowing.setBounds(transaction, taskToken, bounds);
+        FrameworkWindowGeometry.plan(task, bounds, retainedScale).apply(windowing, transaction, taskToken);
         DesktopTaskDensity.apply(
                 windowing, transaction, taskToken, densityDpi);
         windowing.setForceTranslucent(transaction, taskToken, false);
@@ -343,6 +354,7 @@ final class ShellPreparedTaskTransition {
         ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId, transitionType, transactionClass, transaction,
                 "freeform-" + application.name());
+        FrameworkWindowGeometry.finishPlacement(service, displayId, taskId, bounds);
     }
 
     private static void applyPreparedFullscreen(

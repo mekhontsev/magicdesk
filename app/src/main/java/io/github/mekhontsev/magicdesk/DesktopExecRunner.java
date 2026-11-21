@@ -36,6 +36,7 @@ final class DesktopExecRunner {
     static StartResult prepareBackend(
             final Context activity,
             final DesktopExecBackend backend) {
+        if (backend == DesktopExecBackend.APP) return StartResult.STARTED;
         if (backend == DesktopExecBackend.TERMUX) {
             if (!TermuxIntegration.isInstalled(activity)) {
                 return StartResult.UNAVAILABLE;
@@ -77,6 +78,11 @@ final class DesktopExecRunner {
                 notifyCompletion(completion, null, error);
                 return StartResult.STARTED;
             }
+        }
+        if (backend == DesktopExecBackend.APP) {
+            new CommandExecution(activity, backend).start(prepared, workingDirectory, label, null,
+                    (code, output, error) -> notifyCompletion(completion, new ShellAccess.CommandResult(code, output), error));
+            return StartResult.STARTED;
         }
         SHELL_COMMANDS.execute(() -> {
             try {

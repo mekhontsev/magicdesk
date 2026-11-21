@@ -18,6 +18,11 @@ final class GeneratedContentStore {
     private GeneratedContentStore() { }
 
     static synchronized String publish(File directory, Writer writer, long now) throws IOException {
+        return publish(directory,writer,now,MAX_BYTES);
+    }
+
+    static synchronized String publish(File directory, Writer writer, long now, long quota) throws IOException {
+        if (quota<=0) throw new IllegalArgumentException("Invalid export quota");
         Files.createDirectories(directory.toPath());
         long used = 0;
         int count = 0;
@@ -27,12 +32,12 @@ final class GeneratedContentStore {
             if (expired(file, now)) Files.deleteIfExists(file.toPath());
             else { used += file.length(); count++; }
         }
-        if (used >= MAX_BYTES || count >= MAX_FILES) throw new IOException("temporary export storage is full");
+        if (used >= quota || count >= MAX_FILES) throw new IOException("temporary export storage is full");
         String id = UUID.randomUUID().toString();
         File target = new File(directory, id);
         boolean complete = false;
         try {
-            final long available = MAX_BYTES - used;
+            final long available = quota - used;
             try (OutputStream stream = Files.newOutputStream(target.toPath())) {
                 writer.write(new OutputStream() {
                     private long written;

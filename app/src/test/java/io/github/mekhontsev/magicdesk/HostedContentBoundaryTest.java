@@ -130,7 +130,9 @@ public final class HostedContentBoundaryTest {
         for (String forbidden : new String[]{"openOutput", "hostDensity", "claimClipboard", "closeWindow", "SurfaceView", "releaseHost"})
             assertFalse(forbidden, manager.contains(forbidden));
         String destroy = RuntimeSourceFixture.methods("GraphicalSessionsActivity", "onDestroy");
-        assertTrue(destroy.contains("session.unlisten(listener)"));
+        assertTrue(manager.contains("GraphicalSessions.listen(listener)"));
+        assertTrue(destroy.contains("GraphicalSessions.unlisten(listener)"));
+        assertFalse(manager.contains("session.listen(listener)"));
         assertFalse(destroy.contains("session.close()"));
         assertFalse(source("X11Activity").contains("createSessionControls"));
         assertTrue(RuntimeSourceFixture.methods("ToolApplications", "intent").contains("GraphicalSessionsActivity.createIntent(context)"));

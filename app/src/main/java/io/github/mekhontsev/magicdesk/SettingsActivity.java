@@ -25,16 +25,34 @@ import java.util.Locale;
 public final class SettingsActivity extends Activity
         implements SettingsView.Actions {
     private static final int LOCAL_NETWORK_PERMISSION_REQUEST = 1;
+    private static final String CHILD_PROCESS_SETTING = "showChildProcessSetting";
     private SettingsView mView;
     private AppearanceSettings mAppearance;
     private android.view.View mSettingsContent;
     private final android.window.OnBackInvokedCallback mAppearanceBack = this::closeAppearance;
-    private boolean mSystemDesktopModeBusy;
+    private boolean mSystemSettingBusy;
     private final ShellAccess.StateListener mShellStateListener = state ->
             runOnUiThread(this::render);
 
     static Intent createIntent(final Context context) {
         return new Intent(context, SettingsActivity.class);
+    }
+
+    static Intent childProcessIntent(Context context) {
+        return createIntent(context).putExtra(CHILD_PROCESS_SETTING, true);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        revealRequestedSetting();
+    }
+
+    private void revealRequestedSetting() {
+        if (!getIntent().getBooleanExtra(CHILD_PROCESS_SETTING, false)) return;
+        getIntent().removeExtra(CHILD_PROCESS_SETTING);
+        if (mAppearance.isOpen()) closeAppearance();
+        mView.revealChildProcessSetting();
     }
 
     static AppLaunchTarget launchTarget(final Context context) {
@@ -56,6 +74,7 @@ public final class SettingsActivity extends Activity
         ShellAccess.addStateListener(mShellStateListener);
         render();
         if (savedInstanceState != null && savedInstanceState.getBoolean("appearancePage")) configureAppearance();
+        revealRequestedSetting();
     }
 
     @Override
@@ -148,6 +167,10 @@ public final class SettingsActivity extends Activity
         saveSetting(MagicDeskSettings.setPhoneFullscreenByDefault(enabled));
     }
 
+    @Override public void setRequestHomeRole(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setRequestHomeRole(enabled));
+    }
+
     @Override
     public void setDisableAdaptiveBrightness(
             final boolean enabled) {
@@ -172,6 +195,13 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setWindowGeometry(final boolean enabled) {
+        saveSetting(WindowGeometrySettings.save(this, enabled));
+        android.widget.Toast.makeText(this, R.string.access_restart_required,
+                android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    @Override
     public void setProjectionDesktopOption(final boolean enabled) {
         final PlatformProjectionDriver.DesktopOption option =
                 PlatformDrivers.current().projection().desktopOption();
@@ -180,7 +210,7 @@ public final class SettingsActivity extends Activity
 
     @Override
     public void resetCompatibilityDefaults() {
-        if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
+        if (mSystemSettingBusy || !SystemDesktopModeSetting.canChange()) {
             return;
         }
         UiDialogs.builder(this)
@@ -197,7 +227,7 @@ public final class SettingsActivity extends Activity
     @Override
     public void setSystemDesktopMode(final boolean enabled) {
         renderSystemDesktopMode();
-        if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
+        if (mSystemSettingBusy || !SystemDesktopModeSetting.canChange()) {
             return;
         }
         UiDialogs.builder(this)
@@ -214,16 +244,36 @@ public final class SettingsActivity extends Activity
         applySystemSetting(() -> SystemDesktopModeSetting.setEnabled(context, enabled));
     }
 
+    @Override public void setChildProcessRestrictionsDisabled(final boolean disabled) {
+        renderChildProcessSetting();
+        if (mSystemSettingBusy || !ShellAccess.isReady()) return;
+        UiDialogs.builder(this)
+                .setTitle(R.string.settings_child_process_restrictions)
+                .setMessage(R.string.settings_child_process_description)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) ->
+                        applySystemSetting(() -> SystemChildProcessSetting.setDisabled(getApplicationContext(), disabled),
+                                "SYSTEM-CHILD-PROCESSES-001", 0))
+                .show();
+    }
+
     private interface SystemSettingChange {
         boolean apply() throws IOException;
     }
 
     private void applySystemSetting(final SystemSettingChange change) {
-        if (mSystemDesktopModeBusy) {
+        applySystemSetting(change, "SYSTEM-DESKTOP-MODE-001",
+                R.string.settings_system_desktop_mode_apply_notice);
+    }
+
+    private void applySystemSetting(final SystemSettingChange change,
+            final String diagnosticId, final int noticeResId) {
+        if (mSystemSettingBusy) {
             return;
         }
-        mSystemDesktopModeBusy = true;
+        mSystemSettingBusy = true;
         renderSystemDesktopMode();
+        renderChildProcessSetting();
         new Thread(() -> {
             String failure = null;
             boolean changed = false;
@@ -234,13 +284,13 @@ public final class SettingsActivity extends Activity
                 if (failure == null || failure.isEmpty()) {
                     failure = error.getClass().getSimpleName();
                 }
-                CompatibilityDiagnostics.record("SYSTEM-DESKTOP-MODE-001",
-                        "Could not apply desktop compatibility settings", failure, error);
+                CompatibilityDiagnostics.record(diagnosticId,
+                        "Could not apply Android system setting", failure, error);
             }
             final String resultError = failure;
             final boolean resultChanged = changed;
             runOnUiThread(() -> {
-                mSystemDesktopModeBusy = false;
+                mSystemSettingBusy = false;
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
@@ -251,12 +301,12 @@ public final class SettingsActivity extends Activity
                             .setMessage(resultError)
                             .setPositiveButton(android.R.string.ok, null)
                             .show();
-                } else if (resultChanged) {
-                    Toast.makeText(this, R.string.settings_system_desktop_mode_apply_notice,
+                } else if (resultChanged && noticeResId != 0) {
+                    Toast.makeText(this, noticeResId,
                             Toast.LENGTH_LONG).show();
                 }
             });
-        }, "MagicDeskSystemDesktopMode").start();
+        }, "MagicDeskSystemSetting").start();
     }
 
     @Override
@@ -512,6 +562,12 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setConsoleVolumeBlackScreen(boolean enabled) {
+        ConsolePreferences.setVolumeBlackScreen(this, enabled);
+        render();
+    }
+
+    @Override
     public void configureGraphicsRenderer() {
         var modes = io.github.mekhontsev.magicdesk.hosted.HostedRenderer.values();
         String[] labels = java.util.Arrays.stream(modes)
@@ -526,30 +582,22 @@ public final class SettingsActivity extends Activity
 
     @Override
     public void openApplicationSettings() {
-        final android.view.Display display = getDisplay();
-        final int displayId = display == null
-                ? android.view.Display.DEFAULT_DISPLAY
-                : display.getDisplayId();
-        if (DesktopRuntimeBridge.hasWorkspace(displayId)
-                && DesktopRuntimeBridge.openApplicationSettings(displayId, null)) {
-            return;
-        }
-        startActivityOnCurrentDisplay(
-                AppPresentationSettingsActivity.createIntent(this));
+        openTool(AppPresentationSettingsActivity.createIntent(this));
     }
 
     @Override
     public void openDiagnostics() {
-        final android.view.Display display = getDisplay();
-        final int displayId = display == null
-                ? android.view.Display.DEFAULT_DISPLAY
-                : display.getDisplayId();
-        if (DesktopRuntimeBridge.hasWorkspace(displayId)
-                && DesktopRuntimeBridge.openBuiltin(displayId, "diagnostics")) {
-            return;
-        }
-        startActivityOnCurrentDisplay(
-                DiagnosticsActivity.createIntent(this));
+        openTool(DiagnosticsActivity.createIntent(this));
+    }
+
+    private void openTool(final Intent intent) {
+        ToolApplications.openSibling(this, intent, error -> {
+            if (error != null) {
+                CompatibilityDiagnostics.record("SETTINGS-OPEN-001", "Could not open settings tool",
+                        intent.getComponent().flattenToShortString(), error);
+                Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     @Override
@@ -595,6 +643,7 @@ public final class SettingsActivity extends Activity
                             : settings.systemTheme,
                     settings != null && RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT));
             renderSystemDesktopMode();
+            renderChildProcessSetting();
         }
     }
 
@@ -605,17 +654,26 @@ public final class SettingsActivity extends Activity
         try {
             final boolean enabled = SystemDesktopModeSetting.read(this);
             final boolean canChange = SystemDesktopModeSetting.canChange();
-            final int status = mSystemDesktopModeBusy
+            final int status = mSystemSettingBusy
                     ? R.string.settings_system_desktop_mode_saving
                     : !ShellAccess.isReady()
                             ? R.string.settings_system_desktop_mode_shell
                             : !canChange
                                     ? R.string.settings_system_desktop_mode_close
                                     : R.string.settings_system_desktop_mode_apply_notice;
-            mView.renderSystemDesktopMode(enabled, canChange, mSystemDesktopModeBusy, status);
+            mView.renderSystemDesktopMode(enabled, canChange, mSystemSettingBusy, status);
         } catch (IOException error) {
-            mView.renderSystemDesktopMode(null, false, mSystemDesktopModeBusy,
+            mView.renderSystemDesktopMode(null, false, mSystemSettingBusy,
                     R.string.settings_system_desktop_mode_unavailable);
         }
+    }
+
+    private void renderChildProcessSetting() {
+        if (mView == null || isFinishing() || isDestroyed()) return;
+        Boolean disabled = SystemChildProcessSetting.disabledOrUnknown(this);
+        boolean shell = ShellAccess.isReady();
+        mView.renderChildProcessSetting(disabled, disabled != null && shell && !mSystemSettingBusy,
+                !shell ? R.string.child_process_manual : disabled == null ? R.string.settings_child_process_unavailable
+                        : mSystemSettingBusy ? R.string.settings_system_desktop_mode_saving : R.string.settings_child_process_description);
     }
 }

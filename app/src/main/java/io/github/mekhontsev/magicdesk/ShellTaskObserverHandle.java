@@ -59,6 +59,7 @@ final class ShellTaskObserverHandle implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final int desktopHostTaskId,
+            final boolean homeRole,
             final DesktopCompatibilityPolicy compatibility) throws IOException {
         if (displayBounds == null || workAreaBounds == null) {
             throw new IOException("missing task observer bounds");
@@ -74,7 +75,7 @@ final class ShellTaskObserverHandle implements Closeable {
                 workAreaBounds.top,
                 workAreaBounds.right,
                 workAreaBounds.bottom,
-                desktopHostTaskId, compatibility));
+                desktopHostTaskId, homeRole, compatibility));
     }
 
     void configureDesktopHomeDelegate(final int displayId, final int taskId,

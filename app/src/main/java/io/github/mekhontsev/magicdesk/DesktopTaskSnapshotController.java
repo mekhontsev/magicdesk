@@ -61,10 +61,13 @@ final class DesktopTaskSnapshotController {
         mRecentTaskId = activeTask == null ? -1 : activeTask.taskId;
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
-        // Presentation looks beneath PiP; keyboard focus still belongs to the
-        // foreground task, including an independent or pinned application.
+        // Command preparation survives intermediate observations until its
+        // input commit. Outside a command, follow focus rather than Z-order.
+        final int inputTarget = MagicDeskRuntime.taskInputFocusTarget(
+                mActivity.getCurrentDisplayId(),
+                displayActiveTask == null ? -1 : displayActiveTask.taskId);
         mActivity.setDesktopWindowFocusable(
-                displayActiveTask == null || isDesktopHostForeground(snapshot.tasks));
+                inputTarget < 0 || inputTarget == mActivity.getTaskId());
     }
 
     boolean setSystemDialogVisible(final boolean visible) {
@@ -91,20 +94,6 @@ final class DesktopTaskSnapshotController {
             }
         }
         return null;
-    }
-
-    static boolean isDesktopHostForeground(
-            final List<TaskRepository.TaskEntry> tasks) {
-        if (tasks == null) {
-            return false;
-        }
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null && task.visible
-                    && !DesktopInfrastructureTasks.isTask(task)) {
-                return DesktopTaskController.isDesktopHostTask(task);
-            }
-        }
-        return false;
     }
 
     void refresh() {

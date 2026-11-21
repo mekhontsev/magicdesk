@@ -58,14 +58,15 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                     AndroidIntegrationGateway.requireShortcutPresentation(request.presentation);
                     final AndroidShortcutSpec shortcut = request.androidShortcut;
                     AppProfile.requireCurrent(mContext, shortcut.application);
-                    ShellAccess.sendActivityOnDisplay(ShellAccess.getShortcutLaunchIntent(
-                            shortcut.publisher.packageName, shortcut.shortcutId), mDisplayId);
+                    OrdinaryActivityLaunch.send(ShellAccess.getShortcutLaunchIntent(
+                            shortcut.publisher.packageName, shortcut.shortcutId), mDisplayId, request.presentation);
                 } else {
                     final Intent source = request.androidLaunch.resolve(mContext.getPackageManager());
                     if (source == null) { throw new IllegalStateException("Activity is unavailable"); }
                     final Intent intent = request.presentation.instancePolicy.applyTo(mContext.getPackageManager(), source);
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    InteractiveActivityLaunch.launch(mContext, intent, request.androidLaunch.delivery, mDisplayId);
+                    InteractiveActivityLaunch.launch(mContext, intent, request.androidLaunch.delivery,
+                            mDisplayId, request.presentation);
                 }
                 onMain(() -> launched(onPrepared, completion));
             } catch (java.io.IOException | RuntimeException error) {

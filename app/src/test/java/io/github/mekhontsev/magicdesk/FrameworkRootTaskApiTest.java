@@ -11,6 +11,12 @@ public final class FrameworkRootTaskApiTest {
                 organizer.deleted = null;
                 service.tasks.clear();
                 check(root.close(service), "already removed root must be complete");
+                check(!root.isPresent(service), "absent root still present");
+                Task parent = new Task();
+                parent.id++;
+                parent.children = new int[]{root.taskId};
+                service.tasks.add(parent);
+                check(root.isPresent(service), "nested task mistaken for a deleted separator");
                 check(organizer.deleted == null, "deleted an absent root");
                 """);
     }
@@ -51,6 +57,7 @@ public final class FrameworkRootTaskApiTest {
                     Object token = new Object();
                     IBinder cookie;
                     boolean empty = true;
+                    int[] children = {};
                 }
                 static class Service { List<Task> tasks = new ArrayList<>(); }
                 public static class Organizer {
@@ -61,6 +68,7 @@ public final class FrameworkRootTaskApiTest {
                 }
                 static class HiddenTaskApi {
                     static int getTaskId(Object task) { return ((Task)task).id; }
+                    static int[] getRootTaskChildTaskIds(Object task) { return ((Task)task).children; }
                     static Object getTaskToken(Object task) { return ((Task)task).token; }
                     static boolean isEmptyTask(Object task) { return ((Task)task).empty; }
                     static boolean hasTaskLaunchCookie(Object task, IBinder cookie) {

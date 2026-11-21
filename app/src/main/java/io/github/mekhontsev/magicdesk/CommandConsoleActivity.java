@@ -26,6 +26,7 @@ public final class CommandConsoleActivity extends Activity
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_ATTACH_ONLY";
     private static final String EXTRA_TMUX_SESSION = "tmux_session";
     private static final String EXTRA_TMUX_CREATED = "tmux_created";
+    private static final String EXTRA_TMUX_NAME = "tmux_name";
     private static final String STATE_SESSION = "session_intent";
     private static final String EXTRA_EMPTY = "empty_terminal_window";
     private static final String STATE_FONT_SIZE = "font_size_sp";
@@ -38,13 +39,14 @@ public final class CommandConsoleActivity extends Activity
     private DesktopExecBackend mBackend;
     private String mTerminalStatus = "";
     private String mTerminalRegistryId = "";
+    String attachedTerminalId() { return mTerminalRegistryId; }
     private boolean mTerminalFailed;
     private boolean mPermissionRequested;
+    private final VolumeKeyAction mBlackScreenKey = new VolumeKeyAction();
 
     static Intent createIntent(final Context context) {
-        return new Intent(context, CommandConsoleActivity.class).putExtra(
-                EXTRA_INITIAL_DIRECTORY,
-                ShellDesktopDirectory.ABSOLUTE_PATH);
+        var backend = ConsolePreferences.selected(context);
+        return createIntentAtDirectory(context, backend.home(context), backend);
     }
 
     static AppLaunchTarget launchTarget() {
@@ -99,9 +101,7 @@ public final class CommandConsoleActivity extends Activity
                 || workingDirectory.isEmpty()
                 ? createIntentAtDirectory(
                         context,
-                        backend == DesktopExecBackend.TERMUX
-                                ? TermuxIntegration.homeDirectory(context)
-                                : ShellDesktopDirectory.ABSOLUTE_PATH,
+                        backend.home(context),
                         backend)
                 : createIntentAtDirectory(
                         context, workingDirectory, backend);
@@ -125,6 +125,35 @@ public final class CommandConsoleActivity extends Activity
         return intent.putExtra(EXTRA_TERMINAL_ID, id);
     }
 
+    static Intent createEnvironmentIntent(Context context,GuestEnvironmentCatalog.Entry entry) {
+        return createEnvironmentIntent(context, entry, null);
+    }
+
+    static Intent createEnvironmentIntent(Context context, GuestEnvironmentCatalog.Entry entry, GuestTmux.Target target) {
+        var intent = createPreparedCommandIntent(context, target == null ? GuestEnvironmentCatalog.login(entry)
+                : target.command(entry), "", entry.backend())
+                .putExtra("guestEnvironment",new String[]{entry.name(),entry.id(),entry.source(),entry.store()});
+        return target == null ? intent : intent.putExtra("guestTmuxTarget", target.encode());
+    }
+
+    private static String guestTmuxName(Intent request) {
+        var fields = request.getStringArrayExtra("guestTmuxTarget");
+        return fields == null ? null : GuestTmux.Target.decode(fields).name();
+    }
+
+    private static GuestEnvironmentCatalog.Entry initialEnvironment(Intent request,DesktopExecBackend backend,String command) {
+        String[] fields=request.getStringArrayExtra("guestEnvironment");
+        if (fields==null || fields.length!=4 || java.util.Arrays.asList(fields).contains(null)) return null;
+        try {
+            GuestEnvironmentLibrary.validateName(fields[0]);
+            var entry=new GuestEnvironmentCatalog.Entry(fields[0],java.util.UUID.fromString(fields[1]).toString(),
+                    fields[2],GuestEnvironment.absolute(fields[3],"environment store"),backend);
+            String[] target = request.getStringArrayExtra("guestTmuxTarget");
+            String expected = target == null ? GuestEnvironmentCatalog.login(entry) : GuestTmux.Target.decode(target).command(entry);
+            return expected.equals(command) ? entry : null;
+        } catch (IllegalArgumentException invalidPresentation) { return null; }
+    }
+
     static Intent attachIntent(final Context context, final ConsoleTerminalRegistry.Snapshot session) {
         return withTerminalId(createIntentAtDirectory(context, session.workingDirectory,
                 DesktopExecBackend.parse(session.backend)), session.id).putExtra(EXTRA_ATTACH_ONLY, true);
@@ -139,18 +168,18 @@ public final class CommandConsoleActivity extends Activity
         // A tmux attachment instead remembers the terminal, never a transient server session ID.
         final String command = source.getStringExtra(EXTRA_AUTO_RUN_COMMAND);
         if (command != null && !command.isBlank() && !source.hasExtra(EXTRA_TMUX_SESSION)) return null;
-        final boolean termux = isTermux(source);
-        return new DesktopApplicationShortcut(context.getString(termux
-                ? R.string.console_termux_title : R.string.console_title), "", "", launchTarget(),
-                termux ? createTermuxIntent(context).toUri(Intent.URI_INTENT_SCHEME) : "",
-                DesktopLaunchMode.AUTO, !termux, DesktopExecBackend.SHELL, false);
+        final DesktopExecBackend backend = backend(source);
+        return new DesktopApplicationShortcut(context.getString(backend.title()), "", "", launchTarget(),
+                createIntentAtDirectory(context, backend.home(context), backend).toUri(Intent.URI_INTENT_SCHEME),
+                DesktopLaunchMode.AUTO, false, backend, false);
     }
 
     static Intent createTmuxIntent(Context context, TmuxSessionProvider.Session session) {
         return withTerminalId(createPreparedCommandIntent(context,
                 TmuxSessionProvider.sessionCommand(session, TmuxSessionProvider.attachCommand(session.id)),
                 TermuxIntegration.homeDirectory(context), DesktopExecBackend.TERMUX), ConsoleTerminalRegistry.nextId())
-                .putExtra(EXTRA_TMUX_SESSION, session.id).putExtra(EXTRA_TMUX_CREATED, session.createdSeconds);
+                .putExtra(EXTRA_TMUX_SESSION, session.id).putExtra(EXTRA_TMUX_CREATED, session.createdSeconds)
+                .putExtra(EXTRA_TMUX_NAME, session.name);
     }
 
     @Override
@@ -159,9 +188,7 @@ public final class CommandConsoleActivity extends Activity
         mBackend = backend(getIntent());
         DesktopTaskDescription.apply(
                 this,
-                mBackend == DesktopExecBackend.TERMUX
-                        ? R.string.console_termux_title
-                        : R.string.console_title,
+                mBackend.title(),
                 R.drawable.ic_file_console);
         BuiltInWindowRegistry.register(this);
         getWindow().setSoftInputMode(
@@ -210,6 +237,10 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     public boolean dispatchKeyEvent(final KeyEvent event) {
+        if (VolumeKeyAction.accepts(event.getKeyCode()) && mBlackScreenKey.dispatch(event,
+                hasWindowFocus() && getDisplay() != null
+                        && getDisplay().getDisplayId() == android.view.Display.DEFAULT_DISPLAY
+                        && ConsolePreferences.volumeBlackScreen(this), this::openBlackScreen)) return true;
         if (!isToggleToolbarShortcut(event)) {
             return super.dispatchKeyEvent(event);
         }
@@ -218,6 +249,22 @@ public final class CommandConsoleActivity extends Activity
             mWindow.toggleToolbar();
         }
         return true;
+    }
+
+    private void openBlackScreen() {
+        var request = new java.util.concurrent.CompletableFuture<Boolean>();
+        // EVENT_WAIT: the phone panel applies black mode; expiry cancels pending activation.
+        request.orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).whenComplete((active, error) -> {
+            if (error != null) runOnUiThread(() -> Toast.makeText(this,
+                    ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show());
+        });
+        ControlActivity.requestBlackScreen(true, request);
+    }
+
+    @Override
+    protected void onPause() {
+        mBlackScreenKey.reset();
+        super.onPause();
     }
 
     @Override
@@ -316,12 +363,11 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     public void onTitleChanged(final String title) {
-        final String fallback = getString(mBackend == DesktopExecBackend.TERMUX
-                ? R.string.console_termux_title : R.string.console_title);
+        final String fallback = getString(mBackend == null ? R.string.console_title : mBackend.title());
         final var snapshot = ConsoleTerminalRegistry.status(mTerminalRegistryId);
         final String label = snapshot == null ? TerminalTaskLabel.resolve(fallback,
                 mSession == null ? TerminalProcessInfo.unknown() : mSession.foregroundProcess(), title)
-                : snapshot.taskLabel(fallback);
+                : snapshot.taskLabel(this);
         setTitle(label);
         DesktopTaskDescription.apply(this, label, R.drawable.ic_file_console);
         mWindow.updateSession(mSession == null ? getString(R.string.terminal_sessions) : label,
@@ -365,13 +411,10 @@ public final class CommandConsoleActivity extends Activity
     }
 
     private void createTerminalApplication() {
-        final String directory = mSession == null
-                ? initialDirectory(getIntent()) : mSession.workingDirectory();
-        DesktopCommandApplicationDialog.show(
-                this,
-                DesktopCommandApplicationDialog.InitialValues.empty(
-                        directory, mBackend),
-                null);
+        var session=mSession;
+        if (session!=null) mActions.withActionDirectory(session,directory ->
+                DesktopCommandApplicationDialog.show(this,new DesktopCommandApplicationDialog.InitialValues(
+                        "", "", session.backend(), directory, session.initialEnvironment),null));
     }
 
     private void selectSession(Intent request) {
@@ -380,7 +423,7 @@ public final class CommandConsoleActivity extends Activity
         if (session != null && session.taskId >= 0 && session.taskId != getTaskId()) {
             UiDialogs.builder(this).setTitle(R.string.terminal_move_here)
                     .setMessage(getString(R.string.terminal_move_confirm,
-                            session.taskLabel(getString(R.string.console_title))))
+                            session.taskLabel(this)))
                     .setNegativeButton(android.R.string.cancel, null)
                     .setPositiveButton(R.string.terminal_move_here, (dialog, which) -> openSession(request)).show();
         } else openSession(request);
@@ -419,11 +462,13 @@ public final class CommandConsoleActivity extends Activity
                                 var session = new ConsoleTerminalSession(initialDirectory(request),
                                     mTerminalView.columns(), mTerminalView.rows(), mTerminalView.cellWidth(),
                                     mTerminalView.cellHeight(), requestedBackend, command,
-                                    terminalTransportFactory(requestedBackend, files), listener);
+                                    terminalTransportFactory(requestedBackend, files, tmuxId != null), listener);
+                                session.initialEnvironment=initialEnvironment(request,requestedBackend,command);
+                                if (session.initialEnvironment != null) session.guestTmuxName = guestTmuxName(request);
                                 session.setFiles(files, tmuxId == null);
                                 return session;
                             });
-            if (tmuxId != null) ConsoleTerminalRegistry.bindTmux(id, tmuxId, tmuxCreated);
+            if (tmuxId != null) ConsoleTerminalRegistry.bindTmux(id, tmuxId, tmuxCreated, request.getStringExtra(EXTRA_TMUX_NAME));
             // Registration revokes both former bindings before this window adopts the session.
             ConsoleTerminalRegistry.register(this, next, mTerminalView, id);
             mSession = next;
@@ -462,17 +507,20 @@ public final class CommandConsoleActivity extends Activity
         updateActions();
     }
 
-    private TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend backend, ConsoleSessionFiles files) {
+    private TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend backend, ConsoleSessionFiles files, boolean managedTmux) {
         final Context application = getApplicationContext();
         return (directory, rows, columns, startupCommand) -> {
-            var audio = LinuxAudio.prepare(application, new CommandExecution(application, backend));
+            var execution = new CommandExecution(application, backend);
+            var audio = LinuxAudio.prepare(application, execution);
             try {
                 var environment = new java.util.LinkedHashMap<>(audio.environment());
                 environment.putAll(files.prepare());
-                TerminalTransport terminal = backend == DesktopExecBackend.TERMUX
-                        ? TermuxPtyTransport.open(application, directory, rows, columns, startupCommand, environment)
-                        : ShellAccess.openPty(directory, rows, columns, environment);
-                return new ScopedTerminalTransport(terminal, audio);
+                TerminalTransport terminal = switch (backend) {
+                    case APP -> new ProcessPtyTransport(application, directory, rows, columns, environment);
+                    case TERMUX -> TermuxPtyTransport.open(application, directory, rows, columns, startupCommand, environment);
+                    case SHELL -> ShellAccess.openPty(directory, rows, columns, environment);
+                };
+                return new ScopedTerminalTransport(terminal, audio, execution, managedTmux);
             } catch (IOException | RuntimeException error) { audio.close(); throw error; }
         };
     }
@@ -509,7 +557,7 @@ public final class CommandConsoleActivity extends Activity
                 }
                 return;
             }
-        } else if (mSnapshot == null || !mSnapshot.isReady()) {
+        } else if (mBackend == DesktopExecBackend.SHELL && (mSnapshot == null || !mSnapshot.isReady())) {
             return;
         }
         if (!mSession.isReady()) {
@@ -538,7 +586,7 @@ public final class CommandConsoleActivity extends Activity
                 ? ShellDesktopDirectory.ABSOLUTE_PATH : directory;
     }
 
-    private static DesktopExecBackend backend(final Intent intent) {
+    static DesktopExecBackend backend(final Intent intent) {
         try {
             return DesktopExecBackend.parse(intent == null
                     ? "" : intent.getStringExtra(EXTRA_BACKEND));

@@ -106,6 +106,11 @@ public final class CompatibilityDiagnostics {
                 failure.technicalDetail(version), null, MAX_PROCESS_FAILURE_CHARS);
     }
 
+    static void recordSystemOperationFailure(final String code, final String userMessage,
+            final String detail, final Throwable error) {
+        record(code, userMessage, detail, error, 12_000);
+    }
+
     private static void record(final String code, final String userMessage,
             final String technicalDetail, final Throwable error, final int detailLimit) {
         final Context context = sApplicationContext;
@@ -116,9 +121,11 @@ public final class CompatibilityDiagnostics {
         final String cleanedMessage = cleanSingleLine(userMessage, 400);
         final String cleanedDetail = cleanMultiline(
                 technicalDetail, detailLimit);
+        final String failure = error == null ? "" : formatFailure(error);
         final String signature = cleanedCode
                 + '\n' + cleanedMessage
-                + '\n' + cleanedDetail;
+                + '\n' + cleanedDetail
+                + '\n' + failure;
 
         synchronized (LOCK) {
             if (isDuplicate(signature)) {
@@ -134,8 +141,7 @@ public final class CompatibilityDiagnostics {
                 entry.append(" | ").append(cleanedDetail);
             }
             if (error != null) {
-                entry.append(" | ").append(cleanMultiline(
-                        stackTrace(error), MAX_EVENT_DETAIL_CHARS));
+                entry.append(" | ").append(failure);
             }
             entry.append('\n');
             final File file = new File(context.getFilesDir(), EVENT_FILE);
@@ -195,7 +201,7 @@ public final class CompatibilityDiagnostics {
 
         appendDevice(report);
         appendCompatibility(
-                report, appContext, audit, inputSnapshot);
+                report, appContext, audit, inputSnapshot, snapshot);
         snapshot.appendSelection(report);
         appendShellProbe(report, audit);
         CaptureDiagnostics.appendReport(report, appContext);
@@ -204,7 +210,7 @@ public final class CompatibilityDiagnostics {
         CompatibilityOnboardingStore.appendReport(report, appContext);
         DesktopWindowTransitionDiagnostics.appendReport(report);
         WindowTransitionHealthDiagnostics.appendReport(report, appContext);
-        DesktopTaskConfigurationReport.append(report);
+        DesktopTaskConfigurationReport.append(report, inputSnapshot);
         appendDisplays(report, appContext);
         appendInputDevices(report);
         VendorDiscoveryReport.appendSaved(report, appContext);
@@ -218,7 +224,8 @@ public final class CompatibilityDiagnostics {
         report.append("\n## Privacy note\n")
                 .append("This report does not collect notification contents, user files, ")
                 .append("or the installed-app list. It includes package names, versions, ")
-                .append("task/display identifiers and bounded application crash messages/stacks. ")
+                .append("task/display identifiers, numeric window/surface/input geometry, bounded application crash messages/stacks, ")
+                .append("and time-bounded Android role-service logs after HOME failures. ")
                 .append("Messages supplied by applications may contain private data; ")
                 .append("review the report before sharing.\n");
         return new DiagnosticsReport(report.toString(), Build.BRAND, Build.MODEL,
@@ -268,7 +275,8 @@ public final class CompatibilityDiagnostics {
     private static void appendCompatibility(final StringBuilder report,
             final Context context,
             final DeviceSetupManager.Audit audit,
-            final DesktopInputReportSnapshot inputSnapshot) {
+            final DesktopInputReportSnapshot inputSnapshot,
+            final CompatibilitySnapshot snapshot) {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
         report.append("## Runtime profile\n")
@@ -290,6 +298,7 @@ public final class CompatibilityDiagnostics {
                 .append(ShellAccess.statusLabel()).append('\n')
                 .append("Privilege startup: backend=").append(ShellBackend.active())
                 .append(", configuredBackend=").append(ShellBackend.configured(context))
+                .append(", ").append(shellLauncherDetail(ShellBackend.active(), IntegrationPackage.SHIZUKU.selected()))
                 .append('\n')
                 .append("Runtime limits: active=").append(RuntimeLimits.active())
                 .append(", configured=").append(RuntimeLimits.configured(context)).append('\n')
@@ -347,6 +356,13 @@ public final class CompatibilityDiagnostics {
             report.append("unavailable: ").append(error.getMessage());
         }
         report.append("; optional, reconnect display after changes; Android restart may be needed\n");
+        report.append("Android child process monitoring: ");
+        try {
+            report.append(SystemChildProcessSetting.readDisabled(context) ? "disabled" : "enabled");
+        } catch (IOException error) {
+            report.append("unavailable: ").append(cleanSingleLine(error.getMessage(), 240));
+        }
+        report.append("; system-wide, independent of Desktop and memory-pressure kills\n");
         if (audit.platform.windowing().restrictionsPropertyKey() != null
                 || audit.platform.windowing()
                         .roundedCornersPropertyKey() != null) {
@@ -410,16 +426,16 @@ public final class CompatibilityDiagnostics {
         appendCheck(report, "HOME-ROLE-001",
                 homeRoleAvailable,
                 "Android Home role",
-                !homeRoleAvailable
-                        ? "unavailable"
-                        : homeLease == null
-                                ? "available; lease=inactive"
-                                : "available; lease=" + homeLease.phase
+                (homeRoleAvailable ? "available" : "unavailable (optional)")
+                        + (homeLease == null
+                                ? "; lease=inactive"
+                                : "; lease=" + homeLease.phase
+                                        + ", homeRole=" + homeLease.homeRole
                                         + ", workspaceDisplays=" + homeLease.targets.stream()
                                                 .map(target -> target.workspaceDisplayId).toList()
                                         + ", previous="
                                         + describeHomeSelection(
-                                                homeLease.previousHome));
+                                                homeLease.previousHome)));
         final PhoneTaskNormalizationDiagnostics.Snapshot phoneTasks =
                 PhoneTaskNormalizationDiagnostics.snapshot();
         report.append("Phone task normalization: ")
@@ -459,6 +475,7 @@ public final class CompatibilityDiagnostics {
                 .append(settings.keepDesktopAwake)
                 .append(", keepScreenOn=").append(settings.keepScreenOn)
                 .append(", phoneFullscreenByDefault=").append(settings.phoneFullscreenByDefault)
+                .append(", requestHomeRole=").append(settings.requestHomeRole)
                 .append(", disableAdaptiveBrightness=")
                 .append(settings.disableAdaptiveBrightness)
                 .append(", systemTheme=").append(settings.systemTheme)
@@ -467,12 +484,7 @@ public final class CompatibilityDiagnostics {
                 .append('\n');
         appendApplicationPresentationProfiles(report);
         report.append("Desktop system theme: ").append(DesktopSystemTheme.diagnostics()).append('\n');
-        for (final IntegrationPackage integration : IntegrationPackage.values()) {
-            report.append("Integration ").append(integration.key)
-                    .append(": active=").append(integration.selected())
-                    .append(", configured=").append(integration.configured(context))
-                    .append('\n');
-        }
+        snapshot.appendIntegrations(report);
         report.append("Embedded Termux PTY: ")
                 .append(TermuxPtyTransport.diagnostics(context))
                 .append('\n');
@@ -622,6 +634,9 @@ public final class CompatibilityDiagnostics {
                 .append(platform.phoneUi().isAvailable())
                 .append('\n');
         platform.diagnostics().appendCompatibilityReport(report, context);
+        report.append("Phone screen guard: active=").append(PhoneDisplayGuard.isActive())
+                .append(", screenOff=").append(PhoneDisplayGuard.isScreenOff())
+                .append(", protectedUids=").append(PhoneDisplayGuard.protectedUidSummary()).append('\n');
     }
 
     private static void appendDisplays(final StringBuilder report, final Context context) {
@@ -950,7 +965,13 @@ public final class CompatibilityDiagnostics {
         }
     }
 
-    private static String cleanSingleLine(final String value, final int maxLength) {
+    static String shellLauncherDetail(final ShellBackend backend, final String selectedManager) {
+        return backend == ShellBackend.SHIZUKU
+                ? "selectedManager=" + selectedManager
+                : "launcher=su (no Shizuku manager)";
+    }
+
+    static String cleanSingleLine(final String value, final int maxLength) {
         if (value == null) {
             return "";
         }
@@ -969,10 +990,12 @@ public final class CompatibilityDiagnostics {
                 ? normalized : BoundedText.prefix(normalized, maxLength) + "...";
     }
 
-    private static String stackTrace(final Throwable error) {
+    static String formatFailure(final Throwable error) {
+        final String summary = "causes: " + FailureDiagnostics.describe(error, 800) + '\n';
         final StringWriter value = new StringWriter();
         error.printStackTrace(new PrintWriter(value));
-        return value.toString();
+        return summary + FailureDiagnostics.bounded(value.toString().replace("\u0000", ""),
+                MAX_EVENT_DETAIL_CHARS - summary.length());
     }
 
     private static String utcNow() {

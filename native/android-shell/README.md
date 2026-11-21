@@ -1,8 +1,9 @@
 # Android Shell
 
-MagicDesk packages unmodified upstream mksh R59c for its Android shell execution.
+MagicDesk packages upstream mksh R59c for User and Shell execution.
 The pinned, SHA-256-verified archive is the original upstream tarball mirrored
-by Debian, not Debian's patched package. This is a build adapter, not a shell fork.
+by Debian, not Debian's patched package. The build applies `history.patch` to a
+private generated copy of `histrap.c`; the downloaded source remains unchanged.
 Future updates must pin a release/archive and review its Android configuration;
 the build never follows a floating branch.
 
@@ -12,12 +13,11 @@ Android/Bionic configuration based on AOSP's `external/mksh/Android.bp`, enablin
 `libmagicdesk_mksh.so` for Android's native-library packaging, with 16 KiB ELF
 segment alignment. It is executed, never loaded into ART. The Gradle owner
 supplies the APK minimum API (34) and the existing arm64 toolchain. POSIX `sh`,
-`sed`, `sort` and `tr` are build-host tools; Windows CI supplies them through MSYS2.
+`sed`, `sort`, `tr` and `patch` are build-host tools supplied by Linux or Termux.
 `MAGICDESK_BUILD_SHELL` selects an absolute host shell path, overriding discovery.
 `generate-table.cmake` places its companion tools first on `PATH` before invoking
-upstream `Build.sh`, so native Windows CMake cannot accidentally select Windows
-`sort.exe`. Paths remain separate, quoted arguments, including build directories
-with spaces; Windows CI has a dedicated NDK build check for that case.
+upstream `Build.sh`. Paths remain separate, quoted arguments, including build
+directories with spaces; Linux CI has a dedicated NDK build check for that case.
 Per-file copyright/license notices, including embedded notices, are collected into the APK's
 `assets/licenses/mksh/NOTICE.txt` without rewriting the sources.
 
@@ -44,12 +44,17 @@ replaced. Resolution is lazy; missing mksh fails its requested command, not
 unrelated Binder services or app startup.
 
 `TerminalShellIntegration` sets shell-local `HISTFILE` and `HISTSIZE` in the owned
-interactive rc. History lives in `$XDG_STATE_HOME/shell_history`, normally
-`~/.local/state/shell_history`. Shell and root have separate HOME/state paths.
+interactive rc. History lives in `$XDG_STATE_HOME/shell_history`, resolved to
+`$HOME/files/state/shell_history`. App, shell and root identities have separate
+HOME/state paths.
 The shell owns the binary format, command boundaries, locking, append and startup
 compaction. The 2000-command setting is a recall/compaction size, not a strict
 on-disk quota while sessions are active. There is no database, polling, per-command
-helper process, or shutdown-only save. Power-loss durability is not promised.
+helper process, or shutdown-only save. The focused history patch preserves the
+file identity when empty, retries interrupted locks, and rewrites compacted
+history under the existing lock while allowing other live shells to reload it.
+Its format and interpreter semantics remain upstream's. Power-loss durability
+is not promised.
 History variables are not exported into other shells, especially guest Bash.
 The terminal's OSC-marked history/output menu remains session-local and independent.
 
@@ -68,7 +73,7 @@ It uses private temporary homes and new subprocesses, never a user terminal.
 Do not replace the APK or terminate an existing terminal just to run this fixture.
 It checks `sh`/`mksh` identity, no-shebang execution with an isolated PATH, explicit
 and missing interpreters, and noninteractive rc/history exclusion.
-Verify new Console sessions under UID 2000 independently of Desktop: arrow-key
+Verify new User and Shell console sessions independently of Desktop: arrow-key
 recall, concurrent consoles, multiline input, process termination/reopen, and
 normal installer/Ctrl+C behavior. Repeat on API 34 and with the NDK-built APK;
 successful local compilation is not firmware compatibility coverage.

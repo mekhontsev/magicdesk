@@ -28,6 +28,8 @@ final class AndroidUiAutomation implements AutoCloseable {
     }
 
     JSONObject awakeState() throws JSONException { return mAwake.state(); }
+    AppUpdatePowerState updatePowerState(boolean blackScreen) { return mAwake.updateState(blackScreen); }
+    void restoreUpdatePower(AppUpdatePowerState state) { mAwake.restoreAfterUpdate(state); }
 
     private synchronized ShellUiAutomationHandle handle() throws IOException {
         if (mHandle == null || !mHandle.isAlive()) mHandle = ShellAccess.openUiAutomation();
