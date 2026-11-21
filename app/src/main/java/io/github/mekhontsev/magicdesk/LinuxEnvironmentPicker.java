@@ -163,7 +163,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
                 guestRequest = GuestEnvironmentCatalog.load(getContext(), backend, (entries, error) -> post(() -> {
                     if (expected != generation) return;
                     guests = entries;
-                    UiChoiceAdapter.bind(choices, guests);
+                    UiChoiceAdapter.bindAdapter(choices,new GuestEnvironmentLabel.Adapter(getContext(),guests,false));
                     status.setText(error == null ? getContext().getString(R.string.guest_empty) : ShellAccess.usefulMessage(error));
                     status.setVisibility(error != null || guests.isEmpty() ? View.VISIBLE : View.GONE);
                 }));

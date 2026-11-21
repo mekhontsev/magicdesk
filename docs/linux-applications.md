@@ -6,6 +6,12 @@ open **Console > New session > Shroot environments**, select an environment,
 then **Install Linux as an application**. Android confirms installation. Opening
 the installed application requests confirmation before importing its backup.
 
+The Android launcher keeps the environment's chosen name. When the guest's
+`os-release` declares an installed PNG logo, MagicDesk uses it for the APK,
+the environment picker and terminals opened from that picker. The picker can
+also show the distribution's own display name. Missing artwork falls back to
+the MagicDesk icon. Reading this information does not start Linux.
+
 Each package owns a native Shroot bundle, mksh, an interactive terminal and a
 private store under its own Android UID. It needs neither MagicDesk nor Shizuku
 to run. Closing the terminal window retains its session; **End session** stops

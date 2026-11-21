@@ -44,7 +44,7 @@ final class GuestApplicationExports {
                 if (!file.equals("libmagicdesk_command_client.so")) libraries.put(file,nativeDir.resolve(file));
             for (String file : java.util.List.of("libmagicdesk_mksh.so","libmagicdesk_pty_bridge.so","libmagicdesk_linux_settings.so"))
                 libraries.put(file,nativeDir.resolve(file));
-            byte[] icon=icon(context);
+            byte[] icon=icon(context,GuestAppearance.read(execution,source).logo());
             byte[] config=new JSONObject().put("format",1).put("sourceId",source.id()).put("name",source.name())
                     .put("hostPackage",context.getPackageName()).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
             try (var template=context.getAssets().open("launcher/guest-template.apk");
@@ -88,11 +88,19 @@ final class GuestApplicationExports {
         }
     }
 
-    private static byte[] icon(Context context) throws IOException {
+    private static byte[] icon(Context context,android.graphics.Bitmap logo) throws IOException {
         var bitmap=android.graphics.Bitmap.createBitmap(192,192,android.graphics.Bitmap.Config.ARGB_8888);
         try {
-            var drawable=context.getDrawable(R.mipmap.ic_launcher).mutate();
-            drawable.setBounds(0,0,192,192); drawable.draw(new android.graphics.Canvas(bitmap));
+            var canvas=new android.graphics.Canvas(bitmap);
+            if (logo==null) {
+                var drawable=context.getDrawable(R.mipmap.ic_launcher).mutate();
+                drawable.setBounds(0,0,192,192); drawable.draw(canvas);
+            } else {
+                float scale=192f/Math.max(logo.getWidth(),logo.getHeight());
+                float x=(192-logo.getWidth()*scale)/2, y=(192-logo.getHeight()*scale)/2;
+                canvas.drawBitmap(logo,null,new android.graphics.RectF(x,y,192-x,192-y),
+                        new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+            }
             var output=new java.io.ByteArrayOutputStream();
             if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,output)) throw new IOException("Cannot encode Linux icon");
             return output.toByteArray();

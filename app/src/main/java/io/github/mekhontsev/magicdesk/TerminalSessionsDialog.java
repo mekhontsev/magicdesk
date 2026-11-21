@@ -233,7 +233,7 @@ final class TerminalSessionsDialog {
                 picker.dismiss();
                 if (error != null) Toast.makeText(activity, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
                 UiDialogs.builder(activity).setTitle(R.string.guest_environments)
-                        .setItems(entries.stream().map(entry -> entry.label(activity)).toArray(String[]::new),
+                        .setAdapter(new GuestEnvironmentLabel.Adapter(activity,entries,true),
                                 (dialog, index) -> {
                                     var entry = entries.get(index);
                                     UiDialogs.builder(activity).setTitle(entry.name())
@@ -248,8 +248,7 @@ final class TerminalSessionsDialog {
                                                         else if (selected == 2) LauncherExportActivity.openEnvironment(activity,entry);
                                                         else if (selected == 3) GuestFolders.show(activity,entry);
                                                         else if (selected == 4) GuestNetworkSettings.show(activity,entry);
-                                                        else openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
-                                                                GuestEnvironmentCatalog.login(entry), "", entry.backend()));
+                                                        else openIntent(CommandConsoleActivity.createEnvironmentIntent(activity,entry));
                                                     }).setNegativeButton(android.R.string.cancel, null).show();
                                 })
                         .setNegativeButton(android.R.string.cancel, null).show();
@@ -345,8 +344,13 @@ final class TerminalSessionsDialog {
             row.setPadding(dp(24), dp(8), dp(8), dp(8));
             final LinearLayout text = new LinearLayout(activity);
             text.setOrientation(LinearLayout.VERTICAL);
-            final TextView name = new TextView(activity);
-            name.setText(title(item)); name.setTextSize(16); name.setSingleLine(true);
+            var environment=item.terminal()==null ? null : ConsoleTerminalRegistry.environment(item.terminal().id);
+            final TextView name;
+            if (environment==null) { name=new TextView(activity); name.setText(title(item)); }
+            else {
+                var branded=new GuestEnvironmentLabel(activity); branded.bind(environment,title(item),false); name=branded;
+            }
+            name.setTextSize(16); name.setSingleLine(true);
             UiAppearance.text(name, item.terminal() != null && item.terminal().taskId == activity.getTaskId()
                     ? UiColor.ACCENT : UiColor.TEXT);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);

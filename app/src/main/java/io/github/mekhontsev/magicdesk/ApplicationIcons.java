@@ -19,6 +19,7 @@ final class ApplicationIcons {
     private static volatile ApplicationIcons instance;
     private final Context context;
     private final ApplicationIconCache<ApplicationIconKey, Bitmap> termux, guest;
+    final ApplicationIconCache<GuestEnvironmentCatalog.Entry,GuestAppearance> distributions;
     private String termuxIdentity = "";
     private long termuxEpoch;
     private TermuxConnectionStatus.State connection;
@@ -34,6 +35,14 @@ final class ApplicationIcons {
         this.context = context;
         termux = new ApplicationIconCache<>(TermuxIconCommand.BATCH_SIZE, 256, this::loadTermux, MAIN::post);
         guest = new ApplicationIconCache<>(TermuxIconCommand.BATCH_SIZE, 256, this::loadGuest, MAIN::post);
+        distributions=new ApplicationIconCache<>(1,32,(entries,done)->IO.execute(()->{
+            var entry=entries.get(0);
+            GuestAppearance appearance=GuestAppearance.EMPTY;
+            try { appearance=GuestAppearance.read(new CommandExecution(context,entry.backend()),entry); }
+            catch (RuntimeException unavailable) { }
+            var result=Map.of(entry,appearance);
+            MAIN.post(()->done.accept(result));
+        }),MAIN::post);
         inspectGuest();
         ShellAccess.addStateListener(state -> MAIN.post(() -> guestIdentity(state)));
         TermuxConnectionStatus.get().addListener(this::inspectTermux);
@@ -75,7 +84,7 @@ final class ApplicationIcons {
     }
 
     static void refresh() {
-        if (instance != null) { instance.termux.reset(); instance.guest.reset(); }
+        if (instance != null) { instance.termux.reset(); instance.guest.reset(); instance.distributions.reset(); }
     }
 
     private ApplicationIconCache<ApplicationIconKey, Bitmap> cache(ApplicationIconKey key) {
@@ -88,7 +97,7 @@ final class ApplicationIcons {
 
     private void guestIdentity(ShellAccess.Snapshot state) {
         int uid = state.isReady() ? state.uid : -1;
-        if (guestUid != uid) { guestUid = uid; guest.reset(); }
+        if (guestUid != uid) { guestUid = uid; guest.reset(); distributions.reset(); }
     }
 
     private TermuxIntegration.Endpoint inspectTermux() {
@@ -100,6 +109,7 @@ final class ApplicationIcons {
             termuxIdentity = identity;
             termuxEpoch++;
             termux.reset();
+            distributions.reset();
         }
         connection = state;
         return endpoint;

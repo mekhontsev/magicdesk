@@ -123,6 +123,22 @@ public final class CommandConsoleActivity extends Activity
         return intent.putExtra(EXTRA_TERMINAL_ID, id);
     }
 
+    static Intent createEnvironmentIntent(Context context,GuestEnvironmentCatalog.Entry entry) {
+        return createPreparedCommandIntent(context,GuestEnvironmentCatalog.login(entry),"",entry.backend())
+                .putExtra("guestEnvironment",new String[]{entry.name(),entry.id(),entry.source(),entry.store()});
+    }
+
+    private static GuestEnvironmentCatalog.Entry initialEnvironment(Intent request,DesktopExecBackend backend,String command) {
+        String[] fields=request.getStringArrayExtra("guestEnvironment");
+        if (fields==null || fields.length!=4 || java.util.Arrays.asList(fields).contains(null)) return null;
+        try {
+            GuestEnvironmentLibrary.validateName(fields[0]);
+            var entry=new GuestEnvironmentCatalog.Entry(fields[0],java.util.UUID.fromString(fields[1]).toString(),
+                    fields[2],GuestEnvironment.absolute(fields[3],"environment store"),backend);
+            return GuestEnvironmentCatalog.login(entry).equals(command) ? entry : null;
+        } catch (IllegalArgumentException invalidPresentation) { return null; }
+    }
+
     static Intent attachIntent(final Context context, final ConsoleTerminalRegistry.Snapshot session) {
         return withTerminalId(createIntentAtDirectory(context, session.workingDirectory,
                 DesktopExecBackend.parse(session.backend)), session.id).putExtra(EXTRA_ATTACH_ONLY, true);
@@ -434,6 +450,7 @@ public final class CommandConsoleActivity extends Activity
                                     mTerminalView.columns(), mTerminalView.rows(), mTerminalView.cellWidth(),
                                     mTerminalView.cellHeight(), requestedBackend, command,
                                     terminalTransportFactory(requestedBackend, files), listener);
+                                session.initialEnvironment=initialEnvironment(request,requestedBackend,command);
                                 session.setFiles(files, tmuxId == null);
                                 return session;
                             });

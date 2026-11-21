@@ -16,6 +16,7 @@ public final class ConsoleSessionRoutingTest {
                 check(window.mSession == a && window.mBackend == DesktopExecBackend.SHELL,
                         "attach trusted incoming backend instead of retained identity");
                 check(a.startup.equals("first") && a.starts == 2, "attach replayed startup command");
+                check(a.initialEnvironment.equals("first"), "attach replaced the original environment");
                 check(window.intent.attach && window.intent.command.isEmpty(), "saved intent can replay startup");
                 int registrations = ConsoleTerminalRegistry.registrations;
                 window.openSession(new Intent("a", DesktopExecBackend.SHELL, true, "ignored"));
@@ -80,6 +81,7 @@ public final class ConsoleSessionRoutingTest {
                     ConsoleSessionFiles(Object context, DesktopExecBackend backend) {}
                 }
                 static class ConsoleTerminalSession {
+                    String initialEnvironment;
                     final DesktopExecBackend backend; final String startup; int starts;
                     ConsoleTerminalSession(String dir,int c,int r,int cw,int ch,DesktopExecBackend b,
                             String command,TerminalTransport.Factory f,Object listener) { backend=b;startup=command; }
@@ -135,6 +137,7 @@ public final class ConsoleSessionRoutingTest {
                     static String terminalId(Intent intent){return intent.id;}
                     static DesktopExecBackend backend(Intent intent){return intent.backend;}
                     static String initialDirectory(Intent intent){return "/";}
+                    static String initialEnvironment(Intent intent,DesktopExecBackend backend,String command){return command;}
                     static String takeAutoRunCommand(Intent intent){String c=intent.command;intent.command="";return c;}
                     static Intent attachIntent(Window w,ConsoleTerminalRegistry.Snapshot session) {
                         return new Intent(session.id(),session.backend(),true,"");

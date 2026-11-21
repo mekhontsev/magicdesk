@@ -17,6 +17,7 @@ import java.util.concurrent.RejectedExecutionException;
 
 /** One interactive PTY and emulator, independent of display and Activity lifetime. */
 final class ConsoleTerminalSession implements ConsoleTerminalInputConnection.Session {
+    GuestEnvironmentCatalog.Entry initialEnvironment;
     interface Listener {
         void onScreenChanged();
 

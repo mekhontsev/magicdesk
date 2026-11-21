@@ -233,6 +233,10 @@ final class ConsoleTerminalRegistry {
 
     record OutputTarget(DesktopExecBackend backend, PtyEndpoint endpoint) { }
 
+    static GuestEnvironmentCatalog.Entry environment(String id) {
+        var entry=find(id); return entry==null ? null : entry.session.initialEnvironment;
+    }
+
     static OutputTarget outputTarget(String id) throws java.io.IOException {
         final Entry entry = find(id);
         if (entry == null) throw new java.io.IOException("terminal no longer exists");
