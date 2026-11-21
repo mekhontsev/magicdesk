@@ -178,6 +178,16 @@ public final class NativeFullscreenAdoptionTest {
     }
 
     @Test
+    public void missingPreviousSampleUsesLiveOrder() throws Exception {
+        verify("""
+                f.previousTasks = null;
+                f.target.focused = true;
+                f.adopt();
+                check(f.order.equals(List.of(10, 100)), "absent history changed adoption order");
+                """);
+    }
+
+    @Test
     public void freeformForegroundIsNotCoveredByAdoption() throws Exception {
         verify("""
                 f.target.focused = false;

@@ -310,6 +310,24 @@ of a scoped opt-out. No flag-only workaround is implemented. Do not substitute
 global animation settings, unrelated transition types or repeated bounds repairs;
 retain the [submission constraints](fullscreen-transitions.md#submission-constraints).
 
+## Simultaneous Freeform Windows
+
+The inspected `HwMultiWindowManager.limitForegroundFreeformStackCount` counts
+ordinary mode-5 windows as well as Honor freeforms. Above the firmware limit
+it can move a root behind the workspace and make its Activity invisible without
+closing it. An active custom task profile with `isLimitedByQuantity=false`
+is excluded from both the count and the demotion pass.
+
+MagicDesk requests that exemption for ordinary managed freeform tasks on an
+external Desktop, using a task-specific WCT. It leaves existing custom and
+takeover profiles alone. It does not change the system limit, take over the
+window, reorder peers, or apply this policy to phone windows. The compatibility
+report shows the firmware's observed `freeformMultiplicity` for each freeform
+task; `custom-exempt` is stronger evidence than a successful WCT submission.
+Honor SystemUI skips saved native freeform bounds and some off-screen drag
+relocation for custom windows. MagicDesk still owns its saved placement.
+Simultaneous visibility on a physical Honor display still needs device confirmation.
+
 ## Remote Transition Boundary
 
 ### Access And Scope

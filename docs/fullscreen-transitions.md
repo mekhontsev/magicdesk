@@ -95,8 +95,15 @@ owned by the workspace gateway, not this launch guard.
 The guard uses an immutable published boundary snapshot. It never acquires the
 plane owner's monitor, starts an animation, or waits for a frame/transition:
 Android can call it synchronously while the owner is awaiting its Binder launch.
-A missing separator or failed repair rejects an explicitly scoped launch into
-that display. `ShellActivityLaunchScope` retains the destination across the
+Before an explicit launch the plane owner can replace a deleted separator. It
+requires the original anchor on that display and verifies the separator is
+absent from the global root and child inventory. A misplaced empty root can
+return to the default area only on its own display after verifying the cookie
+and absence of children. A migrated or occupied root is not replaced.
+Replacement does not replay the launch or run in the activity-start callback.
+A still-unsafe boundary rejects an explicitly scoped launch into that display.
+An unambiguous caller receives the rejection instead of a task-appearance timeout.
+`ShellActivityLaunchScope` retains the destination across the
 Binder callback, alongside the Activity identity. Unscoped or ambiguous launches
 still attempt repair, but a failure is diagnostic, not a system-wide veto: the
 callback cannot establish their destination. This preserves access to phone

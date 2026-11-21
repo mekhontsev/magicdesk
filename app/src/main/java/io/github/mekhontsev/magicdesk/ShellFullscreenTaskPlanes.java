@@ -314,7 +314,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Map<Integer, Integer> planeTasksByArea) {
         final List<Integer> current = adoptionWorkspaceOrder(
                 tasks, entering.displayAreaFeatureId, planeTasksByArea);
-        if (!entering.focused) return current;
+        if (!entering.focused || previousTasks == null) return current;
         FrameworkTaskSnapshot previous = null;
         for (final FrameworkTaskSnapshot task : previousTasks) {
             if (task.taskId == entering.taskId) previous = task;
@@ -540,10 +540,72 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         }
     }
 
+    synchronized void prepareLaunch(final Object service, final int displayId)
+            throws ReflectiveOperationException {
+        if (mDisplayId != displayId || mPlaneSeparators.isEmpty()) return;
+        final List<FrameworkTaskSnapshot> roots = FrameworkTaskSnapshotSource.readRoots(service, displayId);
+        boolean repaired = false;
+        for (final var entry : mPlaneSeparators.entrySet()) {
+            final TaskDisplayAreaHandle plane = entry.getKey();
+            final FrameworkRootTaskApi.Root current = entry.getValue();
+            if (!needsSeparator(roots, plane.featureId(), current.taskId)) continue;
+            requirePlaneAnchor(service, displayId, plane);
+            if (current.isOwnedEmptyRootOn(service, displayId)) {
+                final FrameworkWindowingApi api = FrameworkRuntime.current().windowing();
+                final Object tx = api.newTransaction();
+                api.reparent(tx, current.token, null, false);
+                ShellWindowTransitionExecutor.applyAtomic(service, api.transactionClass(), tx);
+                repaired = true;
+                continue;
+            }
+            // The display query alone cannot distinguish deletion from migration.
+            if (current.isPresent(service)) {
+                throw new IllegalStateException("fullscreen separator task=" + current.taskId
+                        + " is outside its workspace on display=" + displayId);
+            }
+            final FrameworkRootTaskApi.Root replacement = createSeparator(service, displayId);
+            entry.setValue(replacement);
+            mLaunchGuard.add(service, displayId, new ShellFullscreenLaunchGuard.Boundary(
+                    plane.featureId(), plane.token(), replacement.taskId, replacement.token));
+            repaired = true;
+        }
+        if (repaired) mLaunchGuard.protect();
+        // The synchronous Activity-start guard independently verifies final adjacency.
+    }
+
+    static boolean needsSeparator(List<FrameworkTaskSnapshot> roots, int areaId, int separatorId) {
+        boolean areaPresent = false;
+        for (FrameworkTaskSnapshot root : roots) {
+            if (root.taskId == separatorId && root.displayAreaFeatureId
+                    == TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER.featureId()) return false;
+            if (root.displayAreaFeatureId == areaId) areaPresent = true;
+        }
+        return areaPresent;
+    }
+
+    private static FrameworkRootTaskApi.Root createSeparator(Object service, int displayId)
+            throws ReflectiveOperationException {
+        final FrameworkRootTaskApi.Root separator = FrameworkRootTaskApi.create(service, displayId);
+        try {
+            final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
+            final Object preparation = windowing.newTransaction();
+            windowing.setFocusable(preparation, separator.token, false);
+            windowing.setForceTranslucent(preparation, separator.token, true);
+            // A null WCT parent is this root's display-default task area.
+            windowing.reparent(preparation, separator.token, null, false);
+            ShellWindowTransitionExecutor.applyAtomic(service, windowing.transactionClass(), preparation);
+            return separator;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            removeSeparator(service, separator);
+            throw failure;
+        }
+    }
+
     private TaskDisplayAreaHandle acquirePlane(
             final Object service,
             final int displayId)
             throws ReflectiveOperationException {
+        prepareLaunch(service, displayId);
         if (!mAvailablePlanes.isEmpty()) {
             final TaskDisplayAreaHandle plane = mAvailablePlanes.remove(0);
             requirePlaneAnchor(service, displayId, plane);
@@ -552,17 +614,12 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             return plane;
         }
         final int slotId = mNextPlaneSlotId++;
-        final FrameworkRootTaskApi.Root separator = FrameworkRootTaskApi.create(service, displayId);
+        final FrameworkRootTaskApi.Root separator = createSeparator(service, displayId);
         TaskDisplayAreaHandle plane = null;
         int anchorTaskId = -1;
         try {
             final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
             final Object separatorToken = separator.token;
-            final Object preparation = windowing.newTransaction();
-            windowing.setFocusable(preparation, separatorToken, false);
-            windowing.setForceTranslucent(preparation, separatorToken, true);
-            windowing.reorder(preparation, separatorToken, false, false);
-            ShellWindowTransitionExecutor.applyAtomic(service, windowing.transactionClass(), preparation);
             // Activity starts can reorder existing roots. Finish this launch
             // before introducing a TDA whose priority is undefined while empty.
             anchorTaskId = TaskDisplayAreaLaunchCommand

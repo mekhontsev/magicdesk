@@ -12,6 +12,7 @@ final class ShellActivityLaunchScope implements AutoCloseable {
 
     private final LaunchActivityIdentity mIdentity;
     private final int mDisplayId;
+    private volatile RuntimeException mRejection;
 
     private ShellActivityLaunchScope(final LaunchActivityIdentity identity, final int displayId) {
         mIdentity = java.util.Objects.requireNonNull(identity);
@@ -36,17 +37,25 @@ final class ShellActivityLaunchScope implements AutoCloseable {
         return false;
     }
 
-    static boolean isActiveOnDisplay(final Intent intent, final String packageName, final int displayId) {
-        boolean matched = false;
+    static boolean rejectOnDisplay(final Intent intent, final String packageName, final int displayId,
+            final RuntimeException rejection) {
+        final java.util.List<ShellActivityLaunchScope> matches = new java.util.ArrayList<>();
         for (final ShellActivityLaunchScope scope : ACTIVE) {
             if (scope.mIdentity.matchesStart(intent, packageName)) {
                 // Simultaneous launches of the same Activity on different displays
                 // are ambiguous to IActivityController. Never turn that into a veto.
                 if (scope.mDisplayId != displayId) { return false; }
-                matched = true;
+                matches.add(scope);
             }
         }
-        return matched;
+        // A common destination suffices to veto, but not to attribute the error to both callers.
+        if (matches.size() == 1) matches.get(0).mRejection = rejection;
+        return !matches.isEmpty();
+    }
+
+    void requireAdmitted() {
+        final RuntimeException failure = mRejection;
+        if (failure != null) throw failure;
     }
 
     @Override

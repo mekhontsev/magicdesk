@@ -17,11 +17,13 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
     private String mWriteProbe = "not used";
     private volatile String mReadError = "none";
     private volatile String mPeerProbe = "not used";
+    private final FreeformMultiplicity mMultiplicity;
 
     private HonorWindowingDriver(Field extension, Field scale, String probe) {
         mTaskExtension = extension;
         mScale = scale;
         mProbe = probe;
+        mMultiplicity = HonorFreeformMultiplicity.detect(extension);
     }
 
     public static HonorWindowingDriver detect() {
@@ -42,6 +44,8 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override public boolean hasScaledWindows() { return mScale != null; }
+
+    @Override public FreeformMultiplicity freeformMultiplicity() { return mMultiplicity; }
 
     @Override public boolean hasNativeScaleCommit() { return hasScaledWindows(); }
 
@@ -131,7 +135,7 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
 
     @Override public synchronized String geometryDiagnostic() {
         return "read=" + mProbe + ", write=" + mWriteProbe + ", readError=" + mReadError
-                + ", scalePeer=" + mPeerProbe;
+                + ", scalePeer=" + mPeerProbe + ", freeformMultiplicity=" + (mMultiplicity != null);
     }
 
     @Override public String restrictionsPropertyKey() { return null; }

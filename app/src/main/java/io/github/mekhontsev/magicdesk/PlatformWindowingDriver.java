@@ -2,6 +2,16 @@ package io.github.mekhontsev.magicdesk;
 
 /** Platform access to optional Android desktop windowing configuration. */
 public interface PlatformWindowingDriver {
+    /** Optional task-local exemption from firmware limits on simultaneous windows. */
+    interface FreeformMultiplicity {
+        boolean canClaim(Object task) throws ReflectiveOperationException;
+        String describe(Object task);
+        void setExempt(Object transaction, Class<?> tokenClass, Object token, boolean exempt)
+                throws ReflectiveOperationException;
+    }
+
+    default FreeformMultiplicity freeformMultiplicity() { return null; }
+
     /** Read-only scale supplied with TaskInfo; NaN means unavailable, not identity. */
     default float taskScale(Object task) { return 1f; }
 

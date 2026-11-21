@@ -53,18 +53,22 @@ public final class ShellActivityLaunchScopeTest {
     @Test
     public void destinationMustBeExplicitAndUnambiguous() throws Exception {
         verify("""
-                check(!ShellActivityLaunchScope.isActiveOnDisplay(intent, "app", 7), "inferred native destination");
+                RuntimeException failure = new IllegalStateException("separator missing");
+                check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 7, failure), "inferred native destination");
                 try (var desktop = ShellActivityLaunchScope.begin(identity, 7)) {
-                    check(ShellActivityLaunchScope.isActiveOnDisplay(new Intent(alias), "app", 7), "lost alias destination");
-                    check(!ShellActivityLaunchScope.isActiveOnDisplay(intent, "app", 0), "confused phone and Desktop");
+                    check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 0, failure), "confused phone and Desktop");
                     try (var phone = ShellActivityLaunchScope.begin(identity, 0)) {
                         check(ShellActivityLaunchScope.isActive(intent, "app"), "lost explicit provenance");
-                        check(!ShellActivityLaunchScope.isActiveOnDisplay(intent, "app", 7), "guessed ambiguous destination");
-                        check(!ShellActivityLaunchScope.isActiveOnDisplay(intent, "app", 0), "guessed ambiguous destination");
+                        check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 7, failure), "guessed ambiguous destination");
+                        check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 0, failure), "guessed ambiguous destination");
+                        phone.requireAdmitted();
                     }
-                    check(ShellActivityLaunchScope.isActiveOnDisplay(intent, "app", 7), "nested close lost destination");
+                    desktop.requireAdmitted();
+                    check(ShellActivityLaunchScope.rejectOnDisplay(new Intent(alias), "app", 7, failure), "lost alias destination");
+                    try { desktop.requireAdmitted(); throw new AssertionError("timeout instead of rejection"); }
+                    catch (IllegalStateException rejected) { check(rejected == failure, "lost root cause"); }
                 }
-                check(!ShellActivityLaunchScope.isActiveOnDisplay(intent, "app", 7), "destination leaked");
+                check(!ShellActivityLaunchScope.rejectOnDisplay(intent, "app", 7, failure), "destination leaked");
                 """);
     }
 

@@ -39,13 +39,29 @@ public final class HonorWindowingDriverTest {
     public static class Task {
         public Extension hnTaskInfoEx = new Extension();
     }
-    public static class Extension { public float mFreeformScale = .4114f; }
+    public static class Extension {
+        public float mFreeformScale = .4114f;
+        public boolean mIsCustomizedFreeformWindow, mIsTakeoverWindow;
+        public Prop mCustomizedWindowProp;
+    }
+    public static class Prop {
+        boolean active, limited = true, recents;
+        public boolean isLimitedByQuantity() { return limited; }
+        public void setActiveState(boolean value) { active = value; }
+        public void setIsLimitedByQuantity(boolean value) { limited = value; }
+        public void setFocusableInRecent(boolean value) { recents = value; }
+    }
     public static class Token { }
     public static class Transaction {
         final Changes changes = new Changes();
         public Changes getHnWindowContainerTransactionEx() { return changes; }
     }
     public static class Changes {
+        Prop profile;
+        public void setCustomizedWindow(Transaction tx, Token task, Prop prop) {
+            token = task;
+            profile = prop;
+        }
         int calls;
         Object token;
         float scale;
@@ -62,6 +78,28 @@ public final class HonorWindowingDriverTest {
             assertFalse(calculateBounds);
             calls++; token = target; scale = value;
         }
+    }
+
+    @Test public void quantityExemptionIsTaskLocalReversibleAndLeavesForeignOwnersAlone() throws Exception {
+        var policy = new HonorFreeformMultiplicity(Task.class.getField("hnTaskInfoEx"), Prop.class);
+        var task = new Task();
+        assertTrue(policy.canClaim(task));
+        assertEquals("ordinary", policy.describe(task));
+        task.hnTaskInfoEx.mIsTakeoverWindow = true;
+        assertFalse(policy.canClaim(task));
+        task.hnTaskInfoEx.mIsTakeoverWindow = false;
+        task.hnTaskInfoEx.mIsCustomizedFreeformWindow = true;
+        assertFalse(policy.canClaim(task));
+        var tx = new Transaction();
+        var token = new Token();
+        policy.setExempt(tx, Token.class, token, true);
+        assertSame(token, tx.changes.token);
+        assertTrue(tx.changes.profile.active && !tx.changes.profile.limited && tx.changes.profile.recents);
+        task.hnTaskInfoEx.mCustomizedWindowProp = tx.changes.profile;
+        assertEquals("custom-exempt", policy.describe(task));
+        policy.setExempt(tx, Token.class, token, false);
+        assertFalse(tx.changes.profile.active);
+        assertTrue(tx.changes.profile.limited);
     }
     public static class ScaleOnlyTransaction {
         public ScaleOnlyChanges getHnWindowContainerTransactionEx() { return new ScaleOnlyChanges(); }

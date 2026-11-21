@@ -116,6 +116,9 @@ final class DesktopTaskConfigurationReport {
                 .append(modeMatchLabel(
                         saved, task.windowingMode,
                         task.displayId == activeDesktopDisplayId));
+        if (task.freeformMultiplicity != null && task.windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM) {
+            report.append(" freeformMultiplicity=").append(task.freeformMultiplicity);
+        }
         if (launch == null) {
             report.append(" launch=unknown");
         } else {

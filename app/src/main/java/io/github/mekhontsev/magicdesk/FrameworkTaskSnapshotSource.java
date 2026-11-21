@@ -214,11 +214,14 @@ final class FrameworkTaskSnapshotSource {
         if (configuration == null) {
             return null;
         }
-        return new FrameworkTaskSnapshot.TaskConfiguration(
+        final var result = new FrameworkTaskSnapshot.TaskConfiguration(
                 readInt(configuration, "densityDpi", -1),
                 readInt(configuration, "screenWidthDp", -1),
                 readInt(configuration, "screenHeightDp", -1),
                 readInt(configuration, "smallestScreenWidthDp", -1));
+        final var policy = PlatformDrivers.current().windowing().freeformMultiplicity();
+        if (policy != null) result.freeformMultiplicity = policy.describe(task);
+        return result;
     }
 
     static OrderedTasks orderByRootTaskHierarchy(

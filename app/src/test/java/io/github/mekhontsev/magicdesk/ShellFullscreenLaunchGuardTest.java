@@ -104,6 +104,86 @@ public final class ShellFullscreenLaunchGuardTest {
     }
 
     @Test
+    public void repairRequiresALivePlaneAndMissingDefaultWorkspaceSeparator() {
+        assertTrue(ShellFullscreenTaskPlanes.needsSeparator(roots(3, -100, 2), 100, 10));
+        assertTrue(!ShellFullscreenTaskPlanes.needsSeparator(roots(3, -100, 10, 2), 100, 10));
+        assertTrue(!ShellFullscreenTaskPlanes.needsSeparator(roots(3, 2), 100, 10));
+    }
+
+    @Test public void preflightRepairsOnlyItsOwnLiveBoundary() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class FrameworkTaskSnapshot {
+                    int taskId, displayAreaFeatureId;
+                    FrameworkTaskSnapshot(int id, int area) { taskId=id; displayAreaFeatureId=area; }
+                }
+                static class FrameworkTaskSnapshotSource {
+                    static List<FrameworkTaskSnapshot> roots;
+                    static List<FrameworkTaskSnapshot> readRoots(Object service, int display) { return roots; }
+                }
+                static class TaskDisplayAreaHandle {
+                    enum Parent { DEFAULT_TASK_CONTAINER; int featureId() { return 1; } }
+                    int featureId() { return 100; } Object token() { return this; }
+                }
+                static class FrameworkRootTaskApi { static class Root {
+                    int taskId; Object token = new Object(); boolean local, present;
+                    boolean isOwnedEmptyRootOn(Object service, int display) { return local; }
+                    boolean isPresent(Object service) { return present; }
+                } }
+                static class ShellFullscreenLaunchGuard {
+                    record Boundary(int area, Object plane, int id, Object token) {}
+                    Boundary boundary;
+                    int protectedCount;
+                    void add(Object service, int display, Boundary b) { boundary=b; }
+                    void protect() { protectedCount++; }
+                }
+                static class FrameworkWindowingApi {
+                    Object newTransaction() { return this; } Class<?> transactionClass() { return getClass(); }
+                    void reparent(Object tx, Object token, Object parent, boolean top) {
+                        check(token == old.token && parent == null && !top, "moved another root or display");
+                    }
+                }
+                static class FrameworkRuntime {
+                    static FrameworkRuntime current() { return new FrameworkRuntime(); }
+                    FrameworkWindowingApi windowing() { return new FrameworkWindowingApi(); }
+                }
+                static class ShellWindowTransitionExecutor {
+                    static void applyAtomic(Object service, Class<?> type, Object tx) { moves++; }
+                }
+                static int moves;
+                static FrameworkRootTaskApi.Root old = new FrameworkRootTaskApi.Root();
+                int mDisplayId=6, created;
+                final ShellFullscreenLaunchGuard mLaunchGuard=new ShellFullscreenLaunchGuard();
+                final Map<TaskDisplayAreaHandle,FrameworkRootTaskApi.Root> mPlaneSeparators=new HashMap<>();
+                boolean anchorPresent=true;
+                void requirePlaneAnchor(Object s,int d,TaskDisplayAreaHandle p) {
+                    if (!anchorPresent) throw new IllegalStateException("missing anchor");
+                }
+                FrameworkRootTaskApi.Root createSeparator(Object s,int d) {
+                    created++; var r=new FrameworkRootTaskApi.Root(); r.taskId=99; return r;
+                }
+                """ + RuntimeSourceFixture.methods("ShellFullscreenTaskPlanes", "prepareLaunch", "needsSeparator") + """
+                public static void verify() throws Exception {
+                    Fixture f=new Fixture(); var p=new TaskDisplayAreaHandle();
+                    old.taskId=7; f.mPlaneSeparators.put(p,old);
+                    FrameworkTaskSnapshotSource.roots=List.of(new FrameworkTaskSnapshot(2,100));
+                    old.present=true;
+                    try { f.prepareLaunch(f,6); throw new AssertionError("migrated root replaced"); }
+                    catch (IllegalStateException expected) { }
+                    old.local=true;
+                    f.prepareLaunch(f,6);
+                    check(moves==1 && f.created==0 && f.mLaunchGuard.protectedCount==1, "lost retained root");
+                    old.local=false; old.present=false; f.anchorPresent=false;
+                    try { f.prepareLaunch(f,6); throw new AssertionError("recreated a departed plane"); }
+                    catch (IllegalStateException expected) { }
+                    f.anchorPresent=true; f.prepareLaunch(f,6);
+                    check(f.created==1 && f.mLaunchGuard.boundary.id()==99
+                            && f.mPlaneSeparators.get(p).taskId==99 && f.mLaunchGuard.protectedCount==2,
+                            "replacement did not reach both launch guard and cleanup owner");
+                }
+                """);
+    }
+
+    @Test
     public void absentAreaDoesNotMoveItsRetainedSeparator() {
         assertTrue(repair(11, 1, -100, 10, 2).isEmpty());
     }

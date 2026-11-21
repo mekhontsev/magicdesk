@@ -51,6 +51,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellDesktopTaskOwnership mDesktopOwnership =
             new ShellDesktopTaskOwnership();
     private final ShellTaskLauncher mTaskLauncher;
+    private final ShellWorkspaceFreeformPolicy mFreeformPolicy;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopHostLauncher mDesktopHostLauncher;
     private final ShellDesktopChromeHost mDesktopChromeHost;
@@ -84,6 +85,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
+        final PlatformWindowingDriver.FreeformMultiplicity policy =
+                PlatformDrivers.current().windowing().freeformMultiplicity();
+        mFreeformPolicy = new ShellWorkspaceFreeformPolicy(policy, (token, exempt) -> {
+            final FrameworkWindowingApi api = FrameworkRuntime.current().windowing();
+            final Object transaction = api.newTransaction();
+            policy.setExempt(transaction, api.tokenClass(), token, exempt);
+            ShellWindowTransitionExecutor.applyAtomic(mService, api.transactionClass(), transaction);
+        }, error -> callCallback(() -> mCallback.onObserverError(error)));
         mTaskActivityModeGuard = new ShellTaskActivityModeGuard(
                 mService,
                 new ShellTaskActivityModeGuard.Listener() {
@@ -194,6 +203,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         final java.util.List<FrameworkTaskSnapshot> managed = taskSnapshots.stream()
                                 .filter(task -> mDesktopOwnership.isRememberedDesktopTask(task.taskId))
                                 .toList();
+                        mFreeformPolicy.observe(displayId, managed, mDesktopOwnership);
                         mTaskActivityModeGuard.observeTasks(displayId, managed);
                         mFocusController.onTasksSampled(taskSnapshots);
                         reconcileFocusAfterTaskRemoval(
@@ -347,6 +357,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mPhoneWallpaperPolicy.configure(Display.INVALID_DISPLAY);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
+            mFreeformPolicy.configure(Display.INVALID_DISPLAY);
             clearPendingPostRemovalFocus();
             mFocusController.configure(-1);
             mSystemDialogTracker.configure(
@@ -398,6 +409,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mSurfaceOrder.configure(mService, displayId, mDesktopOwnership, homeRole);
         mDesktopChromeHost.configure(displayId);
         mConfiguredDisplayId = displayId;
+        mFreeformPolicy.configure(displayId);
         mPhoneWallpaperPolicy.configure(displayId);
         clearPendingPostRemovalFocus();
         mFocusController.configure(displayId);
@@ -765,6 +777,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         try (ShellDesktopFocusController.FocusTransfer transfer =
                 mFocusController.beginFocusTransfer()) {
+            mFullscreenTaskArea.prepareLaunch(mService, displayId);
             final int taskId = mTaskLauncher.launchWindowed(
                     displayId, intent, bounds, null, true, densityDpi);
             return finishTaskLaunch(taskId);
@@ -823,6 +836,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try (ShellDesktopFocusController.FocusTransfer transfer =
                 mFocusController.beginFocusTransfer()) {
             final int taskId;
+            if (existingTaskId >= 0 || windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM) {
+                mFullscreenTaskArea.prepareLaunch(mService, displayId);
+            }
             if (existingTaskId >= 0) {
                 mTaskLauncher.launchShortcutInTask(
                         displayId,
@@ -888,6 +904,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try (ShellDesktopFocusController.FocusTransfer transfer =
                 mFocusController.beginFocusTransfer()) {
             final int taskId;
+            if (existingTaskId >= 0 || windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM) {
+                mFullscreenTaskArea.prepareLaunch(mService, displayId);
+            }
             if (existingTaskId >= 0) {
                 mTaskLauncher.launchPendingActivityInTask(
                         displayId,
@@ -952,6 +971,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         // Publish only after the topology owner completes or reconciles it.
         mDesktopOwnership.beginRelease(taskIds);
         for (final int taskId : taskIds) {
+            mFreeformPolicy.release(taskId);
             mMigrationGuard.forget(taskId);
             mTaskActivityModeGuard.onTaskRemoved(taskId);
             mFreeformCleanup.forget(taskId);
@@ -1092,6 +1112,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     "display is not configured: " + displayId);
         }
         try {
+            mFullscreenTaskArea.prepareLaunch(mService, displayId);
             mTaskLauncher.launchTaskAction(displayId, taskId, intent);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
@@ -1191,6 +1212,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mMigrationGuard.forget(taskId);
             mTaskActivityModeGuard.onTaskRemoved(taskId);
             mFullscreenTaskArea.onTaskRemoved(taskId);
+            mFreeformPolicy.removed(taskId);
             mDesktopOwnership.forget(taskId);
             reportDesktopTaskOwnership();
             callCallback(() -> mCallback.onTaskGone(taskId));
@@ -1286,6 +1308,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskLauncher.onTaskMovedToFront(
                     taskInfo.taskId,
                     HiddenTaskApi.getTaskTopComponent(taskInfo));
+            mFreeformPolicy.departed(taskInfo.taskId, displayId);
             mDesktopOwnership.onTaskDisplayChanged(taskInfo.taskId, displayId);
             reportDesktopTaskOwnership();
             mMigrationGuard.onTaskMovedToFront(taskInfo);
@@ -1311,6 +1334,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final int newDisplayId) {
         resetDepartedTaskDensity(taskId, newDisplayId);
+        mFreeformPolicy.departed(taskId, newDisplayId);
         mFullscreenTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
         mTaskActivityModeGuard.onTaskDisplayChanged(taskId, newDisplayId);
         mMigrationGuard.onTaskDisplayChanged(taskId, newDisplayId);
@@ -1453,6 +1477,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
+        mFreeformPolicy.configure(Display.INVALID_DISPLAY);
         mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
         final boolean registered = mRegistered;
         mRegistered = false;

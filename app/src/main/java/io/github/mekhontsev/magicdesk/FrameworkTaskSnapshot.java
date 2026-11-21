@@ -53,6 +53,7 @@ public final class FrameworkTaskSnapshot implements Parcelable {
     public final boolean requestedVisibleTypesKnown;
     public final int requestedVisibleTypesValue;
     public final boolean taskConfigurationKnown;
+    final String freeformMultiplicity;
     public final int densityDpi;
     public final int screenWidthDp;
     public final int screenHeightDp;
@@ -184,6 +185,7 @@ public final class FrameworkTaskSnapshot implements Parcelable {
                 ? 0 : requestedVisibleTypes.intValue();
         this.requestedVisibleTypes = requestedVisibleTypes;
         taskConfigurationKnown = taskConfiguration != null;
+        freeformMultiplicity = taskConfiguration == null ? null : taskConfiguration.freeformMultiplicity;
         densityDpi = taskConfiguration == null
                 ? -1 : taskConfiguration.densityDpi;
         screenWidthDp = taskConfiguration == null
@@ -225,6 +227,7 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         screenWidthDp = source.readInt();
         screenHeightDp = source.readInt();
         smallestScreenWidthDp = source.readInt();
+        freeformMultiplicity = taskConfigurationKnown ? source.readString() : null;
     }
 
     Boolean requestingImmersive() {
@@ -281,9 +284,11 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         destination.writeInt(screenWidthDp);
         destination.writeInt(screenHeightDp);
         destination.writeInt(smallestScreenWidthDp);
+        if (taskConfigurationKnown) destination.writeString(freeformMultiplicity);
     }
 
     static final class TaskConfiguration {
+        String freeformMultiplicity;
         final int densityDpi;
         final int screenWidthDp;
         final int screenHeightDp;

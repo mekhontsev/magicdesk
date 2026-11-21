@@ -33,6 +33,7 @@ final class ShellFullscreenLaunchGuard implements ShellActivityStartController.L
 
     void add(final Object service, final int displayId, final Boundary boundary) {
         final List<Boundary> boundaries = new ArrayList<>(mState.boundaries());
+        boundaries.removeIf(previous -> previous.areaId == boundary.areaId);
         boundaries.add(boundary);
         mState = new State(service, displayId, List.copyOf(boundaries));
     }
@@ -56,8 +57,10 @@ final class ShellFullscreenLaunchGuard implements ShellActivityStartController.L
         } catch (ReflectiveOperationException | RuntimeException error) {
             final String message = "fullscreen launch boundary unavailable display=" + state.displayId()
                     + " package=" + packageName;
-            if (ShellActivityLaunchScope.isActiveOnDisplay(intent, packageName, state.displayId())) {
-                throw new ShellActivityStartController.StartRejectedException(message, error);
+            final var rejection = new ShellActivityStartController.StartRejectedException(
+                    message + ": " + error.getMessage(), error);
+            if (ShellActivityLaunchScope.rejectOnDisplay(intent, packageName, state.displayId(), rejection)) {
+                throw rejection;
             }
             // This system-wide callback has no destination. Report a failed repair,
             // but do not let one workspace block unrelated phone/system launches.
@@ -122,8 +125,9 @@ final class ShellFullscreenLaunchGuard implements ShellActivityStartController.L
             if (separator == null || separator.displayAreaFeatureId
                     != TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER.featureId()
                     || separator.rootTaskId != separator.taskId) {
-                throw new IllegalStateException("fullscreen separator missing for area="
-                        + boundary.areaId);
+                throw new IllegalStateException("fullscreen separator task=" + boundary.separatorId
+                        + " for area=" + boundary.areaId + (separator == null ? " is absent"
+                                : " observed in area=" + separator.displayAreaFeatureId));
             }
             separators.put(-boundary.areaId, boundary.separatorId);
         }

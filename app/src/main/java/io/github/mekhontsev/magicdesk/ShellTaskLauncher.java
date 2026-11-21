@@ -112,8 +112,9 @@ final class ShellTaskLauncher {
         final LaunchActivityIdentity identity = LaunchActivityIdentity.resolve(
                 FrameworkUserApi.userId(android.os.Process.myUserHandle()),
                 mPackageManager, intent.getComponent());
-        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity, displayId)) {
+        try (ShellActivityLaunchScope scope = ShellActivityLaunchScope.begin(identity, displayId)) {
             TaskDisplayAreaLaunchCommand.launchTaskAction(mService, displayId, taskId, intent);
+            scope.requireAdmitted();
         }
     }
 
@@ -358,7 +359,7 @@ final class ShellTaskLauncher {
                     "pending Activity task is unavailable or belongs"
                             + " to another app");
         }
-        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity, displayId)) {
+        try (ShellActivityLaunchScope scope = ShellActivityLaunchScope.begin(identity, displayId)) {
             if (creatorAuthorized) {
                 TaskDisplayAreaLaunchCommand
                         .launchCreatorAuthorizedPendingIntentTaskAction(
@@ -371,6 +372,7 @@ final class ShellTaskLauncher {
                         pendingIntent,
                         mActivityLauncher);
             }
+            scope.requireAdmitted();
         }
     }
 
@@ -451,8 +453,10 @@ final class ShellTaskLauncher {
         int launchedTaskId = -1;
         try {
             final int taskId;
-            try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity, displayId)) {
+            try (ShellActivityLaunchScope scope = ShellActivityLaunchScope.begin(identity, displayId)) {
+                pending.mScope = scope;
                 taskId = starter.start(pending);
+                scope.requireAdmitted();
             }
             launchedTaskId = taskId;
             pending.complete(taskId, observedComponent(displayId, taskId));
@@ -635,6 +639,7 @@ final class ShellTaskLauncher {
         private final LaunchActivityIdentity mActivityIdentity;
         private final int mDisplayId;
         private final Rect mBounds;
+        private ShellActivityLaunchScope mScope;
         private final int mWindowingMode;
         private int mObservedTaskId = -1;
         private int mIdentifiedTaskId = -1;
@@ -714,6 +719,7 @@ final class ShellTaskLauncher {
 
         @Override
         public synchronized int awaitTaskId(final long timeoutMillis) {
+            mScope.requireAdmitted();
             if (mObservedTaskId < 0) {
                 try {
                     EventDrivenWaits.await(
