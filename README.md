@@ -10,19 +10,14 @@ managed Desktop is running.
 
 **Android 14+ for the APK; Android 15+ for managed Desktop.**
 Privileged features use Shizuku, a compatible provider such as Shevery, or
-optional direct root. Termux terminals and Termux-hosted Linux graphics can
-work without any privileged service or managed Desktop.
+optional direct root. You do not need any of them to run Linux:
 
-**Linux and Kubernetes without Shizuku or Android root:** Shroot's **User**
-mode runs Linux under MagicDesk's ordinary app UID, including containers and k3s.
-See [Linux with Shroot](#linux-with-shroot) for capabilities and limits.
-
-**Linux as a standalone Android app, with OS-enforced isolation and no VM.**
-Export a distribution as [its own APK](#a-linux-distribution-as-its-own-android-app),
-with a separate Android UID, private data and runtime. It runs without MagicDesk,
-Shizuku or root. Choose a folder in Android's picker and Linux tools can work
-on the same files as your Android apps, without copying them into the distribution
-or granting access to all shared storage.
+- **Inside MagicDesk:** open a **User** console to [install a distribution](#linux-with-shroot)
+  and run its packages, containers or k3s under MagicDesk's Android UID.
+- **As its own Android app:** package a distribution as a [Linux Capsule](#a-linux-distribution-as-its-own-android-app).
+  Install its APK and open it from the Android launcher. It has its own UID,
+  private data and terminal, and runs without MagicDesk or a virtual machine.
+  Build it without network permission, or share just the folders you choose.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -226,7 +221,7 @@ See [desktop entries](docs/desktop-entries.md), [audio](docs/audio.md),
 
 Launch Mousepad, GIMP or Firefox directly from your usual **Android app drawer**,
 alongside Android apps, with the Linux application's name and icon. This is not
-just a home-screen shortcut: you no longer need to open MagicDesk's app list first.
+just a home-screen shortcut: the app drawer opens the program directly.
 MagicDesk launches the Linux application in its own Android window.
 
 In **Apps** or Desktop's **Start**, long-press or right-click an installed Linux
@@ -244,10 +239,13 @@ See [Android launcher exports](docs/desktop-entries.md#android-launcher-exports)
 
 ### A Linux Distribution As Its Own Android App
 
-**Install a whole Linux environment as a separate APK with kernel-enforced
-Android application isolation.** Unlike a launcher-only APK, it contains its own
-Shroot runtime, terminal and private copy of the distribution. It runs under its
-own Android UID, without MagicDesk, Shizuku or Android root.
+A **Linux Capsule** is a distribution you can install, launch and uninstall
+like any other Android app. Unlike a launcher-only APK, it contains its own
+Shroot runtime, terminal and private copy of the distribution. It uses the
+phone's kernel and runs without MagicDesk, Shizuku or Android root.
+
+To create one, open **Console > New session > Shroot environments**, select the
+distribution and choose **Install Linux as an application**.
 
 Android's UID, SELinux and seccomp protections apply to the Linux processes.
 Even guest root cannot access another package's private data by default: this
@@ -270,9 +268,7 @@ An APK for offline work can be built **without Android network permissions**.
 For a network-enabled environment, [network settings](docs/linux-applications.md#network-access)
 can publish a Linux service on the phone or explicitly allow other devices to connect.
 
-Open **Console > New session > Shroot environments**, select an environment,
-then **Install Linux as an application**. See
-[**Linux Capsules**](docs/linux-applications.md) for installation, backup and
+See the [Linux Capsules guide](docs/linux-applications.md) for installation, backup and
 updates, temporary web access, and optional MCP automation using the guest's AT-SPI2 bus.
 
 ### Whole Linux Desktops Too
