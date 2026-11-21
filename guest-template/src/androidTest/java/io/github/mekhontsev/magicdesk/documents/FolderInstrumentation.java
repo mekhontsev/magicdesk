@@ -19,7 +19,11 @@ public final class FolderInstrumentation extends Instrumentation {
     @Override public void onCreate(Bundle args) { super.onCreate(args); options=args; start(); }
     @Override public void onStart() {
         var report=new Bundle();
-        try { report.putString("stream","PASS "+test()+"\n"); finish(Activity.RESULT_OK,report); }
+        try {
+            String outcome=options.containsKey("online") ? io.github.mekhontsev.magicdesk.guestapp.NetworkQualification.verify(
+                    getTargetContext(),Boolean.parseBoolean(options.getString("online")),options.getString("rootfs")) : test();
+            report.putString("stream","PASS "+outcome+"\n"); finish(Activity.RESULT_OK,report);
+        }
         catch (Throwable e) { report.putString("stream",android.util.Log.getStackTraceString(e)); finish(Activity.RESULT_CANCELED,report); }
     }
     private static void check(boolean ok,String message) { if (!ok) throw new AssertionError(message); }

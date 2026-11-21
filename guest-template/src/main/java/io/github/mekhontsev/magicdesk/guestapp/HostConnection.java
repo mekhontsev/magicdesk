@@ -22,6 +22,7 @@ final class HostConnection implements Closeable {
     private boolean closed;
     private ILinuxConnection connection;
     private List<String> arguments = List.of();
+    private boolean scoped,internet;
     private java.nio.file.Path authority;
 
     HostConnection(Context context, Runnable ended) throws Exception {
@@ -38,9 +39,10 @@ final class HostConnection implements Closeable {
         endpoints = new UnixEndpointBroker(uid, temporary, this::close);
     }
 
-    Intent request() {
+    Intent request(boolean privateNetwork) {
         Bundle extras = new Bundle(); extras.putBinder("endpoints", endpoints);
-        return new Intent(LinuxConnectionContract.ACTION).setPackage(hostPackage).putExtras(extras);
+        return new Intent(LinuxConnectionContract.ACTION).setPackage(hostPackage).putExtras(extras)
+                .putExtra("sessionServices",true).putExtra("privateNetwork",privateNetwork);
     }
 
     void accept(Intent result) throws RemoteException, IOException {
@@ -58,7 +60,7 @@ final class HostConnection implements Closeable {
         var values = new java.util.HashMap<String, String>();
         values.put("pipewire", description.getString("pipewire"));
         values.put("pulse", description.getString("pulse"));
-        for (String key : List.of("graphicsProtocol", "graphicsEndpoint", "display"))
+        for (String key : List.of("graphicsProtocol", "graphicsEndpoint", "display","automationEndpoint","automationToken","internetEndpoint"))
             if (description.containsKey(key)) values.put(key,description.getString(key));
         synchronized (this) {
             if (closed) throw new IOException("Linux connection cancelled");
@@ -70,11 +72,15 @@ final class HostConnection implements Closeable {
             }
             arguments = LinuxConnectionContract.launchArguments(description.getInt("format"), values,
                     authority==null ? null : authority.toString());
+            internet=values.containsKey("internetEndpoint");
+            scoped=internet || values.containsKey("automationEndpoint");
         }
     }
 
     synchronized List<String> arguments() { return closed ? List.of() : arguments; }
     synchronized boolean ready() { return !closed && !arguments.isEmpty(); }
+    synchronized boolean sessionScoped() { return !closed && scoped; }
+    synchronized boolean internet() { return !closed && internet; }
 
     @Override public void close() {
         ILinuxConnection previous;

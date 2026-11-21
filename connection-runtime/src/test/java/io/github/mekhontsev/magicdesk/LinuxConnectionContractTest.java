@@ -41,6 +41,15 @@ public class LinuxConnectionContractTest {
         assertThrows(IllegalArgumentException.class, () -> LinuxConnectionContract.launchArguments(1, fields, "/private/auth"));
     }
 
+    @Test public void sessionServicesDoNotGrantEachOtherOrImplyAudio() {
+        var web=LinuxConnectionContract.launchArguments(1,Map.of("internetEndpoint",NATIVE));
+        assertEquals(java.util.List.of("--socket-path","/tmp/magicdesk-web.sock",NATIVE,"--env",
+                "MAGICDESK_WEB_ENDPOINT=/tmp/magicdesk-web.sock"),web);
+        var mcp=LinuxConnectionContract.launchArguments(1,Map.of("automationEndpoint",NATIVE,"automationToken","a".repeat(64)));
+        assertFalse(mcp.stream().anyMatch(s->s.contains("WEB_ENDPOINT") || s.contains("PIPEWIRE")));
+        assertThrows(IllegalArgumentException.class,()->LinuxConnectionContract.launchArguments(1,Map.of("automationEndpoint",NATIVE)));
+    }
+
     @Test public void rejectsUnknownOrIncompleteCapabilities() {
         assertThrows(IllegalArgumentException.class, () -> LinuxConnectionContract.launchArguments(2,
                 Map.of("pipewire", NATIVE, "pulse", PULSE)));

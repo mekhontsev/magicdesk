@@ -20,6 +20,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging { jniLibs { useLegacyPackaging = true } }
+    buildTypes {
+        offline { initWith release; matchingFallbacks = ['release'] }
+    }
 }
 dependencies {
     implementation project(':terminal-runtime')

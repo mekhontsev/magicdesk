@@ -71,6 +71,10 @@ public final class IndependentEnvironmentLifecycleTest {
                     final MainQueue main=new MainQueue();
                     OperationResources operation;
                     Object terminal=new Object();
+                    Object pendingTerminal,host;
+                    boolean closed,replaceTerminal;
+                    int replacements;
+                    void startTerminal() { replacements++; }
                     String status="Starting Linux";
                     int notifications;
                     void notifyChanged() { notifications++; }
@@ -101,6 +105,15 @@ public final class IndependentEnvironmentLifecycleTest {
                                     "Cancellation/EOF/error status was lost: "+service.status);
                             lifetime.close(); check(released[0]==1,"Completion released the resource twice");
                         }
+                    }
+                    for (boolean stillOwned : new boolean[]{false,true}) {
+                        Service service=new Service();
+                        service.pendingTerminal=new Object();
+                        service.host=stillOwned ? service.pendingTerminal : new Object();
+                        service.operation=new OperationResources();
+                        service.complete(null,service.operation,new OperationResources().reserve());
+                        service.main.callbacks.remove().run();
+                        check(service.replacements==(stillOwned ? 1 : 0),"Launched terminal with stale consent");
                     }
                 }
                 """, "OperationResources");

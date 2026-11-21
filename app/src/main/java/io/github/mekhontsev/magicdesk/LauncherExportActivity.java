@@ -18,6 +18,7 @@ public final class LauncherExportActivity extends Activity {
     private Model model;
     private AlertDialog dialog;
     private boolean waiting;
+    private android.widget.CheckBox network;
 
     static void openEnvironment(Activity activity,GuestEnvironmentCatalog.Entry entry) {
         try {
@@ -50,6 +51,10 @@ public final class LauncherExportActivity extends Activity {
                     new org.json.JSONObject(getIntent().getStringExtra("target"))));
             if (state != null) {
                 waiting = state.getBoolean("waiting");
+                if (state.containsKey("network") && !model.started) {
+                    model.network=state.getBoolean("network");
+                    model.confirmed=state.getBoolean("confirmed");
+                }
                 if (model.uri == null && state.getString("uri") != null) {
                     model.uri = Uri.parse(state.getString("uri"));
                     model.id = state.getString("id");
@@ -57,15 +62,25 @@ public final class LauncherExportActivity extends Activity {
                 }
             }
             model.changed = this::render;
-            dialog = UiDialogs.builder(this).setTitle(model.environment() ? R.string.guest_install_application : R.string.launcher_export_title)
+            var builder = UiDialogs.builder(this).setTitle(model.environment() ? R.string.guest_install_application : R.string.launcher_export_title)
                     .setMessage(R.string.launcher_export_preparing)
                     .setPositiveButton(R.string.launcher_export_install, null)
                     .setNeutralButton(R.string.launcher_export_remove, null)
-                    .setNegativeButton(android.R.string.cancel, (ignored, which) -> finish())
-                    .create();
+                    .setNegativeButton(android.R.string.cancel, (ignored, which) -> finish());
+            if (model.environment()) {
+                network=new android.widget.CheckBox(this);
+                network.setText(io.github.mekhontsev.magicdesk.connections.R.string.net_apk_permission);
+                network.setOnCheckedChangeListener((v,checked) -> { if (model.choosing) model.network=checked; });
+                builder.setView(network);
+            }
+            dialog=builder.create();
             dialog.setOnCancelListener(ignored -> finish());
             dialog.setOnShowListener(ignored -> {
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> install());
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                    if (model.choosing) {
+                        model.choosing=false; model.confirmed=true; render(); model.prepare();
+                    } else install();
+                });
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> remove());
                 render();
             });
@@ -82,6 +97,9 @@ public final class LauncherExportActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putBoolean("waiting", waiting);
+        if (model!=null && model.network!=null) {
+            state.putBoolean("network",model.network); state.putBoolean("confirmed",model.confirmed);
+        }
         if (model != null && model.uri != null) { state.putString("uri", model.uri.toString()); state.putString("id", model.id); }
         if (model!=null && model.archive!=null) state.putString("archive",model.archive.toString());
     }
@@ -98,9 +116,15 @@ public final class LauncherExportActivity extends Activity {
         if (dialog == null || !dialog.isShowing() || isFinishing() || isDestroyed()) return;
         boolean ready = model.entry != null && model.uri != null && !waiting && model.error == null;
         dialog.setMessage(model.error != null ? getString(R.string.launcher_export_failed, ShellAccess.usefulMessage(model.error))
+                : model.choosing ? getString(io.github.mekhontsev.magicdesk.connections.R.string.net_apk_choice)
                 : model.entry == null ? getString(R.string.launcher_export_preparing) : model.entry.label());
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(ready);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText(model.entry != null && LauncherExports.installed(this, model.entry)
+        if (network!=null) {
+            network.setVisibility(model.choosing ? android.view.View.VISIBLE : android.view.View.GONE);
+            if (model.choosing) network.setChecked(Boolean.TRUE.equals(model.network));
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(ready || model.choosing);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText(model.choosing ? io.github.mekhontsev.magicdesk.connections.R.string.net_prepare
+                : model.entry != null && LauncherExports.installed(this, model.entry)
                 ? R.string.launcher_export_update : R.string.launcher_export_install);
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setVisibility(model.entry == null ? android.view.View.GONE : android.view.View.VISIBLE);
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(model.entry != null && !waiting);
@@ -181,11 +205,13 @@ public final class LauncherExportActivity extends Activity {
         String id;
         Throwable error;
         boolean started;
+        Boolean network;
+        boolean choosing,confirmed;
         Model(android.content.Context context, LauncherExportStore.Target target) { this.context = context; this.target = target; }
         boolean environment() { return target.source().equals("environment"); }
 
         void prepare() {
-            if (started) return;
+            if (started || choosing) return;
             started = true;
             LauncherExports.IO.execute(() -> {
                 try {
@@ -197,9 +223,19 @@ public final class LauncherExportActivity extends Activity {
                     }
                     var previous = LauncherExports.store(context).read().stream()
                             .filter(export -> export.target().equals(target)).findFirst().orElse(null);
+                    if (environment() && !confirmed) {
+                        boolean allowed=previous==null || !LauncherExports.installed(context,previous)
+                                || context.getPackageManager().checkPermission(android.Manifest.permission.INTERNET,
+                                    previous.packageName(context.getPackageName()))==android.content.pm.PackageManager.PERMISSION_GRANTED;
+                        main.post(() -> {
+                            if (network==null) network=allowed;
+                            entry=previous; started=false; choosing=true; notifyChanged();
+                        });
+                        return;
+                    }
                     if (previous != null) main.post(() -> { entry = previous; notifyChanged(); });
                     if (environment()) {
-                        var prepared=GuestApplicationExports.prepare(context,target,resources);
+                        var prepared=GuestApplicationExports.prepare(context,target,resources,Boolean.TRUE.equals(network));
                         main.post(() -> { entry=prepared.entry(); id=entry.id(); uri=prepared.apk(); archive=prepared.archive(); notifyChanged(); });
                         return;
                     }

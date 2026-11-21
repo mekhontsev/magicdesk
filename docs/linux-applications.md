@@ -1,6 +1,7 @@
-# Independent Linux Applications
+# Linux Capsules
 
-An installed Shroot environment can be copied into its own Android application:
+A Linux capsule is a Shroot distribution installed as its own Android application.
+To create one from an installed environment,
 open **Console > New session > Shroot environments**, select an environment,
 then **Install Linux as an application**. Android confirms installation. Opening
 the installed application requests confirmation before importing its backup.
@@ -32,6 +33,28 @@ Different packages have different Android UIDs. Guest root does not grant
 access to another package's private files. Shroot's logical guest credentials
 are not a substitute for this outer Android sandbox.
 
+## Network Access
+
+When packaging a Linux APK, clear **Allow network access** to omit both Android
+permissions (`INTERNET` and `ACCESS_LOCAL_NETWORK`). Android then denies direct
+IP sockets to the whole application UID, not just one Linux session. To change
+this ceiling, update the same signed APK; it keeps its Linux data. Explicitly
+connected services or document providers still act with their own permissions.
+
+For a network-enabled APK, choose **Network** in its terminal menu. In MagicDesk,
+select a User or Shell environment under **Shroot environments > Network**.
+**Android network** is the native default. **Network with port forwarding** can
+expose a Linux TCP or UDP service: for example, phone port `8080` to Linux port
+`80`. Each rule listens on IPv4 loopback unless **Allow connections from other
+devices** is selected. Loopback is local to the phone, not private to one app.
+Android 17's local-network permission is separate: a forwarding rule does not
+grant LAN access. **No external network** selects Shroot's private loopback;
+it is a launch policy, not Android permission revocation.
+
+Saving affects new process trees only. An explicitly supplied CLI `--network`
+replaces the saved mode and port rules for that launch. Two launches cannot
+reserve the same host port and protocol at once.
+
 ## Android Folders
 
 In a Linux APK, choose **Android folders** from the terminal menu. In MagicDesk
@@ -59,8 +82,8 @@ provided. A provider returning a non-seekable descriptor may not support random 
 
 To show a graphical program from a separate Linux APK:
 
-1. In the **Linux APK**, open **⋮ > Connect to MagicDesk**. Leave **Audio + new X11 display**
-   selected and tap **Connect**. MagicDesk provides the screen, keyboard data and sound.
+1. In the **Linux APK**, open **⋮ > Connect to MagicDesk**. Choose **Audio + new X11 display**
+   and tap **Connect**. MagicDesk provides the screen, keyboard data and sound.
    No Termux, Shizuku, second Linux installation or managed Desktop is needed.
 2. In the **Linux APK**, save any work in the old terminal, choose **End session**,
    then **New terminal**. Run the installed graphical program there. No manual
@@ -82,6 +105,23 @@ selected graphics server or losing either Android process also releases the
 connection. Linux remains usable without reconnecting. Android document grants
 remain separate from audio/graphics permission.
 
+For package updates on **No external network**, select **No audio or display**
+and **Temporary web access**. Other network profiles keep their own connectivity.
+The new terminal has a private Linux loopback HTTP proxy, also used for HTTPS
+tunnels. Package managers that honor `http_proxy` and `https_proxy` can use
+public IPv4 mirrors on ports 80 and 443. Local addresses and non-default
+network routes are excluded. No Android network permission is added to the
+capsule. This is web access for programs in the session, not a package-only
+allowlist. Disconnecting closes existing streams as well as new admission.
+
+**Allow authorized MCP clients** is independent of internet, audio and display.
+The next terminal uses the guest's `dbus-run-session`; select its session ID
+from `linux.list` in MagicDesk. Standard MCP permissions apply to AT-SPI2,
+raw D-Bus and guest commands. AT-SPI2 also needs an accessibility bus and a
+participating application in that Linux session. On minimal Alpine, install
+`dbus at-spi2-core gsettings-desktop-schemas` to start the accessibility bus. Ending the terminal or
+disconnecting invalidates its automation handles.
+
 ## Implementation Boundary
 
 - `guest-template` owns the generated application's Android lifecycle, private
@@ -92,7 +132,7 @@ remain separate from audio/graphics permission.
 - `connection-runtime` contains Binder endpoint admission and revocable Unix
   stream ownership. Sockets are accepted under the executor's UID, checked and
   transferred as descriptors. Ordinary protocol IO is direct, not a Java proxy.
-- `LinuxConnections` owns host-side consent-scoped audio/graphics capabilities.
+- `LinuxConnections` owns the grants for audio, graphics, temporary web access and MCP.
   `GraphicalConnection` borrows an existing protocol server, not its executor,
   display, viewer or command authorization.
 - The standalone [Shroot project](https://github.com/mekhontsev/shroot) owns
@@ -119,3 +159,7 @@ X11 authentication and read-only credentials, PipeWire/Pulse playback, denied
 consent and connection revocation without terminating Linux. These are delivery
 and integration checks, not the full distribution matrix or API 34 device
 coverage. Android package sandboxing remains the isolation boundary.
+
+A separate two-UID Android 16 fixture checks that Android denies the capsule
+a direct IP socket, Alpine installs packages with temporary web access, and a
+subsequent MCP-only terminal exposes its accessibility bus until disconnect.

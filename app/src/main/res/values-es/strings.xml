@@ -1238,4 +1238,8 @@
     <string name="linux_connection_permission">%1$s podrá usar el audio y la sesión gráfica seleccionados. Los clientes X11 comparten el acceso a su pantalla. No se concede acceso a comandos ni archivos.</string>
     <string name="linux_connection_connect">Conectar</string>
     <string name="linux_connection_pending">Conectando&#8230;</string>
+    <string name="linux_connection_terminal">Sin audio ni pantalla</string>
+    <string name="linux_connection_scope">Elige qué conectar al próximo terminal de %1$s. Internet y la automatización se desactivan al cerrar la sesión o desconectar.</string>
+    <string name="linux_connection_internet">Acceso web temporal para el próximo terminal (sin red local)</string>
+    <string name="linux_connection_mcp">Permitir a los clientes MCP autorizados inspeccionar y controlar Linux (incluida la ejecución de comandos con permiso de shell)</string>
 </resources>

@@ -1214,4 +1214,8 @@
     <string name="linux_connection_permission">%1$s 可以使用所选的音频和图形会话。X11 客户端共享对其显示的访问权限。不会授予命令或文件访问权限。</string>
     <string name="linux_connection_connect">连接</string>
     <string name="linux_connection_pending">正在连接&#8230;</string>
+    <string name="linux_connection_terminal">无音频或显示器</string>
+    <string name="linux_connection_scope">选择要连接到 %1$s 下一个终端的服务。终端结束或断开连接时，网络访问和自动化也将停止。</string>
+    <string name="linux_connection_internet">允许下一个终端临时访问网页（不包括局域网）</string>
+    <string name="linux_connection_mcp">允许已授权的 MCP 客户端检查和控制 Linux（具有 shell 权限时可执行命令）</string>
 </resources>

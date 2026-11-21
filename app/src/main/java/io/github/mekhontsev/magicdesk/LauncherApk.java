@@ -102,11 +102,11 @@ final class LauncherApk {
     /** Runtime payloads are streamed; distribution data is never embedded in an APK. */
     static void assemble(InputStream template, Map<String,String> markers, byte[] icon,
             Map<String,Path> libraries, byte[] configuration, Path destination) throws IOException {
-        assemble(template,markers,icon,libraries,configuration,Map.of(),destination);
+        assemble(template,markers,icon,libraries,configuration,Map.of(),null,destination);
     }
 
     static void assemble(InputStream template, Map<String,String> markers, byte[] icon,
-            Map<String,Path> libraries, byte[] configuration, Map<String,byte[]> notices, Path destination) throws IOException {
+            Map<String,Path> libraries, byte[] configuration, Map<String,byte[]> notices, byte[] manifest,Path destination) throws IOException {
         if (configuration.length > 32768 || libraries.isEmpty() || libraries.size() > 32)
             throw new IOException("Invalid application payload");
         var names = new HashSet<String>();
@@ -123,7 +123,7 @@ final class LauncherApk {
                 byte[] bytes = input.readNBytes(MAX_BYTES + 1);
                 size += bytes.length;
                 if (size > MAX_BYTES) throw new IOException("Runtime template is too large");
-                if (name.equals("AndroidManifest.xml")) bytes=LauncherManifest.replace(bytes, markers);
+                if (name.equals("AndroidManifest.xml")) bytes=LauncherManifest.replace(manifest==null ? bytes : manifest, markers);
                 else if (name.startsWith("res/") && name.endsWith(".png")) { bytes=icon; icons++; }
                 put(output,counted,name,bytes);
             }

@@ -12,7 +12,8 @@ final class LinuxConnections {
     private static final java.util.Set<Connection> LIVE=java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     static Connection acquire(Context context,int uid,IExecutorUnixEndpoints endpoints,GraphicalSessions.Session graphics,
-            OperationResources operation) throws IOException {
+            boolean media,boolean internet,boolean automation,String caller,OperationResources operation) throws IOException {
+        if (!media && !internet && !automation) throw new IOException("No Linux service selected");
         var result=new Connection(uid);
         operation.reserve().attach(result::release);
         try {
@@ -21,13 +22,25 @@ final class LinuxConnections {
             result.resources.reserve().attach(() -> endpoints.asBinder().unlinkToDeath(result.died,0));
             endpoints.retain(result.lifetime);
             result.resources.reserve().attach(() -> { try { endpoints.close(); } catch (RemoteException ignored) { } });
-            var owner=result.resources.reserve();
-            result.audio=LinuxAudio.acquireRouted(context,uid,endpoints::open);
-            owner.attach(result.audio);
+            if (media) {
+                var owner=result.resources.reserve();
+                result.audio=LinuxAudio.acquireRouted(context,uid,endpoints::open);
+                owner.attach(result.audio);
+            }
             if (graphics!=null) {
                 var graphicsOwner=result.resources.reserve();
                 result.graphics=graphics.connect(uid,endpoints::open,result::release);
                 graphicsOwner.attach(result.graphics);
+            }
+            if (internet) {
+                var owner=result.resources.reserve();
+                result.proxy=new LinuxInternetProxy(context,uid,endpoints::open,result::release);
+                owner.attach(result.proxy);
+            }
+            if (automation) {
+                var owner=result.resources.reserve();
+                result.automation=new LinuxAutomationLaunch(uid,endpoints::open,graphics==null ? "" : graphics.id(),caller);
+                owner.attach(result.automation);
             }
             result.requireOpen();
             LIVE.add(result);
@@ -46,17 +59,23 @@ final class LinuxConnections {
         final IBinder.DeathRecipient died=this::release;
         private LinuxAudio audio;
         private GraphicalConnection graphics;
+        private LinuxInternetProxy proxy;
+        private LinuxAutomationLaunch automation;
         Connection(int uid) { this.uid=uid; }
         void requireOpen() throws IOException { if (closed.get()) throw new IOException("Linux connection is closed"); }
         private void checkOwner() { if (Binder.getCallingUid()!=uid) throw new SecurityException("Wrong Linux connection owner"); }
         @Override public Bundle describe() {
             checkOwner();
             if (closed.get()) throw new IllegalStateException("Linux connection is closed");
-            var environment=audio.environment();
             var result=new Bundle(); result.putInt("format",LinuxConnectionContract.FORMAT);
-            result.putString("pipewire",environment.get("MAGICDESK_AUDIO_NATIVE_ENDPOINT"));
-            result.putString("pulse",environment.get("MAGICDESK_AUDIO_PULSE_ENDPOINT"));
+            if (audio!=null) {
+                var environment=audio.environment();
+                result.putString("pipewire",environment.get("MAGICDESK_AUDIO_NATIVE_ENDPOINT"));
+                result.putString("pulse",environment.get("MAGICDESK_AUDIO_PULSE_ENDPOINT"));
+            }
             if (graphics!=null) result.putAll(graphics.describe());
+            if (proxy!=null) result.putString("internetEndpoint",proxy.name());
+            if (automation!=null) automation.describe(result);
             return result;
         }
         @Override public void close() { checkOwner(); release(); }

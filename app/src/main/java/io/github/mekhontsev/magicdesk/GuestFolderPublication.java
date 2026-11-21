@@ -5,11 +5,9 @@ import io.github.mekhontsev.magicdesk.documents.FolderMountLease;
 import io.github.mekhontsev.magicdesk.documents.FolderMounts;
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.UUID;
 
 /** Android owns tree grants; an executor sees only arguments in its private runtime directory. */
 final class GuestFolderPublication {
-    private static final String DIR=".magicdesk-folder-mounts";
     private static final HashMap<String,FolderMountLease> active=new HashMap<>();
     private static final java.util.concurrent.ExecutorService restore=java.util.concurrent.Executors.newSingleThreadExecutor();
 
@@ -35,47 +33,26 @@ final class GuestFolderPublication {
         var pending=app.getSharedPreferences("folder-publication",0);
         if (!pending.edit().putBoolean(scope,true).commit()) throw new IOException("Cannot save publication state");
         if (old!=null) { active.remove(scope); old.retire(); }
-        String[] words=scope.split(":",3);
-        if (words.length!=3) throw new IOException("Invalid Linux instance");
-        var store=java.nio.file.Path.of(words[2]);
-        if (!store.isAbsolute() || !store.normalize().toString().equals(words[2]) || store.getFileName()==null
-                || !UUID.fromString(store.getFileName().toString()).toString().equals(store.getFileName().toString()))
-            throw new IOException("Invalid Linux instance store");
-        var execution=new CommandExecution(app,switch(words[0]) {
-            case "app" -> DesktopExecBackend.APP; case "shell" -> DesktopExecBackend.SHELL;
-            default -> throw new IOException("Unsupported folder executor");
-        });
-        if (!execution.scope.equals(words[0]+":"+words[1])) throw new IOException("The Linux executor identity changed");
-        var dir=ShellCommandLine.quote(execution.home+"/"+DIR+store.getParent());
-        String path=dir+"/"+store.getFileName();
+        var settings=new GuestLaunchSettings(app,scope);
+        var execution=settings.execution;
         FolderMountLease lease=null;
         try (var session=execution.session("",false)) {
             if (new FolderMounts(app).list(scope).isEmpty()) {
-                check(session,"rm -f -- "+path);
+                settings.write(session,".folders",null);
             } else {
                 // Fail closed during reconfiguration or if a provider is unavailable.
-                check(session,"umask 077; mkdir -p -- "+dir+" && : > "+path);
+                settings.write(session,".folders","");
                 lease=FolderMountLease.open(app,scope,execution.uid,execution.endpointFactory());
                 String args=String.join("\n",lease.arguments())+"\nend\n";
-                check(session,"(umask 077; t=$(mktemp "+dir+"/.new.XXXXXXXX) || exit 1; "
-                        +"trap 'rm -f -- \"$t\"' EXIT; printf '%s' "+ShellCommandLine.quote(args)
-                        +" > \"$t\" && mv -f -- \"$t\" "+path+")");
+                settings.write(session,".folders",args);
                 active.put(scope,lease); lease=null;
             }
             pending.edit().remove(scope).apply();
         } finally { if (lease!=null) lease.close(); }
     }
-    private static void check(ShellCommandSession session,String cmd) throws IOException {
-        var result=session.execute(cmd);
-        if (result.exitCode()!=0) throw new IOException("Cannot publish Android folder mounts: "+result.output());
-    }
-    static String arguments() {
+    static String folderArguments() {
         return """
-                md_folder_root="$HOME/.magicdesk-folder-mounts"
-                if [ -d "$md_folder_root" ]; then
-                    md_folder_store=${md_store%/}
-                    case "$md_folder_store/" in /*/../*|*/./*|*//*|[!/]*) md_folder_store=$(realpath -- "$md_store") || exit 1;; esac
-                    md_folder_file="$md_folder_root$md_folder_store"
+                md_folder_file="$md_launch_file.folders"
                 if [ -f "$md_folder_file" ]; then
                     md_end=
                     while IFS= read -r md_opt; do
@@ -84,7 +61,6 @@ final class GuestFolderPublication {
                         set -- "$md_opt" "$md_peer" "$md_target" "$@"
                     done < "$md_folder_file"
                     [ "$md_end" = 1 ] || { echo 'Android folder mounts are unavailable' >&2; exit 1; }
-                fi
                 fi
                 """;
     }

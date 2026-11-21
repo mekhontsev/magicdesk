@@ -1518,6 +1518,10 @@ startup may need an explicit new launch, for example:
 independent `shell` grant. It runs in the guest session, not inside an existing
 application's sandbox. For containers supply their normal launcher, such as
 `["flatpak","run","org.chromium.Chromium","--force-renderer-accessibility"]`.
+[Linux capsules](linux-applications.md#optional-magicdesk-connection) can opt
+in from **Connect to MagicDesk**. Select the session with the capsule's Android
+package name in `linux.list`. No network or display grant is required.
+
 Normal sandbox accessibility proxies must allow the AT-SPI connection. No
 `--no-sandbox`, host-bus escape, patched browser or automatic flag insertion is
 used. Accepted launch means exec succeeded, not that its UI is ready. Use

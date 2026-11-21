@@ -1214,4 +1214,8 @@
     <string name="linux_connection_permission">%1$s は選択した音声とグラフィカルセッションを使用できます。X11 クライアントは同じディスプレイへのアクセスを共有します。コマンドやファイルへのアクセスは許可されません。</string>
     <string name="linux_connection_connect">接続</string>
     <string name="linux_connection_pending">接続中&#8230;</string>
+    <string name="linux_connection_terminal">音声とディスプレイなし</string>
+    <string name="linux_connection_scope">%1$s の次のターミナルに接続するサービスを選択します。ターミナルの終了または切断でインターネットと自動操作を停止します。</string>
+    <string name="linux_connection_internet">次のターミナルに一時的なウェブアクセスを許可（ローカルネットワークを除く）</string>
+    <string name="linux_connection_mcp">許可された MCP クライアントに Linux の調査と操作を許可（シェル権限によるコマンド実行を含む）</string>
 </resources>

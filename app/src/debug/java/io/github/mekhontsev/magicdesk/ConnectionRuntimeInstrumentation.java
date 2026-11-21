@@ -17,12 +17,18 @@ import java.util.concurrent.TimeUnit;
 
 /** Real FD custody, cancellation and admission; it does not create a Desktop or display. */
 public final class ConnectionRuntimeInstrumentation extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    private String publicOrigin;
+    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); publicOrigin=arguments.getString("publicOrigin"); start(); }
     @Override public void onStart() {
         new Thread(() -> {
             var result=new Bundle();
             HandlerThread events=new HandlerThread("UnixScopeVerification"); events.start();
             try {
+                if (publicOrigin!=null) {
+                    verifyInternet(publicOrigin);
+                    result.putString("result","PASS local destination denied, public HTTPS admitted, established tunnel revoked");
+                    finish(Activity.RESULT_OK,result); return;
+                }
                 verifyScope(events);
                 verifyAdmission();
                 verifyRoutedAudio();
@@ -33,6 +39,28 @@ public final class ConnectionRuntimeInstrumentation extends Instrumentation {
                 finish(Activity.RESULT_CANCELED,result);
             } finally { events.quitSafely(); }
         },"ConnectionVerification").start();
+    }
+
+    private void verifyInternet(String origin) throws Exception {
+        var broker=new UnixEndpointBroker(Os.getuid(),getTargetContext().getCacheDir().toPath(),()->{});
+        broker.retain(new Binder());
+        try (var proxy=new LinuxInternetProxy(getTargetContext(),Os.getuid(),broker::open,()->{});
+             var denied=new LocalSocket(); var live=new LocalSocket()) {
+            var endpoint=new LocalSocketAddress(proxy.name());
+            for (var peer:new LocalSocket[]{denied,live}) { peer.connect(endpoint); peer.setSoTimeout(15000); }
+            check(connect(denied,"127.0.0.1").contains("502"),"Admitted a loopback target");
+            check(connect(live,origin).contains("200"),"Public origin unreachable");
+            proxy.close();
+            check(live.getInputStream().read()==-1,"Revoked tunnel survived");
+        } finally { broker.release(); }
+    }
+    private static String connect(LocalSocket socket,String host) throws IOException {
+        socket.getOutputStream().write(("CONNECT "+host+":443 HTTP/1.1\r\n\r\n")
+                .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        var input=new java.io.BufferedReader(new java.io.InputStreamReader(socket.getInputStream()));
+        String status=input.readLine(),line;
+        while ((line=input.readLine())!=null && !line.isEmpty()) { }
+        return status==null ? "" : status;
     }
 
     private void verifyRoutedAudio() throws Exception {

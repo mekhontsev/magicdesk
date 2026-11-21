@@ -1,0 +1,16 @@
+<resources>
+    <string name="net_title">Сеть</string>
+    <string name="net_host">Сеть Android</string>
+    <string name="net_bridge">Сеть с пробросом портов</string>
+    <string name="net_none">Без внешней сети</string>
+    <string name="net_add">Добавить порт</string>
+    <string name="net_save">Сохранить для новых сессий</string>
+    <string name="net_host_port">Порт телефона</string>
+    <string name="net_guest_port">Порт Linux</string>
+    <string name="net_remove">Удалить порт</string>
+    <string name="net_external">Разрешить подключения с других устройств</string>
+    <string name="net_range">Введите порт от 1 до 65535</string>
+    <string name="net_apk_permission">Разрешить доступ к сети</string>
+    <string name="net_apk_choice">Без этого разрешения Android блокирует прямые сетевые сокеты всего Linux-приложения.</string>
+    <string name="net_prepare">Подготовить APK</string>
+</resources>

@@ -17,7 +17,7 @@ int md_command_shroot(int argc, char **argv) {
     if (argc < prefix) return 2;
     char **command = calloc((size_t)argc + 16, sizeof(*command));
     if (!command) return 125;
-    int count = 0, enabled = 0, at = prefix;
+    int count = 0, enabled = 0, at = prefix, explicit_network = 0, defaults = 0;
     for (int i = 0; i < prefix; ++i) command[count++] = argv[i];
     while (at < argc && strcmp(argv[at], "--")) {
         const char *option = argv[at++];
@@ -25,6 +25,15 @@ int md_command_shroot(int argc, char **argv) {
             if (enabled) { free(command); return 2; }
             enabled = 1; continue;
         }
+        if (!strcmp(option,"--magicdesk-default-network") || !strcmp(option,"--magicdesk-default-publish")) {
+            if (at == argc) { free(command); return 2; }
+            /* Keep defaults at the unused end until all actual options have
+             * been seen. Guest arguments and option values are never scanned. */
+            command[argc+15- defaults++] = argv[at++];
+            command[argc+15- defaults++] = !strcmp(option,"--magicdesk-default-network") ? "--network" : "-p";
+            continue;
+        }
+        if (!strcmp(option,"--network")) explicit_network=1;
         int values = !strcmp(option, "--statistics") || !strcmp(option, "--diagnostics")
             || !strcmp(option, "--diagnostics=signals") ? 0
             : !strncmp(option, "--bind", 6) || !strncmp(option, "--socket-", 9) ? 2 : 1;
@@ -33,6 +42,10 @@ int md_command_shroot(int argc, char **argv) {
         }
         command[count++] = (char *)option;
         while (values--) command[count++] = argv[at++];
+    }
+    if (!explicit_network && defaults) {
+        memmove(command+count,command+argc+16-defaults,(size_t)defaults*sizeof(*command));
+        count+=defaults;
     }
     char *authority = NULL, *endpoint = NULL, *build = NULL;
     const char *x11 = getenv("MAGICDESK_X11_AUTHORITY");
@@ -56,6 +69,7 @@ int md_command_shroot(int argc, char **argv) {
     }
     if (authority) { command[count++] = "--env"; command[count++] = authority; }
     while (at < argc) command[count++] = argv[at++];
+    command[count]=NULL;
     if (!r) { execv(command[0], command); r = -errno; }
     if (owner >= 0) close(owner);
     free(authority); free(endpoint); free(build); free(command);

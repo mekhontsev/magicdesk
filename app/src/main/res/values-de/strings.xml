@@ -1226,4 +1226,8 @@
     <string name="linux_connection_permission">%1$s darf die ausgewählte Audio- und Grafiksitzung verwenden. X11-Clients teilen den Zugriff auf ihr Display. Der Zugriff auf Befehle oder Dateien wird nicht gewährt.</string>
     <string name="linux_connection_connect">Verbinden</string>
     <string name="linux_connection_pending">Verbindung wird hergestellt&#8230;</string>
+    <string name="linux_connection_terminal">Ohne Audio oder Bildschirm</string>
+    <string name="linux_connection_scope">Wählen Sie die Dienste für das nächste Terminal in %1$s. Internet und Automatisierung enden mit dem Terminal oder beim Trennen.</string>
+    <string name="linux_connection_internet">Vorübergehender Webzugriff für das nächste Terminal (kein lokales Netzwerk)</string>
+    <string name="linux_connection_mcp">Autorisierten MCP-Clients erlauben, Linux zu untersuchen und zu steuern (einschließlich Befehlsausführung mit Shell-Berechtigung)</string>
 </resources>

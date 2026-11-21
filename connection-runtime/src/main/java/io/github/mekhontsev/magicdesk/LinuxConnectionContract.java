@@ -17,13 +17,27 @@ public final class LinuxConnectionContract {
 
     public static List<String> launchArguments(int format, Map<String, String> endpoints, String authorityDirectory) {
         if (format != FORMAT) throw new IllegalArgumentException("Unsupported Linux connection format");
-        String nativeEndpoint = endpoint(endpoints.get("pipewire"));
-        String pulseEndpoint = endpoint(endpoints.get("pulse"));
-        if (nativeEndpoint.equals(pulseEndpoint)) throw new IllegalArgumentException("Duplicate audio endpoints");
-        var arguments = new java.util.ArrayList<>(List.of("--socket-path", PIPEWIRE_PATH, nativeEndpoint,
+        var arguments = new java.util.ArrayList<String>();
+        if (endpoints.get("pipewire")!=null || endpoints.get("pulse")!=null) {
+            String nativeEndpoint = endpoint(endpoints.get("pipewire"));
+            String pulseEndpoint = endpoint(endpoints.get("pulse"));
+            if (nativeEndpoint.equals(pulseEndpoint)) throw new IllegalArgumentException("Duplicate audio endpoints");
+            arguments.addAll(List.of("--socket-path", PIPEWIRE_PATH, nativeEndpoint,
                 "--socket-path", PULSE_PATH, pulseEndpoint,
                 "--env", "PIPEWIRE_REMOTE=" + PIPEWIRE_PATH,
                 "--env", "PULSE_SERVER=unix:" + PULSE_PATH));
+        }
+        if (endpoints.containsKey("internetEndpoint")) {
+            arguments.addAll(List.of("--socket-path","/tmp/magicdesk-web.sock",endpoint(endpoints.get("internetEndpoint")),
+                    "--env","MAGICDESK_WEB_ENDPOINT=/tmp/magicdesk-web.sock"));
+        }
+        if (endpoints.containsKey("automationEndpoint") || endpoints.containsKey("automationToken")) {
+            String token=endpoints.get("automationToken");
+            if (token==null || !token.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid automation credential");
+            arguments.addAll(List.of("--socket-path","/tmp/magicdesk-mcp.sock",endpoint(endpoints.get("automationEndpoint")),
+                    "--env","MAGICDESK_AUTOMATION_SOCKET=/tmp/magicdesk-mcp.sock",
+                    "--env","MAGICDESK_AUTOMATION_TOKEN="+token,"--env","MAGICDESK_AUTOMATION_HELPER="+SESSION_HELPER));
+        }
         String protocol = endpoints.get("graphicsProtocol");
         if (protocol != null) {
             String graphics = endpoint(endpoints.get("graphicsEndpoint"));
@@ -46,8 +60,11 @@ public final class LinuxConnectionContract {
                 default -> throw new IllegalArgumentException("Unsupported graphics protocol");
             }
         }
+        if (arguments.isEmpty()) throw new IllegalArgumentException("No Linux services granted");
         return List.copyOf(arguments);
     }
+    public static final String HELPERS="/tmp/magicdesk-session-tools";
+    public static final String SESSION_HELPER=HELPERS+"/libmagicdesk_linux_settings.so";
 
     private static String endpoint(String value) {
         if (value == null || !value.matches("magicdesk-[a-z0-9-]{16,80}"))

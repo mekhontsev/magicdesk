@@ -1,0 +1,16 @@
+<resources>
+    <string name="net_title">Network</string>
+    <string name="net_host">Android network</string>
+    <string name="net_bridge">Network with port forwarding</string>
+    <string name="net_none">No external network</string>
+    <string name="net_add">Add port</string>
+    <string name="net_save">Save for new sessions</string>
+    <string name="net_host_port">Phone port</string>
+    <string name="net_guest_port">Linux port</string>
+    <string name="net_remove">Remove port</string>
+    <string name="net_external">Allow connections from other devices</string>
+    <string name="net_range">Enter a port from 1 to 65535</string>
+    <string name="net_apk_permission">Allow network access</string>
+    <string name="net_apk_choice">Without this permission, Android blocks direct network sockets for the entire Linux app.</string>
+    <string name="net_prepare">Prepare APK</string>
+</resources>

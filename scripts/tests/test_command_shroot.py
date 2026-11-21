@@ -107,6 +107,18 @@ class ShrootAdapter(unittest.TestCase):
         self.assertEqual(value['args'][-3:], ['--', '/bin/echo', '--magicdesk'])
         self.assertIn('MAGICDESK_X11_AUTHORITY=/run/fixture/authority', value['args'])
 
+    def test_explicit_network_only_overrides_defaults_in_option_position(self):
+        defaults = ['--magicdesk-default-publish', '127.0.0.1:8080:80/tcp', '--magicdesk-default-network', 'bridge']
+        for mode in ([], ['--network', 'host'], ['--network', 'none']):
+            opts = ['--env', '--network', '--bind-ro', '/source', '/target']
+            guest = ['--', '/bin/echo', '--network', '--magicdesk-default-network']
+            result = self.run_adapter(['login', '/store', *defaults, *opts, *mode, *guest])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            args = json.loads(result.stdout)['args']
+            self.assertEqual(args[-len(guest):], guest)
+            expected = mode or ['--network', 'bridge', '-p', defaults[1]]
+            self.assertEqual(args[2:2+len(opts)+len(expected)], opts + expected)
+
     def test_failures_do_not_retain_lease(self):
         result = self.delegated(['--store', '/store', '--magicdesk', '--', '/bin/sh'], self.root / 'absent')
         self.assertEqual(result.returncode, 125, result.stderr)

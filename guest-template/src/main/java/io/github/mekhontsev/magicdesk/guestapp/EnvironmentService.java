@@ -35,6 +35,7 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
     private TerminalEmulator emulator;
     private boolean opened;
     private HostConnection host;
+    private HostConnection pendingTerminal;
     private OperationResources.Slot hostOwner;
     private long hostGeneration;
     Runnable changed;
@@ -81,6 +82,14 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
     boolean active() { return operation != null; }
     boolean closed() { return closed; }
     boolean connected() { return host != null && host.ready(); }
+    boolean canConnectHost() { return !closed && installed() && host==null && (!active() || terminal!=null); }
+    boolean awaitingTerminalChoice() { return pendingTerminal!=null && !replaceTerminal; }
+    private boolean replaceTerminal;
+    void confirmTerminalReplacement() {
+        if (!awaitingTerminalChoice()) return;
+        replaceTerminal=true;
+        endTerminal();
+    }
     @Override public TerminalEmulator emulator() { return emulator; }
 
     private ProcessBuilder command(String... arguments) throws IOException {
@@ -138,7 +147,10 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
         opened=true;
         int rows=emulator.mRows, columns=emulator.mColumns;
         var connections=host==null ? java.util.List.<String>of() : host.arguments();
+        var scoped=host!=null && host.sessionScoped() ? host : null;
+        boolean temporaryInternet=scoped!=null && scoped.internet();
         var resources=new OperationResources(); operation=resources;
+        if (scoped!=null) resources.reserve().attach(scoped);
         var owner=lifetime.reserve();
         owner.attach(resources);
         status="Starting Linux"; notifyChanged();
@@ -154,6 +166,16 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
                 resources.reserve().attach(folders);
                 var bindings=new java.util.ArrayList<>(connections);
                 bindings.addAll(folders.arguments());
+                var profile=io.github.mekhontsev.magicdesk.StandaloneNetwork.read(this);
+                if (temporaryInternet && profile.mode()!=io.github.mekhontsev.magicdesk.GuestNetworkProfile.Mode.NONE)
+                    throw new IOException("Temporary web access requires the private network profile. Reconnect using the new settings.");
+                bindings.addAll(profile.arguments());
+                if (scoped!=null) {
+                    var helper=io.github.mekhontsev.magicdesk.LinuxConnectionContract.SESSION_HELPER;
+                    bindings.addAll(java.util.List.of("--bind-ro-create",nativeDir,
+                            io.github.mekhontsev.magicdesk.LinuxConnectionContract.HELPERS,"--","/bin/sh","-c",
+                            "exec "+helper+" --connected-login \"$SHELL\" -l"));
+                }
                 String startup=EnvironmentCommand.terminal(nativeDir+"/libshroot_cli.so",store().toString(),bindings);
                 pty=new NativePtyProcess(environment(new ProcessBuilder(nativeDir+"/libmagicdesk_pty_bridge.so",
                         Integer.toString(rows),Integer.toString(columns),getDataDir().toString(),
@@ -182,6 +204,9 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
                 owner.close();
                 main.post(() -> {
                     terminal=null; operation=null;
+                    if (!closed && pendingTerminal!=null && pendingTerminal==host) {
+                        pendingTerminal=null; replaceTerminal=false; startTerminal(); return;
+                    }
                     status=cancelled || error==null ? "Session ended" : error.toString();
                     notifyChanged();
                 });
@@ -217,14 +242,14 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
         if (operation!=null) operation.close();
     }
     Intent connectHost() throws Exception {
-        disconnectHost();
-        if (closed) throw new IOException("Linux service is closed");
+        if (!canConnectHost()) throw new IOException("Linux is not ready for a connection");
         long generation=hostGeneration;
         host=new HostConnection(this,() -> main.post(() -> {
             if (generation==hostGeneration) { disconnectHost(); notifyChanged(); }
         }));
         hostOwner=lifetime.reserve(); hostOwner.attach(host);
-        return host.request();
+        return host.request(io.github.mekhontsev.magicdesk.StandaloneNetwork.read(this).mode()
+                ==io.github.mekhontsev.magicdesk.GuestNetworkProfile.Mode.NONE);
     }
     void acceptHost(Intent reply) {
         HostConnection pending=host;
@@ -234,7 +259,9 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
                 pending.accept(reply);
                 main.post(() -> {
                     if (pending!=host || closed) return;
-                    status=terminal==null ? "MagicDesk connected" :
+                    if (pending.sessionScoped() && !active() && installed()) { startTerminal(); return; }
+                    if (pending.sessionScoped() && active()) pendingTerminal=pending;
+                    status=!active() ? "MagicDesk connected" :
                             "MagicDesk connected. Save your work, then choose End session and New terminal to use it.";
                     notifyChanged();
                 });
@@ -246,7 +273,7 @@ public final class EnvironmentService extends Service implements ConsoleTerminal
         },"LinuxHostConnection").start();
     }
     void disconnectHost() {
-        hostGeneration++; host=null;
+        hostGeneration++; host=null; pendingTerminal=null; replaceTerminal=false;
         if (hostOwner!=null) { hostOwner.close(); hostOwner=null; }
     }
     private void notifyChanged() { if (changed!=null) changed.run(); }

@@ -1222,6 +1222,10 @@
     <string name="linux_connection_title">Connect to MagicDesk</string>
     <string name="linux_connection_audio">Audio only</string>
     <string name="linux_connection_new_x11">Audio + new X11 display</string>
+    <string name="linux_connection_terminal">No audio or display</string>
+    <string name="linux_connection_scope">Choose what to connect to the next terminal in %1$s. Internet and automation end with that terminal or when you disconnect.</string>
+    <string name="linux_connection_internet">Temporary web access for the next terminal (no local network)</string>
+    <string name="linux_connection_mcp">Allow authorized MCP clients to inspect and control Linux (including command execution with the shell grant)</string>
     <string name="linux_connection_graphics">Audio + %1$s: %2$s</string>
     <string name="linux_connection_permission">Choose what %1$s can use in its next terminal. Find the new display under Graphical sessions in MagicDesk. Clients on the same X11 display can access each other’s windows. No command or file access is granted.</string>
     <string name="linux_connection_connect">Connect</string>

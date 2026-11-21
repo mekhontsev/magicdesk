@@ -15,8 +15,9 @@ import java.util.List;
 public final class LinuxConnectionActivity extends Activity {
     private Model model;
     private AlertDialog dialog;
-    private static final String AUDIO = "", NEW_X11 = "@new-x11";
+    private static final String AUDIO = "", NEW_X11 = "@new-x11", NO_MEDIA="@terminal";
     private RadioGroup selection;
+    private android.widget.CheckBox internet,automation;
     private List<String> displayed;
     private final Runnable sessionsChanged = () -> runOnUiThread(this::refreshChoices);
 
@@ -30,16 +31,30 @@ public final class LinuxConnectionActivity extends Activity {
             var binder=extras==null ? null : extras.getBinder("endpoints");
             if (binder==null) throw new IllegalArgumentException("Missing executor endpoints");
             model=(Model)getLastNonConfigurationInstance();
-            if (model==null) model=new Model(getApplicationContext(),uid,IExecutorUnixEndpoints.Stub.asInterface(binder));
+            if (model==null) model=new Model(getApplicationContext(),uid,IExecutorUnixEndpoints.Stub.asInterface(binder),
+                    caller,extras.getBoolean("sessionServices"),extras.getBoolean("privateNetwork"));
             if (model.uid!=uid) throw new SecurityException("Connection caller changed");
             model.changed=this::render;
             CharSequence label=getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(caller,0));
             selection=new RadioGroup(this);
             int padding=Math.round(24*getResources().getDisplayMetrics().density);
-            selection.setPadding(padding,0,padding,0);
+            var choices=new android.widget.LinearLayout(this); choices.setOrientation(android.widget.LinearLayout.VERTICAL);
+            choices.setPadding(padding,0,padding,0); choices.addView(selection);
+            if (model.sessionServices) {
+                if (model.privateNetwork) {
+                    internet=new android.widget.CheckBox(this); internet.setText(R.string.linux_connection_internet);
+                    internet.setFilterTouchesWhenObscured(true); choices.addView(internet);
+                    internet.setChecked(model.internet);
+                    internet.setOnCheckedChangeListener((button,checked)->{ model.internet=checked; render(); });
+                }
+                automation=new android.widget.CheckBox(this); automation.setText(R.string.linux_connection_mcp);
+                automation.setFilterTouchesWhenObscured(true); choices.addView(automation);
+                automation.setChecked(model.automation);
+                automation.setOnCheckedChangeListener((button,checked)->{ model.automation=checked; render(); });
+            }
             dialog=UiDialogs.builder(this).setTitle(R.string.linux_connection_title)
-                    .setMessage(getString(R.string.linux_connection_permission,label))
-                    .setView(UiToolLayout.scroll(selection,640))
+                    .setMessage(getString(model.sessionServices ? R.string.linux_connection_scope : R.string.linux_connection_permission,label))
+                    .setView(UiToolLayout.scroll(choices,640))
                     .setNegativeButton(android.R.string.cancel,(d,w)->finish())
                     .setOnCancelListener(d->finish()).setPositiveButton(R.string.linux_connection_connect,null).create();
             dialog.show();
@@ -69,9 +84,10 @@ public final class LinuxConnectionActivity extends Activity {
         var ids=sessions.stream().map(GraphicalSessions.Session::id).toList();
         if (ids.equals(displayed)) return;
         displayed=ids;
-        if (!AUDIO.equals(model.selected) && !NEW_X11.equals(model.selected)
+        if (!AUDIO.equals(model.selected) && !NEW_X11.equals(model.selected) && !NO_MEDIA.equals(model.selected)
                 && model.selected!=null && !ids.contains(model.selected)) model.selected=null;
         selection.removeAllViews();
+        if (model.sessionServices) addChoice(NO_MEDIA,getString(R.string.linux_connection_terminal));
         addChoice(NEW_X11,getString(R.string.linux_connection_new_x11));
         for (var session:sessions) addChoice(session.id(),getString(R.string.linux_connection_graphics,
                 session.protocol().name(),session.name()));
@@ -95,7 +111,10 @@ public final class LinuxConnectionActivity extends Activity {
             model.delivered=true;
             setResult(RESULT_OK,new Intent().putExtras(reply)); finish(); return;
         }
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(!model.started && model.selected!=null);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(!model.started && model.selected!=null
+                && (!NO_MEDIA.equals(model.selected) || model.internet || model.automation));
+        if (internet!=null) internet.setEnabled(!model.started);
+        if (automation!=null) automation.setEnabled(!model.started);
         for (int i=0;i<selection.getChildCount();i++) selection.getChildAt(i).setEnabled(!model.started);
         if (model.error!=null) dialog.setMessage(ShellAccess.usefulMessage(model.error));
         else if (model.started) dialog.setMessage(getString(R.string.linux_connection_pending));
@@ -114,6 +133,9 @@ public final class LinuxConnectionActivity extends Activity {
     private static final class Model {
         final android.content.Context context;
         final int uid;
+        final String caller;
+        final boolean sessionServices,privateNetwork;
+        boolean internet,automation;
         final IExecutorUnixEndpoints endpoints;
         final OperationResources resources=new OperationResources();
         final Handler main=new Handler(Looper.getMainLooper());
@@ -124,8 +146,10 @@ public final class LinuxConnectionActivity extends Activity {
         Runnable changed;
         LinuxConnections.Connection connection;
         Throwable error;
-        Model(android.content.Context context,int uid,IExecutorUnixEndpoints endpoints) {
+        Model(android.content.Context context,int uid,IExecutorUnixEndpoints endpoints,String caller,boolean sessionServices,boolean privateNetwork) {
             this.context=context; this.uid=uid; this.endpoints=endpoints;
+            this.caller=caller; this.sessionServices=sessionServices; this.privateNetwork=privateNetwork;
+            if (sessionServices) selected=NO_MEDIA;
         }
         void start(String label) {
             if (started || selected==null) return;
@@ -138,8 +162,9 @@ public final class LinuxConnectionActivity extends Activity {
                     created.listen(ready);
                     serverChanged();
                 } else {
-                    var graphics=AUDIO.equals(selected) ? null : GraphicalSessions.find(selected);
-                    if (!AUDIO.equals(selected) && (graphics==null || !graphics.ready()))
+                    boolean graphical=!AUDIO.equals(selected) && !NO_MEDIA.equals(selected);
+                    var graphics=graphical ? GraphicalSessions.find(selected) : null;
+                    if (graphical && (graphics==null || !graphics.ready()))
                         throw new IllegalStateException("The selected graphical session is no longer ready");
                     acquire(graphics);
                 }
@@ -156,7 +181,8 @@ public final class LinuxConnectionActivity extends Activity {
         void acquire(GraphicalSessions.Session graphics) {
             new Thread(() -> {
                 try {
-                    var ready=LinuxConnections.acquire(context,uid,endpoints,graphics,resources);
+                    var ready=LinuxConnections.acquire(context,uid,endpoints,graphics,!NO_MEDIA.equals(selected),
+                            internet,automation,caller,resources);
                     main.post(() -> {
                         if (resources.isClosed()) return;
                         connection=ready;

@@ -1,0 +1,16 @@
+<resources>
+    <string name="net_title">网络</string>
+    <string name="net_host">Android 网络</string>
+    <string name="net_bridge">带端口转发的网络</string>
+    <string name="net_none">无外部网络</string>
+    <string name="net_add">添加端口</string>
+    <string name="net_save">保存并用于新会话</string>
+    <string name="net_host_port">手机端口</string>
+    <string name="net_guest_port">Linux 端口</string>
+    <string name="net_remove">删除端口</string>
+    <string name="net_external">允许其他设备连接</string>
+    <string name="net_range">请输入 1 到 65535 之间的端口</string>
+    <string name="net_apk_permission">允许网络访问</string>
+    <string name="net_apk_choice">未授予此权限时，Android 会阻止整个 Linux 应用直接使用网络套接字。</string>
+    <string name="net_prepare">准备 APK</string>
+</resources>

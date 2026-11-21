@@ -1250,4 +1250,8 @@
     <string name="linux_connection_permission">%1$s сможет использовать выбранные звук и графическую сессию. Клиенты X11 имеют общий доступ к своему дисплею. Доступ к командам и файлам не предоставляется.</string>
     <string name="linux_connection_connect">Подключить</string>
     <string name="linux_connection_pending">Подключение&#8230;</string>
+    <string name="linux_connection_terminal">Без звука и экрана</string>
+    <string name="linux_connection_scope">Выберите возможности для следующего терминала в %1$s. Доступ к интернету и автоматизации прекращается при завершении терминала или отключении.</string>
+    <string name="linux_connection_internet">Временный веб-доступ для следующего терминала (без локальной сети)</string>
+    <string name="linux_connection_mcp">Разрешить авторизованным MCP-клиентам просматривать и управлять Linux (включая выполнение команд при наличии права на shell)</string>
 </resources>

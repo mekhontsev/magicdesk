@@ -13,7 +13,7 @@ coverage, not a chronological development log.
 | Files, content, task management and independent tools | [Workstation tools](workstation-tools.md) |
 | Consoles, retained sessions and tmux | [Terminal integration](terminal-integration.md) |
 | Install Linux, run applications and containers | [Shroot](shroot.md) |
-| Give Linux its own Android UID, runtime and private data | [Independent Linux applications](linux-applications.md) |
+| Install a distro as its own Android app; grant folders, web access or automation | [Linux Capsules](linux-applications.md) |
 | Compare Shroot, PRoot and native execution | [Benchmarks and measurement scope](shroot-benchmarks.md) |
 | Launch recipes and shortcuts | [Desktop entries](desktop-entries.md) |
 | Themes, panels, wallpapers and customization | [Native appearance](appearance.md) |

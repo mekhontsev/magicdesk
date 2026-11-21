@@ -26,6 +26,7 @@ public final class EnvironmentActivity extends Activity {
     private Intent pendingConnection;
     private boolean pendingConnectionResult;
     private AlertDialog confirmation;
+    private AlertDialog replacement;
     private final Runnable updated=this::refresh;
     private final ServiceConnection connection=new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name,IBinder binder) {
@@ -93,14 +94,26 @@ public final class EnvironmentActivity extends Activity {
         String text=service.installed() ? service.status : service.active() ? service.status : "No Linux environment";
         status.setText(text); status.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
         terminal.invalidate(); invalidateOptionsMenu();
+        if (!service.awaitingTerminalChoice()) {
+            if (replacement!=null) { replacement.dismiss(); replacement=null; }
+        } else if (replacement==null && !isFinishing() && !isDestroyed()) {
+            var selected=service;
+            replacement=new AlertDialog.Builder(this).setTitle("Start connected terminal?")
+                    .setMessage("This ends the current Linux session. Cancel to keep working without the new connection.")
+                    .setNegativeButton(android.R.string.cancel,(d,w)->{ selected.disconnectHost(); refresh(); })
+                    .setOnCancelListener(d->{ selected.disconnectHost(); refresh(); })
+                    .setPositiveButton("End session and connect",(d,w)->selected.confirmTerminalReplacement()).show();
+        }
     }
     @Override public boolean onCreateOptionsMenu(Menu menu) {
         menu.add(0,1,0,"Import backup"); menu.add(0,2,1,"New terminal"); menu.add(0,3,2,"End session");
-        if (android.os.Build.VERSION.SDK_INT>=37) menu.add(0,4,3,"Local network access");
+        boolean internet=io.github.mekhontsev.magicdesk.StandaloneNetwork.allowed(this);
+        if (internet && android.os.Build.VERSION.SDK_INT>=37) menu.add(0,4,3,"Local network access");
         menu.add(0,5,4,"Connect to MagicDesk");
         menu.add(0,6,5,"Disconnect from MagicDesk");
         menu.add(0,7,6,"Export backup");
         menu.add(0,8,7,io.github.mekhontsev.magicdesk.connections.R.string.folder_title);
+        if (internet) menu.add(0,9,8,io.github.mekhontsev.magicdesk.connections.R.string.net_title);
         return true;
     }
     @Override public boolean onPrepareOptionsMenu(Menu menu) {
@@ -108,7 +121,7 @@ public final class EnvironmentActivity extends Activity {
         menu.findItem(2).setEnabled(service!=null && service.installed() && !service.active());
         menu.findItem(3).setEnabled(service!=null && service.active());
         menu.findItem(7).setEnabled(service!=null && service.installed() && !service.active());
-        menu.findItem(5).setEnabled(service!=null && !service.connected());
+        menu.findItem(5).setEnabled(service!=null && service.canConnectHost());
         menu.findItem(6).setEnabled(service!=null && service.connected()); return true;
     }
     @Override public boolean onOptionsItemSelected(MenuItem item) {
@@ -140,6 +153,7 @@ public final class EnvironmentActivity extends Activity {
                 io.github.mekhontsev.magicdesk.documents.AndroidFoldersActivity.class)
                 .putExtra(io.github.mekhontsev.magicdesk.documents.AndroidFoldersActivity.SCOPE,
                         io.github.mekhontsev.magicdesk.documents.FolderMounts.INDEPENDENT));
+        else if (item.getItemId()==9) startActivity(new Intent(this,io.github.mekhontsev.magicdesk.NetworkSettingsActivity.class));
         else return super.onOptionsItemSelected(item);
         return true;
     }
@@ -175,6 +189,7 @@ public final class EnvironmentActivity extends Activity {
         if (terminal!=null) terminal.attach(null);
     }
     @Override protected void onDestroy() {
+        if (replacement!=null) replacement.dismiss();
         if (confirmation!=null) confirmation.dismiss();
         detach(); if (bound) unbindService(connection); super.onDestroy();
     }

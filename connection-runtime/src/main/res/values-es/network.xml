@@ -1,0 +1,16 @@
+<resources>
+    <string name="net_title">Red</string>
+    <string name="net_host">Red de Android</string>
+    <string name="net_bridge">Red con reenvío de puertos</string>
+    <string name="net_none">Sin red externa</string>
+    <string name="net_add">Añadir puerto</string>
+    <string name="net_save">Guardar para nuevas sesiones</string>
+    <string name="net_host_port">Puerto del teléfono</string>
+    <string name="net_guest_port">Puerto de Linux</string>
+    <string name="net_remove">Quitar puerto</string>
+    <string name="net_external">Permitir conexiones desde otros dispositivos</string>
+    <string name="net_range">Introduce un puerto entre 1 y 65535</string>
+    <string name="net_apk_permission">Permitir acceso a la red</string>
+    <string name="net_apk_choice">Sin este permiso, Android bloquea los sockets de red directos de toda la aplicación Linux.</string>
+    <string name="net_prepare">Preparar APK</string>
+</resources>

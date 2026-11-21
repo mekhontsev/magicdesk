@@ -37,7 +37,7 @@ public record GuestNetworkProfile(Mode mode, List<String> publications, List<Str
         Objects.requireNonNull(addressing, "network addressing");
         publications = List.copyOf(publications);
         dns = List.copyOf(dns);
-        if (publications.size() > 128 || dns.size() > 3
+        if (publications.size() > MAX_PORTS || dns.size() > 3
                 || (!publications.isEmpty() || !addressing.equals(Addressing.DEFAULT)) && mode != Mode.BRIDGE
                 || !dns.isEmpty() && mode == Mode.NONE)
             throw new IllegalArgumentException("Incompatible network options");
@@ -47,6 +47,51 @@ public record GuestNetworkProfile(Mode mode, List<String> publications, List<Str
     private static void validateArgument(String value) {
         if (value.isEmpty() || value.length() > 128 || value.indexOf('\0') >= 0)
             throw new IllegalArgumentException("Invalid network argument");
+    }
+
+    public static final int MAX_PORTS = 128;
+
+    /** The settings UI deliberately exposes only IPv4 loopback or all IPv4 interfaces. */
+    public record Port(int host, int guest, boolean udp, boolean external) {
+        public Port {
+            if (host<1 || host>65535 || guest<1 || guest>65535)
+                throw new IllegalArgumentException("Ports must be between 1 and 65535");
+        }
+        public String argument() {
+            return (external ? "0.0.0.0:" : "127.0.0.1:")+host+":"+guest+(udp ? "/udp" : "/tcp");
+        }
+        public static Port parse(String argument) {
+            var parts=argument.split("[:/]",-1);
+            if (parts.length!=4) throw new IllegalArgumentException("Invalid saved port");
+            var port=new Port(Integer.parseInt(parts[1]),Integer.parseInt(parts[2]),
+                    parts[3].equals("udp"),parts[0].equals("0.0.0.0"));
+            if (!argument.equals(port.argument())) throw new IllegalArgumentException("Invalid saved port");
+            return port;
+        }
+    }
+
+    public static GuestNetworkProfile forSettings(Mode mode,List<Port> ports) {
+        if (mode==Mode.ROUTED) throw new IllegalArgumentException("Unsupported network mode");
+        var hosts=new java.util.HashSet<Integer>();
+        for (var p:ports) if (!hosts.add(p.host()+(p.udp() ? 65536 : 0)))
+            throw new IllegalArgumentException("Duplicate host port: "+p.host()+(p.udp() ? "/udp" : "/tcp"));
+        return new GuestNetworkProfile(mode,ports.stream().map(Port::argument).toList(),List.of());
+    }
+
+    /** Line records, not shell code. A missing setting means host; an incomplete one never does. */
+    public String settings() {
+        if (mode==Mode.ROUTED || !dns.isEmpty() || !addressing.equals(Addressing.DEFAULT))
+            throw new IllegalArgumentException("Not a settings profile");
+        return mode.name().toLowerCase(java.util.Locale.ROOT)+"\n"
+                +(publications.isEmpty() ? "" : String.join("\n",publications)+"\n")+"end\n";
+    }
+    public static GuestNetworkProfile fromSettings(String value) {
+        if (value==null) return HOST;
+        var lines=value.lines().toList();
+        if (lines.size()<2 || lines.size()>MAX_PORTS+2 || !lines.get(lines.size()-1).equals("end"))
+            throw new IllegalArgumentException("Incomplete network settings");
+        return forSettings(Mode.valueOf(lines.get(0).toUpperCase(java.util.Locale.ROOT)),
+                lines.subList(1,lines.size()-1).stream().map(Port::parse).toList());
     }
 
     public List<String> arguments() {

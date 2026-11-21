@@ -84,9 +84,10 @@ public final class LauncherApkTest {
             icon=zip.getInputStream(entry).readAllBytes();
         }
         Path unsigned=root.resolve("runtime-unsigned.apk"), signed=root.resolve("runtime.apk");
+        var markers=Map.of("io.github.mekhontsev.magicdesk.guesttemplate","example.linux.e"+"b".repeat(32),
+                "MAGICDESK_LINUX_LABEL","Alpine");
         try (var input=Files.newInputStream(template)) {
-            LauncherApk.assemble(input,Map.of("io.github.mekhontsev.magicdesk.guesttemplate","example.linux.e"+"b".repeat(32),
-                    "MAGICDESK_LINUX_LABEL","Alpine"),icon,Map.of("libtest.so",library),"{}".getBytes(),unsigned);
+            LauncherApk.assemble(input,markers,icon,Map.of("libtest.so",library),"{}".getBytes(),unsigned);
         }
         try (var zip=new ZipFile(unsigned.toFile())) {
             assertArrayEquals(payload,zip.getInputStream(zip.getEntry("lib/arm64-v8a/libtest.so")).readAllBytes());
@@ -98,8 +99,21 @@ public final class LauncherApkTest {
             String path=new String(bytes.array(),at+30,name,java.nio.charset.StandardCharsets.UTF_8);
             assertEquals(path,0,start & (path.startsWith("lib/") ? 16383 : 3)); at=start+size;
         }
-        LauncherApk.sign(unsigned,signed,(PrivateKey)store.getKey("test","password".toCharArray()),(X509Certificate)store.getCertificate("test"));
+        var key=(PrivateKey)store.getKey("test","password".toCharArray());
+        var cert=(X509Certificate)store.getCertificate("test");
+        LauncherApk.sign(unsigned,signed,key,cert);
         verify(true,signed);
+        var permissions=permissions(signed);
+        assertTrue(permissions.remove("uses-permission: name='android.permission.INTERNET'"));
+        assertTrue(permissions.remove("uses-permission: name='android.permission.ACCESS_LOCAL_NETWORK'"));
+        var offline=root.resolve("offline.apk");
+        try (var input=Files.newInputStream(template)) {
+            var manifest=Files.readAllBytes(Path.of(System.getProperty("magicdesk.offlineManifest")));
+            LauncherApk.assemble(input,markers,icon,Map.of("libtest.so",library),"{}".getBytes(),Map.of(),manifest,unsigned);
+        }
+        LauncherApk.sign(unsigned,offline,key,cert);
+        verify(true,offline);
+        assertEquals(permissions,permissions(offline));
         try (var file=new java.io.RandomAccessFile(signed.toFile(),"rw")) {
             long at=2*1024*1024; file.seek(at); int value=file.read(); file.seek(at); file.write(value^1);
         }
@@ -125,9 +139,16 @@ public final class LauncherApkTest {
         else run(expected, signer, "verify", "--min-sdk-version", "34", apk.toString());
     }
 
-    private static void run(boolean expected, String... command) throws Exception {
+    private static java.util.Set<String> permissions(Path apk) throws Exception {
+        String aapt=Path.of(System.getProperty("magicdesk.apksigner")).resolveSibling("aapt2").toString();
+        var lines=run(true,aapt,"dump","permissions",apk.toString()).lines().toList();
+        return new java.util.HashSet<>(lines);
+    }
+
+    private static String run(boolean expected, String... command) throws Exception {
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         assertEquals(output, expected, process.waitFor() == 0);
+        return output;
     }
 }

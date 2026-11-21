@@ -20,7 +20,7 @@ final class GuestApplicationExports {
                 AppProfile.current(context).serialNumber);
     }
 
-    static Prepared prepare(Context context,LauncherExportStore.Target target,OperationResources resources) throws Exception {
+    static Prepared prepare(Context context,LauncherExportStore.Target target,OperationResources resources,boolean network) throws Exception {
         if (!target.source().equals("environment") || !target.termuxPackage().isEmpty())
             throw new IllegalArgumentException("Invalid environment export");
         LauncherExports.requireIdentity(context,target);
@@ -42,14 +42,16 @@ final class GuestApplicationExports {
             Path nativeDir=Path.of(context.getApplicationInfo().nativeLibraryDir);
             for (String file : GuestRuntimeArtifacts.FILES)
                 if (!file.equals("libmagicdesk_command_client.so")) libraries.put(file,nativeDir.resolve(file));
-            for (String file : java.util.List.of("libmagicdesk_mksh.so","libmagicdesk_pty_bridge.so"))
+            for (String file : java.util.List.of("libmagicdesk_mksh.so","libmagicdesk_pty_bridge.so","libmagicdesk_linux_settings.so"))
                 libraries.put(file,nativeDir.resolve(file));
             byte[] icon=icon(context);
             byte[] config=new JSONObject().put("format",1).put("sourceId",source.id()).put("name",source.name())
                     .put("hostPackage",context.getPackageName()).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            try (var template=context.getAssets().open("launcher/guest-template.apk")) {
+            try (var template=context.getAssets().open("launcher/guest-template.apk");
+                 var offline=network ? null : context.getAssets().open("launcher/guest-offline-manifest.bin")) {
                 LauncherApk.assemble(template,Map.of("io.github.mekhontsev.magicdesk.guesttemplate",entry.packageName(context.getPackageName()),
-                        "MAGICDESK_LINUX_LABEL",source.name()),icon,libraries,config,notices(context),unsigned);
+                        "MAGICDESK_LINUX_LABEL",source.name()),icon,libraries,config,notices(context),
+                        offline==null ? null : offline.readAllBytes(),unsigned);
             }
             LauncherApk.sign(unsigned,signed,identity.key(),identity.certificate());
             requireActive(resources);
@@ -60,7 +62,7 @@ final class GuestApplicationExports {
 
     private static Map<String,byte[]> notices(Context context) throws IOException {
         var result=new LinkedHashMap<String,byte[]>();
-        for (String directory : java.util.List.of("licenses/guest-images","licenses/mksh","licenses/magicdesk"))
+        for (String directory : java.util.List.of("licenses/guest-images","licenses/mksh","licenses/magicdesk","licenses/dbus"))
             collectNotices(context,directory,result);
         try (var input=context.getAssets().open("termux-terminal-emulator/LICENSE")) {
             result.put("assets/licenses/terminal-emulator.txt",input.readAllBytes());

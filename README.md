@@ -266,10 +266,14 @@ this up in a standalone Linux APK or a MagicDesk Shroot **User** or **Shell**
 environment. New sessions mount your selections under `/mnt/android`.
 Each folder defaults to read-only, and the choices are saved per environment.
 
+An APK for offline work can be built **without Android network permissions**.
+For a network-enabled environment, [network settings](docs/linux-applications.md#network-access)
+can publish a Linux service on the phone or explicitly allow other devices to connect.
+
 Open **Console > New session > Shroot environments**, select an environment,
 then **Install Linux as an application**. See
-[independent Linux applications](docs/linux-applications.md) for installation,
-backup, updates and connections.
+[**Linux Capsules**](docs/linux-applications.md) for installation, backup and
+updates, temporary web access, and optional MCP automation using the guest's AT-SPI2 bus.
 
 ### Whole Linux Desktops Too
 
