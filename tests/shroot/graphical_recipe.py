@@ -9,13 +9,14 @@ from magicdesk_executor import source_root
 
 def compile_recipe(classes):
     repo = source_root()
-    names = ('LinuxGraphicalEnvironment', 'GuestGraphicalConnection', 'GuestLaunchPlan',
-             'GuestEnvironment', 'GuestNetworkProfile', 'GraphicalProtocol', 'ShellCommandLine',
-             'LinuxAudioEnvironment', 'GamepadWire')
+    modules = {
+        'connection-runtime': ('LinuxConnectionContract', 'GuestNetworkProfile'),
+        'app': ('LinuxGraphicalEnvironment', 'GuestGraphicalConnection', 'GuestLaunchPlan',
+                'GuestEnvironment', 'GraphicalProtocol', 'ShellCommandLine', 'LinuxAudioEnvironment', 'GamepadWire'),
+    }
     sources = [Path(__file__).with_name('GraphicalRecipe.java'),
-               repo / 'connection-runtime/src/main/java/io/github/mekhontsev/magicdesk/LinuxConnectionContract.java',
-               *(repo / 'app/src/main/java/io/github/mekhontsev/magicdesk' / (name + '.java')
-                 for name in names)]
+               *(repo / module / 'src/main/java/io/github/mekhontsev/magicdesk' / (name + '.java')
+                 for module, names in modules.items() for name in names)]
     classes.mkdir(parents=True, exist_ok=True)
     session = repo / 'native/magicdesk_guest_session.sh'
     shutil.copyfile(session, classes / session.name)
