@@ -10,7 +10,6 @@ import java.util.ArrayList;
 /** Catalogs belong to their captured executor; equal environment names are not interchangeable. */
 final class GuestEnvironmentCatalog {
     record Entry(String name, String id, String source, String store, DesktopExecBackend backend) {
-        Entry(String name, String id, String source, String store) { this(name, id, source, store, DesktopExecBackend.SHELL); }
         @Override public String toString() { return name; }
         String label(Context context) { return name + " (" + context.getString(backend.title()) + ")"; }
     }
@@ -21,8 +20,6 @@ final class GuestEnvironmentCatalog {
         words.addAll(List.of(arguments));
         return String.join(" ", words.stream().map(ShellCommandLine::quote).toList());
     }
-
-    static List<Entry> parse(String json) throws Exception { return parse(json, DesktopExecBackend.SHELL); }
 
     static List<Entry> parse(String json, DesktopExecBackend backend) throws Exception {
         JSONArray items = new JSONArray(json);

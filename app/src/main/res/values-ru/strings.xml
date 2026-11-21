@@ -675,7 +675,13 @@
     <string name="capability_access_required">Требуется доступ shell или root</string>
     <string name="capability_termux_required">Требуется Termux</string>
     <string name="capability_termux_permission_required">Требуется разрешение Termux RUN_COMMAND</string>
-    <string name="capability_terminal_required">Требуется интеграция с Termux или доступ shell</string>
+    <string name="child_process_status">Лимит процессов: %1$s</string>
+    <string name="child_process_title">Лимит процессов</string>
+    <string name="child_process_unknown">неизвестно</string>
+    <string name="child_process_warning">Android может завершать процессы Linux</string>
+    <string name="child_process_explanation">Когда Linux запускает много процессов, Android может завершить часть из них. Настройка действует на все приложения телефона. Даже при выключенном лимите Android может завершать процессы при нехватке памяти.</string>
+    <string name="child_process_manual">В параметрах разработчика найдите «%1$s». На некоторых устройствах этого переключателя нет.</string>
+    <string name="child_process_developer_options">Параметры разработчика</string>
     <string name="control_status_desktop_active">Рабочий стол активен</string>
     <string name="control_runtime_status">Доступ: %1$s</string>
     <string name="control_access_title">Доступ</string>

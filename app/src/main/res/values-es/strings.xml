@@ -665,7 +665,13 @@
     <string name="capability_access_required">Requiere acceso shell o root</string>
     <string name="capability_termux_required">Requiere Termux</string>
     <string name="capability_termux_permission_required">Requiere permiso RUN_COMMAND de Termux</string>
-    <string name="capability_terminal_required">Requiere integración con Termux o acceso shell</string>
+    <string name="child_process_status">Límite de procesos: %1$s</string>
+    <string name="child_process_title">Límite de procesos</string>
+    <string name="child_process_unknown">desconocido</string>
+    <string name="child_process_warning">Android puede cerrar procesos de Linux</string>
+    <string name="child_process_explanation">Cuando Linux ejecuta muchos procesos, Android puede cerrar algunos. Este ajuste afecta a todas las aplicaciones del teléfono. Desactivarlo no evita los cierres por falta de memoria.</string>
+    <string name="child_process_manual">En las opciones para desarrolladores, busca «%1$s». Algunos dispositivos no ofrecen este ajuste.</string>
+    <string name="child_process_developer_options">Opciones para desarrolladores</string>
     <string name="control_status_desktop_active">Escritorio activo</string>
     <string name="control_runtime_status">Acceso: %1$s</string>
     <string name="control_access_title">Acceso</string>

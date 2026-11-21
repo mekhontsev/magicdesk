@@ -19,6 +19,8 @@ public final class LauncherExportActivity extends Activity {
     private AlertDialog dialog;
     private boolean waiting;
     private android.widget.CheckBox network;
+    private android.widget.Button processWarning;
+    private boolean processLimitOn;
 
     static void openEnvironment(Activity activity,GuestEnvironmentCatalog.Entry entry) {
         try {
@@ -71,7 +73,16 @@ public final class LauncherExportActivity extends Activity {
                 network=new android.widget.CheckBox(this);
                 network.setText(io.github.mekhontsev.magicdesk.connections.R.string.net_apk_permission);
                 network.setOnCheckedChangeListener((v,checked) -> { if (model.choosing) model.network=checked; });
-                builder.setView(network);
+                var options = new android.widget.LinearLayout(this);
+                options.setOrientation(android.widget.LinearLayout.VERTICAL);
+                options.addView(network);
+                processWarning = new DesktopUiFactory(this).menuItem(R.string.child_process_warning, UiColor.ATTENTION);
+                processWarning.setSingleLine(false);
+                processWarning.setEllipsize(null);
+                processWarning.setMinHeight(UiToolLayout.dp(this, 48));
+                processWarning.setOnClickListener(v -> IntegrationStatusDialogs.showProcessLimit(this));
+                options.addView(processWarning);
+                builder.setView(options);
             }
             dialog=builder.create();
             dialog.setOnCancelListener(ignored -> finish());
@@ -94,6 +105,13 @@ public final class LauncherExportActivity extends Activity {
     }
 
     @Override public Object onRetainNonConfigurationInstance() { return model; }
+    @Override protected void onResume() {
+        super.onResume();
+        if (processWarning != null) {
+            processLimitOn = Boolean.FALSE.equals(SystemChildProcessSetting.disabledOrUnknown(this));
+            render();
+        }
+    }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putBoolean("waiting", waiting);
@@ -120,6 +138,7 @@ public final class LauncherExportActivity extends Activity {
                 : model.entry == null ? getString(R.string.launcher_export_preparing) : model.entry.label());
         if (network!=null) {
             network.setVisibility(model.choosing ? android.view.View.VISIBLE : android.view.View.GONE);
+            processWarning.setVisibility(model.choosing && processLimitOn ? android.view.View.VISIBLE : android.view.View.GONE);
             if (model.choosing) network.setChecked(Boolean.TRUE.equals(model.network));
         }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(ready || model.choosing);

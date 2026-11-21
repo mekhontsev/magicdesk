@@ -34,14 +34,6 @@ final class GuestEnvironmentOperations {
         for (Operation operation : pending) operation.cancel();
     }
 
-    static String read(String library, String... arguments) throws IOException {
-        return read(library, (android.os.CancellationSignal) null, arguments);
-    }
-
-    static String read(String library, android.os.CancellationSignal cancellation, String... arguments) throws IOException {
-        return read(new CommandExecution(MagicDeskApplication.applicationContext(), DesktopExecBackend.SHELL), library, cancellation, arguments);
-    }
-
     static String read(CommandExecution execution, String library, String... arguments) throws IOException {
         return read(execution, library, null, arguments);
     }

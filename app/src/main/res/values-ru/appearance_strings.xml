@@ -8,6 +8,7 @@
     <string name="appearance_color_accent">Акцент</string>
     <string name="appearance_color_danger">Опасность</string>
     <string name="appearance_color_attention">Внимание</string>
+    <string name="appearance_color_success">Успех</string>
     <string name="appearance_color_hover">Наведение</string>
     <string name="appearance_color_desktop_text">Текст рабочего стола</string>
     <string name="appearance_color_transparent">Прозрачный</string>

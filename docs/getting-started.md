@@ -60,8 +60,9 @@ the selected server may need restarting, depending on its startup method. Missin
 access does not prevent ordinary UI or independently authorized Termux
 sessions from opening.
 
-The control panel shows a full-width status and clickable **Access**, **Termux**
-and **Desktop** summaries. Access reports the connected service as shell, root
+Beside the current status, **Process limit** shows whether Android restricts
+child processes. Tap it for details. The **Access**, **Termux** and **Desktop**
+summaries remain on their own row. Access reports the connected service as shell, root
 or none, with an explicit authorization action. Termux distinguishes missing
 prerequisites, an available service and a verified command connection; see
 [Linux application setup](#open-linux-applications).
@@ -562,7 +563,9 @@ toggle it.
 
 To disable Android phantom-process monitoring for Termux and Linux programs,
 use **Settings > Android system > Disable child process restrictions**. Changing
-it requires Shizuku or the selected Root service, but not Desktop. This is a
+it from MagicDesk requires the authorized Shell service, but not Desktop.
+Without Shell, tap **Process limit** to open Android's developer options and
+look for the switch, if offered by the firmware. This is a
 system-wide, persistent setting, not protection from low-memory kills or
 manufacturer battery restrictions. MagicDesk does not change it automatically.
 

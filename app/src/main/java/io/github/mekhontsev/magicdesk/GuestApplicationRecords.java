@@ -9,7 +9,6 @@ import java.util.List;
 final class GuestApplicationRecords {
     record Snapshot(List<DesktopApplicationRepository.Entry> entries, String error) { }
 
-    static Snapshot parse(String text) throws Exception { return parse(text, DesktopExecBackend.SHELL); }
 
     static Snapshot parse(String text, DesktopExecBackend backend) throws Exception {
         if (text.length() > GuestImageFiles.JSON_LIMIT) throw new IllegalArgumentException("Guest catalog too large");

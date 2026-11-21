@@ -8,6 +8,7 @@
     <string name="appearance_color_accent">Destaque</string>
     <string name="appearance_color_danger">Perigo</string>
     <string name="appearance_color_attention">Atenção</string>
+    <string name="appearance_color_success">Sucesso</string>
     <string name="appearance_color_hover">Ao passar o ponteiro</string>
     <string name="appearance_color_desktop_text">Texto da área de trabalho</string>
     <string name="appearance_color_transparent">Transparente</string>

@@ -25,6 +25,7 @@ import java.util.Locale;
 public final class SettingsActivity extends Activity
         implements SettingsView.Actions {
     private static final int LOCAL_NETWORK_PERMISSION_REQUEST = 1;
+    private static final String CHILD_PROCESS_SETTING = "showChildProcessSetting";
     private SettingsView mView;
     private AppearanceSettings mAppearance;
     private android.view.View mSettingsContent;
@@ -35,6 +36,23 @@ public final class SettingsActivity extends Activity
 
     static Intent createIntent(final Context context) {
         return new Intent(context, SettingsActivity.class);
+    }
+
+    static Intent childProcessIntent(Context context) {
+        return createIntent(context).putExtra(CHILD_PROCESS_SETTING, true);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        revealRequestedSetting();
+    }
+
+    private void revealRequestedSetting() {
+        if (!getIntent().getBooleanExtra(CHILD_PROCESS_SETTING, false)) return;
+        getIntent().removeExtra(CHILD_PROCESS_SETTING);
+        if (mAppearance.isOpen()) closeAppearance();
+        mView.revealChildProcessSetting();
     }
 
     static AppLaunchTarget launchTarget(final Context context) {
@@ -56,6 +74,7 @@ public final class SettingsActivity extends Activity
         ShellAccess.addStateListener(mShellStateListener);
         render();
         if (savedInstanceState != null && savedInstanceState.getBoolean("appearancePage")) configureAppearance();
+        revealRequestedSetting();
     }
 
     @Override
@@ -651,16 +670,10 @@ public final class SettingsActivity extends Activity
 
     private void renderChildProcessSetting() {
         if (mView == null || isFinishing() || isDestroyed()) return;
-        if (!ShellAccess.isReady()) {
-            mView.renderChildProcessSetting(null, false, R.string.settings_system_desktop_mode_shell);
-            return;
-        }
-        try {
-            mView.renderChildProcessSetting(SystemChildProcessSetting.readDisabled(this), !mSystemSettingBusy,
-                    mSystemSettingBusy ? R.string.settings_system_desktop_mode_saving
-                            : R.string.settings_child_process_description);
-        } catch (IOException error) {
-            mView.renderChildProcessSetting(null, false, R.string.settings_child_process_unavailable);
-        }
+        Boolean disabled = SystemChildProcessSetting.disabledOrUnknown(this);
+        boolean shell = ShellAccess.isReady();
+        mView.renderChildProcessSetting(disabled, disabled != null && shell && !mSystemSettingBusy,
+                !shell ? R.string.child_process_manual : disabled == null ? R.string.settings_child_process_unavailable
+                        : mSystemSettingBusy ? R.string.settings_system_desktop_mode_saving : R.string.settings_child_process_description);
     }
 }

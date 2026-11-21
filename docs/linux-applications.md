@@ -18,6 +18,13 @@ to run. Closing the terminal window retains its session; **End session** stops
 that session, and the notification's **Stop** action stops the application's
 owned service and processes. Android process and battery policies still apply.
 
+The phone Control Panel shows **Process limit**. When it is on, Android can
+stop child processes in larger Linux workloads. Tap the status (or the warning
+when packaging a capsule) for the system setting. Changing it affects all
+apps; it is optional and does not prevent low-memory kills. Without Shell,
+MagicDesk can show a readable explicit value and open Android's developer
+options. **Unknown** means MagicDesk could not determine the effective setting.
+
 ## Data And Updates
 
 The export is a portable native backup, including guest inode metadata, not a

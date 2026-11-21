@@ -65,31 +65,33 @@ public final class SystemChildProcessSettingTest {
                 .contains("Binder.restoreCallingIdentity(identity)"));
     }
 
-    @Test public void globalOverridePrecedesFrameworkPropertyAndUsesBooleanStrings() {
-        assertTrue(SystemChildProcessSetting.monitoringEnabled(null, true));
-        assertFalse(SystemChildProcessSetting.monitoringEnabled(null, false));
-        assertTrue(SystemChildProcessSetting.monitoringEnabled("", true));
-        assertFalse(SystemChildProcessSetting.monitoringEnabled("false", true));
-        assertTrue(SystemChildProcessSetting.monitoringEnabled("true", false));
-        assertFalse(SystemChildProcessSetting.monitoringEnabled("0", true));
-        assertFalse(SystemChildProcessSetting.monitoringEnabled("1", true));
+    @Test public void globalOverridePrecedesFrameworkPropertyAndUsesBooleanStrings() throws Exception {
+        var noShell = (SystemChildProcessSetting.Default) () -> { throw new IOException("no service"); };
+        assertTrue(SystemChildProcessSetting.monitoringEnabled(null, () -> true));
+        assertFalse(SystemChildProcessSetting.monitoringEnabled(null, () -> false));
+        assertTrue(SystemChildProcessSetting.monitoringEnabled("", () -> true));
+        assertThrows(IOException.class, () -> SystemChildProcessSetting.monitoringEnabled(null, noShell));
+        assertFalse(SystemChildProcessSetting.monitoringEnabled("false", noShell));
+        assertTrue(SystemChildProcessSetting.monitoringEnabled("true", noShell));
+        assertFalse(SystemChildProcessSetting.monitoringEnabled("0", noShell));
+        assertFalse(SystemChildProcessSetting.monitoringEnabled("1", noShell));
         assertEquals("/system/bin/settings put global settings_enable_monitor_phantom_procs false",
                 SystemChildProcessSetting.writeCommand(false));
         assertEquals("/system/bin/settings put global settings_enable_monitor_phantom_procs true",
                 SystemChildProcessSetting.writeCommand(true));
     }
 
-    @Test public void renderingUsesOnlyShellReadinessAndKeepsUnknownExplicit() throws Exception {
+    @Test public void renderingSeparatesReadabilityFromWriteAccess() throws Exception {
         RuntimeSourceFixture.verify("""
             static class R { static class string {
-                static final int settings_system_desktop_mode_shell=1, settings_system_desktop_mode_saving=2,
+                static final int child_process_manual=1, settings_system_desktop_mode_saving=2,
                     settings_child_process_description=3, settings_child_process_unavailable=4;
             }}
             static class ShellAccess { static boolean ready; static boolean isReady() { return ready; } }
             static class SystemChildProcessSetting {
                 static boolean fail, disabled; static int reads;
-                static boolean readDisabled(Object context) throws IOException {
-                    reads++; if(fail) throw new IOException(); return disabled;
+                static Boolean disabledOrUnknown(Object context) {
+                    reads++; return fail ? null : disabled;
                 }
             }
             static class View {
@@ -101,8 +103,8 @@ public final class SystemChildProcessSettingTest {
             """ + RuntimeSourceFixture.methods("SettingsActivity", "renderChildProcessSetting") + """
             public static void verify() {
                 Fixture f = new Fixture(); f.renderChildProcessSetting();
-                check(f.mView.value==null && !f.mView.editable && f.mView.status==1, "shell absent");
-                check(SystemChildProcessSetting.reads==0, "unavailable service called");
+                check(Boolean.FALSE.equals(f.mView.value) && !f.mView.editable && f.mView.status==1, "shell absent");
+                check(SystemChildProcessSetting.reads==1, "readable Android state ignored");
                 ShellAccess.ready=true; SystemChildProcessSetting.disabled=true;
                 f.renderChildProcessSetting();
                 check(f.mView.value && f.mView.editable && f.mView.status==3, "shared setting unavailable");

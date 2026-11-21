@@ -48,7 +48,7 @@ public final class NetworkQualification {
         try {
             // EVENT_WAIT: runtime completion; timeout is a failed test.
             if (!child.waitFor(30,java.util.concurrent.TimeUnit.SECONDS) || child.exitValue()!=expected)
-                throw new AssertionError("Guest failed: "+java.nio.file.Files.readString(log.toPath()));
+                throw new AssertionError("Guest failed: "+new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8));
         } finally { child.destroyForcibly(); }
     }
 }

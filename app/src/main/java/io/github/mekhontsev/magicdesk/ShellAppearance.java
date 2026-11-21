@@ -194,6 +194,11 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
         colors.put(UiColor.ACCENT_CONTAINER, name.equals("light") ? 0xffb0ecef : 0xff12454c);
         colors.put(UiColor.ON_ACCENT_CONTAINER, name.equals("light") ? 0xff002d32 : 0xffb0ecef);
         colors.put(UiColor.OUTLINE, colors.get(UiColor.MUTED));
+        colors.put(UiColor.SUCCESS, switch (name) {
+            case "light" -> 0xff176539;
+            case "contrast" -> 0xff89ffae;
+            default -> 0xff79d89c;
+        });
         return colors;
     }
     static void range(float value, float min, float max, String name) {

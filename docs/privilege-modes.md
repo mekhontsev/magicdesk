@@ -297,9 +297,10 @@ reconnection or a firmware-dependent restart. It is not a required setup gate,
 input-routing substitute or startup write. Close leaves it unchanged.
 
 **Disable child process restrictions**, in the same section, controls Android's
-system-wide `settings_enable_monitor_phantom_procs` flag. Reading and changing it
-uses the authorized service without requiring Desktop. The effective framework
-value includes developer-option property defaults; a user change writes an
+system-wide `settings_enable_monitor_phantom_procs` flag. MagicDesk reads an
+explicit global override as the app. Only resolving a missing override to a
+framework default or changing it from MagicDesk needs the authorized service;
+neither requires Desktop. A user change writes an
 explicit global override and verifies it. There is no app preference copy,
 automatic setup write or Close-time restoration. This override takes precedence
 over the developer-option property. The setting does not prevent low-memory

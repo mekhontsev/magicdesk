@@ -649,7 +649,13 @@
     <string name="capability_access_required">需要 shell 或 root 权限</string>
     <string name="capability_termux_required">需要 Termux</string>
     <string name="capability_termux_permission_required">需要 Termux RUN_COMMAND 权限</string>
-    <string name="capability_terminal_required">需要 Termux 集成或 shell 权限</string>
+    <string name="child_process_status">进程限制：%1$s</string>
+    <string name="child_process_title">进程限制</string>
+    <string name="child_process_unknown">未知</string>
+    <string name="child_process_warning">Android 可能会终止 Linux 进程</string>
+    <string name="child_process_explanation">当 Linux 运行大量进程时，Android 可能会终止其中一部分。这项设置对手机上的所有应用生效。关闭限制并不能防止系统因内存不足而终止进程。</string>
+    <string name="child_process_manual">在开发者选项中查找“%1$s”。部分设备不提供此开关。</string>
+    <string name="child_process_developer_options">开发者选项</string>
     <string name="control_status_desktop_active">桌面运行中</string>
     <string name="control_runtime_status">权限：%1$s</string>
     <string name="control_access_title">权限</string>

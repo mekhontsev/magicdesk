@@ -13,16 +13,23 @@ final class SystemChildProcessSetting {
 
     private SystemChildProcessSetting() {}
 
+    interface Default { boolean read() throws IOException; }
+
     static boolean readDisabled(final Context context) throws IOException {
-        // Resolve Android's property/default and flag support in the privileged process;
-        // the app's public ContentResolver owns Settings.Global access and attribution.
-        final boolean fallback = ShellAccess.readChildProcessMonitoringDefault();
         try {
             return !monitoringEnabled(Settings.Global.getString(context.getContentResolver(),
-                    FrameworkChildProcessApi.KEY), fallback);
+                    FrameworkChildProcessApi.KEY), () -> {
+                if (!ShellAccess.isReady()) throw new IOException("Android default unavailable without shell access");
+                return ShellAccess.readChildProcessMonitoringDefault();
+            });
         } catch (RuntimeException error) {
             throw new IOException("could not read Android child process monitoring", error);
         }
+    }
+
+    static Boolean disabledOrUnknown(Context context) {
+        try { return readDisabled(context); }
+        catch (IOException unavailable) { return null; }
     }
 
     static boolean setDisabled(final Context context, final boolean disabled) throws IOException {
@@ -36,9 +43,9 @@ final class SystemChildProcessSetting {
         }, disabled);
     }
 
-    static boolean monitoringEnabled(final String override, final boolean fallback) {
+    static boolean monitoringEnabled(final String override, final Default fallback) throws IOException {
         // Same precedence and boolean-string semantics as FeatureFlagUtils.isEnabled.
-        return override == null || override.isEmpty() ? fallback : Boolean.parseBoolean(override);
+        return override == null || override.isEmpty() ? fallback.read() : Boolean.parseBoolean(override);
     }
 
     static String writeCommand(final boolean enabled) {

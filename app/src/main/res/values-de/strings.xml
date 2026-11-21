@@ -657,7 +657,13 @@
     <string name="capability_access_required">Erfordert Shell- oder Root-Zugriff</string>
     <string name="capability_termux_required">Erfordert Termux</string>
     <string name="capability_termux_permission_required">Erfordert Termux-Berechtigung RUN_COMMAND</string>
-    <string name="capability_terminal_required">Erfordert Termux-Integration oder Shell-Zugriff</string>
+    <string name="child_process_status">Prozesslimit: %1$s</string>
+    <string name="child_process_title">Prozesslimit</string>
+    <string name="child_process_unknown">unbekannt</string>
+    <string name="child_process_warning">Android kann Linux-Prozesse beenden</string>
+    <string name="child_process_explanation">Wenn Linux viele Prozesse ausführt, kann Android einige davon beenden. Diese Einstellung gilt für alle Apps auf dem Gerät. Auch ohne dieses Limit kann Android bei Speichermangel Prozesse beenden.</string>
+    <string name="child_process_manual">Suche in den Entwickleroptionen nach „%1$s“. Manche Geräte bieten diesen Schalter nicht an.</string>
+    <string name="child_process_developer_options">Entwickleroptionen</string>
     <string name="control_status_desktop_active">Desktop aktiv</string>
     <string name="control_runtime_status">Zugriff: %1$s</string>
     <string name="control_access_title">Zugriff</string>

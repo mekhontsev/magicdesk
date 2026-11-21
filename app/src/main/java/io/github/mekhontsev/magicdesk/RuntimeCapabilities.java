@@ -91,8 +91,6 @@ final class RuntimeCapabilities {
             case "desktop_disabled" -> R.string.limit_desktop_disabled;
             case "termux" -> R.string.capability_termux_required;
             case "termux_run_command" -> R.string.capability_termux_permission_required;
-            case "terminal_backend" -> R.string.capability_terminal_required;
-            case "graphics_executor" -> R.string.capability_terminal_required;
             case "desktop_setup_checking" -> R.string.setup_status_checking;
             case "desktop_setup_unknown" -> R.string.control_desktop_unknown;
             case "desktop_setup" -> R.string.control_desktop_setup_required;

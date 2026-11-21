@@ -158,7 +158,8 @@ public final class FolderInstrumentation extends Instrumentation {
         try {
             // EVENT_WAIT: guest completion; expiry is a failed acceptance check.
             check(p.waitFor(60,java.util.concurrent.TimeUnit.SECONDS),"guest timeout");
-            check(p.exitValue()==0,"guest exit "+p.exitValue()+": "+java.nio.file.Files.readString(log.toPath()));
+            if (p.exitValue()!=0) throw new AssertionError("guest exit "+p.exitValue()+": "+
+                    new String(java.nio.file.Files.readAllBytes(log.toPath()), java.nio.charset.StandardCharsets.UTF_8));
         } finally { p.destroyForcibly(); }
     }
 }

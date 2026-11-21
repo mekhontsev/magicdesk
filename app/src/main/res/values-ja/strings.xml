@@ -649,7 +649,13 @@
     <string name="capability_access_required">shell または root 権限が必要です</string>
     <string name="capability_termux_required">Termux が必要です</string>
     <string name="capability_termux_permission_required">Termux の RUN_COMMAND 権限が必要です</string>
-    <string name="capability_terminal_required">Termux 連携または shell 権限が必要です</string>
+    <string name="child_process_status">プロセス制限：%1$s</string>
+    <string name="child_process_title">プロセス制限</string>
+    <string name="child_process_unknown">不明</string>
+    <string name="child_process_warning">Android が Linux プロセスを終了することがあります</string>
+    <string name="child_process_explanation">Linux で多数のプロセスを実行すると、Android がその一部を終了することがあります。この設定は端末のすべてのアプリに適用されます。無効にしてもメモリ不足による終了は防げません。</string>
+    <string name="child_process_manual">開発者向けオプションで「%1$s」を探してください。端末によってはこの設定がありません。</string>
+    <string name="child_process_developer_options">開発者向けオプション</string>
     <string name="control_status_desktop_active">デスクトップ実行中</string>
     <string name="control_runtime_status">アクセス：%1$s</string>
     <string name="control_access_title">アクセス</string>

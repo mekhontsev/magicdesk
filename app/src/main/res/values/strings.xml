@@ -659,7 +659,13 @@
     <string name="capability_access_required">Requires shell or root access</string>
     <string name="capability_termux_required">Requires Termux</string>
     <string name="capability_termux_permission_required">Requires Termux RUN_COMMAND permission</string>
-    <string name="capability_terminal_required">Requires Termux integration or shell access</string>
+    <string name="child_process_status">Process limit: %1$s</string>
+    <string name="child_process_title">Process limit</string>
+    <string name="child_process_unknown">unknown</string>
+    <string name="child_process_warning">Android may stop Linux processes</string>
+    <string name="child_process_explanation">When Linux runs many processes, Android may stop some of them. This setting affects all apps on the phone. Turning it off does not prevent low-memory kills.</string>
+    <string name="child_process_manual">In Developer options, look for “%1$s”. Some devices do not offer this switch.</string>
+    <string name="child_process_developer_options">Developer options</string>
     <string name="control_status_desktop_active">Desktop active</string>
     <string name="control_runtime_status">Access: %1$s</string>
     <string name="control_access_title">Access</string>

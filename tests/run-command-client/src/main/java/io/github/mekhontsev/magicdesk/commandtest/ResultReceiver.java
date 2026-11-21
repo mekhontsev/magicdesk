@@ -12,7 +12,8 @@ public final class ResultReceiver extends BroadcastReceiver {
             JSONObject result = new JSONObject();
             var extras = intent.getExtras();
             if (extras != null) for (String key : extras.keySet()) result.put(key, extras.get(key));
-            java.nio.file.Files.writeString(new java.io.File(context.getFilesDir(), id + ".json").toPath(), result.toString());
+            java.nio.file.Files.write(new java.io.File(context.getFilesDir(), id + ".json").toPath(),
+                    result.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             android.util.Log.i("RunCommandFixture", id + ": " + result);
         } catch (Exception error) { throw new IllegalStateException(error); }
     }

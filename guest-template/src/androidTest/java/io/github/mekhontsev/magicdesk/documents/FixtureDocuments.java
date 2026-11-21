@@ -22,7 +22,7 @@ public final class FixtureDocuments extends DocumentsProvider {
         int caller=Binder.getCallingUid();
         try {
             if (caller!=ctx.getPackageManager().getPackageUid(TARGET,0) ||
-                    ctx.getPackageManager().checkSignatures(caller,android.os.Process.myUid())!=0)
+                    ctx.getPackageManager().checkSignatures(caller,android.os.Process.myUid())!=android.content.pm.PackageManager.SIGNATURE_MATCH)
                 throw new SecurityException("Fixture target only");
         } catch (android.content.pm.PackageManager.NameNotFoundException e) { throw new IllegalStateException(e); }
         long token=Binder.clearCallingIdentity();
@@ -37,7 +37,7 @@ public final class FixtureDocuments extends DocumentsProvider {
                 }
                 ctx.grantUriPermission(TARGET,DocumentsContract.buildTreeDocumentUri(AUTH,dir),flags);
                 var root=java.nio.file.Files.createDirectories(ctx.getCacheDir().toPath().resolve("trees").resolve(dir));
-                java.nio.file.Files.writeString(root.resolve("token"),"read-only");
+                java.nio.file.Files.write(root.resolve("token"),"read-only".getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
             return Bundle.EMPTY;
         } catch (java.io.IOException e) { throw new IllegalStateException(e); }

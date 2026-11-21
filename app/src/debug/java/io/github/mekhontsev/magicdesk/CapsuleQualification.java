@@ -21,7 +21,8 @@ public final class CapsuleQualification extends Instrumentation {
                 Bundle response=new Bundle();
                 try {
                     int uid=getPackageManager().getPackageUid(PEER,0);
-                    if (message.sendingUid!=uid || getPackageManager().checkSignatures(getPackageName(),PEER)!=0)
+                    if (message.sendingUid!=uid || getPackageManager().checkSignatures(getPackageName(),PEER)
+                            != android.content.pm.PackageManager.SIGNATURE_MATCH)
                         throw new SecurityException("Wrong fixture owner");
                     if (message.what==1 || message.what==2) {
                         var endpoints=IExecutorUnixEndpoints.Stub.asInterface(message.getData().getBinder("endpoints"));
@@ -132,7 +133,8 @@ public final class CapsuleQualification extends Instrumentation {
         var p=process(argv,dir).redirectOutput(log.toFile()).start();
         try {
             // EVENT_WAIT: bounded package transfer and command completion; never infer success from elapsed time.
-            if (!p.waitFor(120,TimeUnit.SECONDS) || p.exitValue()!=0) throw new IOException(Files.readString(log));
+            if (!p.waitFor(120,TimeUnit.SECONDS) || p.exitValue()!=0)
+                throw new IOException(new String(Files.readAllBytes(log), java.nio.charset.StandardCharsets.UTF_8));
         } finally { p.destroyForcibly(); }
     }
 }

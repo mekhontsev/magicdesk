@@ -10,6 +10,34 @@ import android.provider.Settings;
 final class IntegrationStatusDialogs {
     private IntegrationStatusDialogs() { }
 
+    static String processLimitLabel(Activity activity, Boolean disabled) {
+        return activity.getString(R.string.child_process_status, activity.getString(
+                disabled == null ? R.string.child_process_unknown : disabled ? R.string.state_off : R.string.state_on));
+    }
+
+    static String manualProcessLimitSetting(Activity activity) {
+        return activity.getString(R.string.child_process_manual, activity.getString(R.string.settings_child_process_restrictions));
+    }
+
+    static void showProcessLimit(Activity activity) {
+        boolean shell = ShellAccess.isReady();
+        String message = activity.getString(R.string.child_process_explanation);
+        if (!shell) message += "\n\n" + manualProcessLimitSetting(activity);
+        UiDialogs.builder(activity).setTitle(processLimitLabel(activity, SystemChildProcessSetting.disabledOrUnknown(activity)))
+                .setMessage(message).setNegativeButton(R.string.action_close, null)
+                .setPositiveButton(shell ? R.string.settings_title : R.string.child_process_developer_options, (d, w) -> {
+                    try {
+                        if (shell) ToolApplications.openSibling(activity, SettingsActivity.childProcessIntent(activity),
+                                error -> { if (error != null) showActionError(activity, error); });
+                        else activity.startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+                    } catch (RuntimeException error) { showActionError(activity, error); }
+                }).show();
+    }
+
+    private static void showActionError(Activity activity, Throwable error) {
+        android.widget.Toast.makeText(activity, ShellAccess.usefulMessage(error), android.widget.Toast.LENGTH_LONG).show();
+    }
+
     static int termuxStatus(TermuxIntegration.Endpoint endpoint) {
         return termuxStatus(endpoint, TermuxConnectionStatus.get().current(endpoint).state());
     }

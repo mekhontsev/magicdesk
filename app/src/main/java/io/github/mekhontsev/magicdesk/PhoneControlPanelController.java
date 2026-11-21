@@ -98,6 +98,7 @@ final class PhoneControlPanelController {
     private final Actions mActions;
 
     private TextView mStatus;
+    private Button mProcessLimit;
     private Button mLocalApps;
     private Button mRuntime;
     private Button mTermux;
@@ -232,7 +233,26 @@ final class PhoneControlPanelController {
 
     private void addStatus(final LinearLayout parent) {
         mStatus = statusText(TEXT, 14, true);
-        parent.addView(mStatus, fullWidthWrapParams(0));
+        mProcessLimit = integrationButton(R.string.child_process_title);
+        mProcessLimit.setOnClickListener(v -> IntegrationStatusDialogs.showProcessLimit(mActivity));
+        final LinearLayout summary = new LinearLayout(mActivity) {
+            @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                int unspecified = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+                mStatus.measure(unspecified, unspecified);
+                mProcessLimit.measure(unspecified, unspecified);
+                boolean stacked = mStatus.getMeasuredWidth() + mProcessLimit.getMeasuredWidth() + dp(8)
+                        > MeasureSpec.getSize(widthSpec);
+                setOrientation(stacked ? VERTICAL : HORIZONTAL);
+                LayoutParams label = (LayoutParams) mStatus.getLayoutParams();
+                label.width = stacked ? LayoutParams.MATCH_PARENT : 0;
+                label.weight = stacked ? 0 : 1;
+                super.onMeasure(widthSpec, heightSpec);
+            }
+        };
+        summary.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        summary.addView(mStatus, fullWidthWrapParams(0));
+        summary.addView(mProcessLimit, new LinearLayout.LayoutParams(-2, -2));
+        parent.addView(summary, fullWidthWrapParams(0));
 
         final LinearLayout integrations = new LinearLayout(mActivity);
         integrations.setOrientation(LinearLayout.HORIZONTAL);
@@ -247,6 +267,12 @@ final class PhoneControlPanelController {
         integrations.addView(mTermux, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         integrations.addView(mDesktop, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         parent.addView(integrations, fullWidthWrapParams(dp(4)));
+    }
+
+    void refreshProcessLimit() {
+        Boolean disabled = SystemChildProcessSetting.disabledOrUnknown(mActivity);
+        mProcessLimit.setText(IntegrationStatusDialogs.processLimitLabel(mActivity, disabled));
+        UiAppearance.text(mProcessLimit, disabled == null ? MUTED : disabled ? UiColor.SUCCESS : UiColor.ATTENTION);
     }
 
     private Button integrationButton(final int title) {

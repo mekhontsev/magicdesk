@@ -505,12 +505,23 @@ final class SettingsView {
         mRendering = false;
     }
 
+    void revealChildProcessSetting() {
+        mChildProcessRestrictions.post(() -> {
+            var bounds = new android.graphics.Rect();
+            mChildProcessRestrictions.getDrawingRect(bounds);
+            mChildProcessRestrictions.requestRectangleOnScreen(bounds, true);
+        });
+    }
+
     void renderChildProcessSetting(final Boolean disabled, final boolean editable, final int statusResId) {
         mRendering = true;
-        if (disabled != null) mChildProcessRestrictions.setChecked(disabled);
+        mChildProcessRestrictions.setChecked(Boolean.TRUE.equals(disabled));
         mChildProcessRestrictions.setEnabled(disabled != null && editable);
         mChildProcessRestrictions.setAlpha(disabled != null && editable ? 1f : 0.5f);
-        mChildProcessStatus.setText(statusResId);
+        if (statusResId == R.string.child_process_manual) {
+            String unknown = disabled == null ? mActivity.getString(R.string.settings_child_process_unavailable) + "\n" : "";
+            mChildProcessStatus.setText(unknown + IntegrationStatusDialogs.manualProcessLimitSetting(mActivity));
+        } else mChildProcessStatus.setText(statusResId);
         mRendering = false;
     }
 

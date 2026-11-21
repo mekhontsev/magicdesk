@@ -53,6 +53,7 @@ public final class ControlActivity extends Activity
     private int mCatalogGeneration;
     private final ShellAccess.StateListener mAccessListener = state -> runOnUiThread(() -> {
         if (!isActivityUnavailable() && mPanel != null) {
+            if (mResumed) mPanel.refreshProcessLimit();
             refreshCatalog();
             refresh();
         }
@@ -247,6 +248,7 @@ public final class ControlActivity extends Activity
     protected void onResume() {
         super.onResume();
         mResumed = true;
+        mPanel.refreshProcessLimit();
         DesktopSetupStatus.refresh(this);
         DesktopAutomationEventJournal.record(
                 "ui", "control_panel_shown", true, "phone");

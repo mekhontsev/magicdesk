@@ -217,10 +217,6 @@ final class TerminalSessionsDialog {
             choices.add(R.string.console_termux_title);
             choices.add(R.string.console_tmux_new_session);
         }
-        if (choices.isEmpty()) {
-            result(new IllegalStateException(activity.getString(R.string.capability_terminal_required)));
-            return;
-        }
         UiDialogs.builder(activity).setTitle(R.string.terminal_new)
                 .setItems(choices.stream().map(activity::getString).toArray(String[]::new),
                         (which, index) -> {
