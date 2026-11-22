@@ -31,6 +31,22 @@ public final class DesktopLaunchPolicyTest {
                 new AppWindowState(null, bounds), null, true, true).mode);
     }
 
+    @Test public void immersiveApplicationsOpenWindowedUnlessTheyAreGamesOrUnresizable() {
+        assertTrue(DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_NONE));
+        assertTrue(DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_IMMERSIVE));
+        assertFalse(DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_GAME));
+        assertFalse(DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_UNRESIZEABLE));
+        assertFalse(DesktopLaunchPolicy.prefersWindowed(false, AppItem.FULLSCREEN_REASON_IMMERSIVE));
+
+        var automatic = DesktopLaunchPresentation.automatic();
+        assertEquals(DesktopLaunchMode.WINDOWED, DesktopLaunchPolicy.resolve(automatic, null, null,
+                true, DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_IMMERSIVE),
+                false, false).mode);
+        assertEquals(DesktopLaunchMode.FULLSCREEN, DesktopLaunchPolicy.resolve(automatic, null, null,
+                true, DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_GAME),
+                false, false).mode);
+    }
+
     @Test public void liveTasksKeepTheirModeUnlessExplicitlyRequested() {
         var automatic = DesktopLaunchPresentation.automatic();
         assertEquals(DesktopLaunchMode.WINDOWED,

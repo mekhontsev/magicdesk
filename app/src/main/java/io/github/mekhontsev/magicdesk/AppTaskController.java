@@ -177,7 +177,7 @@ final class AppTaskController {
             }
         }
         return DesktopLaunchPolicy.resolve(policy, savedWindowState(app), existingMode,
-                canControlWindowing(), app.canFloat && AppItem.FULLSCREEN_REASON_NONE.equals(app.fullscreenReason),
+                canControlWindowing(), DesktopLaunchPolicy.prefersWindowed(app.canFloat, app.fullscreenReason),
                 mActivity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY,
                 MagicDeskSettings.load().phoneFullscreenByDefault);
     }
