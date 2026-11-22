@@ -87,6 +87,7 @@ final class ShellAppearanceSchema {
                     .put("resources", object(new JSONObject().put("icons", object(icons))
                             .put("bundle", type("string").put("pattern", "^(?:[a-f0-9]{64})?$"))
                             .put("iconAssets", object(iconAssets)).put("font", assetPath(true)).put("wallpaper", assetPath(true))
+                            .put("wallpaperFit", enumeration(ShellResources.WallpaperFit.values()).put("description", "How the wallpaper fills the display: cover crops overflow, contain shows the whole source centered."))
                             .put("shader", ShaderWallpaperJson.schema()))))
                     .put("$schema", "https://json-schema.org/draft/2020-12/schema")
                     .put("title", "MagicDesk shell appearance")

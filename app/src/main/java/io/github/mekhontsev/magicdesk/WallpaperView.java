@@ -41,7 +41,8 @@ final class WallpaperView extends FrameLayout {
     private int generation, playbackGeneration;
     private boolean attached, preparing, failed, closed;
     private int outputWidth, outputHeight;
-    private final Runnable appearanceChanged = this::refresh;
+    private ShellResources.WallpaperFit fit = ShellResources.WallpaperFit.COVER;
+    private final Runnable appearanceChanged = () -> { refresh(); applyFit(); };
     private final ContentObserver animations = new ContentObserver(main) {
         @Override public void onChange(boolean selfChange) { refresh(); }
     };
@@ -70,6 +71,7 @@ final class WallpaperView extends FrameLayout {
             Consumer<String> state, Consumer<Throwable> failure) {
         endPlayback();
         asset = value; outputWidth = width; outputHeight = height;
+        fit = AppearanceStore.current(getContext()).resources().fit();
         this.state = state; this.failure = failure; failed = false;
         int token = ++generation;
         showPoster();
@@ -80,9 +82,17 @@ final class WallpaperView extends FrameLayout {
         refresh();
     }
 
+    private void applyFit() {
+        ShellResources.WallpaperFit updated = AppearanceStore.current(getContext()).resources().fit();
+        if (updated == fit) return;
+        fit = updated;
+        endPlayback();
+        refresh();
+    }
+
     private void setImage(Drawable drawable) {
         image.setImageDrawable(drawable);
-        var crop = WallpaperPolicy.crop(drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight(), outputWidth, outputHeight);
+        var crop = WallpaperPolicy.crop(fit, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight(), outputWidth, outputHeight);
         Matrix matrix = new Matrix(); matrix.setScale(crop.scale(), crop.scale()); matrix.postTranslate(crop.x(), crop.y());
         image.setImageMatrix(matrix);
         image.setLayoutParams(new FrameLayout.LayoutParams(outputWidth, outputHeight));
@@ -235,7 +245,9 @@ final class WallpaperView extends FrameLayout {
                     if (released || player != ready) return;
                     try {
                         ready.setLooping(true);
-                        ready.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+                        ready.setVideoScalingMode(fit == ShellResources.WallpaperFit.CONTAIN
+                                ? MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT
+                                : MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
                         ready.start();
                     } catch (RuntimeException error) { failed(token, error); }
                 });

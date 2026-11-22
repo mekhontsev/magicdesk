@@ -419,6 +419,10 @@
     <string name="action_add_widget">Widget hinzufügen</string>
     <string name="action_choose_wallpaper">Hintergrund in Dateien auswählen…</string>
     <string name="action_use_default_wallpaper">MagicDesk-Hintergrund verwenden</string>
+    <string name="action_wallpaper_fit">Hintergrund-Anpassung</string>
+    <string name="action_wallpaper_fit_cover">Ausfüllen</string>
+    <string name="action_wallpaper_fit_contain">Einpassen</string>
+    <string name="appearance_wallpaper_fit">Hintergrund-Anpassung</string>
     <string name="status_no_widgets">Keine kompatiblen Widgets gefunden</string>
     <string name="widget_recommended_size">Empfohlene Größe: %1$d × %2$d</string>
     <string name="action_widget_wider">Breiter</string>

@@ -4,11 +4,13 @@ import java.util.Map;
 
 /** Symbolic aliases and immutable bundle-relative resources; never arbitrary filesystem paths. */
 public record ShellResources(Map<Icon, Icon> icons, String bundle, Map<Icon, String> iconAssets,
-        String font, String wallpaper, ShaderWallpaper shader) {
+        String font, String wallpaper, ShaderWallpaper shader, WallpaperFit fit) {
     public enum Icon { START, DESKTOP, WINDOWS, NOTIFICATIONS, KEYBOARD, CONTROLS, FILES, TERMINAL, SETTINGS, SEARCH, CAMERA, VIDEO }
+    public enum WallpaperFit { COVER, CONTAIN }
     public ShellResources {
         icons = Map.copyOf(icons); iconAssets = Map.copyOf(iconAssets);
         if (bundle == null || (!bundle.isEmpty() && !bundle.matches("[a-f0-9]{64}"))) throw new IllegalArgumentException("Invalid theme bundle digest");
+        if (fit == null) throw new IllegalArgumentException("Wallpaper fit must not be null");
         path(font); path(wallpaper); for (String path : iconAssets.values()) { path(path); if (path.isEmpty()) throw new IllegalArgumentException("Empty icon asset"); }
     }
     private static void path(String path) {
@@ -20,6 +22,6 @@ public record ShellResources(Map<Icon, Icon> icons, String bundle, Map<Icon, Str
     public boolean hasAssets() { return hasBundleAssets() || shader != null; }
     public boolean hasBundleAssets() { return !iconAssets.isEmpty() || !font.isEmpty() || !wallpaper.isEmpty()
             || shader != null && !shader.textures().isEmpty(); }
-    public ShellResources withBundle(String digest) { return new ShellResources(icons, digest, iconAssets, font, wallpaper, shader); }
-    public static ShellResources defaults() { return new ShellResources(Map.of(), "", Map.of(), "", "", null); }
+    public ShellResources withBundle(String digest) { return new ShellResources(icons, digest, iconAssets, font, wallpaper, shader, fit); }
+    public static ShellResources defaults() { return new ShellResources(Map.of(), "", Map.of(), "", "", null, WallpaperFit.COVER); }
 }

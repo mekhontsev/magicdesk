@@ -27,14 +27,25 @@ public final class WallpaperPolicyTest {
     }
 
     @Test public void cropUsesPhysicalOutputNotInsetsOrUiDensity() {
-        var exact = WallpaperPolicy.crop(1920, 1080, 1920, 1080);
+        var exact = WallpaperPolicy.crop(ShellResources.WallpaperFit.COVER, 1920, 1080, 1920, 1080);
         assertEquals(1, exact.scale(), 0); assertEquals(0, exact.x(), 0); assertEquals(0, exact.y(), 0);
         for (int[] output : new int[][] {{1920,1080}, {2560,1080}, {1216,2688}}) {
-            var crop = WallpaperPolicy.crop(800, 600, output[0], output[1]);
+            var crop = WallpaperPolicy.crop(ShellResources.WallpaperFit.COVER, 800, 600, output[0], output[1]);
             assertTrue(800 * crop.scale() >= output[0] && 600 * crop.scale() >= output[1]);
             assertEquals(output[0] / 2f, crop.x() + 400 * crop.scale(), .001f);
             assertEquals(output[1] / 2f, crop.y() + 300 * crop.scale(), .001f);
         }
-        assertThrows(IllegalArgumentException.class, () -> WallpaperPolicy.crop(0, 0, 1, 1));
+        assertThrows(IllegalArgumentException.class, () -> WallpaperPolicy.crop(ShellResources.WallpaperFit.COVER, 0, 0, 1, 1));
+    }
+
+    @Test public void containFitsWholeSourceAndCentersIt() {
+        for (int[] source : new int[][] {{1920,1080}, {1080,1920}, {800,600}}) {
+            for (int[] output : new int[][] {{1920,1080}, {2560,1080}, {1216,2688}}) {
+                var crop = WallpaperPolicy.crop(ShellResources.WallpaperFit.CONTAIN, source[0], source[1], output[0], output[1]);
+                assertTrue(source[0] * crop.scale() <= output[0] + .001f && source[1] * crop.scale() <= output[1] + .001f);
+                assertEquals(output[0] / 2f, crop.x() + source[0] * crop.scale() / 2, .001f);
+                assertEquals(output[1] / 2f, crop.y() + source[1] * crop.scale() / 2, .001f);
+            }
+        }
     }
 }

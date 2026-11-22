@@ -981,8 +981,10 @@ The wallpaper is a full-display backdrop outside the inset-aware desktop
 content layer. Status-bar and viewport changes therefore reposition icons and
 windows without rescaling the wallpaper. `WallpaperAsset` owns validated source
 metadata, an immutable static poster with `Bitmap.DENSITY_NONE`, and encoded
-media when playback needs it. `WallpaperView` center-crops against fixed physical
-output dimensions, not its transient inset-adjusted viewport. Posters must not
+media when playback needs it. `WallpaperView` scales by `resources.wallpaperFit`
+against fixed physical output dimensions, not its transient inset-adjusted
+viewport: `cover` center-crops, `contain` fits the whole source centered.
+Posters must not
 inherit process density: `BitmapDrawable` would scale their intrinsic size a
 second time on another display. Wallpaper readiness is published only after the
 selected poster reaches a committed frame; reload generations discard stale callbacks

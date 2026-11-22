@@ -63,7 +63,10 @@ MP4/WebM video. This changes the shared Desktop media file. A workspace's
 effective theme wallpaper or shader takes precedence over that file.
 **Use MagicDesk wallpaper** clears the current appearance scope's wallpaper and
 shader selection and removes the shared media file, revealing the bundled
-background. Other workspaces keep their own theme selections. These actions do
+background. Other workspaces keep their own theme selections. **Wallpaper fit**
+in Settings > Appearance or the desktop context menu switches the effective
+alignment between cover (fill and crop) and contain (whole source centered)
+for that scope. These actions do
 not change the phone's system wallpaper. See [wallpaper selection](appearance.md#wallpaper-selection).
 
 ## Files

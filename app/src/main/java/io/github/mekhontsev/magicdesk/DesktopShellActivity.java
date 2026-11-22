@@ -1269,6 +1269,27 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWallpaperController.useDefaultWallpaper();
     }
 
+    void setWallpaperFit(final ShellResources.WallpaperFit fit) {
+        try {
+            final String scope = AppearanceScopeBindings.find(this);
+            final ShellAppearance theme = AppearanceStore.current(this);
+            if (scope == null) {
+                var r = theme.resources();
+                AppearanceStore.apply(theme.withResources(new ShellResources(r.icons(), r.bundle(), r.iconAssets(),
+                        r.font(), r.wallpaper(), r.shader(), fit)));
+            } else {
+                var patch = new org.json.JSONObject(AppearanceStore.snapshot(scope).patch());
+                var resources = patch.optJSONObject("resources");
+                if (resources == null) { resources = new org.json.JSONObject(); patch.put("resources", resources); }
+                resources.put("wallpaperFit", fit.name().toLowerCase(java.util.Locale.ROOT));
+                AppearanceStore.apply(scope, patch.toString());
+            }
+        } catch (org.json.JSONException | RuntimeException error) {
+            setErrorStatus("WALLPAPER-005", getString(R.string.status_desktop_wallpaper_failed,
+                    ShellAccess.usefulMessage(error)), "appearance wallpaper fit", error);
+        }
+    }
+
     boolean isUsingCustomDesktopWallpaper() {
         return mDesktopWallpaperController != null
                 && mDesktopWallpaperController.isUsingCustomWallpaper();

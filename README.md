@@ -112,7 +112,8 @@ live preview. Configure panels, floating docks, Start layout, colors, fonts,
 transparency, blur and motion, with optional per-workspace overrides.
 
 Wallpapers support static images, animated WebP/GIF, silent video and configurable
-AGSL shaders. Import/export themes as JSON or resource ZIPs. Styles apply to
+AGSL shaders, with selectable cover or contain alignment. Import/export themes
+as JSON or resource ZIPs. Styles apply to
 MagicDesk, not third-party applications; Linux light/dark propagation and the
 temporary Android-wide Desktop theme are separate controls.
 

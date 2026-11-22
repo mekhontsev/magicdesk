@@ -42,11 +42,14 @@ final class WallpaperPolicy {
     }
 
     record Crop(float scale, float x, float y) {}
-    static Crop crop(int sourceWidth, int sourceHeight, int displayWidth, int displayHeight) {
+    static Crop crop(ShellResources.WallpaperFit fit, int sourceWidth, int sourceHeight,
+            int displayWidth, int displayHeight) {
         if (sourceWidth < 1 || sourceHeight < 1 || displayWidth < 1 || displayHeight < 1) {
             throw new IllegalArgumentException("Invalid wallpaper dimensions");
         }
-        float scale = Math.max(displayWidth / (float) sourceWidth, displayHeight / (float) sourceHeight);
+        float scale = fit == ShellResources.WallpaperFit.CONTAIN
+                ? Math.min(displayWidth / (float) sourceWidth, displayHeight / (float) sourceHeight)
+                : Math.max(displayWidth / (float) sourceWidth, displayHeight / (float) sourceHeight);
         return new Crop(scale, (displayWidth - sourceWidth * scale) / 2,
                 (displayHeight - sourceHeight * scale) / 2);
     }

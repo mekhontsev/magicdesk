@@ -421,6 +421,10 @@
     <string name="action_add_widget">Add widget</string>
     <string name="action_choose_wallpaper">Choose wallpaper in Files&#8230;</string>
     <string name="action_use_default_wallpaper">Use MagicDesk wallpaper</string>
+    <string name="action_wallpaper_fit">Wallpaper fit</string>
+    <string name="action_wallpaper_fit_cover">Cover</string>
+    <string name="action_wallpaper_fit_contain">Contain</string>
+    <string name="appearance_wallpaper_fit">Wallpaper fit</string>
     <string name="status_no_widgets">No compatible widgets found</string>
     <string name="widget_recommended_size">Recommended size: %1$d × %2$d</string>
     <string name="action_widget_wider">Make wider</string>

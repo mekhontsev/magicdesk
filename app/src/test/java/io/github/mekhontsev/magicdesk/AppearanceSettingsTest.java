@@ -10,6 +10,8 @@ public final class AppearanceSettingsTest {
         assertTrue(create.contains("UiToolLayout.page"));
         assertTrue(RuntimeSourceFixture.methods("UiToolLayout", "page").contains("SystemBarInsets.addToPadding(page, ime)"));
         assertTrue(create.contains("UiToolLayout.scroll(page, 640)"));
+        assertTrue(create.contains("R.string.appearance_wallpaper_fit"));
+        assertTrue(create.contains("change(\"resources\", \"wallpaperFit\""));
         assertFalse(create.contains("AlertDialog"));
         RuntimeSourceFixture.verify("""
                 static class AppearanceStore {

@@ -351,6 +351,7 @@ final class DesktopContextMenuController {
                 UiColor.SURFACE,
                 mActivity.isUsingCustomDesktopWallpaper(),
                 view -> mActivity.useDefaultDesktopWallpaper());
+        addSubmenuAction(R.string.action_wallpaper_fit, view -> showWallpaperFitMenu(x, y));
         addAction(
                 R.string.action_refresh,
                 UiColor.ACCENT,
@@ -905,6 +906,17 @@ final class DesktopContextMenuController {
                 R.drawable.ic_snap_bottom_right, R.string.arrange_bottom_right);
         mPanel.addView(grid, new LinearLayout.LayoutParams(-1, -2));
         positionAndShow(state.x, state.y);
+    }
+
+    private void showWallpaperFitMenu(final float x, final float y) {
+        prepareSubmenuTitle(mActivity.getString(R.string.action_wallpaper_fit),
+                view -> populateDesktopMenu(x, y));
+        final ShellResources.WallpaperFit current = AppearanceStore.current(mActivity).resources().fit();
+        addCheckableAction(R.string.action_wallpaper_fit_cover, current == ShellResources.WallpaperFit.COVER,
+                (checked, done) -> { if (checked) { mActivity.setWallpaperFit(ShellResources.WallpaperFit.COVER); done.run(); } });
+        addCheckableAction(R.string.action_wallpaper_fit_contain, current == ShellResources.WallpaperFit.CONTAIN,
+                (checked, done) -> { if (checked) { mActivity.setWallpaperFit(ShellResources.WallpaperFit.CONTAIN); done.run(); } });
+        positionAndShow(x, y);
     }
 
     private void addArrangement(final GridLayout grid, final AppMenuState state,

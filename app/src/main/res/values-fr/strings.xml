@@ -424,6 +424,10 @@
     <string name="action_add_widget">Ajouter un widget</string>
     <string name="action_choose_wallpaper">Choisir le fond d\'écran dans Fichiers…</string>
     <string name="action_use_default_wallpaper">Utiliser le fond d\'écran MagicDesk</string>
+    <string name="action_wallpaper_fit">Ajustement du fond d\'écran</string>
+    <string name="action_wallpaper_fit_cover">Remplir</string>
+    <string name="action_wallpaper_fit_contain">Adapter</string>
+    <string name="appearance_wallpaper_fit">Ajustement du fond d\'écran</string>
     <string name="status_no_widgets">Aucun widget compatible trouvé</string>
     <string name="widget_recommended_size">Taille recommandée : %1$d × %2$d</string>
     <string name="action_widget_wider">Élargir</string>

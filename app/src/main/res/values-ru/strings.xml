@@ -431,6 +431,10 @@
     <string name="action_add_widget">Добавить виджет</string>
     <string name="action_choose_wallpaper">Выбрать обои в файлах…</string>
     <string name="action_use_default_wallpaper">Использовать обои MagicDesk</string>
+    <string name="action_wallpaper_fit">Выравнивание обоев</string>
+    <string name="action_wallpaper_fit_cover">Заполнить</string>
+    <string name="action_wallpaper_fit_contain">Вписать</string>
+    <string name="appearance_wallpaper_fit">Выравнивание обоев</string>
     <string name="status_no_widgets">Совместимые виджеты не найдены</string>
     <string name="widget_recommended_size">Рекомендуемый размер: %1$d × %2$d</string>
     <string name="action_widget_wider">Шире</string>

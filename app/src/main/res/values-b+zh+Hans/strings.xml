@@ -414,6 +414,10 @@
     <string name="action_add_widget">添加小组件</string>
     <string name="action_choose_wallpaper">在文件中选择壁纸…</string>
     <string name="action_use_default_wallpaper">使用 MagicDesk 壁纸</string>
+    <string name="action_wallpaper_fit">壁纸对齐方式</string>
+    <string name="action_wallpaper_fit_cover">覆盖</string>
+    <string name="action_wallpaper_fit_contain">适应</string>
+    <string name="appearance_wallpaper_fit">壁纸对齐方式</string>
     <string name="status_no_widgets">未找到兼容的小组件</string>
     <string name="widget_recommended_size">建议大小：%1$d × %2$d</string>
     <string name="action_widget_wider">加宽</string>

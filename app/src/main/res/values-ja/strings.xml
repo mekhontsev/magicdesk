@@ -414,6 +414,10 @@
     <string name="action_add_widget">ウィジェットを追加</string>
     <string name="action_choose_wallpaper">ファイルから壁紙を選択…</string>
     <string name="action_use_default_wallpaper">MagicDesk の壁紙を使用</string>
+    <string name="action_wallpaper_fit">壁紙の表示方法</string>
+    <string name="action_wallpaper_fit_cover">塗りつぶし</string>
+    <string name="action_wallpaper_fit_contain">全体表示</string>
+    <string name="appearance_wallpaper_fit">壁紙の表示方法</string>
     <string name="status_no_widgets">対応するウィジェットが見つかりません</string>
     <string name="widget_recommended_size">推奨サイズ：%1$d × %2$d</string>
     <string name="action_widget_wider">幅を広げる</string>
