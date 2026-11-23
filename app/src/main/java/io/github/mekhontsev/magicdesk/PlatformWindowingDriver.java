@@ -6,7 +6,7 @@ public interface PlatformWindowingDriver {
     interface FreeformMultiplicity {
         boolean canClaim(Object task) throws ReflectiveOperationException;
         String describe(Object task);
-        void setExempt(Object transaction, Class<?> tokenClass, Object token, boolean exempt)
+        void setExempt(Object transaction, Object token, boolean exempt)
                 throws ReflectiveOperationException;
     }
 
@@ -15,7 +15,7 @@ public interface PlatformWindowingDriver {
     /** Read-only scale supplied with TaskInfo; NaN means unavailable, not identity. */
     default float taskScale(Object task) { return 1f; }
 
-    /** Optional firmware geometry, independent of managed Desktop ownership. */
+    /** Complete TaskInfo reader and transaction writer; a read-only scale cannot drive placement. */
     default boolean hasScaledWindows() { return false; }
 
     /** Whether native gestures publish their released scale in TaskInfo. */
@@ -32,8 +32,8 @@ public interface PlatformWindowingDriver {
     }
 
     /** Preserve explicit geometry against firmware recalculation in the bounds transaction. */
-    default void prepareTaskGeometry(Object transaction, Class<?> tokenClass,
-            Object token, float scale) throws ReflectiveOperationException { }
+    default void prepareTaskGeometry(Object transaction, Object token, float scale)
+            throws ReflectiveOperationException { }
 
     default String geometryDiagnostic() { return "identity"; }
 

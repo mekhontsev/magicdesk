@@ -5,6 +5,22 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public final class FrameworkWindowGeometryTest {
+    @Test public void readableScaleWithoutGeometryWriterUsesAndroidBoundsThroughout() throws Exception {
+        verify("""
+                Task task = new Task(); task.scale = .5f;
+                task.bounds = new Rect(10,20,810,620);
+                driver.scaled = false; // No complete WCT writer; TaskInfo still exposes .5.
+                var observedPlan = FrameworkWindowGeometry.capture(task);
+                check(observedPlan.scale == 1 && observedPlan.displayBounds().right == 810,
+                        "read-only firmware changed observed coordinates");
+                var plan = FrameworkWindowGeometry.plan(task, task.bounds, .75f);
+                plan.apply(new FrameworkWindowingApi(), new Object(), new Object());
+                FrameworkWindowGeometry.finishPlacement(new Object(), 7, 42, task.bounds);
+                check(plan.scale == 1 && applied.right == 810 && applied.bottom == 620
+                        && writes == 1 && driver.transaction == null, "ordinary placement changed");
+                check(barriers == 0 && samples == 0 && checks == 0 && resizes == 0, "extra placement work");
+                """);
+    }
     @Test public void repeatedScaleConversionRetainsFootprintAndOriginalContentScale() throws Exception {
         verify("""
                 Task task = new Task(); task.scale = .5f;
@@ -147,7 +163,7 @@ public final class FrameworkWindowGeometryTest {
                     boolean scaled=true; Object transaction, token; float scale;
                     boolean hasScaledWindows() { return scaled; }
                     float taskScale(Object task) { return ((Task)task).scale; }
-                    void prepareTaskGeometry(Object tx,Class<?> type,Object target,float value) {
+                    void prepareTaskGeometry(Object tx,Object target,float value) {
                         transaction=tx; token=target; scale=value;
                     }
                     String geometryDiagnostic() { return "fixture"; }

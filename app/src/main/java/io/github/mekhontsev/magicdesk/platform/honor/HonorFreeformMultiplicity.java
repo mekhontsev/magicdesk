@@ -10,19 +10,20 @@ import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 final class HonorFreeformMultiplicity implements PlatformWindowingDriver.FreeformMultiplicity {
     private final Field extension, customized, takeover, profile;
     private final Method active, limited, recents, isLimited;
-    private Method wctExtension, setWindow;
+    private final Method wctExtension, setWindow;
     private final Constructor<?> property;
 
-    static HonorFreeformMultiplicity detect(Field extension) {
-        if (extension == null) return null;
+    static HonorFreeformMultiplicity detect(Field extension, Method accessor, Class<?> wct, Class<?> token) {
+        if (accessor == null) return null;
         try {
-            return new HonorFreeformMultiplicity(extension, Class.forName("android.window.HnCustomizedWindowProp"));
+            return new HonorFreeformMultiplicity(extension, Class.forName("android.window.HnCustomizedWindowProp",
+                    false, wct.getClassLoader()), accessor, wct, token);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
             return null;
         }
     }
 
-    HonorFreeformMultiplicity(Field extension, Class<?> prop)
+    HonorFreeformMultiplicity(Field extension, Class<?> prop, Method accessor, Class<?> wct, Class<?> token)
             throws ReflectiveOperationException {
         this.extension = extension;
         customized = extension.getType().getField("mIsCustomizedFreeformWindow");
@@ -33,6 +34,8 @@ final class HonorFreeformMultiplicity implements PlatformWindowingDriver.Freefor
         limited = prop.getMethod("setIsLimitedByQuantity", boolean.class);
         isLimited = prop.getMethod("isLimitedByQuantity");
         recents = prop.getMethod("setFocusableInRecent", boolean.class);
+        wctExtension = accessor;
+        setWindow = accessor.getReturnType().getMethod("setCustomizedWindow", wct, token, prop);
     }
 
     @Override public boolean canClaim(Object task) throws IllegalAccessException {
@@ -54,14 +57,8 @@ final class HonorFreeformMultiplicity implements PlatformWindowingDriver.Freefor
         }
     }
 
-    @Override public synchronized void setExempt(Object transaction, Class<?> tokenClass, Object token,
+    @Override public void setExempt(Object transaction, Object token,
             boolean exempt) throws ReflectiveOperationException {
-        if (setWindow == null) {
-            Class<?> wct = transaction.getClass();
-            wctExtension = wct.getMethod("getHnWindowContainerTransactionEx");
-            setWindow = wctExtension.getReturnType().getMethod("setCustomizedWindow", wct,
-                    tokenClass, property.getDeclaringClass());
-        }
         Object prop = property.newInstance();
         active.invoke(prop, exempt);
         limited.invoke(prop, !exempt);

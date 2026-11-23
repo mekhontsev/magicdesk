@@ -23,8 +23,10 @@ pointer, background-work, internal-audio, diagnostics, or hardware-control
 component. Vendor branding alone is not a baseline requirement and never
 enables the complete Nubia integration.
 
-On Honor firmware that publishes freeform scale in `TaskInfo`, the windowing
-extension distinguishes logical content dimensions from the window's visible
+Honor's geometry adapter requires both a readable freeform scale in `TaskInfo`
+and the transaction methods for writing scale and caller-calculated bounds.
+With only the reader, launch, resize and restore use standard Android bounds.
+With both interfaces, the adapter distinguishes logical content dimensions from the window's visible
 display-space bounds. MagicDesk placement, snapping, restore and transfer use
 the visible bounds; transaction-local scale and logical dimensions are applied
 together. In managed Desktop, a released native scale change requests one

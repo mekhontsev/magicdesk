@@ -11,9 +11,9 @@ import java.util.Map;
 /** Cached primitive access to Android's hidden window-container API. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class FrameworkWindowingApi {
-    private static final String TOKEN_CLASS =
+    static final String TOKEN_CLASS =
             "android.window.WindowContainerToken";
-    private static final String TRANSACTION_CLASS =
+    static final String TRANSACTION_CLASS =
             "android.window.WindowContainerTransaction";
 
     private final Class<?> mTokenClass;

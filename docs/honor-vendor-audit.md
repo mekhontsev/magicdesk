@@ -48,8 +48,9 @@ it does not replace shared display, input, HOME or background-work services.
   task activation or focus changes.
 
 **Settings > Compatibility > Firmware window geometry** controls this adapter
-after restarting MagicDesk. It appears only when the firmware read interface is
-detected. It is not an animation switch and does not change system settings.
+after restarting MagicDesk. It appears only when both the reader and the complete
+transaction writer are detected. With only the reader, observations and commands
+use standard Android coordinates. The switch does not change system settings.
 The preference reaches the privileged service and command helpers; unscaled
 Android placement retains its native path.
 
@@ -66,7 +67,7 @@ read-interface match does not prove that a write or complete transition works.
 | Interface | Production use | Failure semantics |
 | --- | --- | --- |
 | `TaskInfo.hnTaskInfoEx.mFreeformScale` | Read scale from an existing task snapshot, without another Binder request. | Missing/invalid scale remains unknown, not an invented scale of 1. |
-| `WCT.getHnWindowContainerTransactionEx()` | Resolve the firmware transaction adapter. | An unavailable writer fails the requested adapted geometry operation. |
+| `WCT.getHnWindowContainerTransactionEx()` | Resolve the firmware transaction adapter. | Missing accessor or geometry setter selects standard Android placement before any transaction is prepared. |
 | `setUseShellCalculateBounds(WCT, token, false)` | Keep explicit bounds caller-calculated instead of accepting firmware default placement. | Both geometry setters must resolve before writing. |
 | `setFreeformScale(WCT, token, scale)` | Append scale to the same WCT as logical bounds. | Rejected writes are reported, not silently treated as unscaled success. |
 

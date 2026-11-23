@@ -11,39 +11,58 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
     private final Field mTaskExtension;
     private final Field mScale;
     private final String mProbe;
-    private Method mTransactionExtension;
-    private Method mSetScale;
-    private Method mUseShellCalculateBounds;
-    private String mWriteProbe = "not used";
+    private final Method mTransactionExtension;
+    private final Method mSetScale;
+    private final Method mUseShellCalculateBounds;
+    private volatile String mWriteProbe;
     private volatile String mReadError = "none";
     private volatile String mPeerProbe = "not used";
     private final FreeformMultiplicity mMultiplicity;
 
-    private HonorWindowingDriver(Field extension, Field scale, String probe) {
+    private HonorWindowingDriver(Field extension, Field scale, String probe, ClassLoader loader,
+            String transactionClass, String tokenClass) {
         mTaskExtension = extension;
         mScale = scale;
         mProbe = probe;
-        mMultiplicity = HonorFreeformMultiplicity.detect(extension);
-    }
-
-    public static HonorWindowingDriver detect() {
-        return inspect(android.app.ActivityManager.RunningTaskInfo.class);
-    }
-
-    public static HonorWindowingDriver inspect(Class<?> taskClass) {
-        try {
-            Field extension = taskClass.getField("hnTaskInfoEx");
-            Field scale = extension.getType().getField("mFreeformScale");
-            if (scale.getType() != Float.TYPE) {
-                return new HonorWindowingDriver(null, null, "incompatible scale type");
+        Method accessor = null, setScale = null, setBounds = null;
+        Class<?> wct = null, token = null;
+        mWriteProbe = "not applicable";
+        if (scale != null) {
+            try {
+                wct = Class.forName(transactionClass, false, loader);
+                token = Class.forName(tokenClass, false, loader);
+                accessor = wct.getMethod("getHnWindowContainerTransactionEx");
+                Class<?> changes = accessor.getReturnType();
+                setScale = changes.getMethod("setFreeformScale", wct, token, float.class);
+                setBounds = changes.getMethod("setUseShellCalculateBounds", wct, token, boolean.class);
+                mWriteProbe = "available; caller-calculated bounds";
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
+                mWriteProbe = error.toString();
             }
-            return new HonorWindowingDriver(extension, scale, "TaskInfo freeform scale");
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
-            return new HonorWindowingDriver(null, null, error.toString());
         }
+        mTransactionExtension = accessor;
+        mSetScale = setScale;
+        mUseShellCalculateBounds = setBounds;
+        mMultiplicity = HonorFreeformMultiplicity.detect(extension, accessor, wct, token);
     }
 
-    @Override public boolean hasScaledWindows() { return mScale != null; }
+    public static HonorWindowingDriver inspect(Class<?> taskClass, String transactionClass, String tokenClass) {
+        Field extension = null, scale = null;
+        String probe;
+        try {
+            extension = taskClass.getField("hnTaskInfoEx");
+            Field field = extension.getType().getField("mFreeformScale");
+            if (field.getType() == float.class) scale = field;
+            probe = scale == null ? "incompatible scale type" : "TaskInfo freeform scale";
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
+            probe = error.toString();
+        }
+        return new HonorWindowingDriver(extension, scale, probe, taskClass.getClassLoader(),
+                transactionClass, tokenClass);
+    }
+
+    boolean canReadTaskScale() { return mScale != null; }
+    @Override public boolean hasScaledWindows() { return mSetScale != null && mUseShellCalculateBounds != null; }
 
     @Override public FreeformMultiplicity freeformMultiplicity() { return mMultiplicity; }
 
@@ -104,24 +123,13 @@ public final class HonorWindowingDriver implements PlatformWindowingDriver {
         }
     }
 
-    @Override public synchronized void prepareTaskGeometry(Object transaction,
-            Class<?> tokenClass, Object token, float scale)
+    @Override public void prepareTaskGeometry(Object transaction, Object token, float scale)
             throws ReflectiveOperationException {
         if (!TaskWindowGeometry.validScale(scale)) {
             throw new IllegalArgumentException("invalid task scale");
         }
+        if (!hasScaledWindows()) throw new UnsupportedOperationException("firmware geometry unavailable");
         try {
-            if (mTransactionExtension == null) {
-                Method extension = transaction.getClass().getMethod(
-                        "getHnWindowContainerTransactionEx");
-                Method setScale = extension.getReturnType().getMethod(
-                        "setFreeformScale", transaction.getClass(), tokenClass, Float.TYPE);
-                Method calculatedBounds = extension.getReturnType().getMethod(
-                        "setUseShellCalculateBounds", transaction.getClass(), tokenClass, Boolean.TYPE);
-                mTransactionExtension = extension;
-                mSetScale = setScale;
-                mUseShellCalculateBounds = calculatedBounds;
-            }
             Object extension = mTransactionExtension.invoke(transaction);
             // The caller owns these bounds, as in the firmware's own desktop placement.
             mUseShellCalculateBounds.invoke(extension, transaction, token, false);

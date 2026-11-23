@@ -6,6 +6,9 @@ import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformComponent;
 
 public final class HonorWindowingDriverTest {
+    private static HonorWindowingDriver inspect(Class<?> task, Class<?> transaction) {
+        return HonorWindowingDriver.inspect(task, transaction.getName(), Token.class.getName());
+    }
     public interface ScaleApi {
         float getFreeformStackScale(int taskId);
         void notifyFreeformScaleChange(int taskId, float scale);
@@ -81,7 +84,8 @@ public final class HonorWindowingDriverTest {
     }
 
     @Test public void quantityExemptionIsTaskLocalReversibleAndLeavesForeignOwnersAlone() throws Exception {
-        var policy = new HonorFreeformMultiplicity(Task.class.getField("hnTaskInfoEx"), Prop.class);
+        var policy = new HonorFreeformMultiplicity(Task.class.getField("hnTaskInfoEx"), Prop.class,
+                Transaction.class.getMethod("getHnWindowContainerTransactionEx"), Transaction.class, Token.class);
         var task = new Task();
         assertTrue(policy.canClaim(task));
         assertEquals("ordinary", policy.describe(task));
@@ -92,12 +96,12 @@ public final class HonorWindowingDriverTest {
         assertFalse(policy.canClaim(task));
         var tx = new Transaction();
         var token = new Token();
-        policy.setExempt(tx, Token.class, token, true);
+        policy.setExempt(tx, token, true);
         assertSame(token, tx.changes.token);
         assertTrue(tx.changes.profile.active && !tx.changes.profile.limited && tx.changes.profile.recents);
         task.hnTaskInfoEx.mCustomizedWindowProp = tx.changes.profile;
         assertEquals("custom-exempt", policy.describe(task));
-        policy.setExempt(tx, Token.class, token, false);
+        policy.setExempt(tx, token, false);
         assertFalse(tx.changes.profile.active);
         assertTrue(tx.changes.profile.limited);
     }
@@ -110,28 +114,36 @@ public final class HonorWindowingDriverTest {
         }
     }
 
-    @Test public void partialFirmwareContractFailsBeforeWritingAndDoesNotPoisonRetry() throws Exception {
-        var driver = HonorWindowingDriver.inspect(Task.class);
-        assertThrows(NoSuchMethodException.class,
-                () -> driver.prepareTaskGeometry(new ScaleOnlyTransaction(), Token.class, new Token(), .5f));
-        var transaction = new Transaction();
-        driver.prepareTaskGeometry(transaction, Token.class, new Token(), .5f);
-        assertEquals(1, transaction.changes.calls);
-        assertFalse(transaction.changes.calculateBounds);
+    @Test public void missingAccessorOrBoundsSetterLeavesScaleReadOnly() {
+        for (Class<?> tx : new Class<?>[] {Object.class, ScaleOnlyTransaction.class}) {
+            var driver = inspect(Task.class, tx);
+            assertEquals(.4114f, driver.taskScale(new Task()), 0);
+            assertFalse(driver.hasScaledWindows());
+            assertFalse(driver.hasNativeScaleCommit());
+            assertNull(driver.freeformMultiplicity());
+            assertTrue(driver.geometryDiagnostic().contains("NoSuchMethodException"));
+        }
+    }
+
+    @Test public void exemptionRequiresItsOwnTransactionSetter() throws Exception {
+        assertThrows(NoSuchMethodException.class, () -> new HonorFreeformMultiplicity(
+                Task.class.getField("hnTaskInfoEx"), Prop.class,
+                ScaleOnlyTransaction.class.getMethod("getHnWindowContainerTransactionEx"),
+                ScaleOnlyTransaction.class, Token.class));
     }
 
     @Test public void capabilitySelectsExtensionWithoutModelChecks() {
-        var driver = HonorWindowingDriver.inspect(Task.class);
+        var driver = inspect(Task.class, Transaction.class);
         var extension = new HonorPlatformDriver(driver);
         assertTrue(extension.match(new PlatformDevice("", "", "unlisted", "", "", "", 37)).matched);
         assertEquals(java.util.Set.of(PlatformComponent.WINDOWING), extension.components());
-        assertFalse(new HonorPlatformDriver(HonorWindowingDriver.inspect(Object.class))
+        assertFalse(new HonorPlatformDriver(inspect(Object.class, Transaction.class))
                 .match(new PlatformDevice("HONOR", "HONOR", "", "", "", "", 37)).matched);
         assertTrue(driver.supportsIndependentFreeform());
     }
 
     @Test public void liveScaleIsReadFromEachTaskWithoutBinder() {
-        var driver = HonorWindowingDriver.inspect(Task.class);
+        var driver = inspect(Task.class, Transaction.class);
         var task = new Task();
         assertEquals(.4114f, driver.taskScale(task), 0);
         task.hnTaskInfoEx.mFreeformScale = .79f;
@@ -144,24 +156,29 @@ public final class HonorWindowingDriverTest {
     }
 
     @Test public void scaleBelongsToTheSameTransactionAsBounds() throws Exception {
-        var driver = HonorWindowingDriver.inspect(Task.class);
+        var driver = inspect(Task.class, Transaction.class);
+        assertTrue(driver.hasScaledWindows());
         var transaction = new Transaction();
         var token = new Token();
-        driver.prepareTaskGeometry(transaction, Token.class, token, .4114f);
+        driver.prepareTaskGeometry(transaction, token, .4114f);
         assertSame(token, transaction.changes.token);
         assertEquals(.4114f, transaction.changes.scale, 0);
         assertEquals(1, transaction.changes.calls);
         var second = new Transaction();
-        driver.prepareTaskGeometry(second, Token.class, token, .79f);
+        driver.prepareTaskGeometry(second, token, .79f);
         assertEquals(.79f, second.changes.scale, 0);
         assertEquals(1, transaction.changes.calls);
         assertTrue(driver.geometryDiagnostic().contains("write=available"));
     }
 
+    public static final class Denied extends Transaction {
+        @Override public Changes getHnWindowContainerTransactionEx() { throw new SecurityException("denied"); }
+    }
     @Test public void rejectedWriteIsNotSilentlyTreatedAsIdentity() {
-        var driver = HonorWindowingDriver.inspect(Task.class);
-        assertThrows(ReflectiveOperationException.class,
-                () -> driver.prepareTaskGeometry(new Object(), Token.class, new Token(), .5f));
-        assertTrue(driver.geometryDiagnostic().contains("NoSuchMethodException"));
+        var driver = inspect(Task.class, Transaction.class);
+        assertThrows(java.lang.reflect.InvocationTargetException.class,
+                () -> driver.prepareTaskGeometry(new Denied(), new Token(), .5f));
+        assertTrue(driver.hasScaledWindows());
+        assertTrue(driver.geometryDiagnostic().contains("InvocationTargetException"));
     }
 }

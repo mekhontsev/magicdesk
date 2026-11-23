@@ -29,7 +29,7 @@ public final class ShellWorkspaceFreeformPolicyTest {
                 return !token.equals(5);
             }
             public String describe(Object raw) { return "test"; }
-            public void setExempt(Object tx, Class<?> type, Object token, boolean exempt) {}
+            public void setExempt(Object tx, Object token, boolean exempt) {}
         }, (token, exempt) -> writes.add(token + ":" + exempt), message -> fail(message));
         var windows = List.of(task(1, 6, 5), task(2, 6, 5), task(3, 6, 5),
                 task(4, 6, 1), task(5, 6, 5), task(6, 6, 5), task(8, 0, 5));

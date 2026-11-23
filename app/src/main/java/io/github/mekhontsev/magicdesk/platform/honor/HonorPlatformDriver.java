@@ -17,7 +17,7 @@ public final class HonorPlatformDriver implements PlatformExtension {
     @Override public String id() { return "honor"; }
     @Override public String name() { return "Honor window geometry"; }
     @Override public PlatformMatch match(PlatformDevice device) {
-        return device != null && device.sdkInt >= 34 && mWindowing.hasScaledWindows()
+        return device != null && device.sdkInt >= 34 && mWindowing.canReadTaskScale()
                 ? PlatformMatch.matched(mWindowing.geometryDiagnostic())
                 : PlatformMatch.unavailable("scaled-window task API unavailable");
     }

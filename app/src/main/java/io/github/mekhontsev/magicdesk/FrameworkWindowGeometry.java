@@ -17,7 +17,7 @@ final class FrameworkWindowGeometry {
     }
 
     static float scale(Object task, int mode) {
-        if (!sEnabled || mode != FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM) return 1f;
+        if (mode != FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM || !adapted()) return 1f;
         return PlatformDrivers.current().windowing().taskScale(task);
     }
 
@@ -63,7 +63,7 @@ final class FrameworkWindowGeometry {
                 throws ReflectiveOperationException {
             if (adapted()) {
                 PlatformDrivers.current().windowing().prepareTaskGeometry(
-                        transaction, windowing.tokenClass(), token, scale);
+                        transaction, token, scale);
             }
             windowing.setBounds(transaction, token, logicalBounds);
         }

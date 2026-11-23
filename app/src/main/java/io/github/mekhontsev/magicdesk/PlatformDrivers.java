@@ -17,7 +17,9 @@ final class PlatformDrivers {
             DEVICE,
             BuildConfig.PLATFORM_OVERRIDE,
             NUBIA_CAPABILITIES,
-            new HonorPlatformDriver(HonorWindowingDriver.detect()));
+            new HonorPlatformDriver(HonorWindowingDriver.inspect(
+                    android.app.ActivityManager.RunningTaskInfo.class,
+                    FrameworkWindowingApi.TRANSACTION_CLASS, FrameworkWindowingApi.TOKEN_CLASS)));
 
     private PlatformDrivers() {
     }

@@ -90,7 +90,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFreeformPolicy = new ShellWorkspaceFreeformPolicy(policy, (token, exempt) -> {
             final FrameworkWindowingApi api = FrameworkRuntime.current().windowing();
             final Object transaction = api.newTransaction();
-            policy.setExempt(transaction, api.tokenClass(), token, exempt);
+            policy.setExempt(transaction, token, exempt);
             ShellWindowTransitionExecutor.applyAtomic(mService, api.transactionClass(), transaction);
         }, error -> callCallback(() -> mCallback.onObserverError(error)));
         mTaskActivityModeGuard = new ShellTaskActivityModeGuard(
