@@ -14,11 +14,14 @@ import android.view.inputmethod.SurroundingText;
 import android.view.inputmethod.TextSnapshot;
 import android.view.inputmethod.CursorAnchorInfo;
 import io.github.mekhontsev.magicdesk.hosted.HostedTextState;
+import java.util.ArrayDeque;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /** Android owns the composition; the guest owns committed text and its selection. */
 final class HostedTextInputConnection extends BaseInputConnection {
+    private static final int MAX_PENDING_COMMITS = 16;
+    private static final int MAX_CONTEXT_LENGTH = 4000;
     private final HostedSurfaceOutput output;
     private final HostedTextState editor;
     private final BooleanSupplier allowed;
@@ -29,7 +32,9 @@ final class HostedTextInputConnection extends BaseInputConnection {
 
     private static final class Editor {
         final android.text.Editable composition = new android.text.SpannableStringBuilder();
+        final ArrayDeque<Context> pendingCommits = new ArrayDeque<>();
         Context publishedContext;
+        long guestRevision = -1;
         HostedTextInputConnection cursorObserver;
         Region region;
         // A committed replacement is queued, but this surrounding snapshot may
@@ -144,18 +149,21 @@ final class HostedTextInputConnection extends BaseInputConnection {
         return true;
     }
     @Override public boolean commitText(CharSequence text, int cursor) {
-        if (!prepareEdit(output.textState())) return false;
+        var state = output.textState();
+        if (!prepareEdit(state)) return false;
         var region = binding.region;
+        String replacement = text.toString();
         if (region != null && !region.transferred) {
             if (!region.matches(output.textState()) || !output.replaceText(region.snapshot,
-                    region.snapshot.start() - region.start, region.end - region.snapshot.end(), text.toString()))
+                    region.snapshot.start() - region.start, region.end - region.snapshot.end(), replacement))
                 return abandonRange();
             if (!region.snapshot.surrounding().substring(region.start, region.end).contentEquals(text)
                     || region.snapshot.cursor() != region.end)
                 binding.replacedRevision = region.snapshot.revision();
             binding.region = null;
         } else {
-            output.text(editor, text.toString());
+            output.text(editor, replacement);
+            if (region == null) predictCommit(state, replacement);
         }
         getEditable().clear();
         binding.publishedContext = context();
@@ -167,7 +175,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
             // Merely marking committed text did not change the guest buffer.
             binding.region = null;
         } else if (getEditable().length() > 0) {
-            output.text(editor, getEditable().toString());
+            return commitText(getEditable(), 1) && super.finishComposingText();
         }
         getEditable().clear();
         binding.publishedContext = context();
@@ -183,7 +191,12 @@ final class HostedTextInputConnection extends BaseInputConnection {
         super.closeConnection();
     }
 
-    void dispose() { binding.disposed = true; binding.composition.clear(); closeConnection(); }
+    void dispose() {
+        binding.disposed = true;
+        binding.composition.clear();
+        binding.pendingCommits.clear();
+        closeConnection();
+    }
 
     @Override public boolean deleteSurroundingText(int before, int after) { return delete(before, after, false); }
     @Override public boolean deleteSurroundingTextInCodePoints(int before, int after) { return delete(before, after, true); }
@@ -216,22 +229,66 @@ final class HostedTextInputConnection extends BaseInputConnection {
 
     private record Context(String text, int anchor, int cursor, int composingStart, int composingEnd) { }
     private Context context() {
-        var state = output.textState();
-        if (!sameEditor(state) || state != null && state.privateText()) state = null;
+        return context(output.textState());
+    }
+    private Context context(HostedTextState state) {
+        var committed = committedContext(state);
         String composition = getEditable().toString();
         int cursor = Math.max(0, Selection.getSelectionEnd(getEditable()));
-        if (state == null || state.surrounding() == null)
+        if (committed == null)
             return new Context(composition, cursor, cursor, composition.isEmpty() ? -1 : 0,
                     composition.isEmpty() ? -1 : composition.length());
         var region = binding.region;
         boolean useRegion = region != null && region.matches(state);
         if (!useRegion && (composition.isEmpty() || region != null && !region.transferred))
-            return new Context(state.surrounding(), state.anchor(), state.cursor(), -1, -1);
-        int start = useRegion ? region.start : state.start();
-        int end = useRegion ? region.end : state.end();
-        return new Context(state.surrounding().substring(0, start) + composition + state.surrounding().substring(end),
+            return committed;
+        int start = useRegion ? region.start : Math.min(committed.anchor, committed.cursor);
+        int end = useRegion ? region.end : Math.max(committed.anchor, committed.cursor);
+        return new Context(committed.text.substring(0, start) + composition + committed.text.substring(end),
                 start + cursor, start + cursor, composition.isEmpty() ? -1 : start,
                 composition.isEmpty() ? -1 : start + composition.length());
+    }
+
+    private Context committedContext(HostedTextState state) {
+        var pending = binding.pendingCommits;
+        if (!sameEditor(state)) return null;
+        if (state == null || state.privateText() || state.surrounding() == null) {
+            pending.clear();
+            return null;
+        }
+        var actual = new Context(state.surrounding(), state.anchor(), state.cursor(), -1, -1);
+        if (state.revision() != binding.guestRevision) {
+            binding.guestRevision = state.revision();
+            // An acknowledgement can cover one or several commits. The latest
+            // pending snapshot remains the IME's base until the guest catches up.
+            int acknowledged = 0;
+            int index = 0;
+            for (var expected : pending) {
+                index++;
+                if (expected.equals(actual)) acknowledged = index;
+            }
+            if (!state.inputMethodChange() || acknowledged == 0) pending.clear();
+            else for (int i = 0; i < acknowledged; i++) pending.removeFirst();
+        }
+        return pending.isEmpty() ? actual : pending.getLast();
+    }
+
+    private void predictCommit(HostedTextState state, String replacement) {
+        var committed = committedContext(state);
+        if (committed == null) return;
+        int start = Math.min(committed.anchor, committed.cursor);
+        int end = Math.max(committed.anchor, committed.cursor);
+        var pending = binding.pendingCommits;
+        if (committed.text.length() - (end - start) + (long) replacement.length() > MAX_CONTEXT_LENGTH) {
+            pending.clear();
+            return;
+        }
+        int cursor = start + replacement.length();
+        var expected = new Context(committed.text.substring(0, start) + replacement + committed.text.substring(end),
+                cursor, cursor, -1, -1);
+        if (expected.equals(committed)) return;
+        if (pending.size() == MAX_PENDING_COMMITS) pending.removeFirst();
+        pending.addLast(expected);
     }
     @Override public CharSequence getTextBeforeCursor(int length, int flags) {
         var c = context(); int end = Math.min(c.anchor, c.cursor);
@@ -281,9 +338,9 @@ final class HostedTextInputConnection extends BaseInputConnection {
         int left = Math.min(start, end), right = Math.max(start, end);
         if (left == right) return finishComposingText();
         if (binding.replacedRevision == state.revision()) return false;
-        var c = context();
+        var c = context(state);
         if (getEditable().length() > 0) return left == c.composingStart && right == c.composingEnd;
-        if (binding.region != null && binding.region.matches(state)) return false;
+        if (!binding.pendingCommits.isEmpty() || binding.region != null && binding.region.matches(state)) return false;
         String text = state.surrounding();
         if (state.start() != state.end() || left > state.cursor() || right < state.cursor()
                 || !textBoundary(text, left) || !textBoundary(text, right)) return false;
@@ -298,7 +355,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
     void update(InputMethodManager manager, View view) {
         var state = output.textState();
         if (!prepareEdit(state)) return;
-        var c = context();
+        var c = context(state);
         manager.updateSelection(view, c.anchor, c.cursor, c.composingStart, c.composingEnd);
         // Caret updates and guest acknowledgements must not cancel queued IME edits.
         if (!c.equals(binding.publishedContext)

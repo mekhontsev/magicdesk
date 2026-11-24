@@ -69,6 +69,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         verifyCursor(view);
         verifyText(view, output);
         verifyComposingRegion(view, output);
+        verifyDelayedTextAcknowledgements(view, output);
         view.release();
         require(output.closed, "output released");
         require(view.getPointerIcon() == null, "output release resets cursor");
@@ -315,6 +316,38 @@ public final class HostedInputInstrumentation extends Instrumentation {
         require(connection.getTextBeforeCursor(20, 0).toString().equals("другой")
                 && connection.commitText("!", 1) && output.commits.get(commits).equals("!"),
                 "fresh typing does not require manually finishing the stale word");
+    }
+
+    private static void verifyDelayedTextAcknowledgements(HostedSurfaceView view, Output output) {
+        output.state = new HostedTextState(21, 1, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "", 0, 0, null, true);
+        var connection = view.onCreateInputConnection(new EditorInfo());
+        connection.commitText("тест", 1);
+        connection.commitText(" ", 1);
+        var nextConnection = view.onCreateInputConnection(new EditorInfo());
+        connection.closeConnection();
+        connection.getTextBeforeCursor(20, 0);
+        connection = nextConnection;
+        connection.setComposingText("р", 1);
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("тест р"),
+                "next word uses caret after both unacknowledged commits");
+        output.state = new HostedTextState(21, 2, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "тест", 4, 4, null, true);
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("тест р"),
+                "partial acknowledgement does not move the next word backwards");
+        output.state = new HostedTextState(21, 3, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "тест ", 5, 5, null, true);
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("тест р"),
+                "final acknowledgement preserves the active word");
+        connection.setComposingText("раз", 1);
+        connection.setComposingText("ра", 1);
+        connection.finishComposingText();
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("тест ра"),
+                "finalization predicts the shortened word only once");
+        output.state = new HostedTextState(21, 4, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "новый текст", 0, 0, null, false);
+        require(connection.getTextAfterCursor(20, 0).toString().equals("новый текст"),
+                "external change overrides predictions");
     }
 
     private static final class Output implements HostedSurfaceOutput {
