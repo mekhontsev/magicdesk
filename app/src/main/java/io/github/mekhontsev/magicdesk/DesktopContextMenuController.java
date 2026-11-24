@@ -912,11 +912,17 @@ final class DesktopContextMenuController {
         prepareSubmenuTitle(mActivity.getString(R.string.action_wallpaper_fit),
                 view -> populateDesktopMenu(x, y));
         final ShellResources.WallpaperFit current = AppearanceStore.current(mActivity).resources().fit();
-        addCheckableAction(R.string.action_wallpaper_fit_cover, current == ShellResources.WallpaperFit.COVER,
-                (checked, done) -> { if (checked) { mActivity.setWallpaperFit(ShellResources.WallpaperFit.COVER); done.run(); } });
-        addCheckableAction(R.string.action_wallpaper_fit_contain, current == ShellResources.WallpaperFit.CONTAIN,
-                (checked, done) -> { if (checked) { mActivity.setWallpaperFit(ShellResources.WallpaperFit.CONTAIN); done.run(); } });
+        addWallpaperFitChoice(R.string.action_wallpaper_fit_cover, ShellResources.WallpaperFit.COVER, current);
+        addWallpaperFitChoice(R.string.action_wallpaper_fit_contain, ShellResources.WallpaperFit.CONTAIN, current);
         positionAndShow(x, y);
+    }
+
+    private void addWallpaperFitChoice(int label, ShellResources.WallpaperFit choice,
+            ShellResources.WallpaperFit current) {
+        addCheckableAction(label, choice == current, (checked, done) -> {
+            if (choice != current) mActivity.setWallpaperFit(choice);
+            done.run();
+        });
     }
 
     private void addArrangement(final GridLayout grid, final AppMenuState state,

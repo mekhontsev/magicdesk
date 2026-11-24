@@ -87,7 +87,7 @@ final class WallpaperView extends FrameLayout {
         if (updated != fit) {
             fit = updated;
             if (image.getDrawable() != null) sizeImage(image.getDrawable());
-            if (playback instanceof VideoPlayback video) video.sizeSurface();
+            if (playback instanceof VideoPlayback video) video.surface.setLayoutParams(video.layout());
         }
         refresh();
     }
@@ -228,7 +228,6 @@ final class WallpaperView extends FrameLayout {
         final WallpaperAsset selected;
         final SurfaceView surface;
         MediaPlayer player;
-        int videoWidth, videoHeight;
         Runnable timeout;
         boolean released;
 
@@ -239,16 +238,16 @@ final class WallpaperView extends FrameLayout {
         }
         void attach() {
             surface.getHolder().addCallback(this);
-            addView(surface, 0, new FrameLayout.LayoutParams(outputWidth, outputHeight));
+            addView(surface, 0, layout());
         }
-        void sizeSurface() {
+        FrameLayout.LayoutParams layout() {
             int width = outputWidth, height = outputHeight;
-            if (fit == ShellResources.WallpaperFit.CONTAIN && videoWidth > 0 && videoHeight > 0) {
-                float scale = WallpaperPolicy.crop(fit, videoWidth, videoHeight, width, height).scale();
-                width = Math.max(1, Math.round(videoWidth * scale));
-                height = Math.max(1, Math.round(videoHeight * scale));
+            if (fit == ShellResources.WallpaperFit.CONTAIN) {
+                float scale = WallpaperPolicy.crop(fit, selected.width(), selected.height(), width, height).scale();
+                width = Math.max(1, Math.round(selected.width() * scale));
+                height = Math.max(1, Math.round(selected.height() * scale));
             }
-            surface.setLayoutParams(new FrameLayout.LayoutParams(width, height, android.view.Gravity.CENTER));
+            return new FrameLayout.LayoutParams(width, height, android.view.Gravity.CENTER);
         }
         @Override public void surfaceCreated(SurfaceHolder holder) {
             if (released || token != playbackGeneration) return;
@@ -257,12 +256,6 @@ final class WallpaperView extends FrameLayout {
                 player.setVolume(0, 0);
                 player.setDisplay(holder);
                 player.setDataSource(selected.openVideo());
-                player.setOnVideoSizeChangedListener((source, width, height) -> {
-                    if (!released && source == player && width > 0 && height > 0) {
-                        videoWidth = width; videoHeight = height;
-                        sizeSurface();
-                    }
-                });
                 player.setOnPreparedListener(ready -> {
                     if (released || player != ready) return;
                     try {
