@@ -195,6 +195,9 @@ final class SettingsView {
                 mActions::configureGraphicsRenderer, mGraphicsRenderer);
 
         addSection(content, R.string.settings_section_input);
+        final Switch waylandTouch = addSwitch(content, R.string.settings_wayland_direct_touch);
+        waylandTouch.setChecked(WaylandTouchSettings.enabled(mActivity));
+        waylandTouch.setOnCheckedChangeListener((button, checked) -> WaylandTouchSettings.save(mActivity, checked));
         mKeyboardOnAppDisplay = addSwitch(content, R.string.settings_keyboard_on_app_display);
         mKeyboardOnAppDisplay.setOnCheckedChangeListener((button, checked) -> {
             if (!mRendering) mActions.setKeyboardOnAppDisplay(checked);

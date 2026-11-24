@@ -26,7 +26,7 @@ struct Client {
     struct xdg_surface *popup_base;
     struct xdg_popup *popup;
     struct zwlr_layer_surface_v1 *layer;
-    int stage, repaints;
+    int stage, repaints, touch_downs, touch_motions, touch_ups, touch_frames, touch_cancels;
     bool closed;
 };
 
@@ -128,6 +128,8 @@ static void button(void *data, struct wl_pointer *pointer, uint32_t serial, uint
     if (state != WL_POINTER_BUTTON_STATE_RELEASED) return;
     if (c->stage++ == 0) {
         assert(c->entered == c->popup_surface);
+        assert(c->touch_downs == 3 && c->touch_motions == 1 && c->touch_ups == 1);
+        assert(c->touch_frames == 5 && c->touch_cancels == 1);
         xdg_popup_destroy(c->popup);
         xdg_surface_destroy(c->popup_base);
         wl_surface_destroy(c->popup_surface);
@@ -135,6 +137,7 @@ static void button(void *data, struct wl_pointer *pointer, uint32_t serial, uint
         wl_surface_commit(c->panel);
     } else if (c->stage == 2) {
         assert(c->entered == c->child);
+        assert(c->touch_cancels == 2); // Deleting the touched popup cancels its active gesture.
         wl_surface_set_input_region(c->panel, NULL);
         wl_surface_commit(c->panel);
     } else if (c->stage == 3) {
@@ -155,9 +158,35 @@ static void button(void *data, struct wl_pointer *pointer, uint32_t serial, uint
     }
 }
 static const struct wl_pointer_listener pointer_listener = {.enter = enter, .leave = leave, .motion = motion, .button = button};
+static void touch_down(void *data, struct wl_touch *touch, uint32_t serial, uint32_t time,
+        struct wl_surface *surface, int32_t id, wl_fixed_t x, wl_fixed_t y) {
+    (void)touch; (void)serial; (void)time;
+    struct Client *c = data;
+    assert(surface == c->popup_surface && id == 7);
+    assert(wl_fixed_to_int(x) == 2 && wl_fixed_to_int(y) == 6);
+    ++c->touch_downs;
+}
+static void touch_motion(void *data, struct wl_touch *touch, uint32_t time,
+        int32_t id, wl_fixed_t x, wl_fixed_t y) {
+    (void)touch; (void)time; (void)y;
+    assert(id == 7 && wl_fixed_to_int(x) > 30);
+    ++((struct Client *)data)->touch_motions;
+}
+static void touch_up(void *data, struct wl_touch *touch, uint32_t serial, uint32_t time, int32_t id) {
+    (void)touch; (void)serial; (void)time;
+    assert(id == 7);
+    ++((struct Client *)data)->touch_ups;
+}
+static void touch_frame(void *data, struct wl_touch *touch) { (void)touch; ++((struct Client *)data)->touch_frames; }
+static void touch_cancel(void *data, struct wl_touch *touch) { (void)touch; ++((struct Client *)data)->touch_cancels; }
+static const struct wl_touch_listener touch_listener = {
+    .down = touch_down, .motion = touch_motion, .up = touch_up, .frame = touch_frame, .cancel = touch_cancel,
+};
 static void caps(void *data, struct wl_seat *seat, uint32_t capabilities) {
     if (capabilities & WL_SEAT_CAPABILITY_POINTER)
         wl_pointer_add_listener(wl_seat_get_pointer(seat), &pointer_listener, data);
+    if (capabilities & WL_SEAT_CAPABILITY_TOUCH)
+        wl_touch_add_listener(wl_seat_get_touch(seat), &touch_listener, data);
 }
 static const struct wl_seat_listener seat_listener = {.capabilities = caps};
 static void ping(void *data, struct xdg_wm_base *xdg, uint32_t serial) { (void)data; xdg_wm_base_pong(xdg, serial); }
@@ -279,6 +308,20 @@ int main(void) {
             assert(!mdw_output_pointer(h.output, 40.0 / 74, 18.0 / 50));
             h.stage = 1;
         } else if (h.stage == 1 && h.popup_pixels && !h.popup_clicked) {
+            mdw_output_touch(h.output, 7, MDW_TOUCH_BEGIN, 7.0 / 74, 36.0 / 50);
+            mdw_output_touch_frame(h.output);
+            mdw_output_touch(h.output, 7, MDW_TOUCH_UPDATE, 70.0 / 74, 36.0 / 50);
+            mdw_output_touch_frame(h.output);
+            mdw_output_touch(h.output, 7, MDW_TOUCH_END, 70.0 / 74, 36.0 / 50);
+            mdw_output_touch_frame(h.output);
+            mdw_output_touch(h.output, 7, MDW_TOUCH_BEGIN, 7.0 / 74, 36.0 / 50);
+            mdw_output_touch_frame(h.output);
+            assert(mdw_output_focus(h.output, false));
+            mdw_output_touch(h.output, 7, MDW_TOUCH_UPDATE, 70.0 / 74, 36.0 / 50);
+            mdw_output_touch_frame(h.output);
+            assert(mdw_output_focus(h.output, true));
+            mdw_output_touch(h.output, 7, MDW_TOUCH_BEGIN, 7.0 / 74, 36.0 / 50);
+            mdw_output_touch_frame(h.output);
             click(&h, 7.0 / 74, 36.0 / 50);
             h.popup_clicked = true;
         }

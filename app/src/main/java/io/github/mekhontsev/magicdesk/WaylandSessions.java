@@ -74,7 +74,7 @@ final class WaylandSessions {
         final String presentationKey;
         private volatile int scalePercent;
         final HostedWindowPresentation presentation;
-        final HostedOffscreen offscreen = new HostedOffscreen(window -> new WaylandSurfaceOutput(openOutput(window, 1, 1)),
+        final HostedOffscreen offscreen = new HostedOffscreen(window -> surfaceOutput(openOutput(window, 1, 1)),
                 () -> GraphicalSessions.changed(id(), "output_ready"));
         final HostedSessionClose shutdown = new HostedSessionClose();
         @Override public boolean backgroundOutput() { return offscreen.enabled(); }
@@ -328,6 +328,10 @@ final class WaylandSessions {
         @Override public float unitScale(android.app.Activity activity) {
             return HostedStartupWindow.scale(activity, (float) HostedUiScale.adjust(HostedUiScale.resolve(activity), scalePercent));
         }
+        WaylandSurfaceOutput surfaceOutput(WaylandSession.Output output) {
+            return new WaylandSurfaceOutput(output, WaylandTouchSettings.enabled(context));
+        }
+
         WaylandSession.Output openOutput(long window, int width, int height) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             return renderer.openOutput(window, width, height);

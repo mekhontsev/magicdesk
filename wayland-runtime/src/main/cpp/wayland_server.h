@@ -149,6 +149,11 @@ bool mdw_output_refresh(MdwOutput *output);
 void mdw_output_frame_consumed(MdwOutput *output);
 bool mdw_output_focus(MdwOutput *output, bool focused);
 bool mdw_output_pointer(MdwOutput *output, double x, double y);
+// Phase values mirror HostedTouchPhase across the Android transport.
+enum MdwTouchPhase { MDW_TOUCH_BEGIN, MDW_TOUCH_UPDATE, MDW_TOUCH_END };
+void mdw_output_touch(MdwOutput *output, int32_t contact, enum MdwTouchPhase phase, double x, double y);
+void mdw_output_touch_frame(MdwOutput *output);
+void mdw_output_cancel_touch(MdwOutput *output);
 bool mdw_output_pointer_capture(MdwOutput *output, uint64_t serial, bool captured);
 /* Relative deltas use fractions of the rendered viewport, without absolute-position clamping. */
 bool mdw_output_relative(MdwOutput *output, uint64_t serial, double dx, double dy);

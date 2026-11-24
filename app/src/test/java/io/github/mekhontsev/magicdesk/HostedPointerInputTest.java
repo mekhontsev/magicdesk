@@ -123,6 +123,20 @@ public final class HostedPointerInputTest {
             check(f.out.cancels==1 && f.out.edges.isEmpty(),"proximity loss releases the logical tool only");
             """);
     }
+
+    @Test public void directTouchFramesGroupContactsAndPreserveDragPastViewportEdge() throws Exception {
+        verify("""
+            var f=new Input(); f.out.direct=true;
+            f.send(0,1,100,200); f.send(5,2,300,400);
+            var move=f.event(2,2,1200,600); move.historyY=new float[]{500}; f.input.event(move);
+            check(f.out.x>1 && f.out.edges.isEmpty(),"direct drag continues outside without mouse emulation");
+            f.send(6,2,1200,600); f.send(1,1,1200,600);
+            check(f.out.touchFrames.equals(List.of(1,2,4,6,7,8)),"each sample groups all active fingers");
+            f.send(0,1,100,200); f.send(3,1,100,200);
+            check(f.out.cancels==1 && f.out.touchFrames.equals(List.of(1,2,4,6,7,8,9)),
+                "cancellation has no trailing frame");
+            """);
+    }
     private static void verify(String body) throws Exception {
         String source = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "HostedPointerInput.java"));
         String direct = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "HostedDirectInput.java"));
@@ -392,12 +406,14 @@ public final class HostedPointerInputTest {
             void relative(long serial,float dx,float dy);
             default boolean supportsTouch(){return false;} default boolean supportsTablet(){return false;}
             default void touch(int id,HostedTouchPhase phase,float x,float y,float pressure){}
+            default void touchFrame(){}
             default void tablet(boolean eraser,boolean proximity,float x,float y,float pressure,float tx,float ty,int buttons){}
             default void cancelContacts(){}
         }
         static class Output implements HostedSurfaceOutput {
             final List<String> edges=new ArrayList<>(), scrolls=new ArrayList<>();
             final List<String> contacts=new ArrayList<>();
+            final List<Integer> touchFrames=new ArrayList<>();
             final List<String> deltas=new ArrayList<>();
             public void relative(long serial,float dx,float dy){deltas.add(serial+":"+number(dx)+","+number(dy));}
             boolean direct,eraser; int cancels,penButtons; float pressure;
@@ -405,6 +421,7 @@ public final class HostedPointerInputTest {
             public void touch(int id,HostedTouchPhase phase,float x,float y,float pressure){
                 contacts.add(id+":"+phase);this.x=x;this.y=y;this.pressure=pressure;
             }
+            public void touchFrame(){touchFrames.add(contacts.size());}
             public void tablet(boolean eraser,boolean proximity,float x,float y,float pressure,float tx,float ty,int buttons){
                 this.eraser=eraser;this.pressure=pressure;penButtons=buttons;
             }

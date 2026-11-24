@@ -226,11 +226,17 @@ mapping. XWayland is not enabled.
 
 ## Host Interaction
 
-Pointer and touchpad gestures use the common `HostedPointerInput` adapter.
+Mouse and touchpad gestures use the common `HostedPointerInput` adapter.
 Fractional scroll deltas are retained through Wayland seat axes, including
-classified Android touchpad history. Direct touch/tablet protocols are not
-advertised; those tools retain pointer emulation until a backend implements the
-shared contact/proximity contract.
+classified Android touchpad history. Android touchscreen contacts use the shared
+direct-input adapter and arrive as `wl_touch` events. A contact stays with the
+surface it started on while moving outside its bounds. Loss of focus or the
+surface cancels the gesture.
+
+**Settings → Display input → Direct touch in new Wayland windows** controls
+whether new windows use direct touch or pointer emulation. Close and reopen a
+window to apply the change. Applications decide how to display text selection
+handles. Stylus input and Android drag-and-drop use the pointer route.
 
 Relative-pointer events and pointer-constraints locks use wlroots' protocol
 implementations. `wayland_pointer` owns the focused surface's request and its

@@ -851,6 +851,7 @@
     <string name="touchpad_show_keyboard">Show keyboard</string>
     <string name="touchpad_keyboard_failed">Could not show keyboard: %1$s</string>
     <string name="settings_section_input">Display input</string>
+    <string name="settings_wayland_direct_touch">Direct touch in new Wayland windows</string>
     <string name="settings_keep_desktop_awake">Keep session active</string>
     <string name="settings_keep_screen_on">Keep phone screen on</string>
     <string name="settings_phone_fullscreen_default">New windows fullscreen on phone</string>

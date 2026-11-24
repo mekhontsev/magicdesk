@@ -259,7 +259,7 @@ final class GraphicalSessions {
                         public void closed(String reason) { ended.accept(reason); }
                     });
             try {
-                binding.host(host.shellSurfaceHost(surface -> new WaylandSurfaceOutput(
+                binding.host(host.shellSurfaceHost(surface -> session.surfaceOutput(
                         binding.openOutput(surface.id(), surface.bounds().width(), surface.bounds().height()))),
                         host.shellPresentation());
                 binding.origin(id());

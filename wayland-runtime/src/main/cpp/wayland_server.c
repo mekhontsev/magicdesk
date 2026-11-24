@@ -43,6 +43,12 @@ struct MdwToplevel {
     char *published_title, *published_app_id;
 };
 
+struct MdwTouchContact {
+    MdwOutput *output;
+    struct wlr_scene_node *node;
+    struct wl_listener node_destroy;
+};
+
 struct MdwOutput {
     struct wl_list link;
     MdwServer *server;
@@ -62,6 +68,9 @@ struct MdwOutput {
     MdwOutput *parent, *dependents;
     bool keys[KEY_MAX + 1];
     bool buttons[5];
+    struct MdwTouchContact contacts[32]; // Android pointer IDs range from 0 to 31.
+    unsigned active_touches;
+    bool touch_frame_pending;
 };
 
 
@@ -628,7 +637,8 @@ MdwServer *mdw_server_create(bool software_only) {
     if (!keymap_ready) goto fail;
     wlr_keyboard_set_repeat_info(&server->keyboard, 25, 600);
     wlr_seat_set_keyboard(server->seat, &server->keyboard);
-    wlr_seat_set_capabilities(server->seat, WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER);
+    wlr_seat_set_capabilities(server->seat,
+        WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_TOUCH);
     if (!mdw_input_init(server) || !mdw_cursor_init(server) || !mdw_pointer_init(server)) goto fail;
     server->shell = wlr_xdg_shell_create(server->display, 6);
     if (!server->shell) goto fail;
@@ -969,6 +979,7 @@ bool mdw_output_focus(MdwOutput *output, bool focused) {
     if (!output) return false;
     MdwServer *server = output->server;
     if (!focused) {
+        mdw_output_cancel_touch(output);
         release_pointer(output);
         release_keyboard(output);
         return true;
@@ -994,18 +1005,27 @@ bool mdw_output_focus(MdwOutput *output, bool focused) {
     return true;
 }
 
+static void input_scene_position(MdwOutput *output, double x, double y, double *sx, double *sy) {
+    *sx = output->scene_output->x + x * output->output->width / output->render_scale;
+    *sy = output->scene_output->y + y * output->output->height / output->render_scale;
+}
+
+static struct wlr_scene_surface *input_surface_at(MdwOutput *output, double sx, double sy,
+        double *local_x, double *local_y) {
+    // Hit-test the rendered scene, not the client's asynchronously acknowledged size.
+    struct wlr_scene_node *node = wlr_scene_node_at(&output->view->scene->tree.node, sx, sy, local_x, local_y);
+    return node && node->type == WLR_SCENE_NODE_BUFFER
+        ? wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node)) : NULL;
+}
+
 bool mdw_output_pointer(MdwOutput *output, double x, double y) {
     if (!accepts_input(output) || !isfinite(x) || !isfinite(y)) return false;
     // Pointer delivery selects its output independently of keyboard focus.
     claim_pointer(output);
     if (mdw_pointer_locked(output->server, output)) return true;
-    double local_x, local_y;
-    // Hit-test the rendered scene, not the client's asynchronously acknowledged size.
-    struct wlr_scene_node *node = wlr_scene_node_at(&output->view->scene->tree.node,
-        output->scene_output->x + x * output->output->width / output->render_scale,
-        output->scene_output->y + y * output->output->height / output->render_scale, &local_x, &local_y);
-    struct wlr_scene_surface *scene_surface = node && node->type == WLR_SCENE_NODE_BUFFER
-        ? wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node)) : NULL;
+    double sx, sy, local_x, local_y;
+    input_scene_position(output, x, y, &sx, &sy);
+    struct wlr_scene_surface *scene_surface = input_surface_at(output, sx, sy, &local_x, &local_y);
     struct wlr_surface *surface = scene_surface ? scene_surface->surface : NULL;
     if (surface) {
         struct wlr_seat_pointer_state *state = &output->server->seat->pointer_state;
@@ -1017,6 +1037,79 @@ bool mdw_output_pointer(MdwOutput *output, double x, double y) {
     wlr_seat_pointer_notify_frame(output->server->seat);
     mdw_pointer_refresh(output->server);
     return surface != NULL;
+}
+
+static void release_touch_contact(struct MdwTouchContact *contact) {
+    if (!contact->node) return;
+    wl_list_remove(&contact->node_destroy.link);
+    contact->node = NULL;
+    --contact->output->active_touches;
+}
+
+void mdw_output_touch_frame(MdwOutput *output) {
+    if (!output || !output->touch_frame_pending) return;
+    output->touch_frame_pending = false;
+    struct wlr_seat *seat = output->server->seat;
+    wlr_seat_touch_notify_frame(seat);
+    if (output->active_touches == 0) output->server->touch_owner = NULL;
+}
+
+void mdw_output_cancel_touch(MdwOutput *output) {
+    if (!output || output->server->touch_owner != output) return;
+    mdw_output_touch_frame(output);
+    struct wlr_seat *seat = output->server->seat;
+    for (int32_t id = 0; id < (int32_t)(sizeof(output->contacts) / sizeof(output->contacts[0])); ++id) {
+        release_touch_contact(&output->contacts[id]);
+        struct wlr_touch_point *point = wlr_seat_touch_get_point(seat, id);
+        // A cancel clears all contacts for this client, including contacts in popups.
+        if (point) wlr_seat_touch_notify_cancel(seat, point->client);
+    }
+    output->server->touch_owner = NULL;
+}
+
+static void touch_node_destroyed(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwTouchContact *contact = wl_container_of(listener, contact, node_destroy);
+    mdw_output_cancel_touch(contact->output);
+}
+
+void mdw_output_touch(MdwOutput *output, int32_t id, enum MdwTouchPhase phase, double x, double y) {
+    if (!accepts_input(output) || !isfinite(x) || !isfinite(y) || id < 0 ||
+            (size_t)id >= sizeof(output->contacts) / sizeof(output->contacts[0])) return;
+    MdwServer *server = output->server;
+    struct wlr_seat *seat = server->seat;
+    struct MdwTouchContact *contact = &output->contacts[id];
+    double sx, sy;
+    input_scene_position(output, x, y, &sx, &sy);
+
+    if (phase == MDW_TOUCH_BEGIN) {
+        if (contact->node) return;
+        double local_x, local_y;
+        struct wlr_scene_surface *surface = input_surface_at(output, sx, sy, &local_x, &local_y);
+        if (!surface || !wlr_surface_accepts_touch(seat, surface->surface)) return;
+        if (server->touch_owner != output) mdw_output_cancel_touch(server->touch_owner);
+        if (!wlr_seat_touch_notify_down(seat, surface->surface, time_msec(), id, local_x, local_y)) return;
+        server->touch_owner = output;
+        contact->output = output;
+        contact->node = &surface->buffer->node;
+        ++output->active_touches;
+        listen_signal(&contact->node->events.destroy, &contact->node_destroy, touch_node_destroyed);
+    } else {
+        if (server->touch_owner != output || !contact->node) return;
+        if (phase == MDW_TOUCH_UPDATE) {
+            int node_x, node_y;
+            if (!wlr_scene_node_coords(contact->node, &node_x, &node_y)) {
+                mdw_output_cancel_touch(output);
+                return;
+            }
+            // Keep the original surface even after the finger crosses a popup or edge.
+            wlr_seat_touch_notify_motion(seat, time_msec(), id, sx - node_x, sy - node_y);
+        } else if (phase == MDW_TOUCH_END) {
+            release_touch_contact(contact);
+            wlr_seat_touch_notify_up(seat, time_msec(), id);
+        } else return;
+    }
+    output->touch_frame_pending = true;
 }
 
 bool mdw_output_pointer_capture(MdwOutput *output, uint64_t serial, bool captured) {

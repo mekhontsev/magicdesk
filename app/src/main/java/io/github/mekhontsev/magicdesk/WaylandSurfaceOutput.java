@@ -2,12 +2,17 @@ package io.github.mekhontsev.magicdesk;
 
 import android.view.Surface;
 import io.github.mekhontsev.magicdesk.hosted.HostedTextState;
+import io.github.mekhontsev.magicdesk.hosted.HostedTouchPhase;
 import io.github.mekhontsev.magicdesk.wayland.WaylandSession;
 
 /** Android gestures enter a Wayland seat through normalized output coordinates. */
 final class WaylandSurfaceOutput implements HostedShellOutput {
     private final WaylandSession.Output output;
-    WaylandSurfaceOutput(WaylandSession.Output output) { this.output = output; }
+    private final boolean directTouch;
+    WaylandSurfaceOutput(WaylandSession.Output output, boolean directTouch) {
+        this.output = output;
+        this.directTouch = directTouch;
+    }
     @Override public void setSurface(Surface surface, int width, int height) { output.setSurface(surface, width, height); }
     @Override public java.util.concurrent.CompletableFuture<Void> present(Surface surface, ShellBounds viewport) {
         return output.setSurface(surface, new io.github.mekhontsev.magicdesk.wayland.WaylandViewport(
@@ -16,6 +21,12 @@ final class WaylandSurfaceOutput implements HostedShellOutput {
     @Override public void focus() { output.focus(true); }
     @Override public void blur() { output.focus(false); }
     @Override public void pointer(float x, float y) { output.pointer(x, y); }
+    @Override public boolean supportsTouch() { return directTouch; }
+    @Override public void touch(int contact, HostedTouchPhase phase, float x, float y, float pressure) {
+        output.touch(contact, phase, x, y);
+    }
+    @Override public void touchFrame() { output.touchFrame(); }
+    @Override public void cancelContacts() { output.cancelTouch(); }
     @Override public void captureListener(java.util.function.LongConsumer listener) { output.captureListener(listener); }
     @Override public void pointerCapture(long serial, boolean captured) { output.pointerCapture(serial, captured); }
     @Override public void relative(long serial, float dx, float dy) { output.relative(serial, dx, dy); }

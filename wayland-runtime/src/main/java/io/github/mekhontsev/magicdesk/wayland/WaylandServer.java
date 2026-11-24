@@ -294,6 +294,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
         });
     }
     @Override public void pointer(long id, double x, double y) { output(id, pointer -> nativePointer(pointer, x, y)); }
+    @Override public void touch(long id, int contact, int phase, double x, double y) {
+        output(id, pointer -> nativeTouch(pointer, contact, phase, x, y));
+    }
+    @Override public void touchFrame(long id) { output(id, WaylandServer::nativeTouchFrame); }
+    @Override public void cancelTouch(long id) { output(id, WaylandServer::nativeCancelTouch); }
     @Override public void pointerCapture(long id, long serial, boolean captured) {
         output(id, pointer -> nativePointerCapture(pointer, serial, captured));
     }
@@ -673,6 +678,9 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native boolean nativeScale(long output, double scale);
     private static native long nativeBorrowDependents(long output);
     private static native void nativePointer(long output, double x, double y);
+    private static native void nativeTouch(long output, int contact, int phase, double x, double y);
+    private static native void nativeTouchFrame(long output);
+    private static native void nativeCancelTouch(long output);
     private static native void nativePointerCapture(long output, long serial, boolean captured);
     private static native void nativeRelative(long output, long serial, double dx, double dy);
     private static native void nativeButton(long output, int button, boolean down);

@@ -53,14 +53,20 @@ final class HostedDirectInput {
             if (id < 0 || id > 31) return true;
             contacts |= 1 << id;
             contact(event, index, -1, HostedTouchPhase.BEGIN, output, viewport);
-        } else if (action == MotionEvent.ACTION_MOVE) {
-            for (int h = 0; h <= event.getHistorySize(); h++)
+            output.touchFrame();
+        } else if (action == MotionEvent.ACTION_MOVE && contacts != 0) {
+            for (int h = 0; h <= event.getHistorySize(); h++) {
                 for (int i = 0; i < event.getPointerCount(); i++)
                     contact(event, i, h == event.getHistorySize() ? -1 : h, HostedTouchPhase.UPDATE, output, viewport);
+                output.touchFrame();
+            }
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
-            contact(event, index, -1, HostedTouchPhase.END, output, viewport);
             int id = event.getPointerId(index);
-            if (id >= 0 && id <= 31) contacts &= ~(1 << id);
+            if (id >= 0 && id <= 31 && (contacts & (1 << id)) != 0) {
+                contact(event, index, -1, HostedTouchPhase.END, output, viewport);
+                contacts &= ~(1 << id);
+                output.touchFrame();
+            }
             if (action == MotionEvent.ACTION_UP) cancel(output);
         }
         return true;

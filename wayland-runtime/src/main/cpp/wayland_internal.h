@@ -56,6 +56,7 @@ struct MdwServer {
     bool keyboard_initialized;
     struct wl_listener modifiers;
     MdwOutput *pointer_owner, *keyboard_owner;
+    MdwOutput *touch_owner;
     struct wl_listener new_toplevel, new_popup;
     struct wl_listener new_layer;
     struct wl_list windows, views, outputs, layers;

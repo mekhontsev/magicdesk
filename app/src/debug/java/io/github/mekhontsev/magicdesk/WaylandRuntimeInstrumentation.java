@@ -284,8 +284,9 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     scope = panels.shellScope();
                     initialWorkArea = scope.snapshot().workArea();
                     binding = new WaylandShellBinding(session, scope, density, this);
+                    // The workspace fixture sends pointer gestures to pointer-only clients.
                     windows = binding.host(activity.shellSurfaceHost(state -> new WaylandSurfaceOutput(
-                            binding.openOutput(state.id(), state.bounds().width(), state.bounds().height()))),
+                            binding.openOutput(state.id(), state.bounds().width(), state.bounds().height()), false)),
                             activity.shellPresentation());
                     created.complete(null);
                 } catch (Exception error) { created.completeExceptionally(error); }
@@ -630,7 +631,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                                 .getDisplay(chromeDisplay);
                         var output = binding.get().openOutput(surface, 80, 40);
                         view.set(new HostedShellSurfaceView(getTargetContext().createDisplayContext(display),
-                                new WaylandSurfaceOutput(output)));
+                                new WaylandSurfaceOutput(output, false)));
                         view.get().getChildAt(0).setOnTouchListener((target, event) -> {
                             if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) downs.incrementAndGet();
                             return false;
