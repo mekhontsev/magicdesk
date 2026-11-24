@@ -1233,4 +1233,6 @@
     <string name="console_command_shortcut">创建命令快捷方式</string>
     <string name="console_notification_settings">终端通知设置</string>
     <string name="console_path_unknown">此会话无法访问该路径。</string>
+    <string name="guest_session_options">启动选项…</string>
+    <string name="guest_start_services">启动系统服务</string>
 </resources>

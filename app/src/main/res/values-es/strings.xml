@@ -1257,4 +1257,6 @@
     <string name="console_command_shortcut">Crear acceso directo a un comando</string>
     <string name="console_notification_settings">Ajustes de notificaciones del terminal</string>
     <string name="console_path_unknown">La ruta no está disponible en esta sesión.</string>
+    <string name="guest_session_options">Opciones de inicio…</string>
+    <string name="guest_start_services">Iniciar servicios del sistema</string>
 </resources>

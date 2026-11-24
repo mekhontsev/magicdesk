@@ -55,7 +55,7 @@ final class LauncherExports {
         requireIdentity(context, target);
         var source = DesktopEntrySource.parse(target.source());
         DesktopEntry entry = source == DesktopEntrySource.DESKTOP ? source.read(context, target.path())
-                : DesktopEntrySource.find(source.load(context), target.path()).shortcut;
+                : DesktopEntrySource.find(source.load(context), target.path()).configured(context);
         requireIdentity(context, target);
         if (!(entry instanceof DesktopApplicationShortcut shortcut) || !shortcut.hasExecLaunch()
                 || (shortcut.execBackend == DesktopExecBackend.TERMUX) != !target.termuxPackage().isEmpty()

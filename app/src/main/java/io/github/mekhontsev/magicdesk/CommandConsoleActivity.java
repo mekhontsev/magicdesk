@@ -130,8 +130,11 @@ public final class CommandConsoleActivity extends Activity
     }
 
     static Intent createEnvironmentIntent(Context context, GuestEnvironmentCatalog.Entry entry, GuestTmux.Target target) {
-        var intent = createPreparedCommandIntent(context, target == null ? GuestEnvironmentCatalog.login(entry)
+        var options = target == null ? GuestSessionPreferences.load(context, entry.backend(), GuestSessionPreferences.console(entry))
+                : GuestSessionOptions.DIRECT;
+        var intent = createPreparedCommandIntent(context, target == null ? GuestEnvironmentCatalog.login(entry, options)
                 : target.command(entry), "", entry.backend())
+                .putExtra("guestSessionUser", options.user()).putExtra("guestSessionBoot", options.boot())
                 .putExtra("guestEnvironment",new String[]{entry.name(),entry.id(),entry.source(),entry.store()});
         return target == null ? intent : intent.putExtra("guestTmuxTarget", target.encode());
     }
@@ -149,7 +152,8 @@ public final class CommandConsoleActivity extends Activity
             var entry=new GuestEnvironmentCatalog.Entry(fields[0],java.util.UUID.fromString(fields[1]).toString(),
                     fields[2],GuestEnvironment.absolute(fields[3],"environment store"),backend);
             String[] target = request.getStringArrayExtra("guestTmuxTarget");
-            String expected = target == null ? GuestEnvironmentCatalog.login(entry) : GuestTmux.Target.decode(target).command(entry);
+            var options = new GuestSessionOptions(request.getStringExtra("guestSessionUser"), request.getBooleanExtra("guestSessionBoot", false));
+            String expected = target == null ? GuestEnvironmentCatalog.login(entry, options) : GuestTmux.Target.decode(target).command(entry);
             return expected.equals(command) ? entry : null;
         } catch (IllegalArgumentException invalidPresentation) { return null; }
     }

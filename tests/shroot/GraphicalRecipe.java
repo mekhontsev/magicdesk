@@ -7,11 +7,12 @@ public final class GraphicalRecipe {
             System.out.print(LinuxAudioEnvironment.shrootArguments() + GamepadWire.shrootArguments());
             return;
         }
-        if ((args.length == 4 || args.length == 5) && args[0].equals("managed")) {
+        if ((args.length == 4 || args.length == 5) && (args[0].equals("managed") || args[0].equals("boot"))) {
             var protocol = GraphicalProtocol.parse(args[1]);
             var environment = new GuestEnvironment(args[2], "", args.length == 5 ? args[4] : "", true);
             System.out.print(GuestGraphicalConnection.invocation(
-                    GuestGraphicalConnection.plan(environment, "", args[3], protocol), protocol, true));
+                    GuestGraphicalConnection.plan(environment, "", args[3], protocol), protocol, true,
+                    new GuestSessionOptions(environment.user(), args[0].equals("boot"))));
             return;
         }
         if ((args.length == 5 || args.length == 6) && args[0].equals("routed")) {

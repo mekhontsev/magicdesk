@@ -51,6 +51,11 @@ final class LinuxLaunchRecipe {
 
     static DesktopApplicationShortcut build(String name, Environment environment, String command,
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
+        return build(name, environment, command, directory, user, presentation, protocol, false);
+    }
+
+    static DesktopApplicationShortcut build(String name, Environment environment, String command,
+            String directory, String user, Presentation presentation, GraphicalProtocol protocol, boolean boot) {
         if (protocol == null) throw new IllegalArgumentException("Select a graphical protocol");
         user = user == null ? "" : user.trim();
         if (environment.kind() != Kind.GUEST && environment.kind() != Kind.MANAGED_GUEST && !user.isEmpty() && !user.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?"))
@@ -60,7 +65,8 @@ final class LinuxLaunchRecipe {
         if (command.isEmpty() && presentation != Presentation.TERMINAL)
             throw new IllegalArgumentException("Enter a Linux command");
         if (environment.kind() == Kind.GUEST || environment.kind() == Kind.MANAGED_GUEST)
-            return guest(name, environment, command, directory, user, presentation, protocol);
+            return guest(name, environment, command, directory, user, presentation, protocol, boot);
+        if (boot) throw new IllegalArgumentException("Boot requires a managed Shroot environment");
 
         boolean graphical = presentation != Presentation.TERMINAL;
         StringBuilder host = new StringBuilder("set -eu; ");
@@ -126,9 +132,10 @@ final class LinuxLaunchRecipe {
     }
 
     private static DesktopApplicationShortcut guest(String name, Environment environment, String command,
-            String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
+            String directory, String user, Presentation presentation, GraphicalProtocol protocol, boolean boot) {
         boolean graphical = presentation != Presentation.TERMINAL;
         boolean managed = environment.kind() == Kind.MANAGED_GUEST;
+        if (boot && !managed) throw new IllegalArgumentException("Boot requires a managed Shroot environment");
         if (graphical && environment.backend() == DesktopExecBackend.TERMUX)
             throw new IllegalArgumentException("Termux Shroot terminal recipes do not host a MagicDesk graphical session");
         String keyboard = environment.keyboardDirectory().isEmpty() ? "guest:" + environment.target() : environment.keyboardDirectory();
@@ -140,9 +147,12 @@ final class LinuxLaunchRecipe {
                 : new GuestLaunchPlan(identity, cwd, command.isEmpty()
                         ? managed ? List.of() : List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc", command));
         plan = new GuestLaunchPlan(plan.environment(), plan.directory(), plan.command(), environment.magicDesk(), plan.network());
+        var options = boot ? new GuestSessionOptions(user, true) : GuestSessionOptions.DIRECT;
         String exec = DesktopExecTemplate.encodeArguments(graphical
                 ? List.of("env", "SHROOT_GUEST_LABEL=" + name, "sh", "-c",
-                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments(environment.backend().shrootCli()));
+                        GuestGraphicalConnection.invocation(plan, protocol, true, options))
+                : boot ? List.of("sh", "-ec", options.invocation(plan, environment.backend().shrootCli(), "", ""))
+                : plan.arguments(environment.backend().shrootCli()));
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(), !graphical)

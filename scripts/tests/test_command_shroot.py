@@ -119,6 +119,16 @@ class ShrootAdapter(unittest.TestCase):
             expected = mode or ['--network', 'bridge', '-p', defaults[1]]
             self.assertEqual(args[2:2+len(opts)+len(expected)], opts + expected)
 
+    def test_boot_network_fallback_preserves_stored_and_explicit_policy(self):
+        for options, expected in (([], 'bridge'), (['--magicdesk-default-network', 'none'], 'none'),
+                                  (['--network', 'host'], 'host')):
+            args = ['exec', '/store', '--magicdesk-fallback-network', 'bridge', *options, '--', '/bin/sh']
+            result = self.run_adapter(args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            native = json.loads(result.stdout)['args']
+            self.assertEqual(native.count('--network'), 1)
+            self.assertEqual(native[native.index('--network') + 1], expected)
+
     def test_failures_do_not_retain_lease(self):
         result = self.delegated(['--store', '/store', '--magicdesk', '--', '/bin/sh'], self.root / 'absent')
         self.assertEqual(result.returncode, 125, result.stderr)

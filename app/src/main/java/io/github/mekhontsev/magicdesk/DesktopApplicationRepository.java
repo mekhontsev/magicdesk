@@ -94,6 +94,7 @@ final class DesktopApplicationRepository {
         final DesktopFile desktopFile;
         final boolean userShortcut;
         final String summary;
+        final java.util.function.Function<GuestSessionOptions, DesktopApplicationShortcut> guestLaunch;
 
         Entry(
                 final DesktopApplicationShortcut shortcut,
@@ -111,11 +112,23 @@ final class DesktopApplicationRepository {
 
         Entry(DesktopApplicationShortcut shortcut, String desktopFilePath,
                 DesktopFile desktopFile, boolean userShortcut, String summary) {
+            this(shortcut, desktopFilePath, desktopFile, userShortcut, summary, null);
+        }
+
+        Entry(DesktopApplicationShortcut shortcut, String desktopFilePath, DesktopFile desktopFile,
+                boolean userShortcut, String summary, java.util.function.Function<GuestSessionOptions, DesktopApplicationShortcut> guestLaunch) {
             this.shortcut = shortcut;
             this.desktopFilePath = desktopFilePath;
             this.desktopFile = desktopFile;
             this.userShortcut = userShortcut;
             this.summary = summary;
+            this.guestLaunch = guestLaunch;
+        }
+
+        DesktopApplicationShortcut configured(android.content.Context context) {
+            if (guestLaunch == null) return shortcut;
+            var options = GuestSessionPreferences.load(context, shortcut.execBackend, desktopFilePath);
+            return options.equals(GuestSessionOptions.DIRECT) ? shortcut : guestLaunch.apply(options);
         }
     }
 }

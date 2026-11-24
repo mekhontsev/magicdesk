@@ -29,7 +29,19 @@ final class StartEntryLauncher {
                 TerminalSessionsDialog.show(activity, placement(destination), destination.uniqueId(), presentation);
                 started.run();
             } else if (entry.desktopApplication != null) {
-                final DesktopLaunchRequest request = DesktopLaunchRequest.from(entry.desktopApplication.shortcut,
+                if (entry.recent != null && GuestSessionPreferences.guestPath(entry.desktopApplication.desktopFilePath)) {
+                    TaskCommandQueue.execute(() -> {
+                        try {
+                            var current = DesktopEntrySource.find(ApplicationCatalog.loadGuest(activity, false), entry.desktopApplication.desktopFilePath);
+                            activity.runOnUiThread(() -> {
+                                if (alive.getAsBoolean()) open(activity, StartMenuEntry.desktopApplication(current),
+                                        destination, presentation, alive, started, failed);
+                            });
+                        } catch (Exception error) { activity.runOnUiThread(() -> { if (alive.getAsBoolean()) failed.accept(error); }); }
+                    });
+                    return;
+                }
+                final DesktopLaunchRequest request = DesktopLaunchRequest.from(entry.desktopApplication.configured(activity),
                         DesktopLaunchArguments.empty(), entry.desktopApplication.desktopFilePath);
                 request(activity, ApplicationEntryLauncher.present(request, placement(destination), presentation),
                         destination, alive, started, failed);

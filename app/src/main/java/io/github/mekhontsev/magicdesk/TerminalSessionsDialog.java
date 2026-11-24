@@ -260,7 +260,7 @@ final class TerminalSessionsDialog {
     }
 
     private void guestActions(GuestEnvironmentCatalog.Entry entry) {
-        var actions = new java.util.ArrayList<>(List.of(R.string.terminal_new, R.string.console_tmux_sessions, R.string.guest_launches));
+        var actions = new java.util.ArrayList<>(List.of(R.string.terminal_new, R.string.guest_session_options, R.string.console_tmux_sessions, R.string.guest_launches));
         if (entry.backend() != DesktopExecBackend.TERMUX) actions.addAll(List.of(R.string.guest_install_application,
                 io.github.mekhontsev.magicdesk.connections.R.string.folder_title,
                 io.github.mekhontsev.magicdesk.connections.R.string.net_title));
@@ -268,6 +268,8 @@ final class TerminalSessionsDialog {
                 .setItems(actions.stream().map(activity::getString).toArray(String[]::new), (dialog, index) -> {
                     int action = actions.get(index);
                     if (action == R.string.terminal_new) openIntent(CommandConsoleActivity.createEnvironmentIntent(activity, entry));
+                    else if (action == R.string.guest_session_options) GuestSessionPreferences.show(activity,
+                            entry.label(activity), entry.backend(), GuestSessionPreferences.console(entry));
                     else if (action == R.string.console_tmux_sessions) guestTmux(entry);
                     else if (action == R.string.guest_launches) GuestLaunchesDialog.show(activity, entry);
                     else if (action == R.string.guest_install_application) LauncherExportActivity.openEnvironment(activity, entry);

@@ -25,7 +25,7 @@ enum DesktopEntrySource {
     }
 
     DesktopEntry read(Context context, String path) throws IOException {
-        if (this == GUEST) return find(ApplicationCatalog.loadGuest(context, false), path).shortcut;
+        if (this == GUEST) return find(ApplicationCatalog.loadGuest(context, false), path).configured(context);
         if (this != DESKTOP) return find(load(context), path).shortcut;
         DesktopEntry entry = DesktopEntryFile.read(ShellAccess.getShellFileInfo(path));
         if (entry == null) throw new IllegalArgumentException("unsupported or invalid .desktop file");

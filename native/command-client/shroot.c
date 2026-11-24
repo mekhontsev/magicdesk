@@ -18,12 +18,18 @@ int md_command_shroot(int argc, char **argv) {
     char **command = calloc((size_t)argc + 16, sizeof(*command));
     if (!command) return 125;
     int count = 0, enabled = 0, at = prefix, explicit_network = 0, defaults = 0;
+    char *fallback_network = NULL;
     for (int i = 0; i < prefix; ++i) command[count++] = argv[i];
     while (at < argc && strcmp(argv[at], "--")) {
         const char *option = argv[at++];
         if (!strcmp(option, "--magicdesk")) {
             if (enabled) { free(command); return 2; }
             enabled = 1; continue;
+        }
+        if (!strcmp(option,"--magicdesk-fallback-network")) {
+            if (at == argc || fallback_network) { free(command); return 2; }
+            fallback_network=argv[at++];
+            continue;
         }
         if (!strcmp(option,"--magicdesk-default-network") || !strcmp(option,"--magicdesk-default-publish")) {
             if (at == argc) { free(command); return 2; }
@@ -46,6 +52,9 @@ int md_command_shroot(int argc, char **argv) {
     if (!explicit_network && defaults) {
         memmove(command+count,command+argc+16-defaults,(size_t)defaults*sizeof(*command));
         count+=defaults;
+    } else if (!explicit_network && fallback_network) {
+        command[count++]="--network";
+        command[count++]=fallback_network;
     }
     char *authority = NULL, *endpoint = NULL, *build = NULL;
     const char *x11 = getenv("MAGICDESK_X11_AUTHORITY");

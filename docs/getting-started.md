@@ -238,11 +238,13 @@ with software rendering otherwise.
 See [SteamOS recovery image](shroot.md#steamos-recovery-image) for storage
 requirements and the `steamos` guest account.
 
-If setup is interrupted, do not delete the environment or start a second install.
-Use `shroot list` to confirm its name, then follow
-[Resume An Interrupted Installation](shroot.md#resume-an-interrupted-installation).
-Resume does not download or import the rootfs again. Avoid replacing the
-MagicDesk APK while the installer is running: its console PTY will end.
+To refresh the recipe after an APK update or finish an interrupted install,
+download the matching installer again. In the original executor, use
+`shroot list` to find the environment name, then run
+`sh ~/install_linux.sh --name NAME --resume`, replacing `NAME` with that name.
+This updates the guest helpers and reruns package setup without importing
+the rootfs again. See [resume options](shroot.md#resume-an-interrupted-installation).
+Avoid replacing the APK while the installer is running: its console PTY will end.
 
 ### Launch Installed Linux
 

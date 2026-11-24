@@ -1245,4 +1245,6 @@
     <string name="console_command_shortcut">Befehlsverknüpfung erstellen</string>
     <string name="console_notification_settings">Benachrichtigungseinstellungen für das Terminal</string>
     <string name="console_path_unknown">Der Pfad ist in dieser Sitzung nicht verfügbar.</string>
+    <string name="guest_session_options">Startoptionen…</string>
+    <string name="guest_start_services">Systemdienste starten</string>
 </resources>

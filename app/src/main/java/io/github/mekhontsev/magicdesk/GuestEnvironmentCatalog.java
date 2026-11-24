@@ -98,5 +98,10 @@ final class GuestEnvironmentCatalog {
     static String login(Entry entry) {
         return storeCommand(entry, "login");
     }
+    static String login(Entry entry, GuestSessionOptions options) {
+        if (!options.boot()) return options.user().isEmpty() ? login(entry) : storeCommand(entry, "login", "--user", options.user());
+        var plan = new GuestLaunchPlan(new GuestEnvironment(entry.store(), "", options.user(), true), "", List.of());
+        return options.invocation(plan, entry.backend().shrootCli(), "", "");
+    }
     private GuestEnvironmentCatalog() { }
 }

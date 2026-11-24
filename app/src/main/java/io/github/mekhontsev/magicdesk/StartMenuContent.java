@@ -937,6 +937,9 @@ final class StartMenuContent {
                             application.shortcut.hasExecLaunch(), mHost.automation());
                     StartLaunchControls.addMenuItems(menu, destination(), presentation(),
                             (target, selected) -> mHost.open(entry, target, selected));
+                    if (application.guestLaunch != null || entry.recent != null && GuestSessionPreferences.guestPath(application.desktopFilePath))
+                        menu.add(R.string.guest_session_options, () -> GuestSessionPreferences.show(mActivity,
+                                application.shortcut.name, application.shortcut.execBackend, application.desktopFilePath));
                     if (scale) menu.add(R.string.app_presentation_scale,
                             () -> GraphicalScaleDialog.show(mActivity, application.shortcut,
                                     application.desktopFilePath,

@@ -258,6 +258,10 @@ that the client presented a frame.
 
 ### Guest Desktop Services
 
+To run a Shroot desktop as a particular Linux user or boot its system services
+alongside it, long-press its entry in **Apps → Launch options**.
+See [service sessions](shroot.md#systemd-openrc-and-runit) for scope and shutdown.
+
 `magicdesk-desktop-session` reuses an inherited D-Bus session, or creates a
 private one when launched directly. When that bus belongs to a running systemd
 user manager, the desktop runs in its own transient scope bound to

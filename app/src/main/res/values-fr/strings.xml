@@ -1257,4 +1257,6 @@
     <string name="console_command_shortcut">Créer un raccourci de commande</string>
     <string name="console_notification_settings">Paramètres des notifications du terminal</string>
     <string name="console_path_unknown">Chemin indisponible dans cette session.</string>
+    <string name="guest_session_options">Options de lancement…</string>
+    <string name="guest_start_services">Démarrer les services système</string>
 </resources>

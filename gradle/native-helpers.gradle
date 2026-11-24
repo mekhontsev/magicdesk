@@ -36,6 +36,20 @@ def findNdkHomes = {
     return [file("${sdkHome}/ndk/${android.ndkVersion}")]
 }
 
+// Use the APK API's NDK stubs with the native Termux compiler. Clang needs
+// -B for startup objects as well as -L for the linker's library lookup.
+def termuxApiLibraries = {
+    def libraries = findNdkHomes().collectMany { home ->
+        def prebuilts = new File(home, 'toolchains/llvm/prebuilt').listFiles()
+        (prebuilts ?: []).collect { prebuilt ->
+            new File(prebuilt, "sysroot/usr/lib/aarch64-linux-android/${android.defaultConfig.minSdk}")
+        }
+    }.find { new File(it, 'libc.so').isFile() && new File(it, 'crtbegin_static.o').isFile() }
+    if (libraries == null) throw new GradleException(
+            'Android API link files are missing; install the configured NDK or set ANDROID_NDK_HOME')
+    return libraries.absolutePath
+}
+
 def resolveNativeCompilerCommand = {
     if (termuxNativeHost) {
         return [termuxCompiler.absolutePath, "--target=${nativeTarget}".toString()]
@@ -86,7 +100,12 @@ def registerNativeHelper = { String taskName, String sourceName,
         doFirst {
             output.parentFile.mkdirs()
             def sources = [source.absolutePath]
-            commandLine resolveNativeCompilerCommand() + [
+            def link = []
+            if (termuxNativeHost) {
+                def api = termuxApiLibraries()
+                link = ['-fno-termux-rpath', "-B${api}", "-L${api}"]
+            }
+            commandLine resolveNativeCompilerCommand() + link + [
                     '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
                     '-Wl,-z,noexecstack', '-o', output.absolutePath] +
                     (staticExecutable ? ['-static', '-fno-pie', '-ffunction-sections', '-fdata-sections',
@@ -138,17 +157,8 @@ guestFilesTask.configure {
 def cmakeAndroidTarget = {
     def compiler = resolveNativeCompilerCommand()
     if (termuxNativeHost) {
-        // Termux's libc stub targets its own minimum API. Use NDK stubs for
-        // the APK API; desktop NDK executables are not run on this host.
-        def libraries = findNdkHomes().collectMany { home ->
-            def prebuilts = new File(home, 'toolchains/llvm/prebuilt').listFiles()
-            (prebuilts ?: []).collect { prebuilt ->
-                new File(prebuilt, "sysroot/usr/lib/aarch64-linux-android/${android.defaultConfig.minSdk}")
-            }
-        }.find { new File(it, 'libc.so').isFile() }
-        if (libraries == null) throw new GradleException(
-                'Android API link stubs are missing; install the configured NDK or set ANDROID_NDK_HOME')
-        def flags = "-fno-termux-rpath -L\"${libraries.absolutePath}\""
+        def api = termuxApiLibraries()
+        def flags = "-fno-termux-rpath -B\"${api}\" -L\"${api}\""
         return [
             "-DCMAKE_C_COMPILER=${compiler[0]}", "-DCMAKE_ASM_COMPILER=${compiler[0]}",
             "-DCMAKE_C_FLAGS=${compiler[1]}", "-DCMAKE_ASM_FLAGS=${compiler[1]}",

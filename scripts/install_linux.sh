@@ -5632,23 +5632,47 @@ test "$$" = 1
 # Init's shared API directories must not inherit Android's private app umask.
 umask 022
 mkdir -p /run /tmp /var/tmp
-# Preserve the launch-owned input provider across the private /run mount.
-udev_mount=
-if mountpoint -q /run/udev; then
-    udev_mount=$(mktemp -d /mnt/md-init-udev.XXXXXXXX)
-    mount --move /run/udev "$udev_mount"
-fi
+# Retain only launch-owned input and command mounts across the private /run.
+run_mounts=
+for leaf in udev magicdesk; do
+    if mountpoint -q "/run/$leaf"; then
+        [ -n "$run_mounts" ] || run_mounts=$(mktemp -d /mnt/md-init-run.XXXXXXXX)
+        mkdir "$run_mounts/$leaf"
+        mount --move "/run/$leaf" "$run_mounts/$leaf"
+    fi
+done
 mount -t tmpfs -o mode=755 tmpfs /run
-if [ -n "$udev_mount" ]; then
-    mkdir -p /run/udev
-    mount --move "$udev_mount" /run/udev
-    rmdir "$udev_mount"
+if [ -n "$run_mounts" ]; then
+    for dir in "$run_mounts"/*; do
+        mkdir "/run/${dir##*/}"
+        mount --move "$dir" "/run/${dir##*/}"
+        rmdir "$dir"
+    done
+    rmdir "$run_mounts"
+fi
+# Retain only launch-owned mounts, not files from another desktop's /tmp.
+if [ "${md_session:-}" = yes ]; then
+    for leaf in magicdesk-helpers magicdesk-terminal-files; do
+        if mountpoint -q "/tmp/$leaf"; then
+            mkdir "/run/$leaf"
+            mount --move "/tmp/$leaf" "/run/$leaf"
+        fi
+    done
 fi
 mount -t tmpfs -o mode=1777 tmpfs /tmp
+if [ "${md_session:-}" = yes ]; then
+    for leaf in magicdesk-helpers magicdesk-terminal-files; do
+        if [ -d "/run/$leaf" ]; then
+            mkdir "/tmp/$leaf"
+            mount --move "/run/$leaf" "/tmp/$leaf"
+            rmdir "/run/$leaf"
+        fi
+    done
+fi
 mount -t tmpfs -o mode=1777 tmpfs /var/tmp
 mount -t sysfs -o ro sysfs /sys
 mount -t cgroup2 none /sys/fs/cgroup
-console=$(tty)
+console=$(tty) || { [ "${md_session:-}" = yes ] || exit 1; console=/dev/null; }
 mkdir -p /run/md-host-dev
 # Retain mounted endpoints and their metadata, not just covered provider dentries.
 mount --rbind /dev /run/md-host-dev
@@ -5731,6 +5755,7 @@ init_session() {
 set -eu
 if [ "${1:-}" = --help ]; then
     echo 'Usage: magicdesk-init [COMMAND [ARG...]]'
+    echo '       magicdesk-init --session UID:GID DIRECTORY [COMMAND [ARG...]]'
     echo 'Boot the installed init system with a guest-root console (or command).'
     exit 0
 fi
@@ -5742,12 +5767,15 @@ for candidate in /sbin/openrc-init /usr/lib/systemd/systemd /lib/systemd/systemd
         break
     fi
 done
+if [ -z "$init_command" ] && [ -x /etc/runit/2 ]; then
+    init_command=$(command -v runit) || init_command=
+fi
 [ -n "$init_command" ] || {
-    echo 'Install systemd or OpenRC to use magicdesk-init.' >&2; exit 1;
+    echo 'Install systemd, OpenRC or runit to use magicdesk-init.' >&2; exit 1;
 }
 if [ "${1:-}" != --namespace-init ]; then
     [ "$(id -u)" = 0 ] || { echo 'Guest root is required for init.' >&2; exit 1; }
-    tty >/dev/null || { echo 'Init requires a terminal; use script for a headless launch.' >&2; exit 1; }
+    [ "${1:-}" = --session ] || tty >/dev/null || { echo 'Init requires a terminal; use script for a headless launch.' >&2; exit 1; }
     for tool in unshare mount mountpoint script; do
         command -v "$tool" >/dev/null || { echo "Missing init tool: $tool (install util-linux)." >&2; exit 1; }
     done
@@ -5755,6 +5783,22 @@ if [ "${1:-}" != --namespace-init ]; then
 fi
 shift
 [ "$$" = 1 ] || { echo 'Init preparation requires private PID 1.' >&2; exit 1; }
+md_session=no
+if [ "${1:-}" = --session ]; then
+    [ "$#" -ge 3 ] || exit 2
+    md_session=yes
+    case "$2" in *:*) ;; *) exit 2;; esac
+    uid=${2%:*}; gid=${2#*:}; md_session_cwd=$3; shift 3
+    case "$uid:$gid" in :*|*:|*[!0-9:]*) exit 2;; esac
+    case "$uid$gid" in *:*) exit 2;; esac
+    case "$md_session_cwd" in ''|/*) ;; *) exit 2;; esac
+    command -v setpriv >/dev/null || { echo 'Starting a user session requires util-linux setpriv.' >&2; exit 1; }
+    record=$(getent passwd "$uid") || { echo "No Linux account for UID $uid" >&2; exit 1; }
+    IFS=: read -r account unused actual_uid primary_gid gecos home shell <<EOF
+$record
+EOF
+    [ "$actual_uid" = "$uid" ] && [ -n "$account" ] && [ -n "$home" ] || exit 1
+fi
 MD_INIT_ENTRY
     init_prepare
     cat <<'MD_INIT_EXEC'
@@ -5763,7 +5807,34 @@ mount --make-rshared /
 # The caller already selected guest root. Retain that identity on the console;
 # do not change login policy or install a passwordless getty on other terminals.
 console_restart=no
-if [ "$#" = 0 ]; then
+if [ "${md_session:-}" = yes ]; then
+    if [ "$#" = 0 ]; then set -- "${shell:-/bin/sh}" -l; fi
+    # This is a user session without a PAM login. Its private /run lasts until shutdown.
+    mkdir -p /run/user
+    install -d -m 700 -o "$uid" -g "$gid" "/run/user/$uid"
+    # Only the selected account may read the desktop's one-launch tokens.
+    # Never put their values in unit files, manager arguments or world-readable /run files.
+    quote() { printf "'"; printf '%s' "$1" | sed "s/'/'\\\\''/g"; printf "'"; }
+    md_exports='DISPLAY WAYLAND_DISPLAY MAGICDESK_X11_AUTHORITY MAGICDESK_GUEST_FILES_SOCKET MAGICDESK_GUEST_FILES_TOKEN MAGICDESK_AUTOMATION_HELPER MAGICDESK_AUTOMATION_SOCKET MAGICDESK_AUTOMATION_TOKEN MAGICDESK_AUDIO_PIPEWIRE MAGICDESK_AUDIO_PULSE PIPEWIRE_REMOTE PULSE_SERVER MAGICDESK_TERMINAL_FILES_DIR TERM LANG'
+    if mountpoint -q /run/magicdesk; then md_exports="$md_exports MAGICDESK_COMMAND_ENDPOINT MAGICDESK_COMMAND_BUILD"; fi
+    (umask 077
+     {
+        echo 'set -eu'
+        printf 'export XDG_RUNTIME_DIR=/run/user/%s\n' "$uid"
+        printf 'export HOME='; quote "$home"; printf ' USER='; quote "$account"; printf ' LOGNAME='; quote "$account"; printf ' SHELL='; quote "${shell:-/bin/sh}"; printf '\n'
+        for key in $md_exports; do
+            eval "present=\${$key+x} val=\${$key-}"
+            [ -n "$present" ] || continue
+            printf 'export %s=' "$key"; quote "$val"; printf '\n'
+        done
+        printf 'cd '; quote "${md_session_cwd:-$home}"; printf '\nexec'
+        for arg do printf ' '; quote "$arg"; done
+        printf '\n'
+     } > /run/magicdesk-user-session)
+    chown "$uid:$gid" /run/magicdesk-user-session
+    for key in $md_exports; do unset "$key"; done
+    set -- "$(command -v setpriv)" --reuid "$uid" --regid "$gid" --init-groups /bin/sh /run/magicdesk-user-session
+elif [ "$#" = 0 ]; then
     set -- /bin/sh -l
     console_restart=always
 fi
@@ -5780,8 +5851,38 @@ fi
 # guest PTY instead of stealing its controlling terminal with host privileges.
 cat > /run/magicdesk-init-console <<'EOF'
 #!/bin/sh
+if [ -e /run/magicdesk-session-headless ]; then exec /bin/sh /run/magicdesk-init-session; fi
 exec script -q -e -c 'exec /bin/sh /run/magicdesk-init-session' /dev/null </dev/console >/dev/console 2>&1
 EOF
+if [ "$md_session" = yes ] && [ "$console" = /dev/null ]; then touch /run/magicdesk-session-headless; fi
+if [ "${init_command##*/}" = runit ]; then
+    for tool in runsv sv runit-init; do
+        command -v "$tool" >/dev/null || { echo "Missing runit tool: $tool" >&2; exit 1; }
+    done
+    service=/run/magicdesk-runit-session
+    mkdir "$service"
+    {
+        echo '#!/bin/sh'
+        if [ "$console_restart" = no ]; then echo 'sv once . || exit 1'; fi
+        echo 'exec /bin/sh /run/magicdesk-init-console'
+    } > "$service/run"
+    if [ "$md_session" = yes ]; then
+        printf '#!/bin/sh\nexec runit-init 0\n' > "$service/finish"
+        chmod 755 "$service/finish"
+    fi
+    chmod 755 "$service/run"
+    # Stage 2 starts only after stock sysinit. Leave the runlevel and its
+    # service links writable and persistent; only this mount namespace gets the console.
+    cp -p /etc/runit/2 "$service/stock-stage2"
+    cat > "$service/stage2" <<'EOF'
+#!/bin/sh
+runsv /run/magicdesk-runit-session &
+exec /run/magicdesk-runit-session/stock-stage2 "$@"
+EOF
+    chmod 755 "$service/stage2"
+    mount --bind "$service/stage2" /etc/runit/2
+    exec "$init_command"
+fi
 if [ "$init_command" = /sbin/openrc-init ]; then
     # Scope container policy to this boot; preserve installed service enablement.
     cp /etc/rc.conf /run/rc.conf
@@ -5801,9 +5902,18 @@ if [ "$init_command" = /sbin/openrc-init ]; then
         else
             printf 'command_background=yes\n'
         fi
-        cat <<'EOF'
+        if [ "${md_session:-}" = yes ]; then
+            cat <<'EOF'
+command=/bin/sh
+command_args=/run/magicdesk-openrc-session
+EOF
+        else
+            cat <<'EOF'
 command=$(command -v script)
 command_args="-q -e -c 'exec /bin/sh /run/magicdesk-init-session' /dev/null"
+EOF
+        fi
+        cat <<'EOF'
 input_file=/dev/console
 output_log=/dev/console
 error_log=/dev/console
@@ -5811,6 +5921,13 @@ pidfile=/run/magicdesk-session.pid
 start() { [ ! -f /run/magicdesk-init-session ] || default_start; }
 EOF
     } > /etc/init.d/magicdesk-session
+    if [ "$md_session" = yes ]; then
+        cat > /run/magicdesk-openrc-session <<'EOF'
+#!/bin/sh
+/bin/sh /run/magicdesk-init-console
+exec openrc-shutdown --poweroff now
+EOF
+    fi
     chmod 755 /etc/init.d/magicdesk-session
     rc-update add magicdesk-session default
     exec "$init_command"
@@ -5827,6 +5944,10 @@ ExecStart=/bin/sh /run/magicdesk-init-console
 Restart=$console_restart
 EOF
 ln -s ../magicdesk-session.service /run/systemd/system/default.target.wants/
+if [ "$md_session" = yes ]; then
+    mkdir /run/systemd/system/magicdesk-session.service.d
+    printf '[Unit]\nSuccessAction=exit\nFailureAction=exit\n' > /run/systemd/system/magicdesk-session.service.d/lifetime.conf
+fi
 exec "$init_command"
 MD_INIT_EXEC
 }
@@ -5939,6 +6060,8 @@ case "$family" in
         arch_mirror_fallback /etc/pacman.d/mirrorlist
         refresh_packages
         packages ca-certificates bash coreutils util-linux tzdata gzip
+        # Minimal runit images omit the optional runtime dependency of util-linux script.
+        if [ -x /etc/runit/2 ]; then packages libutempter; fi
         # Rootfs archives may omit xattrs; --needed cannot repair file capabilities.
         # Re-extract the package's own helper privileges, without setuid overrides.
         pacman -S --noconfirm shadow </dev/null ;;

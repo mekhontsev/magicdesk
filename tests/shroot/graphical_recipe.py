@@ -12,7 +12,7 @@ def compile_recipe(classes):
     modules = {
         'connection-runtime': ('LinuxConnectionContract', 'GuestNetworkProfile'),
         'app': ('LinuxGraphicalEnvironment', 'GuestGraphicalConnection', 'GuestLaunchPlan',
-                'GuestEnvironment', 'GraphicalProtocol', 'ShellCommandLine', 'LinuxAudioEnvironment', 'GamepadWire'),
+                'GuestEnvironment', 'GuestSessionOptions', 'GraphicalProtocol', 'ShellCommandLine', 'LinuxAudioEnvironment', 'GamepadWire'),
     }
     sources = [Path(__file__).with_name('GraphicalRecipe.java'),
                *(repo / module / 'src/main/java/io/github/mekhontsev/magicdesk' / (name + '.java')

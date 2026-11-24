@@ -237,6 +237,8 @@
     <string name="command_app_guest_store">Подготовленное хранилище гостя (путь на хосте)</string>
     <string name="command_app_guest_directory">Рабочая папка внутри Linux</string>
     <string name="command_app_linux_user">Пользователь Linux (необязательно)</string>
+    <string name="guest_session_options">Параметры запуска…</string>
+    <string name="guest_start_services">Запускать систему служб</string>
     <string name="command_app_linux_user_hint">По умолчанию для скрипта запуска</string>
     <string name="command_app_presentation">Открывать как</string>
     <string name="command_app_graphics">Графический протокол</string>

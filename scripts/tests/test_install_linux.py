@@ -536,7 +536,8 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         self.assertIn('[ "$$" = 1 ]', helper)
         self.assertIn('tty >/dev/null', helper)
         self.assertIn('[ "$init_command" = /sbin/openrc-init ]', helper)
-        self.assertEqual(2, helper.count('exec "$init_command"'))
+        self.assertIn('mount --bind "$service/stage2" /etc/runit/2', helper)
+        self.assertIn('runsv /run/magicdesk-runit-session &', helper)
         self.assertIn('exec script -q -e', helper)
         self.assertIn('for candidate in /sbin/openrc-init /usr/lib/systemd/systemd /lib/systemd/systemd', helper)
         self.assertLess(helper.index('for tool in unshare mount mountpoint script'),
@@ -559,7 +560,7 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         for mask in range(1 << len(paths)):
             with self.subTest(mask=mask):
                 root = self.directory / ('init-' + str(mask))
-                script = re.sub('|'.join(map(re.escape, paths)),
+                script = re.sub('|'.join(map(re.escape, (*paths, '/etc/runit/2'))),
                                 lambda match: str(root / match.group().lstrip('/')), selection)
                 expected = None
                 for index, path in enumerate(paths):
@@ -575,7 +576,24 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                 self.assertEqual(0 if expected else 1, result.returncode, result.stderr)
                 self.assertEqual(expected or '', result.stdout)
                 if expected is None:
-                    self.assertIn('Install systemd or OpenRC', result.stderr)
+                    self.assertIn('Install systemd, OpenRC or runit', result.stderr)
+
+        # A runit binary alone is not an installed service boot layout.
+        root = self.directory / 'runit-selection'
+        root.mkdir()
+        runit = root / 'runit'
+        runit.touch(mode=0o755)
+        stage = root / 'stage2'
+        script = re.sub('|'.join(map(re.escape, paths)), str(root / 'absent'), selection)
+        script = script.replace('/etc/runit/2', str(stage))
+        script = re.sub(r'export PATH=[^\n]+', 'export PATH=' + shlex.quote(str(root)), script)
+        for want in (None, runit):
+            if want:
+                stage.touch(mode=0o755)
+            result = subprocess.run(['sh', '-eu', '-c', script + '\nprintf "%s" "$init_command"'],
+                                    text=True, capture_output=True, timeout=5)
+            self.assertEqual(0 if want else 1, result.returncode, result.stderr)
+            self.assertEqual(str(want) if want else '', result.stdout)
 
     def test_init_session_activates_installed_nixos_after_private_mounts(self):
         helper = self.run_script('--print-init-session').stdout

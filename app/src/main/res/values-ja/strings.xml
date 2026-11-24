@@ -1233,4 +1233,6 @@
     <string name="console_command_shortcut">コマンドのショートカットを作成</string>
     <string name="console_notification_settings">端末の通知設定</string>
     <string name="console_path_unknown">このセッションではパスを使用できません。</string>
+    <string name="guest_session_options">起動オプション…</string>
+    <string name="guest_start_services">システムサービスを起動</string>
 </resources>

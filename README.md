@@ -9,8 +9,9 @@ application launchers and automation connect the same tools whether or not a
 managed Desktop is running.
 
 **Android 14+ for the APK; Android 15+ for managed Desktop.**
-Privileged features use Shizuku, a compatible provider such as Shevery, or
-optional direct root. You do not need any of them to run Linux:
+Shroot runs Linux without Shizuku or Android root. Managed Desktop and the
+privileged Shell console use Shizuku, a compatible provider such as Shevery,
+or direct root on a rooted device.
 
 - **Inside MagicDesk:** open a **User** console to [install a distribution](#linux-with-shroot)
   and run its packages, containers or k3s under MagicDesk's Android UID.
@@ -401,17 +402,33 @@ parallelism defaults to four jobs. Source builds and compatibility vary by recip
 
 **Current network** saves the selected executor's Android DNS addresses once;
 it does not follow later network changes. DNS remains editable inside Linux.
-See [network choices and resume](docs/shroot.md#linux-installer).
+See [network choices](docs/shroot.md#linux-installer).
 
 NixOS prepares and activates a NixOS system generation. SteamOS uses Valve's
 ARM64 recovery userspace, not a guest kernel; this does not imply compatibility
 with every Steam game. See the [recipes and image sources](docs/shroot.md#linux-installer)
 and [per-distribution evidence](https://github.com/mekhontsev/shroot/blob/develop/tests/validation-matrix.md).
 
-After installation, use **Apps** for individual programs and installed desktop
-entries, or **Terminal sessions > New session > Shroot environments** for a
-login shell. You can also run `shroot login NAME`. No managed Desktop or repeated
-installation is required. See [installation and resume](docs/shroot.md#linux-installer).
+**Launch:** open a program or desktop from **Apps**, or choose **New session >
+Shroot environments** in the console for a login shell. To select a **Linux
+user** or **Start system services** (systemd, OpenRC or runit), long-press
+the Apps entry and choose **Launch options**. For a terminal, choose the
+environment first, then **Launch options**. These settings apply to new
+sessions, not to windows you reopen. See [services and containers](docs/shroot.md#services-and-containers).
+
+**Update an existing environment:** updating the APK does not replace
+`magicdesk-init` inside Linux. Download the matching installer as above, then
+run these commands in the same **User** or **Shell** console used to install it:
+
+```sh
+shroot list
+sh ~/install_linux.sh --name debian --resume
+```
+
+Replace `debian` with the name shown by `shroot list`. Resume refreshes the
+recipe's helpers and reruns package setup without importing a new root filesystem.
+Omit `--gui` to keep the installed desktop. Use the same command to
+[resume an interrupted installation](docs/shroot.md#resume-an-interrupted-installation).
 
 ### Linux Graphics Acceleration
 
@@ -557,7 +574,7 @@ See [contribution workflow](CONTRIBUTING.md#branches-and-releases).
 | User console and Shroot environments | Ordinary app access; Shroot also needs the host capabilities listed below |
 | Termux terminals and graphics | Termux external commands, `RUN_COMMAND`; graphics also need XKB data |
 | Files, Shell console, privileged capture and actions | Authorized shell/root service and operation-specific capabilities |
-| Shroot | ARM64, executable storage, Linux 5.15+ and required guest capabilities |
+| Shroot | ARM64 and Linux 5.15+ with the [required host capabilities](https://github.com/mekhontsev/shroot/blob/main/kernel-compatibility.md). Android launches Shroot; Shroot's own loader runs the guest programs. |
 | Managed Desktop | Android 15+, privileged service, setup and working framework windowing |
 | External output | Hardware/firmware exposing a usable Android secondary display |
 

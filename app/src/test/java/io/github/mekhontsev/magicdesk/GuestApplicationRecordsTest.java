@@ -18,6 +18,27 @@ public class GuestApplicationRecordsTest {
     private static final String A = "00000000-0000-0000-0000-000000000001";
     private static final String B = "00000000-0000-0000-0000-000000000002";
 
+    @Test public void sessionOptionsSelectThePayloadIdentityWithoutChangingTheExecutor() throws Exception {
+        for (String flags : new String[]{"Terminal=true", "X-MagicDesk-Graphics=x11",
+                "X-MagicDesk-Graphics=wayland\nX-MagicDesk-GraphicsMode=desktop"}) {
+            var record = entry(A, "work", "/usr/share/applications/session.desktop", "Name=Session\nExec=session\n" + flags + "\n");
+            for (var backend : new DesktopExecBackend[]{DesktopExecBackend.APP, DesktopExecBackend.SHELL}) {
+                var item = GuestApplicationRecords.parse(new JSONArray().put(record).toString(), backend).entries().get(0);
+                assertFalse(item.shortcut.exec.contains("magicdesk-init"));
+                for (boolean boot : new boolean[]{false, true}) {
+                    var spec = item.guestLaunch.apply(new GuestSessionOptions("alice", boot));
+                    assertEquals(backend, spec.execBackend);
+                    assertTrue(spec.exec.contains("alice"));
+                    assertEquals(boot, spec.exec.contains("magicdesk-init"));
+                    assertEquals(boot, spec.exec.contains("0:0"));
+                    assertEquals(spec.terminal, item.shortcut.terminal);
+                    DesktopLaunchRequest.from(spec).prepareExec();
+                }
+            }
+        }
+        assertThrows(IllegalArgumentException.class, () -> new GuestSessionOptions("-root; id", true));
+    }
+
     @Test public void identicalLibrariesRetainTheirSelectedExecutor() throws Exception {
         String records = new JSONArray().put(entry(A, "linux", "/usr/share/applications/editor.desktop",
                 "Name=Editor\nExec=editor\nIcon=editor\n")).toString();

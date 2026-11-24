@@ -35,17 +35,19 @@ final class GuestApplicationRecords {
                 var linux = DesktopEntryFile.parseGuestApplication(record.getString("text"));
                 if (linux == null) continue;
                 String command = DesktopExecTemplate.expandArguments(linux.exec, DesktopLaunchArguments.empty(), linux.name, linux.icon, path);
-                var recipe = LinuxLaunchRecipe.build(linux.name + " (" + environment.name() + ")",
+                java.util.function.Function<GuestSessionOptions, DesktopApplicationShortcut> launch = options -> {
+                    var recipe = LinuxLaunchRecipe.build(linux.name + " (" + environment.name() + ")",
                         new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.MANAGED_GUEST, environment.store(), backend, ""),
-                        "exec " + command, linux.workingDirectory, "", linux.terminal ? LinuxLaunchRecipe.Presentation.TERMINAL
+                        "exec " + command, linux.workingDirectory, options.user(), linux.terminal ? LinuxLaunchRecipe.Presentation.TERMINAL
                                 : linux.graphics != null && linux.graphics.desktop() ? LinuxLaunchRecipe.Presentation.DESKTOP
-                                : LinuxLaunchRecipe.Presentation.APPLICATION, linux.graphics == null ? GraphicalProtocol.X11 : linux.graphics.protocol());
-                var shortcut = new DesktopApplicationShortcut(recipe.name, id, recipe.exec, null, "", recipe.launchMode,
+                                : LinuxLaunchRecipe.Presentation.APPLICATION, linux.graphics == null ? GraphicalProtocol.X11 : linux.graphics.protocol(), options.boot());
+                    return new DesktopApplicationShortcut(recipe.name, id, recipe.exec, null, "", recipe.launchMode,
                         false, recipe.execBackend, recipe.terminal).withLiteralExec(true).withGraphics(recipe.graphics == null ? null
                                 : new GraphicalLaunchOptions(recipe.graphics.protocol(), recipe.graphics.desktop(), recipe.graphics.keyboardDirectory(),
                                         linux.graphics == null ? "" : linux.graphics.startupClass(), recipe.graphics.fileEnvironment(), recipe.graphics.connectionMode()));
-                entries.add(new DesktopApplicationRepository.Entry(shortcut, "/magicdesk-guest/" + backend.wireName + "/" + environment.id() + "/applications/"
-                        + desktopId, null, false, linux.exec));
+                };
+                entries.add(new DesktopApplicationRepository.Entry(launch.apply(GuestSessionOptions.DIRECT), "/magicdesk-guest/" + backend.wireName + "/" + environment.id() + "/applications/"
+                        + desktopId, null, false, linux.exec, launch));
             } catch (org.json.JSONException | java.io.IOException | IllegalArgumentException failure) {
                 errors.add(context + ": " + failure.getMessage());
             }

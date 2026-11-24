@@ -936,8 +936,30 @@ coverage. These launches use private proc, `/run`, `/dev`, terminal and cgroup
 views, not Android's init system. Starting `/sbin/init` in an ordinary application
 shell is not an equivalent setup.
 
-The installer supplies `magicdesk-init` for an explicit systemd or OpenRC boot.
-In [MagicDesk Console](getting-started.md#open-the-android-shell-console),
+**From the launcher:** in **Apps**, long-press a Shroot desktop or application
+and choose **Launch options**. For a terminal, open **New session → Shroot
+environments**, choose the environment, then **Launch options**.
+
+- **Linux user** selects an existing account for the desktop, application or
+  shell. Leave it blank to use the launcher's default. For a desktop that locks,
+  choose an account with a password you know; switch the launch user rather
+  than just creating an account while Plasma is already running.
+- **Start system services** boots the installed systemd, OpenRC or runit and starts
+  the selected program inside that boot as the selected user. For example,
+  enable it on the Ubuntu Xfce entry to use system services such as Snap from
+  that desktop. Leave it off for a direct launch.
+
+Options are saved for that entry; the environment's terminal has its own
+options. They apply on the next new session, not when reopening an existing
+window or attaching to tmux. A service boot uses a private guest network by
+default; a configured offline or bridge policy still applies. Boot only an
+idle environment: opening a second entry does not join a running init session.
+When the selected program or desktop session exits, the service boot shuts
+down. Closing a retained desktop's Android viewer is not a guest logout.
+
+**From the command line:** the installer supplies `magicdesk-init` for an
+explicit systemd, OpenRC or runit boot. In
+[MagicDesk Console](getting-started.md#open-the-android-shell-console),
 enter the environment as guest root:
 
 ```sh
@@ -954,8 +976,7 @@ The helper creates private runtime filesystems and starts the installed init
 system with a root console on a private PTY. It does not change Android services,
 the selected executor's identity, or other terminals' login policy. Installed
 services, `/etc` and `/var/lib` persist; `/run`, `/tmp` and `/dev` belong to this
-boot. Only boot an idle environment: independent launches do not share its
-service manager or runtime mounts. `magicdesk-init COMMAND ARG...` runs that
+boot. `magicdesk-init COMMAND ARG...` runs that
 command once as the console service instead of the automatically restarted
 login shell; command failure does not trigger a retry. `exec` replaces the
 calling shell so that shutdown also ends that Shroot launch.
@@ -968,7 +989,8 @@ matching `.network` file or the same filename in `/etc/systemd/network`, followi
 [networkd's configuration precedence](https://www.freedesktop.org/software/systemd/man/latest/systemd.network.html).
 
 Install missing init packages before boot (`systemd-sysv` and `dbus` on Debian;
-`openrc` on Alpine). The helper also uses util-linux, supplied by the recipe.
+`openrc` and `openrc-init` on Alpine). Void and Armtix use their packaged runit
+boot stages and enabled services. The helper also uses util-linux, supplied by the recipe.
 To add or refresh the helper in an existing environment without rerunning
 package or graphics setup, use the downloaded installer from MagicDesk Console,
 outside Linux:
@@ -978,8 +1000,9 @@ sh ~/install_linux.sh --print-init-session | shroot exec debian --user 0:0 -- \
   /bin/sh -c 'mkdir -p /usr/local/bin; cat > /usr/local/bin/magicdesk-init; chmod 755 /usr/local/bin/magicdesk-init'
 ```
 
-Shut down from the booted console with `systemctl poweroff` on systemd or
-`openrc-shutdown --poweroff now` on OpenRC. These stop the guest, not Android.
+Shut down from the booted console with `systemctl poweroff` on systemd,
+`openrc-shutdown --poweroff now` on OpenRC, or `runit-init 0` on runit.
+These stop the guest, not Android.
 Namespace poweroff is reported to the outer shell as SIGINT (exit 130),
 not a failed service shutdown. A namespace reboot ends this launch; start the
 helper again to boot another session.

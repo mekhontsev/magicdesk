@@ -1257,4 +1257,6 @@
     <string name="console_command_shortcut">Criar atalho de comando</string>
     <string name="console_notification_settings">Configurações de notificações do terminal</string>
     <string name="console_path_unknown">Caminho indisponível nesta sessão.</string>
+    <string name="guest_session_options">Opções de inicialização…</string>
+    <string name="guest_start_services">Iniciar serviços do sistema</string>
 </resources>

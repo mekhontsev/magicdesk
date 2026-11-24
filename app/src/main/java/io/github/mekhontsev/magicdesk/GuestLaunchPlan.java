@@ -11,6 +11,10 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     enum Cli {
         MAGICDESK, STANDALONE;
 
+        String launcher() {
+            return this == MAGICDESK ? "\"$MAGICDESK_ANDROID_SHELL\" \"$MAGICDESK_TOOLS/shroot\"" : TOOL;
+        }
+
         List<String> storeCommand(String operation, String store) {
             return this == STANDALONE ? List.of(TOOL, operation, store)
                     : List.of(TOOL, "image", operation, store);
@@ -53,7 +57,7 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
         return launcherArguments(Cli.MAGICDESK);
     }
 
-    private List<String> launcherArguments(Cli cli) {
+    List<String> launcherArguments(Cli cli) {
         if (cli == Cli.STANDALONE && (!environment.image() || magicDesk))
             throw new IllegalArgumentException("The standalone Shroot CLI requires a store and no Android command bridge");
         var result = new ArrayList<>(environment.image()
