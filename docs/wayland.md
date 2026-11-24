@@ -276,6 +276,11 @@ discarding a candidate connection does not close the active editor. Enable
 generations reject old editors; destructive edits additionally require the observed
 text/selection revision, unaffected by cursor-rectangle commits. Client-declared
 IME acknowledgements update selection without invalidating queued keyboard edits.
+Initial editor information and subsequent keyboard queries share the same text
+and caret, including accepted input not yet reported by the client. Ordinary
+typing streams immediately. A deletion that depends on unconfirmed input waits
+for the matching guest context, and later edits cannot overtake it. A conflicting
+guest edit cancels the pending range rather than applying it at a different caret.
 Surrounding-text deletion preserves the active composition in the same protocol
 batch. Android can mark committed text around a collapsed caret for composition.
 The first edit replaces the marked text using its observed revision, via a

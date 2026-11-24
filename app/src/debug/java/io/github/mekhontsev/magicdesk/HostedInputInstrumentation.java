@@ -70,6 +70,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         verifyText(view, output);
         verifyComposingRegion(view, output);
         verifyDelayedTextAcknowledgements(view, output);
+        verifyOrderedEdits(view, output);
         view.release();
         require(output.closed, "output released");
         require(view.getPointerIcon() == null, "output release resets cursor");
@@ -176,7 +177,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         require(connection.deleteSurroundingText(1, 1), "deletion alongside composition");
         require(output.deletion.equals("1:1:false:edit:4"), "deletion retains the guest preedit atomically");
         require(output.editedState == output.state, "deletion carries the observed revision");
-        require(connection.getTextBeforeCursor(20, 0).toString().equals("a\u0416edit"), "deletion does not consume the composition");
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("aedit"), "deletion removes surrounding text but retains composition");
         var nextEditor = new io.github.mekhontsev.magicdesk.hosted.HostedTextState(12, 1,
                 io.github.mekhontsev.magicdesk.hosted.HostedTextState.Purpose.PIN, 0, null, -1, -1);
         output.afterTextStateRead = () -> output.state = nextEditor;
@@ -324,7 +325,11 @@ public final class HostedInputInstrumentation extends Instrumentation {
         var connection = view.onCreateInputConnection(new EditorInfo());
         connection.commitText("тест", 1);
         connection.commitText(" ", 1);
-        var nextConnection = view.onCreateInputConnection(new EditorInfo());
+        var initial = new EditorInfo();
+        var nextConnection = view.onCreateInputConnection(initial);
+        require(initial.initialSelEnd == 5 && initial.initialSelStart == 5
+                && initial.getInitialTextBeforeCursor(5, 0).toString().equals("тест ")
+                && nextConnection.takeSnapshot().getSelectionEnd() == 5, "rebind has one initial context");
         connection.closeConnection();
         connection.getTextBeforeCursor(20, 0);
         connection = nextConnection;
@@ -350,6 +355,46 @@ public final class HostedInputInstrumentation extends Instrumentation {
                 "external change overrides predictions");
     }
 
+    private static void verifyOrderedEdits(HostedSurfaceView view, Output output) {
+        output.state = inputState(22, 1, "");
+        var connection = view.onCreateInputConnection(new EditorInfo());
+        String symbol = "\ud83d\ude00";
+        output.deletion = "";
+        int commits = output.commits.size();
+        require(connection.commitText(symbol, 1) && connection.deleteSurroundingTextInCodePoints(1, 0)
+                && connection.commitText("b", 1), "accept dependent edits in order");
+        require(connection.getTextBeforeCursor(10, 0).toString().equals("b") && output.deletion.isEmpty()
+                && output.commits.size() == commits + 1, "never send a zero-byte deletion against the old context");
+        connection.closeConnection();
+        output.state = inputState(22, 2, symbol);
+        view.textInputChanged();
+        require(output.deletedRevision == 2 && output.commits.size() == commits + 2,
+                "confirmed edit drains even without an active Android connection");
+        connection = view.onCreateInputConnection(new EditorInfo());
+        require(connection.getTextBeforeCursor(10, 0).toString().equals("b") && output.editedState.editor() == 22
+                && output.deletion.equals("2:0:false::0") && output.commits.subList(commits, commits + 2).equals(java.util.List.of(symbol, "b")),
+                "delete the confirmed Unicode character before the following commit");
+        output.state = inputState(22, 3, "b");
+        require(connection.getTextBeforeCursor(10, 0).toString().equals("b"), "coalesced acknowledgement");
+        output.state = inputState(23, 1, "");
+        connection = view.onCreateInputConnection(new EditorInfo());
+        for (int i = 0; i < 70; ++i) require(connection.commitText("x", 1), "burst accepted");
+        for (int i = 1; i <= 70; ++i) {
+            output.state = inputState(23, i + 1, "x".repeat(i));
+            require(connection.getTextBeforeCursor(100, 0).length() == 70, "partial burst acknowledgement " + i);
+        }
+        require(connection.commitText("!", 1) && connection.deleteSurroundingText(1, 0), "queued deletion");
+        output.deletion = "";
+        output.state = new HostedTextState(23, 72, HostedTextState.Purpose.NORMAL, HostedTextState.SPELLCHECK,
+                "external", 0, 0);
+        require(!connection.commitText("stale", 1) && output.deletion.isEmpty(), "never delete at an externally moved caret");
+    }
+
+    private static HostedTextState inputState(long editor, long revision, String text) {
+        return new HostedTextState(editor, revision, HostedTextState.Purpose.NORMAL, HostedTextState.SPELLCHECK,
+                text, text.length(), text.length(), null, true);
+    }
+
     private static final class Output implements HostedSurfaceOutput {
         int presses, releases, scrolls;
         float x;
@@ -372,6 +417,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         boolean clientPreedit = true, textEnabled = true;
         String preedit = "";
         String deletion = "";
+        long deletedRevision;
         String replacement = "";
         int cursor;
         io.github.mekhontsev.magicdesk.hosted.HostedTextState state;
@@ -398,6 +444,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         public boolean deleteText(io.github.mekhontsev.magicdesk.hosted.HostedTextState snapshot,
                 int before, int after, boolean codePoints, String preedit, int cursor) {
             editedState = snapshot;
+            deletedRevision = snapshot == null ? -1 : snapshot.revision();
             deletion = before + ":" + after + ":" + codePoints + ":" + preedit + ":" + cursor;
             return state != null;
         }

@@ -50,17 +50,9 @@ final class WaylandText {
         if (state == null || state.surrounding() == null || before < 0 || after < 0) return null;
         String text = state.surrounding();
         int start = state.start(), end = state.end();
-        int left, right;
-        if (codePoints) {
-            left = text.offsetByCodePoints(start, -Math.min(before, text.codePointCount(0, start)));
-            right = text.offsetByCodePoints(end, Math.min(after, text.codePointCount(end, text.length())));
-        } else {
-            left = start - Math.min(before, start);
-            right = end + Math.min(after, text.length() - end);
-            if (left > 0 && left < text.length() && Character.isLowSurrogate(text.charAt(left))) left--;
-            if (right < text.length() && Character.isLowSurrogate(text.charAt(right))) right++;
-        }
-        return new Deletion(bytes(text.substring(left, start)).length, bytes(text.substring(end, right)).length);
+        var range = HostedTextState.Range.surrounding(text, start, end, before, after, codePoints);
+        return new Deletion(bytes(text.substring(range.left(), start)).length,
+                bytes(text.substring(end, range.right())).length);
     }
 
     static void send(String text, boolean composing, int cursor, Consumer<Edit> sink) {
