@@ -358,10 +358,11 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     void beginWindowGesture() { pointerInput.windowGesture(); }
 
     void textInputChanged() {
+        boolean retained = textConnection != null && textConnection.observeGuest();
         android.view.inputmethod.InputMethodManager manager = getContext().getSystemService(
                 android.view.inputmethod.InputMethodManager.class);
         if (manager != null && hasWindowFocus()) {
-            if (textConnection != null && textConnection.sameEditor()) {
+            if (retained && textConnection.sameEditor()) {
                 textConnection.update(manager, this);
                 return;
             }

@@ -130,7 +130,11 @@ public final class HostedGuestEditorInstrumentation extends Instrumentation impl
                 });
                 await("Android composing snapshot", () -> before().equals("draft"));
                 write(input -> {
-                    require(input.commitText("hello \u0416\ud83d\ude00", 1), "Unicode commit");
+                    if (correction) {
+                        require(input.commitText("hello \u0416x", 1), "commit before Backspace");
+                        require(input.deleteSurroundingText(1, 0), "Backspace without waiting for guest");
+                        require(input.commitText("\ud83d\ude00", 1), "following Unicode commit");
+                    } else require(input.commitText("hello \u0416\ud83d\ude00", 1), "Unicode commit");
                     require(input.finishComposingText(), "finish composition");
                 });
                 await("GTK committed surrounding text", () -> acknowledged("hello \u0416\ud83d\ude00"));
@@ -220,8 +224,10 @@ public final class HostedGuestEditorInstrumentation extends Instrumentation impl
     }
     private boolean acknowledged(String text) {
         String host = before();
-        readbackTrace = "host=" + host;
-        return host.equals(text);
+        var state = connection == null ? null : connection.guestState();
+        String guest = state == null || state.privateText() ? null : state.surrounding();
+        readbackTrace = "host=" + host + "; guest=" + guest;
+        return host.equals(text) && text.equals(guest) && state.cursor() == text.length() && state.anchor() == state.cursor();
     }
     private InputConnection writer() {
         var result = actualIme ? HostedFixtureIme.connection() : connection;

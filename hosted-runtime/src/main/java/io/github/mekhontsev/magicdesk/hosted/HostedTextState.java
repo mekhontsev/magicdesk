@@ -40,7 +40,18 @@ public record HostedTextState(long editor, long revision, Purpose purpose, int h
     public int start() { return Math.min(cursor, anchor); }
     public int end() { return Math.max(cursor, anchor); }
 
-    private static boolean boundary(String text, int index) {
+    /** Outer UTF-16 bounds for a surrounding deletion; neither endpoint splits a code point. */
+    public record Range(int left, int right) {
+        public static Range surrounding(String text, int start, int end, int before, int after, boolean codePoints) {
+            if (codePoints) return new Range(
+                    text.offsetByCodePoints(start, -Math.min(before, text.codePointCount(0, start))),
+                    text.offsetByCodePoints(end, Math.min(after, text.codePointCount(end, text.length()))));
+            int left = start - Math.min(before, start);
+            int right = end + Math.min(after, text.length() - end);
+            return new Range(boundary(text, left) ? left : left - 1, boundary(text, right) ? right : right + 1);
+        }
+    }
+    public static boolean boundary(String text, int index) {
         return index >= 0 && index <= text.length() && !(index > 0 && index < text.length()
                 && Character.isHighSurrogate(text.charAt(index - 1)) && Character.isLowSurrogate(text.charAt(index)));
     }

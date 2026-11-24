@@ -14,6 +14,7 @@ import android.view.inputmethod.SurroundingText;
 import android.view.inputmethod.TextSnapshot;
 import android.view.inputmethod.CursorAnchorInfo;
 import io.github.mekhontsev.magicdesk.hosted.HostedTextState;
+import io.github.mekhontsev.magicdesk.HostedEditorEdits.Text;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
@@ -29,17 +30,15 @@ final class HostedTextInputConnection extends BaseInputConnection {
 
     private static final class Editor {
         final android.text.Editable composition = new android.text.SpannableStringBuilder();
+        final HostedEditorEdits edits = new HostedEditorEdits();
         Context publishedContext;
         HostedTextInputConnection cursorObserver;
         Region region;
-        // A committed replacement is queued, but this surrounding snapshot may
-        // still be visible to another IME call before the guest responds.
-        long replacedRevision = -1;
         boolean disposed;
         Editor() { Selection.setSelection(composition, 0); }
     }
 
-    private record Region(HostedTextState snapshot, int start, int end, boolean transferred) {
+    private record Region(HostedTextState snapshot, int start, int end) {
         boolean matches(HostedTextState state) {
             return snapshot.sameEditor(state) && snapshot.revision() == state.revision();
         }
@@ -51,42 +50,55 @@ final class HostedTextInputConnection extends BaseInputConnection {
         this.view = view;
         this.output = output; this.allowed = allowed; this.keys = keys;
         editor = output.textState();
-        binding = previous != null && previous.sameEditor(editor) ? previous.binding : new Editor();
+        binding = previous != null && previous.ownsEditor(editor) ? previous.binding : new Editor();
         if (previous != null && binding != previous.binding) previous.dispose();
         info.inputType = inputType(editor);
         info.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NONE;
         if (editor != null && (editor.hints() & HostedTextState.LATIN) != 0) info.imeOptions |= EditorInfo.IME_FLAG_FORCE_ASCII;
         if (editor != null && editor.privateText()) info.imeOptions |= EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
+        var initial = context(editor);
         if (editor != null && !editor.privateText() && editor.surrounding() != null) {
-            info.initialSelStart = editor.anchor(); info.initialSelEnd = editor.cursor();
-            info.setInitialSurroundingSubText(editor.surrounding(), 0);
+            info.initialSelStart = initial.anchor; info.initialSelEnd = initial.cursor;
+            info.setInitialSurroundingSubText(initial.text, 0);
         }
-        if (binding.publishedContext == null) binding.publishedContext = context();
+        if (binding.publishedContext == null) binding.publishedContext = initial;
     }
 
     boolean sameEditor() {
         return sameEditor(output.textState());
     }
 
+    HostedTextState guestState() {
+        var state = output.textState();
+        return sameEditor(state) ? state : null;
+    }
+
     private boolean sameEditor(HostedTextState state) {
-        return !closed && !binding.disposed && allowed.getAsBoolean() && output.supportsText()
+        return !closed && ownsEditor(state);
+    }
+
+    private boolean ownsEditor(HostedTextState state) {
+        return !binding.disposed && allowed.getAsBoolean() && output.supportsText()
                 && (editor == null ? state == null : editor.sameEditor(state));
     }
 
+    // Guest acknowledgements belong to the field even between Android connections.
+    boolean observeGuest() {
+        var state = output.textState();
+        if (ownsEditor(state) && reconcile(state)) return true;
+        dispose();
+        return false;
+    }
+    private boolean reconcile(HostedTextState state) {
+        return binding.edits.observe(state) && (binding.region == null || binding.region.matches(state));
+    }
     private boolean prepareEdit(HostedTextState state) {
         if (!sameEditor(state)) return false;
-        var region = binding.region;
-        if (region == null || region.matches(state)) return true;
-        if (region.transferred) {
-            binding.region = null;
-            return true;
-        }
-        return abandonRange();
+        return reconcile(state) || restartEditor();
     }
 
-    private boolean abandonRange() {
+    private boolean restartEditor() {
         // Old queued calls must not become ordinary insertion at the new caret.
-        binding.region = null;
         dispose();
         var manager = view.getContext().getSystemService(InputMethodManager.class);
         if (manager != null) manager.restartInput(view);
@@ -132,42 +144,44 @@ final class HostedTextInputConnection extends BaseInputConnection {
         var region = binding.region;
         String text = getEditable().toString();
         int cursor = Math.max(0, Selection.getSelectionEnd(getEditable()));
-        if (region != null && !region.transferred) {
-            if (!region.matches(output.textState()) || !output.deleteText(region.snapshot,
-                    region.snapshot.start() - region.start, region.end - region.snapshot.end(), false, text, cursor))
-                return abandonRange();
-            binding.region = new Region(region.snapshot, region.start, region.end, true);
-        } else {
-            output.preedit(editor, text, cursor);
-        }
+        var base = binding.edits.text();
+        if (region != null) {
+            if (base == null || !binding.edits.sendAtConfirmedCaret(base.replace(region.start, region.end, ""),
+                    s -> output.deleteText(s, s.start() - region.start, region.end - s.end(), false, text, cursor)))
+                return restartEditor();
+            binding.region = null;
+        } else if (!binding.edits.send(base, s -> {
+            output.preedit(editor, text, cursor); return true;
+        })) return restartEditor();
         binding.publishedContext = context();
         return true;
     }
     @Override public boolean commitText(CharSequence text, int cursor) {
         if (!prepareEdit(output.textState())) return false;
-        var region = binding.region;
-        if (region != null && !region.transferred) {
-            if (!region.matches(output.textState()) || !output.replaceText(region.snapshot,
-                    region.snapshot.start() - region.start, region.end - region.snapshot.end(), text.toString()))
-                return abandonRange();
-            if (!region.snapshot.surrounding().substring(region.start, region.end).contentEquals(text)
-                    || region.snapshot.cursor() != region.end)
-                binding.replacedRevision = region.snapshot.revision();
-            binding.region = null;
-        } else {
-            output.text(editor, text.toString());
-        }
+        if (!commit(text.toString())) return false;
         getEditable().clear();
         binding.publishedContext = context();
         return true;
     }
+    private boolean commit(String text) {
+        var region = binding.region;
+        var base = binding.edits.text();
+        if (region == null)
+            return binding.edits.send(base == null ? null : base.replace(base.start(), base.end(), text),
+                    s -> { output.text(editor, text); return true; });
+        if (base == null || !binding.edits.sendAtConfirmedCaret(base.replace(region.start, region.end, text),
+                s -> output.replaceText(s, s.start() - region.start, region.end - s.end(), text)))
+            return restartEditor();
+        binding.region = null;
+        return true;
+    }
     @Override public boolean finishComposingText() {
         if (!prepareEdit(output.textState())) return false;
-        if (binding.region != null && !binding.region.transferred) {
+        if (binding.region != null) {
             // Merely marking committed text did not change the guest buffer.
             binding.region = null;
         } else if (getEditable().length() > 0) {
-            output.text(editor, getEditable().toString());
+            if (!commit(getEditable().toString())) return false;
         }
         getEditable().clear();
         binding.publishedContext = context();
@@ -183,7 +197,14 @@ final class HostedTextInputConnection extends BaseInputConnection {
         super.closeConnection();
     }
 
-    void dispose() { binding.disposed = true; binding.composition.clear(); closeConnection(); }
+    void dispose() {
+        if (binding.disposed) return;
+        binding.disposed = true;
+        binding.region = null;
+        binding.edits.clear();
+        binding.composition.clear();
+        closeConnection();
+    }
 
     @Override public boolean deleteSurroundingText(int before, int after) { return delete(before, after, false); }
     @Override public boolean deleteSurroundingTextInCodePoints(int before, int after) { return delete(before, after, true); }
@@ -191,24 +212,23 @@ final class HostedTextInputConnection extends BaseInputConnection {
         var state = output.textState();
         if (!prepareEdit(state) || before < 0 || after < 0) return false;
         var region = binding.region;
-        if (region != null && region.matches(state)) {
-            if (region.transferred) return false; // Wait for the new guest deletion offsets.
-            String surrounding = state.surrounding();
-            int start = codePoints ? surrounding.offsetByCodePoints(region.start,
-                    -Math.min(before, surrounding.codePointCount(0, region.start))) : Math.max(0, region.start - before);
-            int end = codePoints ? surrounding.offsetByCodePoints(region.end,
-                    Math.min(after, surrounding.codePointCount(region.end, surrounding.length())))
-                    : region.end + Math.min(after, surrounding.length() - region.end);
-            if (!output.deleteText(state, state.start() - start, end - state.end(), false,
-                    getEditable().toString(), Math.max(0, Selection.getSelectionEnd(getEditable())))) return abandonRange();
-            binding.region = new Region(state, start, end, true);
+        String preview = getEditable().toString();
+        int cursor = Math.max(0, Selection.getSelectionEnd(getEditable()));
+        var base = binding.edits.text();
+        if (base != null) {
+            int start = region == null ? base.start() : region.start;
+            int end = region == null ? base.end() : region.end;
+            var range = HostedTextState.Range.surrounding(base.value(), start, end, before, after, codePoints);
+            var next = region == null ? base.delete(range) : base.replace(range.left(), range.right(), "");
+            int b = base.start() - range.left(), a = range.right() - base.end();
+            if (!binding.edits.sendAtConfirmedCaret(next, s -> output.deleteText(s, b, a, false, preview, cursor)))
+                return region == null ? false : restartEditor();
+            binding.region = null;
             binding.publishedContext = context();
             return true;
         }
-        // Android excludes the composition from surrounding-text deletion.
-        // Preserve the guest preview in the same protocol edit as the deletion.
-        if (output.deleteText(state, before, after, codePoints, getEditable().toString(),
-                Math.max(0, Selection.getSelectionEnd(getEditable())))) return true;
+        if (binding.edits.pending()) return false;
+        if (output.deleteText(state, before, after, codePoints, preview, cursor)) return true;
         for (int i = 0; i < Math.min(1024, before); i++) press(KeyEvent.KEYCODE_DEL);
         for (int i = 0; i < Math.min(1024, after); i++) press(KeyEvent.KEYCODE_FORWARD_DEL);
         return true;
@@ -216,20 +236,22 @@ final class HostedTextInputConnection extends BaseInputConnection {
 
     private record Context(String text, int anchor, int cursor, int composingStart, int composingEnd) { }
     private Context context() {
-        var state = output.textState();
-        if (!sameEditor(state) || state != null && state.privateText()) state = null;
+        return context(output.textState());
+    }
+    private Context context(HostedTextState state) {
+        if (!prepareEdit(state)) return new Context("", 0, 0, -1, -1);
+        var base = binding.edits.text();
         String composition = getEditable().toString();
         int cursor = Math.max(0, Selection.getSelectionEnd(getEditable()));
-        if (state == null || state.surrounding() == null)
+        if (base == null)
             return new Context(composition, cursor, cursor, composition.isEmpty() ? -1 : 0,
                     composition.isEmpty() ? -1 : composition.length());
         var region = binding.region;
-        boolean useRegion = region != null && region.matches(state);
-        if (!useRegion && (composition.isEmpty() || region != null && !region.transferred))
-            return new Context(state.surrounding(), state.anchor(), state.cursor(), -1, -1);
-        int start = useRegion ? region.start : state.start();
-        int end = useRegion ? region.end : state.end();
-        return new Context(state.surrounding().substring(0, start) + composition + state.surrounding().substring(end),
+        if (region == null && composition.isEmpty())
+            return new Context(base.value(), base.anchor(), base.cursor(), -1, -1);
+        int start = region != null ? region.start : base.start();
+        int end = region != null ? region.end : base.end();
+        return new Context(base.value().substring(0, start) + composition + base.value().substring(end),
                 start + cursor, start + cursor, composition.isEmpty() ? -1 : start,
                 composition.isEmpty() ? -1 : start + composition.length());
     }
@@ -269,7 +291,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
         if (start == c.anchor && end == c.cursor) return true;
         if (start != end || c.composingStart < 0 || start < c.composingStart || end > c.composingEnd) return false;
         boolean result = super.setSelection(start - c.composingStart, end - c.composingStart);
-        if (binding.region != null && !binding.region.transferred) {
+        if (binding.region != null) {
             binding.publishedContext = context();
             return result;
         }
@@ -280,17 +302,16 @@ final class HostedTextInputConnection extends BaseInputConnection {
         if (!prepareEdit(state) || state == null || state.privateText() || state.surrounding() == null) return false;
         int left = Math.min(start, end), right = Math.max(start, end);
         if (left == right) return finishComposingText();
-        if (binding.replacedRevision == state.revision()) return false;
-        var c = context();
+        var c = context(state);
         if (getEditable().length() > 0) return left == c.composingStart && right == c.composingEnd;
-        if (binding.region != null && binding.region.matches(state)) return false;
+        if (binding.edits.pending() || binding.region != null) return false;
         String text = state.surrounding();
         if (state.start() != state.end() || left > state.cursor() || right < state.cursor()
-                || !textBoundary(text, left) || !textBoundary(text, right)) return false;
+                || !HostedTextState.boundary(text, left) || !HostedTextState.boundary(text, right)) return false;
         // Wayland has no mark-region request. Keep the word in place until the IME edits it.
         super.setComposingText(text.substring(left, right), 1);
         Selection.setSelection(getEditable(), state.cursor() - left);
-        binding.region = new Region(state, left, right, false);
+        binding.region = new Region(state, left, right);
         binding.publishedContext = context();
         return true;
     }
@@ -298,18 +319,15 @@ final class HostedTextInputConnection extends BaseInputConnection {
     void update(InputMethodManager manager, View view) {
         var state = output.textState();
         if (!prepareEdit(state)) return;
-        var c = context();
+        var c = context(state);
         manager.updateSelection(view, c.anchor, c.cursor, c.composingStart, c.composingEnd);
         // Caret updates and guest acknowledgements must not cancel queued IME edits.
+        boolean corrected = binding.edits.takeCorrection();
         if (!c.equals(binding.publishedContext)
-                && (state == null || !state.inputMethodChange()))
+                && (corrected || state == null || !state.inputMethodChange()))
             manager.invalidateInput(view);
         binding.publishedContext = c;
         cursorChanged();
-    }
-    private static boolean textBoundary(String text, int index) {
-        return index >= 0 && index <= text.length() && !(index > 0 && index < text.length()
-                && Character.isSurrogatePair(text.charAt(index - 1), text.charAt(index)));
     }
     @Override public boolean requestCursorUpdates(int mode) { return requestCursorUpdates(mode, 0); }
 
@@ -327,8 +345,8 @@ final class HostedTextInputConnection extends BaseInputConnection {
     void cursorChanged() { if (binding.cursorObserver != null) binding.cursorObserver.publishCursor(); }
 
     CursorAnchorInfo cursorInfo() {
-        var state = output.textState();
-        if (!sameEditor(state) || state == null || state.caret() == null
+        var state = guestState();
+        if (state == null || state.caret() == null
                 || !(view instanceof HostedSurfaceView surface)) return null;
         var geometry = surface.geometry();
         if (geometry.right() <= geometry.left() || geometry.bottom() <= geometry.top()) return null;
@@ -337,7 +355,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
         matrix.setScale(geometry.right() - geometry.left(), geometry.bottom() - geometry.top());
         matrix.postTranslate(geometry.left(), geometry.top());
         boolean visible = caret.left() >= 0 && caret.left() <= 1 && caret.top() >= 0 && caret.bottom() <= 1;
-        var context = context();
+        var context = context(state);
         var builder = new CursorAnchorInfo.Builder().setMatrix(matrix)
                 .setSelectionRange(context.anchor, context.cursor)
                 .setInsertionMarkerLocation(caret.left(), caret.top(), Float.NaN, caret.bottom(),
