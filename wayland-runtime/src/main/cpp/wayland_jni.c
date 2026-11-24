@@ -509,6 +509,22 @@ JNIEXPORT void JNICALL JNI(nativePointer)(JNIEnv *env, jclass type, jlong output
     mdw_output_pointer((void *)(intptr_t)output, x, y);
 }
 
+JNIEXPORT void JNICALL JNI(nativeTouch)(JNIEnv *env, jclass type, jlong output, jint contact,
+        jint phase, jdouble x, jdouble y) {
+    (void)env; (void)type;
+    mdw_output_touch((void *)(intptr_t)output, contact, phase, x, y);
+}
+
+JNIEXPORT void JNICALL JNI(nativeTouchFrame)(JNIEnv *env, jclass type, jlong output) {
+    (void)env; (void)type;
+    mdw_output_touch_frame((void *)(intptr_t)output);
+}
+
+JNIEXPORT void JNICALL JNI(nativeCancelTouch)(JNIEnv *env, jclass type, jlong output) {
+    (void)env; (void)type;
+    mdw_output_cancel_touch((void *)(intptr_t)output);
+}
+
 JNIEXPORT void JNICALL JNI(nativePointerCapture)(JNIEnv *env, jclass type, jlong output, jlong serial, jboolean captured) {
     (void)env; (void)type;
     mdw_output_pointer_capture((void *)(intptr_t)output, serial, captured);

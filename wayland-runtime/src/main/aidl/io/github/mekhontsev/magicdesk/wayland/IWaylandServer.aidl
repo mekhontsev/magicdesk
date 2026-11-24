@@ -12,6 +12,9 @@ interface IWaylandServer {
     oneway void releaseOutput(long output);
     oneway void focus(long output, boolean focused);
     oneway void pointer(long output, double x, double y);
+    oneway void touch(long output, int contact, int phase, double x, double y);
+    oneway void touchFrame(long output);
+    oneway void cancelTouch(long output);
     oneway void pointerCapture(long output, long serial, boolean captured);
     oneway void relative(long output, long serial, double dx, double dy);
     oneway void button(long output, int button, boolean down);

@@ -55,14 +55,23 @@ final class WaylandExecution {
         serverUid = commands.termux == null ? Process.myUid() : commands.uid;
         executorPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
         keyboard = HostedKeyboardSource.normalize(keyboardDirectory);
+        var random = new java.security.SecureRandom();
         byte[] secret = new byte[32];
-        new java.security.SecureRandom().nextBytes(secret);
+        random.nextBytes(secret);
         token = java.util.HexFormat.of().formatHex(secret);
         String parent = commands.termux == null ? context.getCacheDir() + "/w" : commands.home + "/.cache/w";
-        directory = parent + "/" + UUID.randomUUID().toString().replace("-", "");
-        String endpoint = needsBroker() ? "/wayland-2147483647" : "/wayland-0";
-        if ((directory + endpoint).getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 108)
+        byte[] directoryId = new byte[16];
+        random.nextBytes(directoryId);
+        directory = runtimeDirectory(parent, directoryId, needsBroker());
+    }
+
+    static String runtimeDirectory(String parent, byte[] id, boolean broker) {
+        // Keep the full random identifier while leaving room for the broker socket suffix.
+        String path = parent + "/" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(id);
+        String endpoint = broker ? "/wayland-2147483647" : "/wayland-0";
+        if ((path + endpoint).getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 108)
             throw new IllegalArgumentException("Wayland runtime directory exceeds Unix socket path limit");
+        return path;
     }
 
     Closeable startServer(CommandExecution.Completion completion) throws IOException {

@@ -874,6 +874,7 @@
     <string name="touchpad_show_keyboard">Показать клавиатуру</string>
     <string name="touchpad_keyboard_failed">Не удалось показать клавиатуру: %1$s</string>
     <string name="settings_section_input">Ввод на экране</string>
+    <string name="settings_wayland_direct_touch">Прямые касания в новых окнах Wayland</string>
     <string name="settings_keep_desktop_awake">Поддерживать сеанс активным</string>
     <string name="settings_keep_screen_on">Не гасить экран телефона</string>
     <string name="settings_phone_fullscreen_default">Новые окна на телефоне во весь экран</string>

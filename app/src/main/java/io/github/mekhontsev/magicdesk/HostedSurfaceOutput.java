@@ -21,6 +21,7 @@ interface HostedSurfaceOutput extends AutoCloseable {
     default boolean supportsTouch() { return false; }
     default boolean supportsTablet() { return false; }
     default void touch(int contact, HostedTouchPhase phase, float x, float y, float pressure) { }
+    default void touchFrame() { }
     /** Normalized pressure; tilt in radians. Buttons: tip=1, primary barrel=2, secondary barrel=4. */
     default void tablet(boolean eraser, boolean proximity, float x, float y, float pressure,
             float tiltX, float tiltY, int buttons) { }

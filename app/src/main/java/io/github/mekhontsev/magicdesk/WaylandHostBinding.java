@@ -34,7 +34,8 @@ final class WaylandHostBinding implements AutoCloseable {
         this.window = window;
         output = session.openOutput(window, surface.getWidth(), surface.getHeight());
         updateDensity();
-        surface.bind(new WaylandSurfaceOutput(output));
+        boolean directTouch = WaylandTouchSettings.enabled(activity);
+        surface.bind(new WaylandSurfaceOutput(output, directTouch));
         surface.gamepads(session.execution.gamepads());
         exchange = new HostedContentExchange(activity, surface, new WaylandContentExchange(activity, session, output));
         family = new HostedFamilyWindows(activity, surface, new HostedFamilyWindows.Backend() {
@@ -44,7 +45,7 @@ final class WaylandHostBinding implements AutoCloseable {
                 dependents = output.borrowDependents(failed);
                 // Cached protocol geometry is published after the borrow handle has reached its owner.
                 surface.post(WaylandHostBinding.this::geometryChanged);
-                return new WaylandSurfaceOutput(dependents);
+                return new WaylandSurfaceOutput(dependents, directTouch);
             }
             @Override public void focus(boolean focused, boolean dependent) {
                 if (focused) (dependent && dependents != null ? dependents : output).focus(true);

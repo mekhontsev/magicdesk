@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk.wayland;
 import io.github.mekhontsev.magicdesk.hosted.FramePresentation;
 import io.github.mekhontsev.magicdesk.hosted.HostedFrame;
 import io.github.mekhontsev.magicdesk.hosted.HostedFramePresenter;
+import io.github.mekhontsev.magicdesk.hosted.HostedTouchPhase;
 import io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints;
 import io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture;
 
@@ -712,6 +713,11 @@ public final class WaylandSession implements AutoCloseable {
         public void focus(boolean focused) { command(() -> server.focus(id, focused)); }
         public void scale(double scale) { command(() -> server.scale(id, scale)); }
         public void pointer(double x, double y) { command(() -> server.pointer(id, x, y)); }
+        public void touch(int contact, HostedTouchPhase phase, double x, double y) {
+            command(() -> server.touch(id, contact, phase.ordinal(), x, y));
+        }
+        public void touchFrame() { command(() -> server.touchFrame(id)); }
+        public void cancelTouch() { command(() -> server.cancelTouch(id)); }
         /** UI-thread ownership: one Android input host per borrowed output. */
         public void captureListener(java.util.function.LongConsumer listener) {
             captureListener = listener;
