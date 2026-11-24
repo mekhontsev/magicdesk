@@ -220,6 +220,10 @@ final class AppearanceSettings implements AutoCloseable {
                 () -> current().motion().curve().ordinal(),
                 v -> change("motion", "curve", ShellMotion.Curve.values()[v].name().toLowerCase(java.util.Locale.ROOT)));
         slider(page, R.string.appearance_feedback_duration, 0, 250, () -> current().motion().feedbackMs(), v -> change("motion", "feedbackMs", v));
+        choice(page, R.string.appearance_wallpaper_fit,
+                new int[] {R.string.action_wallpaper_fit_cover, R.string.action_wallpaper_fit_contain},
+                () -> current().resources().fit().ordinal(),
+                v -> change("resources", "wallpaperFit", ShellResources.WallpaperFit.values()[v].name().toLowerCase(java.util.Locale.ROOT)));
         final LinearLayout files = new LinearLayout(mActivity);
         addCommand(files, R.string.appearance_import, R.drawable.ic_folder_open, this::importDocument);
         addCommand(files, R.string.appearance_export, R.drawable.ic_arrow_down, this::exportDocument);

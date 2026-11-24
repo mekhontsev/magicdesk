@@ -336,7 +336,9 @@ Android resource IDs.
 A theme ZIP contains `theme.json`, optional images under `icons/`, media under
 `wallpapers/`, and `.ttf` or `.otf` fonts under `fonts/`. `resources.iconAssets`
 maps semantic symbols to bundle-relative image paths; `resources.font` and
-`resources.wallpaper` select a font and wallpaper. Icons accept static PNG,
+`resources.wallpaper` select a font and wallpaper, and `resources.wallpaperFit`
+(`cover` or `contain`, default `cover`) selects how the wallpaper fills the
+display. Icons accept static PNG,
 JPEG and WebP. Wallpapers also accept animated WebP/GIF and MP4/WebM video,
 using Android's installed decoders. The portable document omits `resources.bundle` or leaves it
 empty. Import attaches the verified content digest; a JSON-only document with
@@ -370,8 +372,11 @@ video track, have a duration of at most five minutes, and declare no more than
 playback errors retain that poster. Compressed animation/video data and posters
 count toward the aggregate 96 MiB live appearance-media budget across workspaces.
 
-Wallpaper uses a fixed physical-display center crop, independent of system-bar
-insets and process density. Each workspace owns its playback instance. Video
+Wallpaper uses a fixed physical-display center crop by default (**cover**), independent of system-bar
+insets and process density. `resources.wallpaperFit` selects the alignment: `cover` fills the display
+and crops the overflow, while `contain` shows the whole source centered with the theme backdrop visible
+around it. The same alignment applies to the shared custom wallpaper file and the bundled image; AGSL
+shader wallpapers always fill the output. Each workspace owns its playback instance. Video
 loops silently without requesting audio focus. Hidden or off-screen hosts,
 power saving, reduced motion and disabled Android animations release playback
 and display the static poster. Losing HOME focus alone does not stop playback.
@@ -397,8 +402,10 @@ appearance override. It remains behind any effective theme wallpaper or shader.
 **Use MagicDesk wallpaper** in the desktop context menu clears wallpaper/shader
 selection for that workspace's appearance scope and removes the shared media
 file. Other workspaces retain their own theme resources; workspaces using the
-shared file return to the bundled image. Neither action changes Android's system
-wallpaper. Use scoped Appearance configuration for independent backgrounds.
+shared file return to the bundled image. **Wallpaper fit** in Settings > Appearance
+or the desktop context menu sets `resources.wallpaperFit` for the selected scope,
+exactly like other scoped appearance fields. Use scoped Appearance configuration
+for independent backgrounds. Neither action changes Android's system wallpaper.
 
 ### AGSL Wallpapers
 

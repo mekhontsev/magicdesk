@@ -424,6 +424,10 @@
     <string name="action_add_widget">Adicionar widget</string>
     <string name="action_choose_wallpaper">Escolher papel de parede em Arquivos…</string>
     <string name="action_use_default_wallpaper">Usar papel de parede do MagicDesk</string>
+    <string name="action_wallpaper_fit">Ajuste do papel de parede</string>
+    <string name="action_wallpaper_fit_cover">Preencher</string>
+    <string name="action_wallpaper_fit_contain">Ajustar</string>
+    <string name="appearance_wallpaper_fit">Ajuste do papel de parede</string>
     <string name="status_no_widgets">Nenhum widget compatível encontrado</string>
     <string name="widget_recommended_size">Tamanho recomendado: %1$d × %2$d</string>
     <string name="action_widget_wider">Alargar</string>

@@ -495,7 +495,8 @@ cannot be decoded. Wallpaper source selection belongs to the shared desktop UI;
 the shell boundary only reads and writes the optional Desktop file. The desktop
 folder observer owns custom wallpaper change notifications.
 The existing `wallpaper_rendered` event records the selected source (`bundled`,
-`custom`, or `fallback`), media kind, poster/view dimensions, and density after the
+`custom`, or `fallback`), media kind, poster/view dimensions, density and the
+effective `fit` (`cover` or `contain`) after the
 frame commits. `wallpaper_playback` records playback state changes separately.
 Bundled artwork provenance is documented in [Artwork](artwork.md).
 Each background load owns a unique temporary cache file. The existing load

@@ -66,7 +66,7 @@ public final class AppearanceBundlesTest {
 
     @Test public void unavailableAssetBundleFailsBeforeWriting() throws Exception {
         var theme = ShellAppearance.defaults().withResources(new ShellResources(Map.of(), "a".repeat(64),
-                Map.of(ShellResources.Icon.FILES, "icons/test.png"), "", "", null));
+                Map.of(ShellResources.Icon.FILES, "icons/test.png"), "", "", null, ShellResources.WallpaperFit.COVER));
         var output = new ByteArrayOutputStream();
         assertThrows(IOException.class, () -> AppearanceBundles.write(store, theme, output));
         assertEquals(0, output.size());

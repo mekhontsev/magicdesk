@@ -33,7 +33,7 @@ public final class WorkspaceAppearanceAssetsTest {
                 }
                 static ShellResources resource(int id) {
                     return new ShellResources(Map.of(), String.format("%064x", id),
-                        Map.of(ShellResources.Icon.DESKTOP, "icons/desktop.png"), "", "wallpapers/work.png", null);
+                        Map.of(ShellResources.Icon.DESKTOP, "icons/desktop.png"), "", "wallpapers/work.png", null, ShellResources.WallpaperFit.COVER);
                 }
                 public static void verify() throws Exception {
                     var first = resource(1); var second = resource(2);

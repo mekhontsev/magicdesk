@@ -1878,7 +1878,8 @@ journal. Events come from the existing production observers and include:
 
 The `wallpaper_rendered` event includes the selected source (`bundled`, `custom`,
 or `fallback`), `mediaKind` (`image`, `animated_image`, `video`, `shader`), poster/view
-dimensions, and bitmap/display density. These values are captured once after
+dimensions, bitmap/display density, and the effective `fit` (`cover` or `contain`).
+These values are captured once after
 the selected poster commits; readiness does not require active animation.
 Theme resources, including shaders, use `source=custom`; the source field does
 not distinguish a theme resource from the shared Desktop media file.

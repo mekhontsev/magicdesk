@@ -13,6 +13,17 @@ final class DesktopLaunchPolicy {
         this.explicitWindowed = explicitWindowed;
     }
 
+    /**
+     * Windowed launch stays available when the application only asks to hide system bars.
+     * Immersive requests keep their freeform bounds in the existing observer path
+     * (docs/fullscreen-transitions.md); games and unresizable activities still need
+     * their fullscreen plane.
+     */
+    static boolean prefersWindowed(boolean canFloat, String fullscreenReason) {
+        return canFloat && !AppItem.FULLSCREEN_REASON_GAME.equals(fullscreenReason)
+                && !AppItem.FULLSCREEN_REASON_UNRESIZEABLE.equals(fullscreenReason);
+    }
+
     static DesktopLaunchPolicy resolve(DesktopLaunchPresentation request, AppWindowState saved,
             DesktopLaunchMode existingMode, boolean windowingAvailable, boolean prefersWindow,
             boolean phoneWorkspace, boolean phoneFullscreenDefault) {

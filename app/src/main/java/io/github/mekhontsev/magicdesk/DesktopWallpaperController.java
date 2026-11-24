@@ -87,7 +87,7 @@ final class DesktopWallpaperController {
             if (!theme.resources().wallpaper().isEmpty() || theme.resources().shader() != null) {
                 if (scope == null) {
                     var r = theme.resources();
-                    AppearanceStore.apply(theme.withResources(new ShellResources(r.icons(), r.bundle(), r.iconAssets(), r.font(), "", null)));
+                    AppearanceStore.apply(theme.withResources(new ShellResources(r.icons(), r.bundle(), r.iconAssets(), r.font(), "", null, r.fit())));
                 } else {
                     var patch = new org.json.JSONObject(AppearanceStore.snapshot(scope).patch());
                     var resources = patch.optJSONObject("resources");
@@ -224,7 +224,9 @@ final class DesktopWallpaperController {
                             .put("viewWidth", mWallpaperView.getWidth())
                             .put("viewHeight", mWallpaperView.getHeight())
                             .put("displayDensity", mWallpaperView.getResources()
-                                    .getDisplayMetrics().densityDpi));
+                                    .getDisplayMetrics().densityDpi)
+                            .put("fit", AppearanceStore.current(mActivity).resources().fit()
+                                    .name().toLowerCase(java.util.Locale.ROOT)));
         } catch (org.json.JSONException ignored) {
             DesktopAutomationEventJournal.record(
                     "ui", "wallpaper_rendered", true,

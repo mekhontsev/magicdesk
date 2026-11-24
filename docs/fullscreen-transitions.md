@@ -229,6 +229,13 @@ request to hide system bars does not guarantee that its client discards a stale
 caption source. Capture and refresh that source through the existing plane-entry
 operation, without retrying or rebuilding the Activity, which can discard
 transient state such as the browser's HTML Fullscreen API session.
+Launch presentation treats that request as compatible with a window:
+`DesktopLaunchPolicy.prefersWindowed` opens an immersive application windowed on
+a Desktop display, so a text editor or image viewer is not forced onto a
+fullscreen plane. Activities that cannot float, games and activities that
+declare themselves unresizable still start fullscreen, and an explicit or
+remembered mode keeps precedence. On the phone, the fullscreen-by-default
+setting still applies to these launches.
 
 Explicit snap and resize commands retain the user's windowed preference in the
 task's runtime state. Insets changes observed during a bounds command or
