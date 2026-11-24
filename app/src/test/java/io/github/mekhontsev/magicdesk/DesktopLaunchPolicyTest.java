@@ -32,6 +32,11 @@ public final class DesktopLaunchPolicyTest {
     }
 
     @Test public void immersiveApplicationsOpenWindowedUnlessTheyAreGamesOrUnresizable() {
+        int immersive = android.content.pm.ActivityInfo.FLAG_IMMERSIVE;
+        int game = android.content.pm.ApplicationInfo.CATEGORY_GAME;
+        assertEquals(AppItem.FULLSCREEN_REASON_GAME, LauncherAppRepository.fullscreenPreference(immersive, null, game));
+        assertEquals(AppItem.FULLSCREEN_REASON_UNRESIZEABLE, LauncherAppRepository.fullscreenPreference(immersive, 0, -1));
+        assertEquals(AppItem.FULLSCREEN_REASON_IMMERSIVE, LauncherAppRepository.fullscreenPreference(immersive, null, -1));
         assertTrue(DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_NONE));
         assertTrue(DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_IMMERSIVE));
         assertFalse(DesktopLaunchPolicy.prefersWindowed(true, AppItem.FULLSCREEN_REASON_GAME));

@@ -42,7 +42,7 @@ final class WallpaperView extends FrameLayout {
     private boolean attached, preparing, failed, closed;
     private int outputWidth, outputHeight;
     private ShellResources.WallpaperFit fit = ShellResources.WallpaperFit.COVER;
-    private final Runnable appearanceChanged = () -> { refresh(); applyFit(); };
+    private final Runnable appearanceChanged = this::appearanceChanged;
     private final ContentObserver animations = new ContentObserver(main) {
         @Override public void onChange(boolean selfChange) { refresh(); }
     };
@@ -82,21 +82,27 @@ final class WallpaperView extends FrameLayout {
         refresh();
     }
 
-    private void applyFit() {
+    private void appearanceChanged() {
         ShellResources.WallpaperFit updated = AppearanceStore.current(getContext()).resources().fit();
-        if (updated == fit) return;
-        fit = updated;
-        endPlayback();
+        if (updated != fit) {
+            fit = updated;
+            if (image.getDrawable() != null) sizeImage(image.getDrawable());
+            if (playback instanceof VideoPlayback video) video.sizeSurface();
+        }
         refresh();
     }
 
     private void setImage(Drawable drawable) {
         image.setImageDrawable(drawable);
+        sizeImage(drawable);
+        image.setVisibility(VISIBLE);
+    }
+
+    private void sizeImage(Drawable drawable) {
         var crop = WallpaperPolicy.crop(fit, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight(), outputWidth, outputHeight);
         Matrix matrix = new Matrix(); matrix.setScale(crop.scale(), crop.scale()); matrix.postTranslate(crop.x(), crop.y());
         image.setImageMatrix(matrix);
         image.setLayoutParams(new FrameLayout.LayoutParams(outputWidth, outputHeight));
-        image.setVisibility(VISIBLE);
     }
 
     private void showPoster() {
@@ -203,7 +209,7 @@ final class WallpaperView extends FrameLayout {
         getContext().getContentResolver().registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, animations);
         getContext().registerReceiver(powerChanged, new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED), Context.RECEIVER_NOT_EXPORTED);
         displays.registerDisplayListener(displayChanged, main);
-        refresh();
+        appearanceChanged();
     }
 
     @Override protected void onDetachedFromWindow() {
@@ -222,6 +228,7 @@ final class WallpaperView extends FrameLayout {
         final WallpaperAsset selected;
         final SurfaceView surface;
         MediaPlayer player;
+        int videoWidth, videoHeight;
         Runnable timeout;
         boolean released;
 
@@ -234,6 +241,15 @@ final class WallpaperView extends FrameLayout {
             surface.getHolder().addCallback(this);
             addView(surface, 0, new FrameLayout.LayoutParams(outputWidth, outputHeight));
         }
+        void sizeSurface() {
+            int width = outputWidth, height = outputHeight;
+            if (fit == ShellResources.WallpaperFit.CONTAIN && videoWidth > 0 && videoHeight > 0) {
+                float scale = WallpaperPolicy.crop(fit, videoWidth, videoHeight, width, height).scale();
+                width = Math.max(1, Math.round(videoWidth * scale));
+                height = Math.max(1, Math.round(videoHeight * scale));
+            }
+            surface.setLayoutParams(new FrameLayout.LayoutParams(width, height, android.view.Gravity.CENTER));
+        }
         @Override public void surfaceCreated(SurfaceHolder holder) {
             if (released || token != playbackGeneration) return;
             try {
@@ -241,13 +257,17 @@ final class WallpaperView extends FrameLayout {
                 player.setVolume(0, 0);
                 player.setDisplay(holder);
                 player.setDataSource(selected.openVideo());
+                player.setOnVideoSizeChangedListener((source, width, height) -> {
+                    if (!released && source == player && width > 0 && height > 0) {
+                        videoWidth = width; videoHeight = height;
+                        sizeSurface();
+                    }
+                });
                 player.setOnPreparedListener(ready -> {
                     if (released || player != ready) return;
                     try {
                         ready.setLooping(true);
-                        ready.setVideoScalingMode(fit == ShellResources.WallpaperFit.CONTAIN
-                                ? MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT
-                                : MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+                        ready.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
                         ready.start();
                     } catch (RuntimeException error) { failed(token, error); }
                 });

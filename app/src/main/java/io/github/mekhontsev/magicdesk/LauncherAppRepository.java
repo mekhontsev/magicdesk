@@ -381,25 +381,23 @@ final class LauncherAppRepository {
     private static String fullscreenPreference(
             final ActivityInfo activityInfo,
             final ApplicationInfo applicationInfo) {
-        if (activityInfo != null
-                && (activityInfo.flags & ActivityInfo.FLAG_IMMERSIVE) != 0) {
-            return AppItem.FULLSCREEN_REASON_IMMERSIVE;
-        }
-        if (activityInfo != null
-                && (activityInfo.flags
-                        & ActivityInfo.FLAG_PREFER_MINIMAL_POST_PROCESSING) != 0) {
+        return fullscreenPreference(activityInfo == null ? 0 : activityInfo.flags,
+                FrameworkActivityInfoCompat.resizeMode(activityInfo),
+                applicationInfo == null ? ApplicationInfo.CATEGORY_UNDEFINED : applicationInfo.category);
+    }
+
+    static String fullscreenPreference(int flags, Integer resizeMode, int category) {
+        if ((flags & ActivityInfo.FLAG_PREFER_MINIMAL_POST_PROCESSING) != 0) {
             return AppItem.FULLSCREEN_REASON_GAME;
         }
-        final Integer resizeMode = FrameworkActivityInfoCompat.resizeMode(
-                activityInfo);
         if (resizeMode != null
                 && resizeMode.intValue() == RESIZE_MODE_UNRESIZEABLE) {
             return AppItem.FULLSCREEN_REASON_UNRESIZEABLE;
         }
-        if (applicationInfo != null
-                && applicationInfo.category == ApplicationInfo.CATEGORY_GAME) {
+        if (category == ApplicationInfo.CATEGORY_GAME) {
             return AppItem.FULLSCREEN_REASON_GAME;
         }
+        if ((flags & ActivityInfo.FLAG_IMMERSIVE) != 0) return AppItem.FULLSCREEN_REASON_IMMERSIVE;
         return AppItem.FULLSCREEN_REASON_NONE;
     }
 
