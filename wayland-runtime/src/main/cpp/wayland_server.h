@@ -161,8 +161,8 @@ bool mdw_output_button(MdwOutput *output, MdwButton button, bool down);
 bool mdw_output_scroll(MdwOutput *output, double horizontal, double vertical);
 bool mdw_output_key(MdwOutput *output, uint32_t evdev_code, bool down);
 bool mdw_output_text(MdwOutput *output, uint64_t editor, const char *text, bool composing, int cursor);
-bool mdw_output_delete_text(MdwOutput *output, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
-    const char *preedit, int cursor);
+bool mdw_output_edit_text(MdwOutput *output, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
+    const char *replacement, bool composing, int cursor);
 void mdw_output_destroy(MdwOutput *output);
 bool mdw_window_close(MdwServer *server, uint64_t window);
 bool mdw_window_disconnect(MdwServer *server, uint64_t window);

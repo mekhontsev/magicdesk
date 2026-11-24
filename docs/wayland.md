@@ -276,10 +276,11 @@ discarding a candidate connection does not close the active editor. Enable
 generations reject old editors; destructive edits additionally require the observed
 text/selection revision, unaffected by cursor-rectangle commits. Client-declared
 IME acknowledgements update selection without invalidating queued keyboard edits.
-Surrounding-text deletion
-preserves the active composition in the same protocol batch. Arbitrary remote
-selection changes and composing regions are not fabricated when the protocol
-cannot express them.
+Surrounding-text deletion preserves the active composition in the same protocol
+batch. Android can mark committed text around a collapsed caret for composition.
+The first edit replaces the marked text using its observed revision, via a
+single Wayland batch containing the deletion and the new preedit or commit.
+Arbitrary remote selection changes remain unsupported.
 
 The guest caret rectangle travels with its editor context in normalized output
 coordinates, including scene offsets and host density. The shared InputConnection

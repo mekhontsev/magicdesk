@@ -177,12 +177,12 @@ bool mdw_input_text(MdwServer *server, uint64_t editor, const char *text, bool c
     return true;
 }
 
-bool mdw_input_delete_text(MdwServer *server, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
-        const char *preedit, int position) {
+bool mdw_input_edit_text(MdwServer *server, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
+        const char *replacement, bool composing, int position) {
     struct MdwTextInput *item = server->input ? active_text(server->input) : NULL;
     if (!item || !editor || item->editor != editor || item->revision != revision) return false;
-    if (!preedit || strlen(preedit) > 4000 || position < 0 || (size_t)position > strlen(preedit)
-            || ((unsigned char)preedit[position] & 0xc0) == 0x80) return false;
+    if (!replacement || strlen(replacement) > 4000 || position < 0 || (size_t)position > strlen(replacement)
+            || ((unsigned char)replacement[position] & 0xc0) == 0x80) return false;
     struct wlr_text_input_v3 *target = item->text;
     const char *text = target->current.surrounding.text;
     if (!(target->current.features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) || !text) return false;
@@ -193,7 +193,11 @@ bool mdw_input_delete_text(MdwServer *server, uint64_t editor, uint32_t revision
             ((unsigned char)text[start - before] & 0xc0) == 0x80 ||
             ((unsigned char)text[end + after] & 0xc0) == 0x80) return false;
     wlr_text_input_v3_send_delete_surrounding_text(target, before, after);
-    wlr_text_input_v3_send_preedit_string(target, preedit, position, position);
+    if (composing) wlr_text_input_v3_send_preedit_string(target, replacement, position, position);
+    else {
+        wlr_text_input_v3_send_preedit_string(target, "", 0, 0);
+        wlr_text_input_v3_send_commit_string(target, replacement);
+    }
     wlr_text_input_v3_send_done(target);
     return true;
 }

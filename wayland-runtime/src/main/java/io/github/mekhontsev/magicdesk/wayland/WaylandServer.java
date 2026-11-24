@@ -318,11 +318,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
             throw new IllegalArgumentException("Invalid Wayland text edit");
         output(id, pointer -> nativeText(pointer, editor, utf8, composing, cursor));
     }
-    @Override public void deleteText(long id, long editor, long revision, int before, int after, byte[] preedit, int cursor) {
+    @Override public void editText(long id, long editor, long revision, int before, int after, byte[] text, boolean composing, int cursor) {
         if (before < 0 || after < 0 || before > WaylandText.MAX_BYTES || after > WaylandText.MAX_BYTES
-                || preedit == null || preedit.length > WaylandText.MAX_BYTES || cursor < 0 || cursor > preedit.length)
-            throw new IllegalArgumentException("Invalid Wayland text deletion");
-        output(id, pointer -> nativeDeleteText(pointer, editor, revision, before, after, preedit, cursor));
+                || text == null || text.length > WaylandText.MAX_BYTES || cursor < 0 || cursor > text.length)
+            throw new IllegalArgumentException("Invalid Wayland text replacement");
+        output(id, pointer -> nativeEditText(pointer, editor, revision, before, after, text, composing, cursor));
     }
     @Override public void confirmFullscreen(long window, long serial, boolean fullscreen) {
         command(() -> nativeConfirmFullscreen(handle, window, serial, fullscreen));
@@ -687,7 +687,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeScroll(long output, double horizontal, double vertical);
     private static native void nativeKey(long output, int androidKey, int scanCode, boolean down);
     private static native void nativeText(long output, long editor, byte[] utf8, boolean composing, int cursor);
-    private static native void nativeDeleteText(long output, long editor, long revision, int before, int after, byte[] preedit, int cursor);
+    private static native void nativeEditText(long output, long editor, long revision, int before, int after, byte[] text, boolean composing, int cursor);
     private static native void nativeCloseWindow(long server, long window, boolean force);
     private static native void nativeConfirmFullscreen(long server, long window, long serial, boolean fullscreen);
     private static native void nativeConfirmMaximized(long server, long window, long serial, boolean maximized);

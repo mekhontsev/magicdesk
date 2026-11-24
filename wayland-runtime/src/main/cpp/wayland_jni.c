@@ -387,13 +387,13 @@ JNIEXPORT void JNICALL JNI(nativeText)(JNIEnv *env, jclass type, jlong output,
         mdw_output_text((void *)(intptr_t)output, editor, text, composing, cursor);
 }
 
-JNIEXPORT void JNICALL JNI(nativeDeleteText)(JNIEnv *env, jclass type, jlong output,
-        jlong editor, jlong revision, jint before, jint after, jbyteArray preedit, jint cursor) {
+JNIEXPORT void JNICALL JNI(nativeEditText)(JNIEnv *env, jclass type, jlong output,
+        jlong editor, jlong revision, jint before, jint after, jbyteArray replacement, jboolean composing, jint cursor) {
     (void)type;
     if (revision < 0 || revision > UINT32_MAX || before < 0 || after < 0) return;
     char text[4001];
-    if (text_bytes(env, preedit, cursor, text))
-        mdw_output_delete_text((void *)(intptr_t)output, editor, revision, before, after, text, cursor);
+    if (text_bytes(env, replacement, cursor, text))
+        mdw_output_edit_text((void *)(intptr_t)output, editor, revision, before, after, text, composing, cursor);
 }
 
 JNIEXPORT jboolean JNICALL JNI(nativeScale)(JNIEnv *env, jclass type, jlong output, jdouble scale) {

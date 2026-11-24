@@ -33,5 +33,6 @@ interface HostedSurfaceOutput extends AutoCloseable {
     default boolean supportsText() { return true; }
     default HostedTextState textState() { return null; }
     default boolean deleteText(HostedTextState snapshot, int before, int after, boolean codePoints, String preedit, int cursor) { return false; }
+    default boolean replaceText(HostedTextState snapshot, int before, int after, String text) { return false; }
     @Override void close();
 }
