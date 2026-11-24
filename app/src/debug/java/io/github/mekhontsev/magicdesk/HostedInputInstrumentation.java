@@ -302,11 +302,19 @@ public final class HostedInputInstrumentation extends Instrumentation {
         require(output.replacement.equals("2:1:в") && output.commits.size() == commits,
                 "direct correction deletes the marked range and inserts once");
 
-        require(connection.setComposingRegion(1, 4), "mark a region that may become stale");
+        require(!connection.setComposingRegion(1, 4), "cannot claim the same snapshot twice before acknowledgement");
         output.state = new HostedTextState(20, 4, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "ав", 2, 2, null, true);
+        require(connection.setComposingRegion(0, 2), "mark a region that may become stale");
+        output.state = new HostedTextState(20, 5, HostedTextState.Purpose.NORMAL,
                 HostedTextState.SPELLCHECK, "другой", 6, 6);
         require(!connection.commitText("старый", 1), "a stale range cannot insert or delete text");
-        require(connection.finishComposingText() && output.commits.size() == commits, "abandoning a stale range is harmless");
+        require(!connection.finishComposingText() && !connection.commitText("queued", 1)
+                && output.commits.size() == commits, "queued calls on the retired connection cannot edit the new caret");
+        connection = view.onCreateInputConnection(new EditorInfo());
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("другой")
+                && connection.commitText("!", 1) && output.commits.get(commits).equals("!"),
+                "fresh typing does not require manually finishing the stale word");
     }
 
     private static final class Output implements HostedSurfaceOutput {

@@ -13,6 +13,7 @@ struct MdwTextInput {
     uint64_t editor;
     uint32_t revision, cursor, anchor;
     char *surrounding;
+    enum { NO_PREEDIT, IME_PREEDIT, RANGE_PREEDIT } composition;
 };
 
 struct MdwInput {
@@ -105,19 +106,38 @@ static bool capture_context(struct MdwTextInput *item) {
     return true;
 }
 
+// A rejected range may already be followed by preedit/commit commands in the
+// one-way input stream. Republish the editor under a new identity: only a
+// connection bound to the current context may continue typing.
+static void restart_editor(struct MdwTextInput *item) {
+    if (item->composition != NO_PREEDIT) {
+        wlr_text_input_v3_send_preedit_string(item->text, "", 0, 0);
+        wlr_text_input_v3_send_done(item->text);
+        item->composition = NO_PREEDIT;
+    }
+    item->editor = ++item->server->input->next_editor;
+    mdw_input_refresh(item->server);
+}
+
 static void text_changed(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwTextInput *item = wl_container_of(listener, item, enable);
     item->editor = ++item->server->input->next_editor;
     item->revision = 0;
+    item->composition = NO_PREEDIT;
     if (!capture_context(item)) return;
     mdw_input_refresh(item->server);
 }
 static void text_committed(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwTextInput *item = wl_container_of(listener, item, commit);
+    uint32_t previous = item->revision;
     if (!capture_context(item)) return;
-    if (active_text(item->server->input) == item) publish_text(item->server->input);
+    if (active_text(item->server->input) != item) return;
+    if (item->composition == RANGE_PREEDIT && item->revision != previous &&
+            item->text->current.text_change_cause == ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_OTHER)
+        restart_editor(item);
+    else publish_text(item->server->input);
 }
 static void text_disabled(struct wl_listener *listener, void *data) {
     (void)data;
@@ -163,42 +183,47 @@ static void keyboard_focus(struct wl_listener *listener, void *data) {
     mdw_input_refresh(input->server);
 }
 
+static bool valid_edit(const char *text, int cursor) {
+    if (!text || cursor < 0) return false;
+    size_t length = strlen(text);
+    return length <= 4000 && (size_t)cursor <= length && ((unsigned char)text[cursor] & 0xc0) != 0x80;
+}
+
+static void send_edit(struct MdwTextInput *item, const char *text, bool composing, int cursor, bool range) {
+    struct wlr_text_input_v3 *target = item->text;
+    wlr_text_input_v3_send_preedit_string(target, composing ? text : "", composing ? cursor : 0, composing ? cursor : 0);
+    if (!composing) wlr_text_input_v3_send_commit_string(target, text);
+    if (!composing || !*text) item->composition = NO_PREEDIT;
+    else if (range || item->composition == RANGE_PREEDIT) item->composition = RANGE_PREEDIT;
+    else item->composition = IME_PREEDIT;
+    wlr_text_input_v3_send_done(target);
+}
+
 bool mdw_input_text(MdwServer *server, uint64_t editor, const char *text, bool composing, int cursor) {
     struct MdwTextInput *item = server->input ? active_text(server->input) : NULL;
-    if (!item || !editor || item->editor != editor || !text || cursor < 0 || strlen(text) > 4000
-            || (size_t)cursor > strlen(text) || ((unsigned char)text[cursor] & 0xc0) == 0x80) return false;
-    struct wlr_text_input_v3 *target = item->text;
-    if (composing) wlr_text_input_v3_send_preedit_string(target, text, cursor, cursor);
-    else {
-        wlr_text_input_v3_send_preedit_string(target, "", 0, 0);
-        wlr_text_input_v3_send_commit_string(target, text);
-    }
-    wlr_text_input_v3_send_done(target);
+    if (!item || !editor || item->editor != editor || !valid_edit(text, cursor)) return false;
+    send_edit(item, text, composing, cursor, false);
     return true;
 }
 
 bool mdw_input_edit_text(MdwServer *server, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
         const char *replacement, bool composing, int position) {
     struct MdwTextInput *item = server->input ? active_text(server->input) : NULL;
-    if (!item || !editor || item->editor != editor || item->revision != revision) return false;
-    if (!replacement || strlen(replacement) > 4000 || position < 0 || (size_t)position > strlen(replacement)
-            || ((unsigned char)replacement[position] & 0xc0) == 0x80) return false;
+    if (!item || !editor || item->editor != editor || !valid_edit(replacement, position)) return false;
     struct wlr_text_input_v3 *target = item->text;
     const char *text = target->current.surrounding.text;
-    if (!(target->current.features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) || !text) return false;
     uint32_t cursor = target->current.surrounding.cursor, anchor = target->current.surrounding.anchor;
     uint32_t start = cursor < anchor ? cursor : anchor, end = cursor > anchor ? cursor : anchor;
-    size_t length = strlen(text);
-    if (end > length || before > start || after > length - end ||
+    size_t length = text ? strlen(text) : 0;
+    if (item->revision != revision || !(target->current.features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) ||
+            !text || end > length || before > start || after > length - end ||
             ((unsigned char)text[start - before] & 0xc0) == 0x80 ||
-            ((unsigned char)text[end + after] & 0xc0) == 0x80) return false;
-    wlr_text_input_v3_send_delete_surrounding_text(target, before, after);
-    if (composing) wlr_text_input_v3_send_preedit_string(target, replacement, position, position);
-    else {
-        wlr_text_input_v3_send_preedit_string(target, "", 0, 0);
-        wlr_text_input_v3_send_commit_string(target, replacement);
+            ((unsigned char)text[end + after] & 0xc0) == 0x80) {
+        restart_editor(item);
+        return false;
     }
-    wlr_text_input_v3_send_done(target);
+    wlr_text_input_v3_send_delete_surrounding_text(target, before, after);
+    send_edit(item, replacement, composing, position, true);
     return true;
 }
 

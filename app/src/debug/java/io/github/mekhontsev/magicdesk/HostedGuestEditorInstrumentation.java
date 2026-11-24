@@ -138,9 +138,17 @@ public final class HostedGuestEditorInstrumentation extends Instrumentation impl
                     write(input -> require(input.deleteSurroundingTextInCodePoints(2, 0), "Unicode correction deletion"));
                     await("guest correction acknowledged", () -> acknowledged("hello "));
                 }
-                String expectedText = correction ? "hello world" : "hello \u0416\ud83d\ude00world";
+                String appended = correction ? "hello world" : "hello \u0416\ud83d\ude00world";
                 write(input -> input.commitText("world", 1));
-                await("guest append", () -> acknowledged(expectedText));
+                await("guest append", () -> acknowledged(appended));
+                String expectedText = correction ? "hello earth" : appended;
+                if (correction) {
+                    write(input -> {
+                        require(input.setComposingRegion(appended.length() - 5, appended.length()), "mark committed word");
+                        require(input.commitText("earth", 1), "replace committed word");
+                    });
+                    await("guest word replacement", () -> acknowledged(expectedText));
+                }
                 await("guest caret", () -> connection.cursorInfo() != null);
                 runOnMainSync(() -> {
                     require(connection.requestCursorUpdates(InputConnection.CURSOR_UPDATE_MONITOR,

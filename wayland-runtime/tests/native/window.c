@@ -78,7 +78,7 @@ struct Client {
     struct wl_surface *cursor;
     struct wl_buffer *cursor_buffer;
     int cursor_stage;
-    bool preedit, committed, fullscreen, maximized, deleted;
+    bool preedit, committed, fullscreen, maximized, deleted, replaced, replacing, moved_during_preedit;
     bool data_device_manager;
     int key_down, key_up, button_down, button_up;
     int navigation_down[2], navigation_up[2];
@@ -109,6 +109,11 @@ static void text_enter(void *data, struct zwp_text_input_v3 *text, struct wl_sur
     zwp_text_input_v3_commit(text);
     zwp_text_input_v3_set_text_change_cause(text, ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD);
     zwp_text_input_v3_commit(text);
+    if (interaction) {
+        zwp_text_input_v3_set_text_change_cause(text, ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_OTHER);
+        zwp_text_input_v3_set_surrounding_text(text, "a\xd0\x96\xf0\x9f\x98\x80z", 3, 3);
+        zwp_text_input_v3_commit(text);
+    }
 }
 static void text_leave(void *data, struct zwp_text_input_v3 *text, struct wl_surface *surface) {
     (void)data; (void)text; (void)surface;
@@ -124,17 +129,36 @@ static void text_preedit(void *data, struct zwp_text_input_v3 *text, const char 
 static void text_commit(void *data, struct zwp_text_input_v3 *text, const char *value) {
     (void)text;
     struct Client *client = data;
+    if (client->replacing) {
+        assert(!client->replaced && !strcmp(value, "\xd0\x96"));
+        client->replaced = true;
+        return;
+    }
     assert(client->deleted && client->preedit && !strcmp(value, "Unicode \xd0\x96 \xf0\x9f\x98\x80"));
     client->committed = true;
     xdg_toplevel_set_app_id(client->toplevel, "io.magicdesk.committed");
 }
 static void text_delete(void *data, struct zwp_text_input_v3 *text, uint32_t before, uint32_t after) {
     (void)text;
-    assert(before == 2 && after == 1);
-    ((struct Client *)data)->deleted = true;
+    struct Client *client = data;
+    assert(before == 2 && after == (client->replaced ? 1 : 4));
+    if (client->replaced) client->deleted = true;
+    else client->replacing = true;
 }
 static void text_done(void *data, struct zwp_text_input_v3 *text, uint32_t serial) {
-    (void)data; (void)text; (void)serial;
+    (void)serial;
+    struct Client *client = data;
+    if (client->replacing) {
+        assert(client->replaced); // One done covers both deletion and replacement.
+        client->replacing = false;
+        zwp_text_input_v3_set_text_change_cause(text, ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD);
+        zwp_text_input_v3_set_surrounding_text(text, "a\xd0\x96z", 3, 3);
+    } else if (client->deleted && !client->moved_during_preedit) {
+        client->moved_during_preedit = true;
+        zwp_text_input_v3_set_text_change_cause(text, ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_OTHER);
+        zwp_text_input_v3_set_surrounding_text(text, "a", 0, 0);
+    } else return;
+    zwp_text_input_v3_commit(text);
 }
 static const struct zwp_text_input_v3_listener text_listener = {
     .enter = text_enter, .leave = text_leave, .preedit_string = text_preedit,
@@ -659,7 +683,8 @@ struct Host {
     uint64_t editor;
     uint64_t capture_serial;
     int capture_requests, capture_releases;
-    uint32_t text_revision;
+    uint32_t text_revision, marked_revision;
+    bool caret_moved, replacement_seen, interrupted;
     int gestures;
     int frames;
     bool allow_render;
@@ -741,8 +766,17 @@ static void text_input_event(void *data, MdwOutput *output, const MdwTextState *
             assert(state->input_method_change);
             return;
         }
-        assert(state->surrounding && !strcmp(state->surrounding, "a\xd0\x96\xf0\x9f\x98\x80z"));
-        assert(state->cursor == 7 && state->anchor == 3);
+        assert(state->surrounding);
+        if (!strcmp(state->surrounding, "a")) {
+            assert(state->cursor == 0 && state->anchor == 0);
+            host->interrupted = true;
+            return;
+        }
+        assert(state->anchor == 3);
+        host->replacement_seen = !strcmp(state->surrounding, "a\xd0\x96z");
+        assert(host->replacement_seen || !strcmp(state->surrounding, "a\xd0\x96\xf0\x9f\x98\x80z"));
+        if (state->cursor == 7) host->marked_revision = state->revision;
+        else { assert(state->cursor == 3); host->caret_moved = true; }
         assert(state->purpose == ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL);
         assert(state->hints == ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION);
         assert(state->caret_valid && fabs(state->caret[0] - .125f) < .0001f
@@ -826,10 +860,11 @@ int main(int argc, char **argv) {
     MdwOutput *output = NULL;
     MdwOutput *feedback_dependents = NULL;
     bool detached = false, closing = false, deferred = false, resumed = false;
-    bool input_sent = false, text_sent = false, minimize_seen = false;
+    bool input_sent = false, text_sent = false, correction_sent = false, minimize_seen = false;
     bool idle_checked = !idle_feedback;
     int capture_stage = 0;
     uint64_t old_capture = 0;
+    uint64_t composing_editor = 0;
     while (!host.destroyed) {
         // Process a ready host capture receipt before blocking on the next client event.
         assert(mdw_server_dispatch(server,
@@ -927,12 +962,22 @@ int main(int argc, char **argv) {
             assert(mdw_window_confirm_fullscreen(server, host.window, host.previous.request_serial, true));
             assert(!mdw_window_confirm_maximized(server, host.window, host.previous.maximize_serial + 1, true));
             assert(mdw_window_confirm_maximized(server, host.window, host.previous.maximize_serial, true));
-            if (host.text_enabled && !text_sent) {
-                assert(!mdw_output_text(output, host.editor + 1, "stale", false, 5));
-                assert(!mdw_output_delete_text(output, host.editor, host.text_revision + 1, 2, 1, "", 0));
-                assert(!mdw_output_delete_text(output, host.editor, host.text_revision, 1, 1, "", 0));
+            if (host.text_enabled && host.caret_moved && !correction_sent) {
+                uint64_t old = host.editor;
+                assert(host.marked_revision && host.marked_revision != host.text_revision);
+                assert(!mdw_output_edit_text(output, old, host.marked_revision, 2, 1, "bad", false, 3));
+                assert(host.editor != old && !mdw_output_text(output, old, "bad", false, 3));
+                assert(!mdw_output_edit_text(output, host.editor, host.text_revision, 1, 1, "", true, 0));
+                assert(mdw_output_edit_text(output, host.editor, host.text_revision, 2, 4, "\xd0\x96", false, 2));
+                correction_sent = true;
+            }
+            if (host.text_enabled && host.replacement_seen && !composing_editor) {
+                composing_editor = host.editor;
                 assert(mdw_output_text(output, host.editor, "compose", true, 7));
-                assert(mdw_output_delete_text(output, host.editor, host.text_revision, 2, 1, "compose", 7));
+                assert(mdw_output_edit_text(output, host.editor, host.text_revision, 2, 1, "compose", true, 7));
+            }
+            if (host.interrupted && !text_sent) {
+                assert(host.editor != composing_editor && !mdw_output_text(output, composing_editor, "bad", false, 3));
                 assert(mdw_output_text(output, host.editor, "Unicode \xd0\x96 \xf0\x9f\x98\x80", false, 15));
                 text_sent = true;
             }

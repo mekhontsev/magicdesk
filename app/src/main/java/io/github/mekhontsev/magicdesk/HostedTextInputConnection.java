@@ -32,6 +32,9 @@ final class HostedTextInputConnection extends BaseInputConnection {
         Context publishedContext;
         HostedTextInputConnection cursorObserver;
         Region region;
+        // A committed replacement is queued, but this surrounding snapshot may
+        // still be visible to another IME call before the guest responds.
+        long replacedRevision = -1;
         boolean disposed;
         Editor() { Selection.setSelection(composition, 0); }
     }
@@ -70,6 +73,26 @@ final class HostedTextInputConnection extends BaseInputConnection {
                 && (editor == null ? state == null : editor.sameEditor(state));
     }
 
+    private boolean prepareEdit(HostedTextState state) {
+        if (!sameEditor(state)) return false;
+        var region = binding.region;
+        if (region == null || region.matches(state)) return true;
+        if (region.transferred) {
+            binding.region = null;
+            return true;
+        }
+        return abandonRange();
+    }
+
+    private boolean abandonRange() {
+        // Old queued calls must not become ordinary insertion at the new caret.
+        binding.region = null;
+        dispose();
+        var manager = view.getContext().getSystemService(InputMethodManager.class);
+        if (manager != null) manager.restartInput(view);
+        return false;
+    }
+
     private static int inputType(HostedTextState state) {
         if (state == null) return InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         int type = switch (state.purpose()) {
@@ -101,7 +124,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
     }
 
     @Override public boolean setComposingText(CharSequence text, int cursor) {
-        if (!sameEditor()) return false;
+        if (!prepareEdit(output.textState())) return false;
         boolean result = super.setComposingText(text, cursor);
         return result && publishPreedit();
     }
@@ -112,7 +135,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
         if (region != null && !region.transferred) {
             if (!region.matches(output.textState()) || !output.deleteText(region.snapshot,
                     region.snapshot.start() - region.start, region.end - region.snapshot.end(), false, text, cursor))
-                return false;
+                return abandonRange();
             binding.region = new Region(region.snapshot, region.start, region.end, true);
         } else {
             output.preedit(editor, text, cursor);
@@ -121,12 +144,15 @@ final class HostedTextInputConnection extends BaseInputConnection {
         return true;
     }
     @Override public boolean commitText(CharSequence text, int cursor) {
-        if (!sameEditor()) return false;
+        if (!prepareEdit(output.textState())) return false;
         var region = binding.region;
         if (region != null && !region.transferred) {
             if (!region.matches(output.textState()) || !output.replaceText(region.snapshot,
                     region.snapshot.start() - region.start, region.end - region.snapshot.end(), text.toString()))
-                return false;
+                return abandonRange();
+            if (!region.snapshot.surrounding().substring(region.start, region.end).contentEquals(text)
+                    || region.snapshot.cursor() != region.end)
+                binding.replacedRevision = region.snapshot.revision();
             binding.region = null;
         } else {
             output.text(editor, text.toString());
@@ -136,7 +162,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
         return true;
     }
     @Override public boolean finishComposingText() {
-        if (!sameEditor()) return false;
+        if (!prepareEdit(output.textState())) return false;
         if (binding.region != null && !binding.region.transferred) {
             // Merely marking committed text did not change the guest buffer.
             binding.region = null;
@@ -163,7 +189,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
     @Override public boolean deleteSurroundingTextInCodePoints(int before, int after) { return delete(before, after, true); }
     private boolean delete(int before, int after, boolean codePoints) {
         var state = output.textState();
-        if (!sameEditor(state) || before < 0 || after < 0) return false;
+        if (!prepareEdit(state) || before < 0 || after < 0) return false;
         var region = binding.region;
         if (region != null && region.matches(state)) {
             if (region.transferred) return false; // Wait for the new guest deletion offsets.
@@ -174,12 +200,11 @@ final class HostedTextInputConnection extends BaseInputConnection {
                     Math.min(after, surrounding.codePointCount(region.end, surrounding.length())))
                     : region.end + Math.min(after, surrounding.length() - region.end);
             if (!output.deleteText(state, state.start() - start, end - state.end(), false,
-                    getEditable().toString(), Math.max(0, Selection.getSelectionEnd(getEditable())))) return false;
+                    getEditable().toString(), Math.max(0, Selection.getSelectionEnd(getEditable())))) return abandonRange();
             binding.region = new Region(state, start, end, true);
             binding.publishedContext = context();
             return true;
         }
-        if (region != null && !region.transferred) return false;
         // Android excludes the composition from surrounding-text deletion.
         // Preserve the guest preview in the same protocol edit as the deletion.
         if (output.deleteText(state, before, after, codePoints, getEditable().toString(),
@@ -239,7 +264,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
     }
     @Override public int getCursorCapsMode(int modes) { var c = context(); return TextUtils.getCapsMode(c.text, c.cursor, modes); }
     @Override public boolean setSelection(int start, int end) {
-        if (!sameEditor()) return false;
+        if (!prepareEdit(output.textState())) return false;
         var c = context();
         if (start == c.anchor && end == c.cursor) return true;
         if (start != end || c.composingStart < 0 || start < c.composingStart || end > c.composingEnd) return false;
@@ -252,9 +277,10 @@ final class HostedTextInputConnection extends BaseInputConnection {
     }
     @Override public boolean setComposingRegion(int start, int end) {
         var state = output.textState();
-        if (!sameEditor(state) || state == null || state.privateText() || state.surrounding() == null) return false;
+        if (!prepareEdit(state) || state == null || state.privateText() || state.surrounding() == null) return false;
         int left = Math.min(start, end), right = Math.max(start, end);
         if (left == right) return finishComposingText();
+        if (binding.replacedRevision == state.revision()) return false;
         var c = context();
         if (getEditable().length() > 0) return left == c.composingStart && right == c.composingEnd;
         if (binding.region != null && binding.region.matches(state)) return false;
@@ -271,15 +297,12 @@ final class HostedTextInputConnection extends BaseInputConnection {
 
     void update(InputMethodManager manager, View view) {
         var state = output.textState();
-        var region = binding.region;
-        boolean staleRegion = region != null && !region.matches(state);
-        if (staleRegion && region.transferred)
-            binding.region = null;
+        if (!prepareEdit(state)) return;
         var c = context();
         manager.updateSelection(view, c.anchor, c.cursor, c.composingStart, c.composingEnd);
         // Caret updates and guest acknowledgements must not cancel queued IME edits.
         if (!c.equals(binding.publishedContext)
-                && (state == null || !state.inputMethodChange() || staleRegion && !region.transferred))
+                && (state == null || !state.inputMethodChange()))
             manager.invalidateInput(view);
         binding.publishedContext = c;
         cursorChanged();

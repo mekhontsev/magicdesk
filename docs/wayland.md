@@ -280,6 +280,10 @@ Surrounding-text deletion preserves the active composition in the same protocol
 batch. Android can mark committed text around a collapsed caret for composition.
 The first edit replaces the marked text using its observed revision, via a
 single Wayland batch containing the deletion and the new preedit or commit.
+If the guest moves the caret before the replacement, or during the resulting
+composition, the stale edit and its queued follow-ups cannot insert text at the
+new caret. Android starts a fresh input connection from the latest guest
+context; ordinary typing does not wait for a round trip.
 Arbitrary remote selection changes remain unsupported.
 
 The guest caret rectangle travels with its editor context in normalized output
@@ -780,7 +784,7 @@ session and terminal processes. This is software-compositor coverage, not valida
 Linux desktop environment or hardware acceleration.
 
 Native fixtures exercise text-input-v3 preedit/Unicode commit, snapshot-qualified
-surrounding deletion with composition preservation, stale editor rejection, cursor pixels,
+range replacement, surrounding deletion with composition preservation, stale editor rejection, cursor pixels,
 scale, stale fullscreen acknowledgements, bidirectional selections, native drag
 delivery and bounded content-stream cancellation. `HostedInputInstrumentation`
 exercises Android InputConnection composition/commit, UTF-16 surrounding text and
@@ -789,7 +793,7 @@ editors alongside the shared pointer and cursor tests. This IME coverage is limi
 to text-input-v3.
 
 `HostedGuestEditorInstrumentation` exercises a real GTK3 or Qt guest through its Android
-host: composition, Unicode correction, field switching, private PINs, caret geometry,
+host: composition, Unicode deletion, replacement of a committed word, field switching, private PINs, caret geometry,
 IME-inset delivery and a size-constrained dialog. Prepare an independent
 non-phone display and a command launching `wayland-runtime/tests/gtk-guest-content.py` with the
 session's Wayland socket available inside the guest, then run:
