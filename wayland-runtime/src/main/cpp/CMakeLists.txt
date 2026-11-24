@@ -189,6 +189,8 @@ add_test(NAME wayland-window-fixed-size COMMAND wayland-window-test --fixed-size
 add_test(NAME wayland-window-minimum-size COMMAND wayland-window-test --minimum-size)
 add_test(NAME wayland-window-bounded-size COMMAND wayland-window-test --bounded-size)
 add_test(NAME wayland-interaction COMMAND wayland-window-test --interaction)
+add_test(NAME wayland-touch-interaction COMMAND wayland-window-test --touch-interaction)
+set_tests_properties(wayland-touch-interaction PROPERTIES TIMEOUT 15)
 add_test(NAME wayland-pointer-lock COMMAND wayland-window-test --pointer-lock)
 set_tests_properties(wayland-pointer-lock PROPERTIES TIMEOUT 15)
 if(MDG_ANDROID_BUILD)

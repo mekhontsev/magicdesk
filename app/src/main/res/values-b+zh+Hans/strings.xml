@@ -840,6 +840,7 @@
     <string name="touchpad_show_keyboard">显示键盘</string>
     <string name="touchpad_keyboard_failed">无法显示键盘：%1$s</string>
     <string name="settings_section_input">显示器输入</string>
+    <string name="settings_wayland_direct_touch">在新的 Wayland 窗口中使用直接触摸输入</string>
     <string name="settings_keep_desktop_awake">保持会话活跃</string>
     <string name="settings_keep_screen_on">保持手机屏幕常亮</string>
     <string name="settings_phone_fullscreen_default">在手机上全屏打开新窗口</string>

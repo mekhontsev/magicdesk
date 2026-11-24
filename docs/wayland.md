@@ -229,7 +229,9 @@ mapping. XWayland is not enabled.
 Mouse and touchpad gestures use the common `HostedPointerInput` adapter.
 Fractional scroll deltas are retained through Wayland seat axes, including
 classified Android touchpad history. Android touchscreen contacts use the shared
-direct-input adapter and arrive as `wl_touch` events. A contact stays with the
+direct-input adapter. Clients that bind `wl_touch` receive native contacts;
+for pointer-only clients the first finger operates the primary mouse button.
+A native contact stays with the
 surface it started on while moving outside its bounds. Loss of focus or the
 surface cancels the gesture.
 

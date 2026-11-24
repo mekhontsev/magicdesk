@@ -511,9 +511,12 @@ int main(int argc, char **argv) {
             assert(mdw_output_pointer(host.panel_output, .1, .1));
             assert(!mdw_output_key(host.panel_output, KEY_B, true));
             assert(mdw_output_key(host.app_output, KEY_A, false));
-            assert(mdw_output_pointer(host.panel_output, .1, .1));
-            assert(mdw_output_button(host.panel_output, MDW_PRIMARY, true));
-            assert(mdw_output_button(host.panel_output, MDW_PRIMARY, false));
+            // This client binds only wl_pointer. The second finger must not generate a click.
+            mdw_output_touch(host.panel_output, 0, MDW_TOUCH_BEGIN, .1, .1);
+            mdw_output_touch(host.panel_output, 7, MDW_TOUCH_BEGIN, .2, .2);
+            mdw_output_touch(host.panel_output, 7, MDW_TOUCH_END, .2, .2);
+            mdw_output_touch(host.panel_output, 0, MDW_TOUCH_END, .1, .1);
+            mdw_output_touch_frame(host.panel_output);
             stage = 1;
         } else if (stage == 1 && host.keyboard == MDW_KEYBOARD_ON_DEMAND) {
             assert(mdw_output_focus(host.panel_output, true));

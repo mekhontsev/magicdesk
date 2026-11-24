@@ -67,7 +67,8 @@ struct MdwOutput {
     double scale, render_scale;
     MdwOutput *parent, *dependents;
     bool keys[KEY_MAX + 1];
-    bool buttons[5];
+    uint8_t buttons[5]; // Sources holding each logical seat button.
+    int pointer_contact; // Android id + 1, or zero.
     struct MdwTouchContact contacts[32]; // Android pointer IDs range from 0 to 31.
     unsigned active_touches;
     bool touch_frame_pending;
@@ -455,9 +456,12 @@ bool mdw_window_confirm_minimize(MdwServer *server, uint64_t id, uint64_t serial
 
 static void window_gesture(struct MdwToplevel *window, struct wlr_seat_client *seat, uint32_t serial, uint32_t edges) {
     MdwServer *server = window->view.server;
-    if (seat->seat != server->seat || !server->pointer_owner
-            || server->pointer_owner->view != &window->view
-            || !wlr_seat_validate_pointer_grab_serial(server->seat, window->view.surface, serial)) return;
+    if (seat->seat != server->seat) return;
+    bool pointer = server->pointer_owner && server->pointer_owner->view == &window->view &&
+        wlr_seat_validate_pointer_grab_serial(server->seat, window->view.surface, serial);
+    bool touch = server->touch_owner && server->touch_owner->view == &window->view &&
+        wlr_seat_validate_touch_grab_serial(server->seat, window->view.surface, serial, NULL);
+    if (!pointer && !touch) return;
     if (server->events.window_gesture) server->events.window_gesture(server->events.context, window->view.id, edges);
 }
 
@@ -923,6 +927,18 @@ static void key_event(MdwOutput *output, uint32_t code, bool down) {
 
 static const uint32_t button_codes[] = {BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, BTN_SIDE, BTN_EXTRA};
 
+enum MdwButtonSource { HOST_BUTTON = 1, TOUCH_BUTTON = 2 };
+
+static void button_source(MdwOutput *output, MdwButton button, enum MdwButtonSource source, bool down) {
+    uint8_t old = output->buttons[button];
+    uint8_t next = down ? old | source : old & ~source;
+    output->buttons[button] = next;
+    if (!!old == !!next || mdw_content_pointer_held(output->server)) return;
+    wlr_seat_pointer_notify_button(output->server->seat, time_msec(), button_codes[button],
+        next ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+    wlr_seat_pointer_notify_frame(output->server->seat);
+}
+
 static void release_pointer(MdwOutput *output) {
     MdwServer *server = output->server;
     if (server->pointer_owner != output) return;
@@ -963,6 +979,8 @@ void mdw_view_keyboard(struct MdwView *view, bool allowed) {
 static void claim_pointer(MdwOutput *output) {
     MdwServer *server = output->server;
     if (server->pointer_owner == output) return;
+    if (server->pointer_owner && server->pointer_owner->pointer_contact)
+        mdw_output_cancel_touch(server->pointer_owner);
     if (server->pointer_owner && server->pointer_owner->view == output->view) {
         memcpy(output->buttons, server->pointer_owner->buttons, sizeof(output->buttons));
         memset(server->pointer_owner->buttons, 0, sizeof(output->buttons));
@@ -1056,6 +1074,10 @@ void mdw_output_touch_frame(MdwOutput *output) {
 
 void mdw_output_cancel_touch(MdwOutput *output) {
     if (!output || output->server->touch_owner != output) return;
+    if (output->pointer_contact) {
+        button_source(output, MDW_PRIMARY, TOUCH_BUTTON, false);
+        output->pointer_contact = 0;
+    }
     mdw_output_touch_frame(output);
     struct wlr_seat *seat = output->server->seat;
     for (int32_t id = 0; id < (int32_t)(sizeof(output->contacts) / sizeof(output->contacts[0])); ++id) {
@@ -1083,12 +1105,20 @@ void mdw_output_touch(MdwOutput *output, int32_t id, enum MdwTouchPhase phase, d
     input_scene_position(output, x, y, &sx, &sy);
 
     if (phase == MDW_TOUCH_BEGIN) {
-        if (contact->node) return;
+        if (contact->node || output->pointer_contact) return;
         double local_x, local_y;
         struct wlr_scene_surface *surface = input_surface_at(output, sx, sy, &local_x, &local_y);
-        if (!surface || !wlr_surface_accepts_touch(seat, surface->surface)) return;
+        if (!surface) return;
+        bool direct = wlr_surface_accepts_touch(seat, surface->surface);
+        if (!direct && output->active_touches) return;
         if (server->touch_owner != output) mdw_output_cancel_touch(server->touch_owner);
-        if (!wlr_seat_touch_notify_down(seat, surface->surface, time_msec(), id, local_x, local_y)) return;
+        if (direct) {
+            if (!wlr_seat_touch_notify_down(seat, surface->surface, time_msec(), id, local_x, local_y)) return;
+        } else {
+            if (!mdw_output_pointer(output, x, y)) return;
+            output->pointer_contact = id + 1;
+            button_source(output, MDW_PRIMARY, TOUCH_BUTTON, true);
+        }
         server->touch_owner = output;
         contact->output = output;
         contact->node = &surface->buffer->node;
@@ -1096,7 +1126,11 @@ void mdw_output_touch(MdwOutput *output, int32_t id, enum MdwTouchPhase phase, d
         listen_signal(&contact->node->events.destroy, &contact->node_destroy, touch_node_destroyed);
     } else {
         if (server->touch_owner != output || !contact->node) return;
-        if (phase == MDW_TOUCH_UPDATE) {
+        if (output->pointer_contact) {
+            if (phase == MDW_TOUCH_UPDATE) mdw_output_pointer(output, x, y);
+            else if (phase == MDW_TOUCH_END) mdw_output_cancel_touch(output);
+            return;
+        } else if (phase == MDW_TOUCH_UPDATE) {
             int node_x, node_y;
             if (!wlr_scene_node_coords(contact->node, &node_x, &node_y)) {
                 mdw_output_cancel_touch(output);
@@ -1109,7 +1143,7 @@ void mdw_output_touch(MdwOutput *output, int32_t id, enum MdwTouchPhase phase, d
             wlr_seat_touch_notify_up(seat, time_msec(), id);
         } else return;
     }
-    output->touch_frame_pending = true;
+    output->touch_frame_pending = !output->pointer_contact;
 }
 
 bool mdw_output_pointer_capture(MdwOutput *output, uint64_t serial, bool captured) {
@@ -1155,12 +1189,7 @@ bool mdw_output_caret(MdwOutput *output, struct wlr_surface *surface, const stru
 bool mdw_output_button(MdwOutput *output, MdwButton button, bool down) {
     if (!accepts_input(output) || output->server->pointer_owner != output ||
             button < MDW_PRIMARY || button > MDW_FORWARD) return false;
-    if (output->buttons[button] == down) return true;
-    if (mdw_content_pointer_held(output->server)) { output->buttons[button] = down; return true; }
-    wlr_seat_pointer_notify_button(output->server->seat, time_msec(), button_codes[button],
-        down ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
-    wlr_seat_pointer_notify_frame(output->server->seat);
-    output->buttons[button] = down;
+    button_source(output, button, HOST_BUTTON, down);
     return true;
 }
 

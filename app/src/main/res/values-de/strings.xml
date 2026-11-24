@@ -850,6 +850,7 @@
     <string name="touchpad_show_keyboard">Tastatur anzeigen</string>
     <string name="touchpad_keyboard_failed">Tastatur konnte nicht angezeigt werden: %1$s</string>
     <string name="settings_section_input">Bildschirmeingabe</string>
+    <string name="settings_wayland_direct_touch">Direkte Berührungseingabe in neuen Wayland-Fenstern</string>
     <string name="settings_keep_desktop_awake">Sitzung aktiv halten</string>
     <string name="settings_keep_screen_on">Telefonbildschirm eingeschaltet lassen</string>
     <string name="settings_phone_fullscreen_default">Neue Fenster auf dem Telefon im Vollbild</string>

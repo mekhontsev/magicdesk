@@ -860,6 +860,7 @@
     <string name="touchpad_show_keyboard">Afficher le clavier</string>
     <string name="touchpad_keyboard_failed">Impossible d\'afficher le clavier : %1$s</string>
     <string name="settings_section_input">Entrée de l\'écran</string>
+    <string name="settings_wayland_direct_touch">Entrée tactile directe dans les nouvelles fenêtres Wayland</string>
     <string name="settings_keep_desktop_awake">Maintenir la session active</string>
     <string name="settings_keep_screen_on">Garder l\'écran du téléphone allumé</string>
     <string name="settings_phone_fullscreen_default">Nouvelles fenêtres en plein écran sur le téléphone</string>

@@ -840,6 +840,7 @@
     <string name="touchpad_show_keyboard">キーボードを表示</string>
     <string name="touchpad_keyboard_failed">キーボードを表示できませんでした：%1$s</string>
     <string name="settings_section_input">画面への入力</string>
+    <string name="settings_wayland_direct_touch">新しい Wayland ウィンドウでタッチ入力を直接送信</string>
     <string name="settings_keep_desktop_awake">セッションを有効に保つ</string>
     <string name="settings_keep_screen_on">端末の画面を点灯したままにする</string>
     <string name="settings_phone_fullscreen_default">端末では新しいウィンドウを全画面表示</string>

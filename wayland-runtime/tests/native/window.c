@@ -32,7 +32,7 @@
 
 static bool fixed_client_size;
 static bool minimum_client_size, bounded_client_size;
-static bool interaction;
+static bool interaction, touch_interaction;
 static bool dma_client;
 static bool dma_cursor;
 static bool pointer_lock_test;
@@ -269,7 +269,7 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
     assert(button == BTN_LEFT);
     if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
         client->button_down++;
-        if (interaction) {
+        if (interaction && !touch_interaction) {
             xdg_toplevel_move(client->toplevel, client->seat, UINT32_MAX);
             xdg_toplevel_move(client->toplevel, client->seat, serial);
             xdg_toplevel_resize(client->toplevel, client->seat, serial, XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT);
@@ -321,8 +321,22 @@ static const struct wl_keyboard_listener keyboard_listener = {
     .keymap = keyboard_keymap, .enter = keyboard_enter, .leave = keyboard_leave,
     .key = keyboard_key, .modifiers = keyboard_modifiers, .repeat_info = keyboard_repeat,
 };
+static void touch_down(void *data, struct wl_touch *touch, uint32_t serial, uint32_t time,
+        struct wl_surface *surface, int32_t id, wl_fixed_t x, wl_fixed_t y) {
+    (void)touch; (void)time; (void)surface; (void)id; (void)x; (void)y;
+    struct Client *client = data;
+    xdg_toplevel_move(client->toplevel, client->seat, UINT32_MAX);
+    xdg_toplevel_move(client->toplevel, client->seat, serial);
+    xdg_toplevel_resize(client->toplevel, client->seat, serial, XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT);
+}
+static void touch_done(void *data, struct wl_touch *touch) { (void)data; (void)touch; }
+static const struct wl_touch_listener touch_listener = {
+    .down = touch_down, .frame = touch_done, .cancel = touch_done
+};
 static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t capabilities) {
     struct Client *client = data;
+    if (touch_interaction && (capabilities & WL_SEAT_CAPABILITY_TOUCH))
+        wl_touch_add_listener(wl_seat_get_touch(seat), &touch_listener, client);
     if ((capabilities & WL_SEAT_CAPABILITY_POINTER) && !client->pointer) {
         client->pointer = wl_seat_get_pointer(seat);
         wl_pointer_add_listener(client->pointer, &pointer_listener, client);
@@ -777,7 +791,8 @@ int main(int argc, char **argv) {
     bounded_client_size = argc == 2 && !strcmp(argv[1], "--bounded-size");
     int offered_height = bounded_client_size ? 20 : minimum_client_size ? 120 : 60;
     dma_cursor = argc == 2 && !strcmp(argv[1], "--dma-cursor");
-    interaction = dma_cursor || (argc == 2 && !strcmp(argv[1], "--interaction"));
+    touch_interaction = argc == 2 && !strcmp(argv[1], "--touch-interaction");
+    interaction = touch_interaction || dma_cursor || (argc == 2 && !strcmp(argv[1], "--interaction"));
     const char *temporary = getenv("TMPDIR");
     char directory[4096];
     snprintf(directory, sizeof(directory), "%s/mdw-window-XXXXXX", temporary ? temporary : "/tmp");
@@ -895,6 +910,10 @@ int main(int argc, char **argv) {
             assert(dependents && mdw_output_focus(dependents, true));
             assert(mdw_output_focus(output, true));
             mdw_output_destroy(dependents);
+            if (touch_interaction) {
+                mdw_output_touch(output, 9, MDW_TOUCH_BEGIN, .25, .25);
+                mdw_output_touch_frame(output);
+            }
             input_sent = true;
         }
         if (interaction && !host.destroyed && !closing && host.previous.fullscreen) {
