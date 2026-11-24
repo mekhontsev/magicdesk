@@ -11,6 +11,7 @@ import android.view.PointerIcon;
 import android.view.Surface;
 import android.view.ViewConfiguration;
 import android.view.inputmethod.EditorInfo;
+import io.github.mekhontsev.magicdesk.hosted.HostedTextState;
 
 /** Exercises the actual Android view entry points without Desktop or injected system input. */
 public final class HostedInputInstrumentation extends Instrumentation {
@@ -67,6 +68,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         verifyHoverClick(view, output);
         verifyCursor(view);
         verifyText(view, output);
+        verifyComposingRegion(view, output);
         view.release();
         require(output.closed, "output released");
         require(view.getPointerIcon() == null, "output release resets cursor");
@@ -271,6 +273,42 @@ public final class HostedInputInstrumentation extends Instrumentation {
         if (!value) throw new AssertionError(message);
     }
 
+    private static void verifyComposingRegion(HostedSurfaceView view, Output output) {
+        output.state = new HostedTextState(20, 1, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "тест раз раз", 12, 12);
+        var connection = view.onCreateInputConnection(new EditorInfo());
+        int commits = output.commits.size();
+        output.deletion = "";
+        require(connection.setComposingRegion(9, 12), "resume an existing word");
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("тест раз раз"), "marking does not duplicate the word");
+        require(output.deletion.isEmpty(), "marking does not edit the guest");
+        require(connection.finishComposingText() && output.commits.size() == commits, "finishing an untouched word does not insert it");
+
+        require(connection.setComposingRegion(9, 12), "resume the word before Backspace");
+        require(connection.setComposingText("ра", 1), "shorten the resumed word");
+        require(output.deletion.equals("3:0:false:ра:2"), "Backspace replaces the original word with shortened preedit");
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("тест раз ра"), "old guest snapshot does not duplicate preedit");
+        output.state = new HostedTextState(20, 2, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "тест раз ", 9, 9);
+        require(connection.setComposingText("р", 1), "another Backspace shortens the preedit");
+        require(connection.setComposingText("", 1), "last Backspace clears the preedit");
+        require(connection.finishComposingText() && output.commits.size() == commits, "no text inserted after deleting a word");
+
+        output.state = new HostedTextState(20, 3, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "а😀б", 3, 3);
+        require(!connection.setComposingRegion(2, 4), "reject a region that splits a surrogate pair");
+        require(connection.setComposingRegion(1, 4), "resume a word around the caret");
+        require(connection.commitText("в", 1), "apply a correction without creating a preview");
+        require(output.replacement.equals("2:1:в") && output.commits.size() == commits,
+                "direct correction deletes the marked range and inserts once");
+
+        require(connection.setComposingRegion(1, 4), "mark a region that may become stale");
+        output.state = new HostedTextState(20, 4, HostedTextState.Purpose.NORMAL,
+                HostedTextState.SPELLCHECK, "другой", 6, 6);
+        require(!connection.commitText("старый", 1), "a stale range cannot insert or delete text");
+        require(connection.finishComposingText() && output.commits.size() == commits, "abandoning a stale range is harmless");
+    }
+
     private static final class Output implements HostedSurfaceOutput {
         int presses, releases, scrolls;
         float x;
@@ -293,6 +331,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         boolean clientPreedit = true, textEnabled = true;
         String preedit = "";
         String deletion = "";
+        String replacement = "";
         int cursor;
         io.github.mekhontsev.magicdesk.hosted.HostedTextState state;
         Runnable afterTextStateRead;
@@ -319,6 +358,11 @@ public final class HostedInputInstrumentation extends Instrumentation {
                 int before, int after, boolean codePoints, String preedit, int cursor) {
             editedState = snapshot;
             deletion = before + ":" + after + ":" + codePoints + ":" + preedit + ":" + cursor;
+            return state != null;
+        }
+        public boolean replaceText(HostedTextState snapshot, int before, int after, String text) {
+            editedState = snapshot;
+            replacement = before + ":" + after + ":" + text;
             return state != null;
         }
         public boolean preedit(io.github.mekhontsev.magicdesk.hosted.HostedTextState editor, String text, int cursor) {

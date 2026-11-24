@@ -51,6 +51,9 @@ final class WaylandSurfaceOutput implements HostedShellOutput {
     @Override public boolean deleteText(HostedTextState snapshot, int before, int after, boolean codePoints, String preedit, int cursor) {
         return output.deleteText(snapshot, before, after, codePoints, preedit, cursor);
     }
+    @Override public boolean replaceText(HostedTextState snapshot, int before, int after, String text) {
+        return output.replaceText(snapshot, before, after, text);
+    }
     @Override public void text(HostedTextState editor, String text) { output.text(editor, text, false, text.length()); }
     @Override public boolean preedit(HostedTextState editor, String text, int cursor) {
         if (editor == null) return false;

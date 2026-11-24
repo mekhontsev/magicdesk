@@ -747,10 +747,20 @@ public final class WaylandSession implements AutoCloseable {
         }
         public boolean deleteText(io.github.mekhontsev.magicdesk.hosted.HostedTextState state,
                 int before, int after, boolean codePoints, String preedit, int cursor) {
+            return editText(state, before, after, codePoints, preedit, true, cursor);
+        }
+        public boolean replaceText(io.github.mekhontsev.magicdesk.hosted.HostedTextState state,
+                int before, int after, String text) {
+            return editText(state, before, after, false, text, false, text.length());
+        }
+        private boolean editText(io.github.mekhontsev.magicdesk.hosted.HostedTextState state,
+                int before, int after, boolean codePoints, String text, boolean composing, int cursor) {
             var edit = WaylandText.deletion(state, before, after, codePoints);
             if (edit == null) return false;
-            WaylandText.send(preedit, true, cursor, preview -> command(() -> server.deleteText(
-                    id, state.editor(), state.revision(), edit.before(), edit.after(), preview.text(), preview.cursor())));
+            var replacement = WaylandText.edit(text, composing, cursor);
+            if (replacement == null) return false;
+            command(() -> server.editText(id, state.editor(), state.revision(), edit.before(), edit.after(),
+                    replacement.text(), replacement.composing(), replacement.cursor()));
             return true;
         }
 

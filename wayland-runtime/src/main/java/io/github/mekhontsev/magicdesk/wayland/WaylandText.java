@@ -64,19 +64,11 @@ final class WaylandText {
     }
 
     static void send(String text, boolean composing, int cursor, Consumer<Edit> sink) {
-        if (text == null || text.indexOf('\0') >= 0 || cursor < 0 || cursor > text.length())
-            throw new IllegalArgumentException("Invalid text edit");
-        if (cursor > 0 && cursor < text.length() && Character.isLowSurrogate(text.charAt(cursor))
-                && Character.isHighSurrogate(text.charAt(cursor - 1))) cursor--;
         if (composing) {
-            // An oversized composition remains in Android's editable; its eventual
-            // commit is sent in full. Clear the guest preview rather than truncate it.
-            int end = end(text, 0);
-            byte[] preview = end == text.length() ? bytes(text) : new byte[0];
-            int offset = end == text.length() ? bytes(text.substring(0, cursor)).length : 0;
-            sink.accept(new Edit(preview, true, offset));
+            sink.accept(edit(text, true, cursor));
             return;
         }
+        validate(text, cursor);
         int start = 0;
         do {
             int end = end(text, start);
@@ -84,6 +76,25 @@ final class WaylandText {
             sink.accept(new Edit(part, false, part.length));
             start = end;
         } while (start < text.length());
+    }
+
+    static Edit edit(String text, boolean composing, int cursor) {
+        validate(text, cursor);
+        if (end(text, 0) != text.length()) {
+            // A replacement with a commit must fit one batch. An oversized
+            // composition can stay in Android, with no preview in the guest.
+            return composing ? new Edit(new byte[0], true, 0) : null;
+        }
+        byte[] encoded = bytes(text);
+        if (!composing) return new Edit(encoded, false, encoded.length);
+        if (cursor > 0 && cursor < text.length()
+                && Character.isSurrogatePair(text.charAt(cursor - 1), text.charAt(cursor))) cursor--;
+        return new Edit(encoded, true, bytes(text.substring(0, cursor)).length);
+    }
+
+    private static void validate(String text, int cursor) {
+        if (text == null || text.indexOf('\0') >= 0 || cursor < 0 || cursor > text.length())
+            throw new IllegalArgumentException("Invalid text edit");
     }
 
     private static int end(String text, int start) {

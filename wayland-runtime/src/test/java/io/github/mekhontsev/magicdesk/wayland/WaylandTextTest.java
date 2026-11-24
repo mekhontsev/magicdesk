@@ -76,4 +76,12 @@ public final class WaylandTextTest {
         assertEquals(1, edits.size());
         assertEquals(0, edits.get(0).text().length);
     }
+
+    @Test public void rangeReplacementFitsOneProtocolBatch() {
+        var replacement = WaylandText.edit("ра😀", false, 4);
+        assertFalse(replacement.composing());
+        assertEquals(8, replacement.cursor());
+        assertEquals("ра😀", new String(replacement.text(), StandardCharsets.UTF_8));
+        assertNull(WaylandText.edit("я".repeat(2001), false, 2001));
+    }
 }
