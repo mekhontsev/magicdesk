@@ -360,8 +360,9 @@ Wayland output path, other runtime ABIs or document-portal support.
 Every Turnip recipe also installs `magicdesk-snap-gpu`. This installs the helper,
 not snapd or the content snap: preparation runs explicitly once the selected
 Linux has the prerequisites. It is not an application-launch hook. Run it as root **inside the
-selected Linux**, with systemd/snapd running, `core24` and `mesa-2404` installed
-and mounted, and `python3`, `bubblewrap` and `squashfs-tools` available. Close GPU
+selected Linux**, with systemd/snapd running, the application's GPU provider
+and base mounted (`mesa-2404` with `core24`, or `mesa-2604` with `core26`),
+and `python3`, `bubblewrap` and `squashfs-tools` available. Close GPU
 Snap applications before preparation or changing the selected Mesa build:
 
 ```sh
@@ -369,14 +370,16 @@ sudo magicdesk-snap-gpu --jobs 2
 ```
 
 The helper reuses the selected Mesa prefix from `/etc/magicdesk/mesa-prefix`.
-It checks the libraries against the actual core24 loader and mesa-2404 libraries,
-then packs a local `magicdesk-gpu-2404` content snap. No Mesa or browser rebuild
-is performed. `--build-only` verifies and packages without installing or changing
+For each supported installed provider it checks the libraries with that base's
+actual loader, then packs a matching local content snap. Apps using different
+generations can coexist. Use `snap connections APP` to see which provider an
+app uses; `--provider mesa-2604`, for example, prepares just that provider.
+No Mesa or browser rebuild is performed. `--build-only` packages without installing or changing
 connections; `--prefix PATH` selects another completed recipe build explicitly.
 
-The local snap connects to `mesa-2404:kernel-gpu-2404`. The official provider's
-component monitor publishes it, and applications retain their usual
-`mesa-2404:gpu-2404` connection. This follows the provider's
+The local snap connects to the official provider's matching `kernel-gpu`
+plug. Its component monitor publishes the driver, and applications retain their
+usual `gpu-2404` or `gpu-2604` connection. This follows the provider's
 [kernel GPU content contract](https://github.com/canonical/mesa-2404), not a
 Firefox-specific mount or runtime exception. Absolute host driver paths are
 replaced with paths inside the mounted content. The helper will not replace an
@@ -392,15 +395,14 @@ Shroot's existing AppArmor limitations still apply. Re-run preparation after
 changing Mesa or the base/provider revision. Unchanged verified bundles are
 reused; old package files remain cached. Remove the override with
 `sudo snap disconnect mesa-2404:kernel-gpu-2404 magicdesk-gpu-2404:kernel-gpu-2404`
-and restart the applications.
+(use `2604` for both names on core26) and restart the applications.
 
-Ubuntu 24.04/core24 on Adreno 840 passed Vulkan enumeration, Wayland EGL
-OpenGL 4.6 through Zink/Turnip, and Firefox Snap WebGL2 pixel rendering with
-keyboard/pointer input, download, portal file selection and normal exit. With
-the corrected non-DRM EGLDevice, Firefox 158 also reports hardware `WebRender`,
-one accelerated window and effective content sandbox level 6, without forced
-graphics preferences. This does not enable DRM-dependent video decoding or
-Firefox's separately gated native compositor.
+On Ubuntu 24.04 under the MagicDesk app UID, Chromium on core24 and Firefox
+on core26 pass WebGL pixel readback, keyboard/pointer input, download, file
+selection and normal exit with fresh and reused profiles on Adreno 840.
+The core24 stack also passes Vulkan enumeration and Wayland EGL OpenGL 4.6
+through Zink/Turnip. These checks do not qualify DRM-dependent video decoding
+or Firefox's separately gated native compositor.
 Other Mesa/base combinations must pass ABI admission; a newer host glibc is
 not made compatible merely by copying its driver libraries.
 

@@ -4046,7 +4046,7 @@ FLATPAK_GL_PY
 snap_gpu_helper() {
     cat <<'SNAP_GPU_PY'
 #!/usr/bin/env python3
-"""Publish prepared Mesa through mesa-2404's kernel-gpu-2404 content plug."""
+"""Publish prepared Mesa through installed Snap GPU content providers."""
 import argparse
 import ctypes
 import errno
@@ -4067,11 +4067,33 @@ import time
 CONFIG = Path('/etc/magicdesk/mesa-prefix')
 PROBE = Path('/usr/local/libexec/magicdesk-mesa-probe')
 CACHE = Path('/var/cache/magicdesk/snap-gpu')
-SNAP_DATA = Path('/var/snap/mesa-2404')
-NAME = 'magicdesk-gpu-2404'
+SNAPS = Path('/snap')
+SNAP_DATA = Path('/var/snap')
+
+
+class GPUContent:
+    def __init__(self, generation, base):
+        self.base = base
+        self.provider = 'mesa-' + generation
+        self.interface = 'gpu-' + generation
+        self.bundle = 'magicdesk-gpu-' + generation
+        self.plug = 'kernel-' + self.interface
+        self.wrapper = self.interface + '-provider-wrapper'
+        self.sentinel = self.plug + '-sentinel'
+        self.mangler = self.plug + '-provider-mangler'
+        self.monitor = self.provider + '.component-monitor'
+
+    def published(self, revision):
+        return SNAP_DATA / self.provider / revision.name / self.plug / self.sentinel
+
+    @property
+    def script(self):
+        return '# Sourced by the official ' + self.interface + ' provider, not an app wrapper.\n' + MANGLER
+
+
+PROVIDERS = {gpu.provider: gpu for gpu in (GPUContent('2404', 'core24'), GPUContent('2604', 'core26'))}
 FORMAT = '3'
-MANGLER = '''# Sourced by the official gpu-2404 provider, not an app wrapper.
-md_gpu=$COMPONENT_PATH
+MANGLER = '''md_gpu=$COMPONENT_PATH
 export LD_LIBRARY_PATH="$md_gpu/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export LIBGL_DRIVERS_PATH="$md_gpu/lib/dri" GBM_BACKENDS_PATH="$md_gpu/lib/gbm"
 export __EGL_VENDOR_LIBRARY_FILENAMES="$md_gpu/share/glvnd/egl_vendor.d/50_mesa.json"
@@ -4087,7 +4109,7 @@ def run(argv, **kwargs):
     return subprocess.run(argv, check=True, timeout=300, **kwargs)
 
 
-def check_connection():
+def check_connections(providers):
     connection = http.client.HTTPConnection('localhost', timeout=30)
     connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connection.sock.settimeout(30)
@@ -4101,14 +4123,15 @@ def check_connection():
     finally:
         connection.close()
     for entry in data['result']['established']:
-        if entry['plug'] == {'snap': 'mesa-2404', 'plug': 'kernel-gpu-2404'}:
-            if entry['slot'] != {'snap': NAME, 'slot': 'kernel-gpu-2404'}:
-                raise ValueError('mesa-2404 already uses another GPU provider; disconnect it explicitly')
+        for gpu in providers:
+            if (entry['plug'] == {'snap': gpu.provider, 'plug': gpu.plug}
+                    and entry['slot'] != {'snap': gpu.bundle, 'slot': gpu.plug}):
+                raise ValueError(gpu.provider + ' already uses another GPU provider; disconnect it explicitly')
 
 
-def publish_component(provider, identity):
-    run(['snap', 'start', '--enable', 'mesa-2404.component-monitor'])
-    marker = SNAP_DATA / provider.name / 'kernel-gpu-2404/kernel-gpu-2404-sentinel'
+def publish_component(gpu, provider, identity):
+    run(['snap', 'start', '--enable', gpu.monitor])
+    marker = gpu.published(provider)
     try:
         ready = marker.read_text().strip() == identity
     except FileNotFoundError:
@@ -4116,13 +4139,13 @@ def publish_component(provider, identity):
     if not ready:
         # An existing monitor retains its old content mount across a connection
         # update. Restart through snapd to enter the newly prepared namespace.
-        run(['snap', 'restart', 'mesa-2404.component-monitor'])
-    wait_for_component(provider, identity)
+        run(['snap', 'restart', gpu.monitor])
+    wait_for_component(gpu, provider, identity)
 
 
-def wait_for_component(provider, identity):
-    directory = SNAP_DATA / provider.name / 'kernel-gpu-2404'
-    marker = directory / 'kernel-gpu-2404-sentinel'
+def wait_for_component(gpu, provider, identity):
+    marker = gpu.published(provider)
+    directory = marker.parent
     libc = ctypes.CDLL(None, use_errno=True)
     libc.inotify_init1.argtypes = [ctypes.c_int]
     libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
@@ -4150,13 +4173,13 @@ def wait_for_component(provider, identity):
             # EVENT_WAIT: component-monitor publishes the sentinel last. Timeout
             # is failure, not proof that the new driver is ready for applications.
             if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
-                raise ValueError('Timed out waiting for mesa-2404.component-monitor')
+                raise ValueError('Timed out waiting for ' + gpu.monitor)
             os.read(fd, 65536)
     finally:
         os.close(fd)
 
 
-def stage_bundle(prefix, root, identity):
+def stage_bundle(gpu, prefix, root, identity):
     shutil.copytree(prefix / 'lib', root / 'lib', symlinks=True)
     shutil.rmtree(root / 'lib/pkgconfig', ignore_errors=True)
     for path in (root / 'lib').rglob('*'):
@@ -4172,21 +4195,21 @@ def stage_bundle(prefix, root, identity):
         target = root / 'share' / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(data) + '\n')
-    (root / 'kernel-gpu-2404-provider-mangler').write_text(MANGLER)
-    (root / 'kernel-gpu-2404-sentinel').write_text(identity + '\n')
+    (root / gpu.mangler).write_text(gpu.script)
+    (root / gpu.sentinel).write_text(identity + '\n')
     (root / 'meta').mkdir()
-    (root / 'meta/snap.yaml').write_text('''name: ''' + NAME + '''
-version: 'md-''' + identity[:24] + ''''
+    (root / 'meta/snap.yaml').write_text(f'''name: {gpu.bundle}
+version: 'md-{identity[:24]}'
 summary: Locally prepared MagicDesk Mesa
-description: Turnip and Zink for the mesa-2404 GPU content provider.
+description: Turnip and Zink for the {gpu.provider} GPU content provider.
 architectures: [arm64]
-base: core24
+base: {gpu.base}
 confinement: strict
 grade: devel
 slots:
-  kernel-gpu-2404:
+  {gpu.plug}:
     interface: content
-    content: kernel-gpu-2404
+    content: {gpu.plug}
     read: [$SNAP]
 ''')
     # The caller's private umask must not make a content snap root-only.
@@ -4196,16 +4219,15 @@ slots:
             path.chmod(0o755 if path.is_dir() else 0o644)
 
 
-def provider_libraries(provider):
-    # Both published mesa-2404 layouts retain the same content contract.
-    for path in ('mesa-2404/usr/lib/aarch64-linux-gnu', 'usr/lib/aarch64-linux-gnu'):
+def provider_libraries(gpu, provider):
+    for path in (gpu.provider + '/usr/lib/aarch64-linux-gnu', 'usr/lib/aarch64-linux-gnu'):
         if (provider / path / 'libvulkan.so.1').is_file():
             return path
-    raise ValueError('Unsupported mesa-2404 library layout')
+    raise ValueError('Unsupported library layout for ' + gpu.provider)
 
 
-def verify_runtime(root, base, provider):
-    libraries = provider_libraries(provider)
+def verify_runtime(gpu, root, base, provider):
+    libraries = provider_libraries(gpu, provider)
     targets = [str(p.relative_to(root)) for p in sorted((root / 'lib').rglob('*.so*'))
                if p.is_file() and not p.is_symlink()]
     if not targets:
@@ -4225,20 +4247,20 @@ def verify_runtime(root, base, provider):
         raise ValueError('Runtime loader did not execute the Mesa ABI probe:\n' + result.stdout)
 
 
-def prepare(prefix, base, provider, jobs):
+def prepare(gpu, prefix, base, provider, jobs):
     marker = (prefix / '.complete').read_text().strip()
     if not marker:
         raise ValueError('Incomplete Mesa build')
     identity = hashlib.sha256((FORMAT + '\n' + str(prefix) + '\n' + marker + '\n' +
-                               MANGLER + str(base) + '\n' + str(provider)).encode()).hexdigest()
+                               gpu.script + str(base) + '\n' + str(provider)).encode()).hexdigest()
     CACHE.mkdir(parents=True, exist_ok=True)
-    image = CACHE / (NAME + '-' + identity + '.snap')
+    image = CACHE / (gpu.bundle + '-' + identity + '.snap')
     if not image.is_file():
         with tempfile.TemporaryDirectory(prefix='.prepare-', dir=CACHE) as temporary:
             root = Path(temporary) / 'root'
             root.mkdir()
-            stage_bundle(prefix, root, identity)
-            verify_runtime(root, base, provider)
+            stage_bundle(gpu, prefix, root, identity)
+            verify_runtime(gpu, root, base, provider)
             candidate = Path(temporary) / 'gpu.snap'
             run(['mksquashfs', str(root), str(candidate), '-noappend', '-all-root',
                  '-comp', 'xz', '-processors', str(jobs), '-no-progress'])
@@ -4246,10 +4268,40 @@ def prepare(prefix, base, provider, jobs):
     return image, identity
 
 
+def selected_providers(name):
+    selected = [PROVIDERS[name]] if name else [
+        gpu for gpu in PROVIDERS.values() if (SNAPS / gpu.provider / 'current').is_dir()]
+    if not selected:
+        raise ValueError('No supported Snap GPU provider is installed: ' + ', '.join(PROVIDERS))
+    return selected
+
+
+def prepare_provider(gpu, prefix, jobs, build_only):
+    base = (SNAPS / gpu.base / 'current').resolve(strict=True)
+    provider = (SNAPS / gpu.provider / 'current').resolve(strict=True)
+    wrapper = (provider / 'bin' / gpu.wrapper).read_text()
+    if gpu.mangler not in wrapper:
+        raise ValueError(gpu.provider + ' does not support the ' + gpu.plug + ' content contract')
+    image, identity = prepare(gpu, prefix, base, provider, jobs)
+    print('Snap GPU bundle: ' + str(image), flush=True)
+    if build_only:
+        return
+    marker = SNAPS / gpu.bundle / 'current' / gpu.sentinel
+    if marker.parent.exists() and not marker.is_file():
+        raise ValueError('Not replacing an independently installed ' + gpu.bundle)
+    if not marker.is_file() or marker.read_text().strip() != identity:
+        # Locally built content is unsigned; this does not disable confinement.
+        run(['snap', 'install', '--dangerous', str(image)])
+    run(['snap', 'connect', gpu.provider + ':' + gpu.plug, gpu.bundle + ':' + gpu.plug])
+    publish_component(gpu, provider, identity)
+    print('Snap GPU connected through ' + gpu.provider + '.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefix', type=Path, help='Prepared Mesa prefix; defaults to recipe selection')
     parser.add_argument('--jobs', type=int, default=2, help='Compression workers')
+    parser.add_argument('--provider', choices=tuple(PROVIDERS), help='Prepare one provider; default: all supported installed providers')
     parser.add_argument('--build-only', action='store_true', help='Build and verify without changing Snap connections')
     args = parser.parse_args()
     if os.geteuid() != 0:
@@ -4257,11 +4309,6 @@ def main():
     if args.jobs < 1:
         raise ValueError('--jobs must be positive')
     prefix = (args.prefix or Path(CONFIG.read_text().strip())).resolve(strict=True)
-    base = Path('/snap/core24/current').resolve(strict=True)
-    provider = Path('/snap/mesa-2404/current').resolve(strict=True)
-    wrapper = (provider / 'bin/gpu-2404-provider-wrapper').read_text()
-    if 'kernel-gpu-2404-provider-mangler' not in wrapper:
-        raise ValueError('mesa-2404 does not support the kernel-gpu-2404 provider contract')
     for name in ('bwrap', 'mksquashfs', 'snap'):
         if not shutil.which(name):
             raise ValueError('Required command is not installed: ' + name)
@@ -4270,21 +4317,11 @@ def main():
     CACHE.mkdir(parents=True, exist_ok=True)
     with (CACHE / 'lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        providers = selected_providers(args.provider)
         if not args.build_only:
-            check_connection()
-        image, identity = prepare(prefix, base, provider, args.jobs)
-        print('Snap GPU bundle: ' + str(image), flush=True)
-        if args.build_only:
-            return
-        marker = Path('/snap') / NAME / 'current/kernel-gpu-2404-sentinel'
-        if marker.parent.exists() and not marker.is_file():
-            raise ValueError('Not replacing an independently installed ' + NAME)
-        if not marker.is_file() or marker.read_text().strip() != identity:
-            # Locally built content is unsigned; this does not disable confinement.
-            run(['snap', 'install', '--dangerous', str(image)])
-        run(['snap', 'connect', 'mesa-2404:kernel-gpu-2404', NAME + ':kernel-gpu-2404'])
-        publish_component(provider, identity)
-        print('Snap GPU connected. Applications keep their mesa-2404:gpu-2404 connection.')
+            check_connections(providers)
+        for gpu in providers:
+            prepare_provider(gpu, prefix, args.jobs, args.build_only)
 
 
 if __name__ == '__main__':

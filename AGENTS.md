@@ -28,6 +28,13 @@ through their shared owner where appropriate, and add focused regression tests.
 Do not treat the original reproduction passing as proof that related paths are
 correct; report any applicable paths that remain unverified.
 
+Treat a formerly passing assertion in any distribution matrix or unit test as
+a regression, even when a different stage already failed. Compare the same
+assertion on good and bad builds with the same guest data, executor and host;
+keep changes to persistent data separate from runtime changes. Identify the first bad change,
+or report the verified bounds and what prevents narrowing them. Explain which
+coverage missed it; passing unit tests do not replace the failed workload.
+
 After each distribution matrix run, check the result against that distribution's
 recipe in `scripts/install_linux.sh`. Check that product prerequisites come
 from the recipe rather than incidental lab setup. Run the installer tests and
