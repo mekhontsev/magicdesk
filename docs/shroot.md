@@ -206,7 +206,9 @@ shroot backup work ~/work.tar.zst
 shroot restore ~/work.tar.zst --name restored
 ```
 
-The archive preserves guest files and metadata, not externally mounted Android
+The same archive can be restored under User or Shell, or loaded as a Linux
+ARM64 image with `docker load -i work.tar.zst`. It preserves guest files
+and metadata, not externally mounted Android
 folders or their access grants. Do not copy individual files out of the backing
 store as though it were a rootfs. To install the environment as an independent
 APK with its own Android UID, see [Linux Capsules](linux-applications.md).

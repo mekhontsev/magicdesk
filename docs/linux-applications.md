@@ -38,7 +38,8 @@ Package replacement stops that application's processes; stored files remain.
 Uninstalling it deletes its Android-private data. Keep a Shroot backup before
 uninstalling or clearing application data. End the terminal session, then choose
 **Export backup** and a destination in Android's document picker. Export and
-import use Shroot's native `tar.zst` format and preserve guest metadata. They
+import use the same OCI archive as the Shroot CLI and preserve guest metadata.
+The exported file can also be loaded with `docker load -i linux-backup.tar.zst`. Both operations
 work without MagicDesk; cancellation releases the owned archive process,
 streams and private temporary files.
 
