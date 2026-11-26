@@ -14,7 +14,7 @@ coverage, not a chronological development log.
 | Consoles, retained sessions and tmux | [Terminal integration](terminal-integration.md) |
 | Install Linux, run applications and containers | [Linux in MagicDesk](shroot.md) |
 | Install a distro as its own Android app; grant folders, web access or automation | [Linux Capsules](linux-applications.md) |
-| Compare Shroot, PRoot and native execution | [Benchmarks and measurement scope](shroot-benchmarks.md) |
+| Compare Shroot, PRoot and native execution | [Shroot benchmarks and measurement scope](https://github.com/mekhontsev/shroot/blob/develop/tests/performance.md) |
 | Launch recipes and shortcuts | [Desktop entries](desktop-entries.md) |
 | Themes, panels, wallpapers and customization | [Native appearance](appearance.md) |
 | Diagnose firmware behavior and report a problem | [Compatibility](compatibility.md) |

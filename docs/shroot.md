@@ -344,12 +344,6 @@ Android app UID. Neither mode uses a VM or a separate kernel. Android can
 still stop processes; see **Process limit** in Control Panel before starting
 a desktop or long-running service.
 
-### Syscall Acceleration
-
-Shroot uses Lazy SVC for eligible calls by default. No installer or desktop
-setting is needed. For Base mode and diagnostics, see
-[Shroot's acceleration guide](https://github.com/mekhontsev/shroot/blob/main/README.md#lazy-svc).
-
 ## Coverage And Limits
 
 A distribution recipe is not a guarantee that every application, GPU or
