@@ -12,7 +12,7 @@ coverage, not a chronological development log.
 | Install, configure and launch applications | [Getting started](getting-started.md) |
 | Files, content, task management and independent tools | [Workstation tools](workstation-tools.md) |
 | Consoles, retained sessions and tmux | [Terminal integration](terminal-integration.md) |
-| Install Linux, run applications and containers | [Shroot](shroot.md) |
+| Install Linux, run applications and containers | [Linux in MagicDesk](shroot.md) |
 | Install a distro as its own Android app; grant folders, web access or automation | [Linux Capsules](linux-applications.md) |
 | Compare Shroot, PRoot and native execution | [Benchmarks and measurement scope](shroot-benchmarks.md) |
 | Launch recipes and shortcuts | [Desktop entries](desktop-entries.md) |

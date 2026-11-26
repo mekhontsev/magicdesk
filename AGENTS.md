@@ -4,6 +4,21 @@ Re-read this file after context compaction or session recovery before continuing
 repository work. Preserve unrelated uncommitted changes; Git history changes
 require the user's authorization.
 
+## Working Across Repositories
+
+Use `native/shroot` as the Shroot working checkout. It is an independent Git
+repository: read `native/shroot/AGENTS.md` before engine, CLI, library, storage
+or native test work, and again after session recovery. Work on its `develop`
+branch for engine changes, not a detached HEAD. MagicDesk owns the Android
+adapters, Linux Capsule packaging, installer recipes and integration tests.
+
+Gradle and the integration drivers use that same checkout by default. A local
+build sees its working tree; CI uses the Shroot commit recorded by MagicDesk.
+Do not run `git submodule update` on Shroot during active engine work: it can
+switch the checkout back to the recorded commit. Stage `native/shroot` in
+MagicDesk only to integrate a specific Shroot commit; publish that commit in
+Shroot before publishing the updated pin.
+
 ## Defect Follow-Through
 
 When fixing a defect, audit analogous paths across the owning mechanism and its
@@ -91,14 +106,13 @@ An explicitly managed tmux window releases only its client PTY; tmux owns the
 server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
-Guest execution lives in the independent native Shroot project, pinned at
-`native/shroot`;
-app-side launch adapters use the existing shell, PTY and graphics services.
+App-side Shroot launch adapters use the existing shell, PTY and graphics services.
 User (MagicDesk app UID) and Shell are first-class executors of the same
 Shroot engine. Adapt to each executor's host capabilities through shared owners,
 preserving native fast paths where available. User execution must not require
 the privileged service.
-Read `docs/shroot.md` before changing that boundary. Never load its
+Read `docs/shroot.md` before changing that boundary and `docs/linux-applications.md`
+for Linux Capsule integration. Never load the Shroot
 syscall adapter into ART or make its kernel capabilities a shared-startup
 requirement. Each launch retains its selected identity and environment;
 there is no global current distribution or implicit privilege switch.
@@ -203,6 +217,10 @@ and assertions. Do not weaken a test to make a device pass. Close an active
 desktop through its production cleanup path before installing another APK.
 
 ## Local Device Automation
+
+Run one qualification test at a time on the same phone, including across
+Shroot nesting levels. Concurrent runs compete for CPU and I/O and can
+invalidate timeouts and benchmark measurements.
 
 Never reboot the phone without asking the user and receiving explicit
 confirmation immediately before the reboot command. An earlier discussion or

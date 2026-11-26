@@ -14,6 +14,9 @@ def sourceDigest = java.security.MessageDigest.getInstance('SHA-256')
 sourceDigest.update(magicDeskX11SourceRevision.getBytes('UTF-8'))
 def sourceFiles = rootProject.fileTree('.') {
     include 'app/src/main/**', 'app/src/debug/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
+    // Native working trees may contain generated binaries and complete guest root filesystems.
+    exclude 'native/**/build/**', 'native/**/.cache/**', 'native/**/__pycache__/**', 'native/**/*.pyc'
+    exclude 'native/**/.git', 'native/**/.git/**'
     include 'terminal-emulator/src/main/**', 'terminal-emulator/*.gradle'
     include 'terminal-runtime/src/main/**', 'terminal-runtime/*.gradle'
     include 'connection-runtime/src/main/**', 'connection-runtime/*.gradle'
